@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SAP BTP ABAP environment 云开发环境 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="5-sap-btp-abap-environment-301d93d9" class="chapter-title">5. SAP BTP ABAP environment 云开发环境</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 05</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p><code>SAP BTP, ABAP environment</code> 是 SAP BTP 上用于 ABAP Cloud 开发的云端 ABAP 环境，常用于 side-by-side extension 和新云应用开发；它不是 <a class="wiki" href="section-01-004-sap-s-4hana-932c3511.html">SAP S/4HANA</a> 本体，也不是传统 S/4HANA DEV 系统搬到云上。</p>
+<p><strong>正文</strong></p>
+<p>学到这里，前四节已经把 <code>SAP S/4HANA</code>、<a class="wiki" href="section-01-002-application-server-abap-b0de96bf.html">AS ABAP</a>、<a class="wiki" href="section-01-003-abap-platform-fe67ad23.html">ABAP Platform</a> 和用户界面/开发模型的边界分开了。本节再加一个位置：SAP BTP。SAP BTP 是 SAP 的业务技术平台，里面有多种运行和开发选择，例如 Cloud Foundry、Kyma、Integration Suite、Build、以及本节的 ABAP environment。它不是 ERP 产品本身，而是承载扩展、集成、自动化、数据和应用开发的云平台。</p>
+<p><code>SAP BTP, ABAP environment</code> 可以理解为“在 SAP BTP 上运行的、受 SAP 管理的 ABAP 云开发/运行环境”。SAP Learning 对它的定位是：在 SAP BTP 的 Cloud Foundry environment 中，可以为 ABAP development 创建 ABAP environment；它可以为 ABAP-based products（例如 SAP S/4HANA Cloud）创建扩展，也可以开发新的 cloud applications，还可以把部分既有 ABAP custom code 或 extension 转向云端。</p>
+<p>它和传统 ABAP 系统的最大差异，不在于“写不写 ABAP”，而在于“写哪种 ABAP、运行在哪里、如何连接核心系统”。在 BTP ABAP environment 中，开发者主要使用 <a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud</a>、<code>ABAP for Cloud Development</code> 语言版本、ADT、CDS、RAP、service binding、released APIs、software components 和云端生命周期工具。它不是让开发者随意使用 classic ABAP、SAP GUI dynpro、未释放 API、直接改标准表或直接读任意 S/4HANA 表的地方。</p>
+<p>本节还要区分两个容易混的场景：<code>SAP BTP, ABAP environment</code> 和 S/4HANA Cloud tenant 内的 embedded ABAP Cloud developer extensibility。两者都和 ABAP Cloud 有关，但代码运行位置和架构角色不同。前者是在 SAP BTP 上单独 provision 的 PaaS 服务，适合 side-by-side；后者是在 S/4HANA Cloud 租户上下文中做开发者扩展。Day 01 不要求记住所有产品细节，只要先会问：“这段 ABAP 代码到底跑在 S/4HANA 核心/租户上下文里，还是跑在 BTP 上？”</p>
+<p><strong>为什么重要</strong></p>
+<p>SAP 项目进入云时代后，扩展方式的核心问题变成：怎样满足客户差异化需求，同时不破坏标准核心。过去很多 on-premise 项目习惯直接在核心系统里做增强、表、报表、接口和批处理。到了 SAP S/4HANA Cloud、Clean Core 和持续升级的场景里，直接改核心对象会带来升级、测试、合规和运维风险。BTP ABAP environment 的价值，就是给 ABAP 团队一个“离开核心系统，但仍然使用 ABAP/RAP/CDS 能力”的扩展位置。</p>
+<p>对 Java/Python 背景的学习者，可以把它粗略类比成“云平台上的应用运行环境”，但要马上补上 SAP 差异。普通云应用可能直接连数据库、自己定义 API、自己控制部署流水线；BTP ABAP environment 面向 SAP 生态，强调 ABAP Cloud、released APIs、软件组件、SAP 身份/连接服务、S/4HANA 标准 API 和 Clean Core 约束。它不是自由云主机，也不是可以安装任意传统 ABAP 事务的服务器。</p>
+<p>对项目交付来说，BTP ABAP environment 会影响架构判断。一个需求如果要保存独立扩展数据、组合多个系统、通过 released API 调用 S/4HANA、以松耦合方式扩展标准流程，就可能适合 side-by-side。一个需求如果必须和 S/4HANA 标准事务在同一个 LUW（逻辑工作单元，一次性提交的事务边界）中强一致执行，或者必须直接使用未释放的内部表/函数，则往往不适合简单放到 BTP side-by-side，需要回到 S/4HANA extensibility model、released API 和 Clean Core 规则重新判断。</p>
+<p><strong>核心机制</strong></p>
+<p>第一层是 runtime location。BTP ABAP environment 的代码运行在 SAP BTP 上，不运行在 SAP S/4HANA core 里。它可以通过 released APIs、OData/SOAP services、events、destinations、communication arrangements 等方式和 S/4HANA 通信，但这是一种通过受控接口协作的关系，不是“云端直接打开 S/4HANA 后台表随便改”。</p>
+<p>第二层是 programming model。BTP ABAP environment 使用 ABAP Cloud，并通过 <code>ABAP for Cloud Development</code> 语言版本来限制对象可用范围。也就是说，开发者在 ADT 创建对象时要面对 cloud-ready 的语言版本、compiler / runtime / ATC checks、released objects、RAP、CDS、service definition / service binding 等约束。classic ABAP 里的很多历史习惯不能照搬，比如 SAP GUI dynpro、直接依赖未释放 SAP 对象、随意调用内部 function module、直接改标准表等。</p>
+<p>第三层是 side-by-side extensibility。Side-by-side 的意思是扩展应用运行在 SAP S/4HANA 之外，但通过标准接口和核心业务系统交互。它适合做松耦合扩展：独立 UI、独立扩展数据、跨系统流程、补充审批、外部系统整合、报表/分析辅助、或不应该写进 S/4HANA 核心的应用逻辑。它不适合被理解成“把所有客户开发都搬到 BTP”，因为有些需求仍然需要 key user extensibility、developer extensibility、classic extensibility 或标准配置。</p>
+<p>第四层是 lifecycle。传统 ABAP 项目常围绕 package、transport request、CTS/TMS 去理解交付。BTP ABAP environment 也有软件生命周期，但 Day 01 先抓几个入口：software component、Manage Software Components、Git-backed repository / commit、SAP Cloud Transport Management、CI/CD 或三方 pipeline。这里既不是纯 Java/Python 式的 Git branch/merge，也不是完全照搬 on-premise 的 TMS export/import；gCTS、abapGit 和更完整的 ABAP lifecycle 会在后面的 transport / DevOps 章节再细讲。</p>
+<p>第五层是 runtime choice。SAP BTP 不只有 ABAP environment。Cloud Foundry 可以跑 Java、Node.js、CAP 等应用；Kyma 面向 Kubernetes 场景；Build / Integration Suite / Event Mesh 等服务也各有用途。选择 BTP ABAP environment 的理由通常是：团队有 ABAP/RAP/CDS 能力，需求和 SAP 业务语义贴得很近，希望用 ABAP Cloud 和 released SAP APIs 做生命周期稳定的扩展。它不是所有 BTP 扩展的默认答案。</p>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>SAP BTP</code>、<code>ABAP環境</code>、<code>SAP BTP, ABAP environment</code>、<code>サイドバイサイド拡張</code>、<code>サイドバイサイド連携</code>、<code>クラウド拡張</code>、<code>ABAP Cloud</code>、<code>リリース済みAPI</code>、<code>クリーンコア</code>、<code>疎結合</code>、<code>非侵襲的拡張</code>、<code>コア改修しない</code>、<code>開発者拡張</code>、<code>ソフトウェアコンポーネント</code>。</li>
+<li>说明句：この機能は SAP S/4HANA のコアを直接改修せず、SAP BTP 側のサイドバイサイド拡張として実装できるかを確認します。</li>
+<li>说明句：SAP BTP, ABAP environment では ABAP Cloud が前提となるため、リリース済み API と利用可能なオブジェクトを確認する必要があります。</li>
+<li>说明句：S/4HANA Cloud テナント内の embedded ABAP Cloud developer extensibility と SAP BTP, ABAP environment は同じ ABAP Cloud 文脈でも、コードの配置場所と拡張方式が異なります。</li>
+<li>使用场景：Fit-to-Standard 后的扩展方案讨论、Clean Core review、Public Edition / Private Edition 架构比较、side-by-side 应用估算、接口/通信方式确认、BTP 运行时选择。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>SAP BTP, ABAP environment</code></li>
+<li>Related terms: <code>SAP Business Technology Platform</code>, <code>ABAP environment</code>, <code>ABAP Cloud</code>, <code>ABAP for Cloud Development</code>, <code>side-by-side extensibility</code>, <code>developer extensibility</code>, <code>embedded ABAP Cloud developer extensibility</code>, <code>key user extensibility</code>, <code>released APIs</code>, <code>remote APIs</code>, <code>software component</code>, <code>Manage Software Components</code>, <code>Git-backed repository</code>, <code>SAP Cloud Transport Management</code>, <code>RAP</code>, <code>CDS</code>, <code>service binding</code>, <code>destination</code>, <code>communication arrangement</code></li>
+<li>Recommended search pattern: <code>SAP BTP ABAP environment side-by-side extensibility SAP Help</code>, <code>SAP BTP ABAP environment software components SAP Help</code>, <code>SAP S/4HANA Cloud ABAP Environment developer extensibility ABAP Cloud</code></li>
+<li>官方资料里常写作 <code>SAP BTP, ABAP environment</code>，逗号是 SAP 文档里的常见写法；本教程标题为便于文件名检索保留 <code>SAP BTP ABAP environment</code>。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>假设客户需要一个“客户发票投诉管理”小应用。这个应用要记录投诉原因、处理状态、负责人和备注，还要从 S/4HANA 读取发票/客户信息作为参考。直接改 S/4HANA 标准发票流程可能风险高，也未必符合 Clean Core。一个 side-by-side 方案是：在 SAP BTP, ABAP environment 中建立扩展应用，自己的扩展数据存在 BTP ABAP environment 的表里；需要发票信息时，通过 S/4HANA 暴露的 released OData service 或 API 读取，不直接改 S/4HANA 标准表。</p>
+<p>从开发者视角看，这个例子会包含几类对象：在 ADT 中创建 software component / package / table / CDS / RAP business object / service binding；通过 destination 或 communication arrangement 连接 S/4HANA；通过 released API 读取核心数据；把 UI 或 OData service 暴露给前端或其他系统。Day 01 不要求做出这个应用，只要求知道它为什么是“BTP ABAP environment 里的 side-by-side 扩展”，而不是“在 S/4HANA DEV 里随便加一堆 Z 表和 Z 程序”。</p>
+<p>最小练习：用 8-10 行中文解释 “S/4HANA core 中的开发” 和 “SAP BTP side-by-side extension” 的区别。进阶练习：找一个 SAP 官方页面，确认 <code>SAP BTP, ABAP environment</code> 可以用于 ABAP-based products 的扩展和新 cloud applications。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>误区一：把 BTP ABAP environment 当成 S/4HANA 的 DEV 系统。修正：它运行在 SAP BTP 上，是 side-by-side / cloud application 的运行位置，不是 S/4HANA core 的开发客户端。</li>
+<li>误区二：以为它支持所有 classic ABAP。修正：BTP ABAP environment 使用 ABAP Cloud，只能使用允许的语言范围和 released objects。</li>
+<li>误区三：以为 side-by-side 可以直接读写任意 S/4HANA 表。修正：应通过 released APIs、services、events 和受控 connectivity 与核心系统交互。</li>
+<li>误区四：以为所有扩展都应该放到 BTP。修正：简单字段/逻辑可能适合 key user extensibility；需要贴近 S/4HANA 业务对象生命周期的场景可能适合 developer extensibility；必须同一 LUW（逻辑工作单元）的需求不能简单外置。</li>
+<li>误区五：把 BTP ABAP environment、S/4HANA Cloud tenant 内的 embedded ABAP Cloud developer extensibility、ABAP Cloud 混成一个词。修正：ABAP Cloud 是开发模型；BTP ABAP environment 是 BTP 上单独 provision 的运行/开发环境；embedded developer extensibility 是 S/4HANA Cloud 租户上下文中的扩展场景。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>为什么 BTP ABAP environment 不是 “S/4HANA DEV in the cloud”？</li>
+<li>side-by-side extension 和直接在 S/4HANA core 里增强的最大差异是什么？</li>
+<li>为什么 BTP ABAP environment 必须强调 released APIs 和 ABAP Cloud？</li>
+<li>什么时候应该选择 BTP ABAP environment，而不是 Cloud Foundry / CAP / Node.js？</li>
+<li>在日本项目里，如何用一句话说明“コア改修しないサイドバイサイド拡張”？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/docs/btp/sap-business-technology-platform/abap-environment" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Environment</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/operating-sap-business-technology-platform/describing-runtime-environments" target="_blank" rel="noopener noreferrer">SAP Learning - Describing Runtime Environments</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/develop-extensions-with-cap-following-the-sap-btp-developer-s-guide/identifying-the-need-for-side-by-side-extensibility_f1e838f0-f02a-43b4-8896-cedc25a7d5d0" target="_blank" rel="noopener noreferrer">SAP Learning - Identifying the Need for Side-By-Side Extensibility</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/security-administrator/exploring-the-sap-s-4hana-cloud-extensibility-model" target="_blank" rel="noopener noreferrer">SAP Learning - Exploring the SAP S/4HANA Cloud Extensibility Model</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/exploring-the-abap-cloud-development-model_cd64db9d-409e-4f09-8ffa-3597a3cf3960" target="_blank" rel="noopener noreferrer">SAP Learning - Exploring the ABAP Cloud Development Model</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/btp/sap-business-technology-platform/software-components" target="_blank" rel="noopener noreferrer">SAP Help - Software Components</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/sap-btp-abap-environment/abap-environment/how-to-export-using-sap-cloud-transport-management" target="_blank" rel="noopener noreferrer">SAP Help - Export Commits using SAP Cloud Transport Management</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-005-sap-btp-abap-environment-9f7f1d20.html">SAP BTP ABAP environment 云开发环境</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-004-sap-s-4hana-932c3511.html">Previous section</a><a href="section-01-006-abap-cloud-80dd1a89.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

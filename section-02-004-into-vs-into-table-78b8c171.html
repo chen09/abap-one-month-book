@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>INTO vs INTO TABLE 结果接收 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="4-into-vs-into-table-7124cfdf" class="chapter-title">4. INTO vs INTO TABLE 结果接收</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 04</li><li>self-contained study note</li></ul><h4 id="4-1-c4065a05" class="semantic-heading semantic-concept">4.1 一句话结论</h4>
+<p><code>INTO</code> 和 <code>INTO TABLE</code> 决定 ABAP SQL 的查询结果进入 ABAP 内存时是什么形状：<code>INTO @DATA(ls_order)</code> 通常接收一行到结构或工作区，<code>INTO TABLE @DATA(lt_orders)</code> 接收多行到内表。初学者要先建立这个判断：<code>SELECT</code> 不是“查完就结束”，它一定要把结果交给一个 ABAP data object；这个对象是单行结构还是 internal table，会直接影响后续循环、排序、查找、空结果处理和性能。</p>
+<h4 id="4-2-8af53125" class="semantic-heading semantic-concept">4.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a> 讲的是 ABAP 变量如何进入 SQL；本节讲 SQL 结果如何回到 ABAP。看同一个数据源，目标不同，代码的语义就不同：</p>
+<pre><code class="language-abap">SELECT SINGLE FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE sales_order_id = @lv_sales_order_id
+       INTO @DATA(ls_order).</code></pre>
+<p>这段代码的目标是 <code>ls_order</code>，名字里的 <code>ls_</code> 暗示 line structure。它适合“业务上只应该有一行”的读取，例如完整主键读取。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE customer_id = @lv_customer_id
+       ORDER BY sales_order_id
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这段代码的目标是 <code>lt_orders</code>，名字里的 <code>lt_</code> 暗示 internal table。它适合“业务上可能有多行”的读取，例如某个客户的订单列表。</p>
+<p>本节要学四件事：一是 <code>INTO</code> 不带 <code>TABLE</code> 时面向单行结构或 SELECT loop；二是 <code>INTO TABLE</code> 面向内表结果集；三是 inline declaration 很方便，但生成的内表类型和 key 需要理解；四是 <code>INTO TABLE</code> 不是排序、去重、权限或事务控制，结果形状和业务语义要分开判断。</p>
+<h4 id="4-3-b73ab4ba" class="semantic-heading semantic-why">4.3 为什么重要</h4>
+<p>很多 ABAP 初学者会把 <code>INTO</code> 看成语法尾巴：前面 <code>SELECT</code> 写对了，最后随便接一个变量就行。项目代码里，这恰恰是容易出错的地方。</p>
+<p>第一类错误是把多行当单行。业务上一个客户可能有多张订单，却用单行结构接收，或者用 <code>SELECT SINGLE</code> 没有完整唯一条件。代码能激活，但业务语义不稳：到底取哪一行、是否稳定、没有排序时是否可重复，都说不清。</p>
+<p>第二类错误是把单行当多行。完整主键读取本来只需要一个结构，结果为了“统一写法”读进内表，再 <code>READ TABLE INDEX 1</code>。这会让代码变长、错误路径变模糊，也容易掩盖“唯一性到底由谁保证”的问题。</p>
+<p>第三类错误是不了解 inline 内表的默认形态。<code>INTO TABLE @DATA(lt_orders)</code> 很舒服，但 SAP Samples 明确提醒：这种 inline declaration 得到的内表通常是 standard table with empty key。它适合演示和一次性循环处理；如果后续要频繁按 key 查找、去重、二分读取或表达唯一性，就要显式设计 table type，例如 <a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a>、sorted table 或 hashed table，而不是默认拿来就用。</p>
+<p>第四类错误是误会 <code>INTO TABLE</code> 会保留旧数据。普通 <code>INTO TABLE</code> 会初始化目标对象，再写入本次结果。要保留已有行并继续追加，需要 <code>APPENDING TABLE</code>。这在报表分段读取、分页、包处理和多次条件合并时尤其重要。</p>
+<h4 id="4-4-key-mechanism-90b08552" class="semantic-heading semantic-mechanism">4.4 Key mechanism / 核心机制</h4>
+<p>先把一条 <code>SELECT</code> 的结果想成一个 result set。这个 result set 可能是空的、单行的、多行的；<code>INTO</code> 子句决定它如何被映射到 ABAP data object。</p>
+<h5 id="4-4-1-into-data-ls-order-45e32071">4.4.1 单行目标：<code>INTO @DATA(ls_order)</code></h5>
+<p>初学阶段，把 <code>INTO</code> 不带 <code>TABLE</code> 的写法优先和 <code>SELECT SINGLE</code> 放在一起理解：</p>
+<pre><code class="language-abap">SELECT SINGLE FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE sales_order_id = @lv_sales_order_id
+       INTO @DATA(ls_order).
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; The requested order does not exist.
+  RETURN.
+ENDIF.</code></pre>
+<p>这里 <code>ls_order</code> 是一个结构。<code>FIELDS</code> 里选了三个列，<code>ls_order</code> 就有对应的三个组件。后续代码可以写 <code>ls_order-status</code>、<code>ls_order-customer_id</code>。这类写法的重点是：你必须能说明“为什么只会有一行”。完整主键、唯一索引、业务唯一性、或明确的 <code>ORDER BY ... UP TO 1 ROWS</code>，都是不同层次的理由；不能用“我只想要一行”替代唯一性证明。</p>
+<p>严格说，<code>INTO @wa</code> 也可以出现在 SELECT loop 里逐行接收结果，也就是 <code>SELECT ... INTO @wa. ... ENDSELECT.</code>。本教程初学阶段不把它作为默认推荐，因为循环中逐行访问数据库结果容易和性能、锁、异常路径混在一起。先掌握 <code>SELECT SINGLE ... INTO @DATA(ls_...)</code> 和 <code>SELECT ... INTO TABLE @DATA(lt_...)</code> 两条主线。</p>
+<h5 id="4-4-2-into-table-data-lt-orders-c619ee4e">4.4.2 多行目标：<code>INTO TABLE @DATA(lt_orders)</code></h5>
+<p><code>INTO TABLE</code> 表示结果集被接收到 internal table：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE customer_id = @lv_customer_id
+       ORDER BY sales_order_id
+       INTO TABLE @DATA(lt_orders).
+
+IF lt_orders IS INITIAL.
+  &quot; No orders found for this customer.
+  RETURN.
+ENDIF.</code></pre>
+<p>这里 <code>lt_orders</code> 是一个内表，每一行的结构由 <code>FIELDS</code> 结果决定。多行结果后续通常会 <code>LOOP AT lt_orders INTO DATA(ls_order).</code>，或者用 table expression、<code>READ TABLE</code>、<code>line_exists( )</code> 等内部表操作继续处理。</p>
+<p><code>INTO TABLE</code> 会初始化目标内表，再放入本次查询结果。也就是说，如果 <code>lt_orders</code> 之前已经有内容，普通 <code>INTO TABLE @lt_orders</code> 会覆盖它。需要保留旧内容时，用 <code>APPENDING TABLE @lt_orders</code>，但要非常清楚为什么要追加、是否会重复、是否需要排序或去重。</p>
+<h5 id="4-4-3-inline-declaration-04a62e03">4.4.3 Inline declaration 的便利和代价</h5>
+<p><code>@DATA(ls_order)</code> 和 <code>@DATA(lt_orders)</code> 是 inline declaration。优点是少写类型声明，结果对象的类型由 <code>SELECT</code> 列表推导，demo 和局部逻辑很清爽。</p>
+<p>代价是你必须知道推导出来的对象长什么样。对于 <code>INTO TABLE @DATA(lt_orders)</code>，SAP Samples 提醒：内部表目标的 inline declaration 通常会得到 standard table with empty key。这个默认形态对“读出来循环一次”很好，但对“后面要按键高频查找”未必好。比如：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_orders).
+
+&quot; Later:
+READ TABLE lt_orders WITH KEY sales_order_id = lv_sales_order_id
+     INTO DATA(ls_order).</code></pre>
+<p>这段代码能读，但 <code>lt_orders</code> 的 key 不是业务主键；如果数据量大、读取频繁，就应该显式声明合适的 table type，或者在前面就用更准确的查询条件避免读太多。inline declaration 是方便，不是表类型设计的替代品。</p>
+<h5 id="4-4-4-corresponding-fields-78c75c42">4.4.4 <code>CORRESPONDING FIELDS</code> 和位置赋值</h5>
+<p>如果把查询结果放入一个已经声明好的结构或内表，不写 <code>CORRESPONDING FIELDS</code> 时，ABAP SQL 会按结果列的位置向目标组件赋值；写 <code>CORRESPONDING FIELDS OF</code> 时，才按同名组件匹配。这个差异在维护旧代码时很重要：</p>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_order_list,
+         sales_order_id TYPE zsales_order-sales_order_id,
+         status         TYPE zsales_order-status,
+       END OF ty_order_list.
+DATA lt_orders TYPE STANDARD TABLE OF ty_order_list WITH EMPTY KEY.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              status
+       WHERE customer_id = @lv_customer_id
+       INTO CORRESPONDING FIELDS OF TABLE @lt_orders.</code></pre>
+<p>新代码里，最简单可靠的做法是让 <code>FIELDS</code> 列表、别名和目标结构一致，减少位置不一致造成的隐性错位。<code>INTO CORRESPONDING FIELDS OF TABLE</code> 可以帮助维护已有结构，但不应该成为“字段列表随便写”的借口。</p>
+<h5 id="4-4-5-5dbd5731">4.4.5 空结果和系统字段</h5>
+<p><code>SELECT ... INTO TABLE</code> 没有读到行时，目标内表会是空表，<code>sy-subrc</code> 和 <code>sy-dbcnt</code> 也会反映读取结果。学习阶段可以先养成两个动作：读取后立即处理空结果；如果业务关心行数，立即保存或使用 <code>sy-dbcnt</code>，不要等后续语句把系统字段覆盖。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_orders).
+
+DATA(lv_selected_count) = sy-dbcnt.
+
+IF lt_orders IS INITIAL.
+  &quot; Empty result is a valid business path here.
+ENDIF.</code></pre>
+<p>这里还要连接 <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a>：系统字段是易变的，后续很多语句都可能改变它们。不要在十几行之后才想起检查 <code>sy-subrc</code>。</p>
+<h4 id="4-5-89647ce4" class="semantic-heading semantic-japan">4.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>取得結果</code></li>
+<li><code>結果受け取り</code></li>
+<li><code>単一行取得</code></li>
+<li><code>複数行取得</code></li>
+<li><code>構造</code></li>
+<li><code>作業領域</code></li>
+<li><code>内部テーブル</code></li>
+<li><code>インライン宣言</code></li>
+<li><code>標準テーブル</code></li>
+<li><code>空キー</code></li>
+<li><code>上書き</code></li>
+<li><code>追記</code></li>
+<li><code>APPENDING TABLE</code></li>
+<li><code>CORRESPONDING FIELDS</code></li>
+<li><code>取得件数</code></li>
+<li><code>空結果</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>単一行取得なので、構造 <code>ls_order</code> に <code>INTO</code> で受け取ります。</li>
+<li>複数行取得なので、内部テーブル <code>lt_orders</code> に <code>INTO TABLE</code> で受け取ります。</li>
+<li><code>INTO TABLE</code> は既存内容を初期化して上書きします。既存行を残す場合は <code>APPENDING TABLE</code> の要否を確認してください。</li>
+<li><code>@DATA(lt_orders)</code> で宣言される内部テーブルは標準テーブル・空キーになるため、後続のキー検索が多い場合は明示的なテーブル型を検討します。</li>
+<li><code>CORRESPONDING FIELDS</code> を使わない場合、列名ではなく位置で代入される点に注意してください。</li>
+<li>空結果の場合の業務上の扱いを明確にしてください。</li>
+</ul>
+<p>日本项目里，“受け皿” 这个口语也常见，意思是“接收结果的目标对象”。代码 review 时如果被问 <code>受け皿は構造ですか、内部テーブルですか</code>，实际是在问本节的核心：结果是一行还是多行，后续如何处理。</p>
+<h4 id="4-6-english-terms-77b56639" class="semantic-heading semantic-terms">4.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>SELECT INTO target</code></li>
+<li>Official / search term: <code>INTO TABLE</code></li>
+<li>Related term: <code>APPENDING TABLE</code></li>
+<li>Related term: <code>inline declaration</code></li>
+<li>Related term: <code>target area</code></li>
+<li>Related term: <code>work area</code></li>
+<li>Related term: <code>internal table</code></li>
+<li>Related term: <code>standard table with empty key</code></li>
+<li>Related term: <code>CORRESPONDING FIELDS</code></li>
+<li>Related term: <code>SELECT loop</code></li>
+<li>Related term: <code>sy-subrc</code></li>
+<li>Related term: <code>sy-dbcnt</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL SELECT INTO target SAP Help</code></li>
+<li><code>ABAP SQL INTO TABLE APPENDING TABLE SAP Help</code></li>
+<li><code>ABAP SELECT inline declaration INTO TABLE</code></li>
+<li><code>ABAP SQL work areas in statements</code></li>
+<li><code>ABAP SQL CORRESPONDING FIELDS OF TABLE</code></li>
+</ul>
+<h4 id="4-7-example-73b627ef" class="semantic-heading semantic-example">4.7 Example / 学习例子</h4>
+<h5 id="4-7-1-1-f819dfec">4.7.1 例 1：完整主键读取到结构</h5>
+<pre><code class="language-abap">SELECT SINGLE FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE sales_order_id = @lv_sales_order_id
+       INTO @DATA(ls_order).
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; Order not found.
+  RETURN.
+ENDIF.
+
+IF ls_order-status = lc_status_released.
+  &quot; Continue processing.
+ENDIF.</code></pre>
+<p>读法：业务上要处理一个订单，所以目标是结构。review 问题是：<code>lv_sales_order_id</code> 是否完整唯一？没有读到订单时业务要报错、提示，还是正常跳过？</p>
+<h5 id="4-7-2-2-75588e30">4.7.2 例 2：列表读取到内表</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       ORDER BY created_at DESCENDING,
+                sales_order_id
+       INTO TABLE @DATA(lt_orders).
+
+LOOP AT lt_orders INTO DATA(ls_order).
+  &quot; Build a response line or perform read-only checks.
+ENDLOOP.</code></pre>
+<p>读法：业务上要处理订单列表，所以目标是内表。<code>ORDER BY</code> 仍然要写；<code>INTO TABLE</code> 只决定结果形状，不保证业务顺序。</p>
+<h5 id="4-7-3-3-142fa65e">4.7.3 例 3：追加而不是覆盖</h5>
+<pre><code class="language-abap">DATA lt_orders TYPE STANDARD TABLE OF zsales_order WITH EMPTY KEY.
+
+SELECT FROM zsales_order
+       FIELDS *
+       WHERE status = @lc_status_open
+       APPENDING TABLE @lt_orders.
+
+SELECT FROM zsales_order
+       FIELDS *
+       WHERE status = @lc_status_blocked
+       APPENDING TABLE @lt_orders.</code></pre>
+<p>这段代码用于说明 <code>APPENDING TABLE</code>，不代表推荐在业务代码里随便 <code>FIELDS *</code>。真实项目里要先问：两次追加是否会重复？是否应该用一个 <code>WHERE status IN ...</code> 的查询？是否需要显式排序？是否应该用更小的字段列表？</p>
+<h5 id="4-7-4-4-61d7ec9d">4.7.4 例 4：显式目标类型</h5>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_order_key,
+         sales_order_id TYPE zsales_order-sales_order_id,
+         customer_id    TYPE zsales_order-customer_id,
+       END OF ty_order_key,
+       tt_order_key TYPE SORTED TABLE OF ty_order_key
+                    WITH UNIQUE KEY sales_order_id.
+
+DATA lt_order_keys TYPE tt_order_key.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @lt_order_keys.</code></pre>
+<p>这里目标内表不是 inline 推导出来的 standard table，而是显式 sorted table。这样写更长，但表达了后续“按 <code>sales_order_id</code> 唯一查找”的设计意图。初学阶段不必马上掌握所有 table category，但要知道 inline table 不是唯一选择。</p>
+<h4 id="4-8-counterexample-failure-mode-bcfd32ee" class="semantic-heading semantic-example">4.8 Counterexample / Failure mode</h4>
+<p>失败模式一：非唯一条件下用单行目标。</p>
+<pre><code class="language-abap">SELECT SINGLE FROM zsales_order
+       FIELDS sales_order_id,
+              status
+       WHERE customer_id = @lv_customer_id
+       INTO @DATA(ls_order).</code></pre>
+<p>如果一个客户可能有多张订单，这段代码没有说明取哪一张。问题不在 <code>INTO</code> 本身，而在“目标是单行，但业务条件不是单行”。要么补唯一条件，要么用 <code>ORDER BY ... UP TO 1 ROWS</code> 表达业务规则，要么改成 <code>INTO TABLE</code> 处理列表。</p>
+<p>失败模式二：以为 <code>INTO TABLE</code> 会保留旧内容。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id
+       WHERE status = @lc_status_open
+       INTO TABLE @lt_orders.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id
+       WHERE status = @lc_status_blocked
+       INTO TABLE @lt_orders.</code></pre>
+<p>第二次 <code>INTO TABLE</code> 会覆盖第一次结果。要追加用 <code>APPENDING TABLE</code>，但追加前要重新审视是否应该合并条件或去重。</p>
+<p>失败模式三：把 inline 内表当成设计好的 key table。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p><code>lt_orders</code> 很方便，但默认 key 不能替你表达业务唯一性。后续如果频繁 <code>READ TABLE ... WITH KEY</code>，应考虑显式 sorted/hashed table type，或者从 SQL 条件上减少数据量。</p>
+<p>失败模式四：以为 <code>CORRESPONDING FIELDS</code> 总是无脑安全。它按同名组件赋值，确实能减少位置错位，但也可能悄悄忽略没有同名目标的列。review 时要确认目标结构是不是故意只收这些字段，而不是漏字段。</p>
+<p>失败模式五：读出来不处理空结果。空内表可能是正常业务路径，也可能表示输入错误、配置缺失、权限过滤、数据同步延迟。好代码不会只“读了就往下走”，而会说明空结果的业务含义。</p>
+<h4 id="4-9-df9624f5" class="semantic-heading semantic-practice">4.9 思考问题</h4>
+<ul>
+<li>这条 <code>SELECT</code> 的业务语义是一行还是多行？</li>
+<li>如果是一行，唯一性由完整主键、唯一索引、业务规则，还是排序限制保证？</li>
+<li>如果是多行，目标内表后续只循环一次，还是要按 key 高频查找？</li>
+<li><code>@DATA(lt_...)</code> 推导出的 standard table with empty key 是否够用？</li>
+<li>普通 <code>INTO TABLE</code> 是否会覆盖已有内容？如果要追加，为什么不用一个更清楚的查询条件？</li>
+<li>是否需要 <code>CORRESPONDING FIELDS</code>？如果需要，是因为维护旧结构，还是目标结构本来就应该重写？</li>
+<li>读取为空时，业务上是正常、警告、错误，还是权限/配置问题？</li>
+<li><code>sy-subrc</code>、<code>sy-dbcnt</code> 是否在读取后立即处理，避免被后续语句覆盖？</li>
+<li><code>INTO TABLE</code> 后是否还依赖第一条/最后一条？如果依赖，<code>ORDER BY</code> 在哪里？</li>
+</ul>
+<h4 id="4-10-4cc834b9" class="semantic-heading semantic-reference">4.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSELECT_INTO_TARGET.html" target="_blank" rel="noopener noreferrer">SELECT, INTO target</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapinto_clause.html" target="_blank" rel="noopener noreferrer">SELECT, INTO, APPENDING</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSELECT_INLINE_DECL_ABEXA.html" target="_blank" rel="noopener noreferrer">SELECT, Inline Declarations</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_WA.html" target="_blank" rel="noopener noreferrer">ABAP SQL - Work Areas in Statements</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSELECT.html" target="_blank" rel="noopener noreferrer">SELECT</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSELECT_SINGLE.html" target="_blank" rel="noopener noreferrer">SELECT, SINGLE</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="4-11-connections-0cf69b9c">4.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></li>
+<li>Upstream: <a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a></li>
+<li>Downstream: <a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a></li>
+<li>Downstream: <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a></li>
+<li>Related: <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a></li>
+<li>Related: <a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li>Related: <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a></li>
+<li>Related: <a class="wiki" href="section-01-020-abap-data-object-e568a611.html">ABAP data object 数据对象</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 08 - ABAP SQL 读取基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="4-12-5e00a2ef" class="semantic-heading semantic-practice">4.12 学习任务</h4>
+<ul>
+<li>找两条 <code>SELECT</code>：一条单行、一条多行，分别标出目标对象是结构还是内表。</li>
+<li>把一条 <code>SELECT SINGLE ... INTO @DATA(ls_...)</code> 改写成多行 <code>INTO TABLE @DATA(lt_...)</code>，说明业务语义如何变化。</li>
+<li>写一句日语 review 说明：<code>複数行取得なので、内部テーブルに INTO TABLE で受け取ります。</code></li>
+<li>找一个 <code>INTO TABLE @DATA(lt_...)</code>，说明后续是否需要显式 table type，而不是默认 standard table with empty key。</li>
+<li>找一个 <code>APPENDING TABLE</code> 的例子，判断它是否真的需要追加，还是可以合并成一个更清楚的查询。</li>
+</ul>
+<h4 id="4-13-confidence-next-action-2e7ea26e" class="semantic-heading semantic-status">4.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 复核 <code>SELECT ... INTO</code> target、<code>INTO TABLE</code>、<code>APPENDING TABLE</code>、inline declaration、standard table with empty key、<code>CORRESPONDING FIELDS</code>、SELECT loop、空结果、<code>sy-subrc</code> 与 <code>sy-dbcnt</code>。旧 Joule 两次短 prompt 均返回通用错误，旧 Claude 输出为 session expired；2026-06-18 已创建新的 Claude follow-up prompt，但当前 Claude health check 在 180 秒内未返回，因此本轮按官方资料闭环并保留外部模型复核债务。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a>，继续把 ABAP SQL 读取链路从“结果形状”推进到“结果顺序是否稳定”。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-003-host-variables-8a74508b.html">Previous section</a><a href="section-02-005-order-by-bff6433a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

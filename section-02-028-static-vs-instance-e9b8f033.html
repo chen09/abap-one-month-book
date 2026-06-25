@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Static vs instance 静态与实例 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="28-static-vs-instance-9756567e" class="chapter-title">28. Static vs instance 静态与实例</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 28</li><li>self-contained study note</li></ul><h4 id="28-1-8ee50817" class="semantic-heading semantic-concept">28.1 一句话结论</h4>
+<p>Static vs instance 静态与实例是 OO ABAP 里区分“属于 class 本身”与“属于某个 object instance”的基础规则。<code>CLASS-METHODS</code>、<code>CLASS-DATA</code> 是 static components，使用 class selector <code>=&gt;</code> 调用；<code>METHODS</code>、<code>DATA</code> 是 instance components，通常要先创建 object reference，再用 instance selector <code>-&gt;</code> 调用。</p>
+<p>初学者最重要的判断不是“static 写起来更短”，而是“这个能力是否需要对象自己的状态”。如果只是纯计算、稳定常量、无副作用 helper，static 可以很清楚；如果逻辑依赖订单、客户、缓存、测试替身、事务上下文或可变状态，instance 往往更安全。滥用 static mutable state 会把 class 变成隐形全局变量，让 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a>、并发、后台作业和 RAP/服务逻辑都更难解释。</p>
+<h4 id="28-2-919c123b" class="semantic-heading semantic-concept">28.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a> 讲的是 method 谁能访问。本节讲的是：method 和 attribute 归谁所有，是归 class 这个类型所有，还是归某个 object instance 所有。</p>
+<p>本节要掌握七个边界：</p>
+<ul>
+<li><code>CLASS-METHODS</code> 声明 static method，用 <code>zcl_xxx=&gt;method( )</code> 或 <code>lcl_xxx=&gt;method( )</code> 调用。</li>
+<li><code>METHODS</code> 声明 instance method，通常先 <code>NEW #( )</code> 创建对象，再 <code>lo_obj-&gt;method( )</code> 调用。</li>
+<li><code>CLASS-DATA</code> 声明 class attribute，属于 class，在当前 ABAP runtime context 中被该 class 的使用者共享。</li>
+<li><code>DATA</code> 在 class definition 中声明 instance attribute，每个 object instance 都有自己的值。</li>
+<li>static method 没有某个对象的 <code>me</code>，不能直接访问 instance attribute 或 instance method；要访问实例状态，必须通过 object reference。</li>
+<li>instance method 可以访问自己的 instance state，也可以不通过 object reference 访问 class-level static attribute / method；这个方向是允许的，但它会把对象逻辑和共享 class state 绑在一起。</li>
+<li>static 不等于数据库持久化、不等于跨系统共享、不等于线程安全或事务安全。</li>
+</ul>
+<p>一个最小对比：</p>
+<pre><code class="language-abap">CLASS lcl_status_text DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS lcl_counter DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS increment.
+    METHODS get_count
+      RETURNING VALUE(rv_count) TYPE i.
+
+  PRIVATE SECTION.
+    DATA mv_count TYPE i.
+ENDCLASS.</code></pre>
+<p><code>lcl_status_text=&gt;get_text( &#x27;O&#x27; )</code> 不需要对象状态，只是把状态码转成文字，因此可以是 static helper。<code>lcl_counter</code> 的 <code>mv_count</code> 是每个 counter 自己的状态，因此应该是 instance attribute；两个 counter object 的计数不应互相污染。</p>
+<h4 id="28-3-372c6d63" class="semantic-heading semantic-why">28.3 为什么重要</h4>
+<p>static / instance 的选择会直接影响代码能不能测试、能不能解释、能不能在项目里安全维护。</p>
+<p>常见问题是：初学者觉得 static method 不用 <code>NEW</code>，调用很方便，于是把所有 service、cache、当前用户、处理结果、错误列表都塞进 <code>CLASS-DATA</code>。短期看代码少了几行，长期看问题会变多：</p>
+<ul>
+<li>单体测试顺序不同，static cache 没清，结果互相污染。</li>
+<li>dialog 执行和 background job 执行看到的 class state 不一致，排查困难。</li>
+<li>RAP handler 或 service logic 被 framework 多次调用时，上一轮请求留下的 static 状态影响下一轮。</li>
+<li>public static attribute 变成隐形全局变量，任何地方都能改。</li>
+<li>想给逻辑注入 test double 时，因为全是 static call，很难替换依赖。</li>
+</ul>
+<p>Java/Python 背景学习者可以把 static method 类比为 Java <code>static</code> method 或 Python class-level helper，但 ABAP 项目还要多想运行环境：ABAP class 是 repository object，代码运行在 ABAP internal session 中，业务事务还受到 <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a>、authorization、lock、RAP save sequence 和 background processing 影响。static state 不是企业级共享缓存，只是当前运行上下文里的一份 class-level state。</p>
+<h4 id="28-4-key-mechanism-4d9cd16b" class="semantic-heading semantic-mechanism">28.4 Key mechanism / 核心机制</h4>
+<h5 id="28-4-1-class-component-selector-and-instance-component-selector-20456cdd">28.4.1 class component selector and instance component selector</h5>
+<p>ABAP 用两个 selector 帮你区分归属：</p>
+<pre><code class="language-abap">DATA(lv_text) = lcl_status_text=&gt;get_text( &#x27;O&#x27; ).
+
+DATA(lo_counter) = NEW lcl_counter( ).
+lo_counter-&gt;increment( ).
+DATA(lv_count) = lo_counter-&gt;get_count( ).</code></pre>
+<p><code>=&gt;</code> 表示访问 class component。看到它时先问：这个 method / attribute 是否真的不需要某个对象自己的状态？</p>
+<p><code>-&gt;</code> 表示通过 object reference 访问 instance component。看到它时先问：这个对象代表什么业务对象、服务对象或测试对象？它内部有哪些状态？生命周期由谁管理？</p>
+<h5 id="28-4-2-static-method-is-not-object-behavior-c0a5ceca">28.4.2 static method is not object behavior</h5>
+<p>static method 属于 class，不属于某个 object instance。它适合表达不依赖对象状态的能力，例如：</p>
+<ul>
+<li>单纯格式转换：status code 到显示文本。</li>
+<li>稳定的计算规则：金额四舍五入、字符串规范化。</li>
+<li>工厂入口：根据输入创建某类对象或返回接口引用。</li>
+<li>常量或枚举式查询：返回稳定 code list。</li>
+</ul>
+<p>示例：</p>
+<pre><code class="language-abap">CLASS lcl_status_text IMPLEMENTATION.
+  METHOD get_text.
+    CASE iv_status.
+      WHEN &#x27;O&#x27;.
+        rv_text = &#x27;Open&#x27;.
+      WHEN &#x27;C&#x27;.
+        rv_text = &#x27;Closed&#x27;.
+      WHEN OTHERS.
+        rv_text = &#x27;Unknown&#x27;.
+    ENDCASE.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这个 method 不读取订单对象内部状态，也不修改 shared cache，作为 static helper 是合理的。</p>
+<p>但如果 method 需要当前订单的 items、customer、pricing context、错误列表或 test double，它就不是“无状态 helper”，更适合 instance method 或通过 <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a> 传入依赖。</p>
+<h5 id="28-4-3-instance-method-owns-object-state-2c51414f">28.4.3 instance method owns object state</h5>
+<p>instance method 属于一个具体 object。每次 <code>NEW lcl_counter( )</code> 都会得到一个新的 object instance，每个 instance 有自己的 <code>mv_count</code>。</p>
+<pre><code class="language-abap">CLASS lcl_counter IMPLEMENTATION.
+  METHOD increment.
+    mv_count = mv_count + 1.
+  ENDMETHOD.
+
+  METHOD get_count.
+    rv_count = mv_count.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>如果创建两个对象：</p>
+<pre><code class="language-abap">DATA(lo_a) = NEW lcl_counter( ).
+DATA(lo_b) = NEW lcl_counter( ).
+
+lo_a-&gt;increment( ).
+lo_a-&gt;increment( ).
+lo_b-&gt;increment( ).</code></pre>
+<p><code>lo_a</code> 的 count 是 2，<code>lo_b</code> 的 count 是 1。这个差异就是 instance state 的意义：对象把自己的数据和行为封装在一起。</p>
+<h5 id="28-4-4-class-data-is-shared-class-state-cf60a832">28.4.4 CLASS-DATA is shared class state</h5>
+<p><code>CLASS-DATA</code> 是 static attribute。它不属于某个对象，而属于 class：</p>
+<pre><code class="language-abap">CLASS lcl_counter DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor.
+    CLASS-METHODS get_created_count
+      RETURNING VALUE(rv_count) TYPE i.
+
+  PRIVATE SECTION.
+    CLASS-DATA gv_created_count TYPE i.
+    DATA mv_count TYPE i.
+ENDCLASS.
+
+CLASS lcl_counter IMPLEMENTATION.
+  METHOD constructor.
+    gv_created_count = gv_created_count + 1.
+  ENDMETHOD.
+
+  METHOD get_created_count.
+    rv_count = gv_created_count.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这里 <code>gv_created_count</code> 记录当前运行上下文中创建过多少个 counter。它不是每个对象自己的 count，而是 class-level count。</p>
+<p>这类设计要非常谨慎。<code>CLASS-DATA</code> 适合稳定常量、只读配置、一次性初始化后的不可变表，或者明确的 class-level 计数/缓存。它不适合保存“当前订单”“当前用户处理结果”“本次请求错误列表”这类请求级或业务对象级状态。</p>
+<h5 id="28-4-5-static-method-and-instance-state-c1b9e268">28.4.5 static method and instance state</h5>
+<p>static method 没有当前对象，因此不能直接写：</p>
+<pre><code class="language-abap">CLASS-METHODS reset_count.
+
+DATA mv_count TYPE i.</code></pre>
+<p>然后在 static method 里直接访问 <code>mv_count</code>。因为 <code>mv_count</code> 属于哪个对象？static method 没有答案。</p>
+<p>如果确实要让 static method 操作某个对象，应显式传入 object reference：</p>
+<pre><code class="language-abap">CLASS-METHODS reset
+  IMPORTING io_counter TYPE REF TO lcl_counter.</code></pre>
+<p>这里有一个不对称关系：static method 不能在没有 object reference 的情况下直接访问 instance component；但 instance method 可以访问 static component。后者语法上允许，却不一定是好设计。只要 instance method 读写了可变 <code>CLASS-DATA</code>，它的行为就不再只由当前 object state 决定，测试和排查都会变难。</p>
+<p>因此 review 时要小心：如果 static method 总是需要传入对象并修改对象状态，可能说明它本来就应该是 instance method；如果 instance method 频繁读写 static attribute，可能说明 class-level mutable state 被滥用了。</p>
+<h5 id="28-4-6-constructor-and-class-constructor-cdd31b46">28.4.6 constructor and class_constructor</h5>
+<p><a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a> 会在下一节展开，本节先建立最小边界：</p>
+<ul>
+<li><code>METHODS constructor</code> 是 instance constructor，创建 object instance 时执行，用来初始化这个对象自己的状态。</li>
+<li><code>CLASS-METHODS class_constructor</code> 是 class constructor，class 第一次被使用前由 runtime 触发，用来初始化 class-level static state。</li>
+</ul>
+<p>class constructor 不应承担业务副作用。不要把数据库更新、authorization、远程调用、消息提交、全局状态变更或复杂业务流程放进 class constructor；否则只是引用一个 class，就可能触发难以预期的动作。class constructor 最适合做轻量、可解释、幂等的 static 初始化。</p>
+<h5 id="28-4-7-static-is-not-persistence-9cb95235">28.4.7 static is not persistence</h5>
+<p>static attribute 看起来“放在 class 上”，但它不是数据库表，不是跨用户共享内存，也不是跨 application server 的稳定缓存。不同用户、不同 internal session、不同 background job、不同 application server 之间不能把普通 <code>CLASS-DATA</code> 当成可靠共享状态；用英文检索时可以记作：ordinary <code>CLASS-DATA</code> is not cross-user, cross-job, or cross-application-server persistence.</p>
+<p>如果项目真的需要跨请求、跨会话、跨系统稳定保存状态，应使用数据库表、lock object、shared memory object、enqueue、配置表或 RAP persistence 等明确机制，而不是靠普通 static attribute。</p>
+<h5 id="28-4-8-static-or-instance-decision-checklist-70a39c37">28.4.8 static or instance decision checklist</h5>
+<p>在 code review 里，static / instance 的判断可以用一张小表收口。不要只问“能不能写成 static”，要问“写成 static 后谁拥有状态、谁负责清理、谁能替换依赖、测试之间会不会互相污染”。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Static is usually acceptable when...</th><th>Prefer instance when...</th></tr></thead><tbody><tr><td>Does it need object state?</td><td>只依赖输入参数和稳定常量</td><td>需要订单、批次、用户上下文、错误列表、缓存对象</td></tr><tr><td>Is the result deterministic?</td><td>同样输入总是同样输出</td><td>结果依赖当前用户、日期时间、DB、锁、外部系统</td></tr><tr><td>Is there mutable shared state?</td><td>没有，或只读初始化后不再变</td><td>需要保存 request/session/business-object state</td></tr><tr><td>Can tests isolate it?</td><td>ABAP Unit 不需要清理 static cache</td><td>测试需要不同 fake dependency 或不同对象状态</td></tr><tr><td>Can dependencies be replaced?</td><td>没有外部依赖，或依赖通过参数传入</td><td>需要 interface / test double / constructor injection</td></tr><tr><td>Is it framework-owned?</td><td>纯 helper 或 factory 入口</td><td>RAP handler、service object、repository、adapter 等有生命周期</td></tr></tbody></table></div>
+<p>一个实用规则是：static helper 可以小而纯；一旦 method 开始记住东西、访问外部资源、依赖当前用户、或需要在 ABAP Unit 中替换依赖，就应该认真考虑 instance object。尤其不要把 <code>CLASS-DATA</code> 当成“方便放临时结果的地方”，也不要留下 hidden <code>CLASS-DATA</code> cache 让测试和运行时行为互相污染。如果一定要使用 static cache，也要写清楚生命周期、清理方式、失效条件、测试隔离方式和并发/后台 job 风险。</p>
+<h4 id="28-5-d06ffc43" class="semantic-heading semantic-japan">28.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>静的メソッド</code>、<code>インスタンスメソッド</code>、<code>クラス属性</code>、<code>インスタンス属性</code>、<code>状態管理</code>、<code>副作用</code>、<code>テスト容易性</code>。</li>
+<li>设计说明句：この処理はインスタンス状態を持たない純粋な変換なので、静的メソッドとして定義しています。</li>
+<li>Review 指摘句：この <code>CLASS-DATA</code> はリクエスト単位の状態を保持しているため、テストや並行実行で副作用が出る可能性があります。</li>
+<li>改善说明句：注文ごとの状態はインスタンス属性に持たせ、外部依存はインターフェース経由で注入する方針にします。</li>
+<li>Review 补充句：クラスコンストラクタでは、DB更新や外部呼び出しなどの業務副作用を避け、軽量な初期化に限定します。</li>
+<li>使用场景：class 设计、代码 review、ABAP Unit 失败分析、RAP handler 设计、cache 设计、后台 job 障害调查。</li>
+</ul>
+<p>在日本 SAP 项目现场，<code>static</code> 经常被简单说成 <code>静的</code>，但 review 里真正关心的是 <code>状態を持つかどうか</code>。也就是：这个处理是否有状态？状态是否跨对象共享？是否会产生副作用？是否影响单体测试？</p>
+<h4 id="28-6-english-terms-8a27a668" class="semantic-heading semantic-terms">28.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>CLASS-METHODS</code>, <code>METHODS</code>, <code>CLASS-DATA</code>, <code>class attribute</code>, <code>instance attribute</code>, <code>static method</code>, <code>instance method</code>, <code>class constructor</code>, <code>constructor</code>, <code>object reference</code></li>
+<li>Recommended search pattern: <code>CLASS-METHODS CLASS-DATA ABAP Keyword Documentation</code></li>
+<li>Related syntax: <code>=&gt;</code>, <code>-&gt;</code>, <code>NEW</code>, <code>TYPE REF TO</code>, <code>CLASS-METHODS class_constructor</code>, <code>METHODS constructor</code></li>
+<li>读官方资料时优先保留英文关键字：<code>static components</code>, <code>instance components</code>, <code>class components</code>, <code>object reference</code>, <code>class constructor</code>。</li>
+</ul>
+<h4 id="28-7-example-36b6e652" class="semantic-heading semantic-example">28.7 Example / 学习例子</h4>
+<h5 id="28-7-1-1-static-9a8b0d7b">28.7.1 例 1：无状态转换适合 static</h5>
+<p>状态码转文本，不需要对象状态：</p>
+<pre><code class="language-abap">CLASS lcl_status_text DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.</code></pre>
+<p>调用：</p>
+<pre><code class="language-abap">DATA(lv_text) = lcl_status_text=&gt;get_text( &#x27;O&#x27; ).</code></pre>
+<p>这个例子适合 static，因为输入完整、输出明确、没有共享可变状态。</p>
+<h5 id="28-7-2-2-instance-0478f191">28.7.2 例 2：每个对象自己的状态适合 instance</h5>
+<p>购物车、订单草稿、计算器上下文、校验结果收集器，都可能需要对象自己的状态：</p>
+<pre><code class="language-abap">CLASS lcl_message_collector DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS add_message
+      IMPORTING iv_text TYPE string.
+    METHODS get_count
+      RETURNING VALUE(rv_count) TYPE i.
+
+  PRIVATE SECTION.
+    DATA mt_messages TYPE STANDARD TABLE OF string WITH EMPTY KEY.
+ENDCLASS.
+
+CLASS lcl_message_collector IMPLEMENTATION.
+  METHOD add_message.
+    APPEND iv_text TO mt_messages.
+  ENDMETHOD.
+
+  METHOD get_count.
+    rv_count = lines( mt_messages ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>每个 <code>lcl_message_collector</code> object 都有自己的 <code>mt_messages</code>。单元测试可以为每个 test method 创建新对象，状态清楚，副作用少。</p>
+<h5 id="28-7-3-3-static-mutable-state-442bd2f3">28.7.3 例 3：static mutable state 的风险</h5>
+<p>不建议：</p>
+<pre><code class="language-abap">CLASS lcl_order_context DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-DATA gv_current_order_id TYPE string.
+    CLASS-DATA gt_messages TYPE STANDARD TABLE OF string WITH EMPTY KEY.
+ENDCLASS.</code></pre>
+<p>这等于把“当前订单”和“当前消息”放进 class-level 全局状态。任何调用者都可能改它；测试之间、处理步骤之间、异常恢复之后都可能留下旧值。</p>
+<p>更好的方向是：</p>
+<pre><code class="language-abap">CLASS lcl_order_context DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING iv_order_id TYPE string.
+    METHODS add_message
+      IMPORTING iv_text TYPE string.
+
+  PRIVATE SECTION.
+    DATA mv_order_id TYPE string.
+    DATA mt_messages TYPE STANDARD TABLE OF string WITH EMPTY KEY.
+ENDCLASS.</code></pre>
+<p>现在状态属于某个 order context object。生命周期由创建者控制，测试也可以创建干净的新对象。</p>
+<h5 id="28-7-4-4-static-facade-instance-implementation-bc7a7d9a">28.7.4 例 4：static facade 与 instance implementation</h5>
+<p>有时项目为了调用方便，会保留一个很薄的 static facade，但真正逻辑仍然放在 instance service 中：</p>
+<pre><code class="language-abap">CLASS lcl_quantity_check DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS is_valid
+      IMPORTING iv_quantity     TYPE i
+      RETURNING VALUE(rv_valid) TYPE abap_bool.
+
+    METHODS check
+      IMPORTING iv_quantity     TYPE i
+      RETURNING VALUE(rv_valid) TYPE abap_bool.
+ENDCLASS.
+
+CLASS lcl_quantity_check IMPLEMENTATION.
+  METHOD is_valid.
+    DATA(lo_check) = NEW lcl_quantity_check( ).
+    rv_valid = lo_check-&gt;check( iv_quantity ).
+  ENDMETHOD.
+
+  METHOD check.
+    rv_valid = xsdbool( iv_quantity &gt; 0 ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这不是每个场景都需要的模式，但它展示了一个思路：外部可以有简单入口，内部仍然保留可测试的 instance 逻辑。如果逻辑以后需要依赖 currency service、customizing reader 或 test double，就可以继续把依赖放到 constructor 或 interface 中。</p>
+<h4 id="28-8-counterexample-failure-mode-3d2e65ed" class="semantic-heading semantic-example">28.8 Counterexample / Failure mode</h4>
+<h5 id="28-8-1-1-new-static-04219e61" class="semantic-heading semantic-failure">28.8.1 误区 1：为了少写 NEW 全部改 static</h5>
+<p>static call 很短，但短不等于设计正确。只要逻辑需要对象状态、依赖注入或测试替身，全部 static 会让后续维护更难。</p>
+<p>修正动作：先判断是否需要状态；无状态 helper 可以 static，有状态业务服务优先 instance。</p>
+<h5 id="28-8-2-2-class-data-0dfa5a16" class="semantic-heading semantic-failure">28.8.2 误区 2：把 CLASS-DATA 当跨请求缓存</h5>
+<p>普通 <code>CLASS-DATA</code> 不是跨用户、跨 job、跨 application server 的可靠缓存。把它当企业级缓存会导致“我这里有值、别人那里没有值”的问题。</p>
+<p>修正动作：需要持久化就用数据库；需要并发控制就用 lock/enqueue；需要共享缓存就使用项目认可的缓存机制。</p>
+<h5 id="28-8-3-3-static-method-mutable-shared-state-bfe7ea26" class="semantic-heading semantic-failure">28.8.3 误区 3：static method 偷偷改 mutable shared state</h5>
+<p>一个看起来像纯函数的 static method，如果内部改 <code>CLASS-DATA</code>，调用者很难预期副作用。</p>
+<p>修正动作：static helper 尽量保持输入输出清楚，避免修改 mutable static state；若项目确实需要 cache，明确命名、明确生命周期、提供清理入口，并写测试覆盖清理。不要把“用得小心”当成充分理由，默认应避免 public/writable static attribute 和隐藏 <code>CLASS-DATA</code> cache。</p>
+<h5 id="28-8-4-4-instance-method-static-dependencies-ad0d42c2" class="semantic-heading semantic-failure">28.8.4 误区 4：instance method 滥用 static dependencies</h5>
+<p>instance service 虽然有对象状态，但如果内部到处直接调用 static dependency，就仍然很难测试。</p>
+<p>修正动作：对外部系统、时间、用户、数据库访问、远程调用等不稳定依赖，优先考虑 interface + constructor injection，或至少在小范围内隔离 static call。</p>
+<h5 id="28-8-5-5-static-0989cd9b" class="semantic-heading semantic-failure">28.8.5 误区 5：把 static 当权限或事务边界</h5>
+<p>static / instance 只是 OO 归属边界，不是 authorization、lock 或 <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a> 边界。static method 仍然要遵守权限检查、事务提交、错误处理和 Clean Core 依赖规则。</p>
+<p>修正动作：权限逻辑回到 <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">Authorization check 权限检查</a> 或 RAP authorization；事务逻辑回到 LUW、commit、rollback、save sequence；依赖逻辑回到 <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core 核心干净</a>。</p>
+<h4 id="28-9-571a44a3" class="semantic-heading semantic-practice">28.9 思考问题</h4>
+<ul>
+<li>这个 method 是否依赖某个对象自己的状态？如果依赖，为什么是 static？</li>
+<li>这个 <code>CLASS-DATA</code> 保存的是稳定配置，还是本次请求的临时状态？</li>
+<li>两个 object instance 同时存在时，它们的状态是否应该互相独立？</li>
+<li>这个 static method 是否会偷偷修改 shared state？</li>
+<li>如果把这个逻辑放进 ABAP Unit，测试之间是否会互相污染？</li>
+<li>如果后续要替换数据库访问、当前日期、当前用户或外部 API，static call 是否会妨碍 test double？</li>
+<li>在日本项目里 review 时，应说 <code>静的メソッドでよい</code>，还是应指出 <code>状態管理上、インスタンス化した方が安全です</code>？</li>
+<li>哪一个 SAP Help 页面可以证明 <code>METHODS</code> / <code>CLASS-METHODS</code> / <code>CLASS-DATA</code> 的语法区别？</li>
+</ul>
+<h4 id="28-10-dbad3bca" class="semantic-heading semantic-reference">28.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_OBJECTS.html" target="_blank" rel="noopener noreferrer">ABAP Objects</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCLASSES.html" target="_blank" rel="noopener noreferrer">ABAP Objects - Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCLASS-METHODS.html" target="_blank" rel="noopener noreferrer">CLASS-METHODS</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMETHODS.html" target="_blank" rel="noopener noreferrer">METHODS</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASS_COMPONENT.html" target="_blank" rel="noopener noreferrer">CLASS, components</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPMETHODS_CONSTRUCTOR.html" target="_blank" rel="noopener noreferrer">METHODS, constructor</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+</ul>
+<h4 id="28-11-connections-57472b86">28.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a></li>
+<li>Downstream: <a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a></li>
+<li>Related: <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li>Related: <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a></li>
+<li>Related: <a class="wiki" href="section-02-025-local-class-4c6dbe23.html">Local class 局部类</a></li>
+<li>Related: <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Related: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 11 - OO ABAP 类与方法基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="28-12-dad9d2c3" class="semantic-heading semantic-practice">28.12 学习任务</h4>
+<ul>
+<li>写一个只有 <code>CLASS-METHODS</code> 的无状态 status text helper，并说明为什么它不需要 instance。</li>
+<li>写一个 <code>lcl_counter</code>，让每个 object instance 有自己的 <code>mv_count</code>。</li>
+<li>把一个 public <code>CLASS-DATA</code> 的例子改成 private instance attribute。</li>
+<li>用 5 行中文说明 <code>=&gt;</code> 和 <code>-&gt;</code> 的区别。</li>
+<li>用日语写一句 review comment，指出某个 <code>CLASS-DATA</code> 可能造成测试污染。</li>
+<li>打开 SAP Help 的 <code>CLASS-METHODS</code> 和 <code>METHODS</code> 页面，对照声明语法差异。</li>
+<li>如果已经进入 Week 3/4，观察 RAP behavior implementation 中哪些对象由 framework 管理生命周期，不要随意用 static state 存请求级数据。</li>
+</ul>
+<h4 id="28-13-confidence-next-action-0bf1b99b" class="semantic-heading semantic-status">28.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容已用 SAP Help / ABAP Keyword Documentation 的 ABAP Objects、Classes、<code>CLASS-METHODS</code>、<code>METHODS</code>、class components 和 constructor 页面校准，并已按 Joule <code>Pass with fixes</code> 补入 instance method 可访问 static、避免 mutable static state、class constructor 避免业务副作用、hidden <code>CLASS-DATA</code> cache 风险等要点。</li>
+<li>Next action: 已完成官方资料与 Joule 证据闭环并同步到 Chapter 02 与离线书稿；Claude 2026-06-13 因 credentials 失败无 verdict，当前 Claude CLI 仍有 credentials provider 问题，后续恢复后可做补充复核。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-028-static-vs-instance-e9b8f033.html">Static vs instance 静态与实例</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-027-method-visibility-944fe011.html">Previous section</a><a href="section-02-029-constructor-d3a7146e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

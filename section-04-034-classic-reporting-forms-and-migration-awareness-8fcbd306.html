@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Classic reporting forms and migration awareness | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="34-classic-reporting-forms-and-migration-awareness-a19c1ac7" class="chapter-title">34. Classic reporting forms and migration awareness</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 34</li><li>self-contained study note</li></ul><h4 id="34-1-4129e632" class="semantic-heading semantic-concept">34.1 一句话结论</h4>
+<p>Classic reporting forms and migration awareness 是「棕地 SAP 项目识别能力」中的补充知识点；在本教程里要学的是：能识别 ALV、classic forms、Migration Cockpit、LSMW 等现场常见对象，并知道它们只是 awareness，不是本课程的主线开发方向。</p>
+<p>这一节的重点是“识别与边界”，不是把课程改造成 ALV、表单和数据迁移大全。日本 SAP 棕地项目里，经常会遇到旧 ABAP report、ALV grid、SAPscript、Smart Forms、Adobe Forms、Migration Cockpit、LSMW、批量上传程序和 Excel 模板。它们不一定是未来主线技术，但初学者必须知道它们是什么、谁负责、ABAP 开发者要配合什么、迁移或替代时要注意什么。</p>
+<p>如果只学 RAP/OData/Fiori，到了客户现场看到一堆 <code>ZREP_*</code> 报表、<code>Smart Forms</code> 帳票、LSMW 迁移记录和旧上传程序，会很容易失去方向。反过来，如果把这些 legacy 技术全部展开成主线，又会让“一个月项目就绪”的学习路径失焦。本节的目的就是把握这个平衡。</p>
+<h4 id="34-2-d169796c" class="semantic-heading semantic-concept">34.2 到底学什么</h4>
+<p>第一，要学 classic report / ALV 的识别。旧系统里大量报表是 executable program + selection screen + SELECT + internal table + ALV output。它可能只是查询报表，也可能带下载、批量更新、后台执行、submit chaining 或接口文件生成。识别时不能只看“能显示表格”，还要看它是否更新数据、是否被 job 调用、是否被业务当作日常工具。</p>
+<p>第二，要学表单对象的识别。SAPscript、Smart Forms、Adobe Forms 都可能用于发票、采购订单、交货单、标签、通知书等输出。ABAP 开发者可能负责数据取数、接口结构、driver program、输出条件、字段映射、打印问题调查，而不一定负责业务表单版式的全部设计。</p>
+<p>第三，要学数据迁移工具的边界。Migration Cockpit 是 S/4HANA 常见迁移入口，LSMW 在旧项目和棕地项目中仍可能被提到，但更适合作为历史资料、遗留流程和维护风险来识别，而不是新项目默认迁移方案。ABAP 开发者要理解字段映射、校验、staging、错误日志、转换规则和定制导入程序，但数据迁移通常需要功能顾问、业务用户、数据团队共同负责。</p>
+<p>第四，要学迁移判断。一个旧 ALV 报表是否要改成 Fiori app？一个 Smart Form 是否要迁移到 Adobe Forms 或新的 output management？一个 LSMW 是否要替换为 Migration Cockpit、API 或定制 migration program？这些判断不只看技术新旧，还要看业务频度、合规要求、用户体验、成本、风险和系统目标架构。</p>
+<h4 id="34-3-d3da9ea6" class="semantic-heading semantic-why">34.3 为什么重要</h4>
+<p>棕地项目中，报表、表单和迁移工具经常占据大量工时。客户可能不关心某个对象是不是“现代”，他们关心月末报表是否能出、发票表单是否合规、迁移数据是否正确、旧系统的业务习惯是否能延续。ABAP 开发者如果不认识这些对象，很难准确估算和沟通。</p>
+<p>这些对象也常常隐藏生产风险。旧报表可能直接 SELECT 大表导致性能问题；ALV 下载可能成为业务接口替代品；表单字段可能影响法定输出；迁移工具可能因字段映射错误造成主数据质量问题；LSMW 记录可能没人维护但仍被关键用户依赖。</p>
+<p>对 Java/Python 背景学习者来说，可以把 classic report/ALV 类比为旧后台报表页面，把 forms 类比为 PDF/打印模板，把 Migration Cockpit/LSMW 类比为数据迁移工具和批量导入脚本。但 SAP 的不同在于：这些对象通常和业务流程、输出管理、配置、权限、job、transport 和客户历史操作习惯绑定。</p>
+<p>还要注意运行环境差异。本节讨论的很多经典对象，例如 SAPscript、classic GUI ALV、<code>REUSE_ALV_GRID_DISPLAY</code>、SE38 executable report、LSMW 和部分 SAP GUI 调查入口，主要属于 on-premise、ECC 或 SAP S/4HANA Private Edition 语境。在 SAP S/4HANA Public Cloud 和 <a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud 现代开发模型</a> / <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a> 语境下，经典工具通常不可用或受到严格限制，新开发应优先确认 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">released API</a>、CDS、RAP、Fiori、标准 output management 和 Migration Cockpit 能力。所以，“识别旧对象”通常是棕地或 on-premise 项目的调查能力，不要默认所有客户系统都能继续开发或运行这些经典对象。</p>
+<p>这一节还关系到“项目现实感”。很多学习路线会直接从 CDS analytical query、Fiori Elements、RAP API 讲起，这当然是现代方向；但客户的日常运营可能仍依赖一个十年前写的月末 ALV 报表，一个被财务部门打印盖章的 Smart Form，一个只在 cutover 周末运行一次的迁移程序。对这些对象没有 awareness，就会在影响调查、估算、测试和上线支持中频繁漏项。</p>
+<p>更重要的是，报表、表单、迁移不是“低级任务”。一个税务发票表单字段错误，可能是合规问题；一个迁移 mapping 错误，可能造成主数据污染；一个旧 ALV 报表在月末全表扫描，可能影响生产性能；一个 LSMW 录屏脚本没人懂，可能在 cutover 当天阻塞上线。它们不是新技术主线，但它们是 SAP 项目交付的真实风险区。</p>
+<h4 id="34-4-key-mechanism-20b39ba1" class="semantic-heading semantic-mechanism">34.4 Key mechanism / 核心机制</h4>
+<p>可以把本节对象分成三组。</p>
+<p>第一组是 reporting。典型对象包括 classic ABAP report、selection screen、ALV list/grid、background report、download report、upload report。识别时看五件事：输入条件、读取数据、是否更新、输出形式、是否后台运行。常见代码线索包括 <code>START-OF-SELECTION</code>、<code>SELECT-OPTIONS</code>、<code>PARAMETERS</code>、<code>CL_SALV_TABLE</code>、<code>CL_GUI_ALV_GRID</code>、<code>REUSE_ALV_GRID_DISPLAY</code>、<code>SUBMIT</code>、<code>OPEN DATASET</code> 等。<code>CL_SALV_TABLE</code>、<code>CL_GUI_ALV_GRID</code> 和 <code>REUSE_*</code> function module 代表不同历史阶段的 ALV 写法；在本节里它们首先是识别线索，不等于推荐新开发继续使用旧写法。</p>
+<p>第二组是 forms / output。SAPscript、Smart Forms、Adobe Forms 处在不同历史阶段，可能由 driver program 提供数据，再由表单模板输出 PDF、打印或邮件。调查时要看：业务单据、输出类型、语言、layout、字段来源、driver program、打印程序、form interface、spool、PDF 生成、客户印章/税号/法定字段。</p>
+<p>第三组是 migration / upload。Migration Cockpit 常用于 S/4HANA 数据迁移；LSMW 在很多旧项目中仍有历史记录，但它更适合作为旧迁移方案、录屏脚本和历史交付物的调查对象，不应被当作 SAP S/4HANA 新迁移或 Public Cloud 迁移的默认工具；此外还可能有 Z 上传程序、BDC、BAPI 批量导入、file interface。调查时要看：对象范围、模板字段、mapping、校验、错误日志、重处理、数据清洗责任、导入顺序和 cutover 时间窗口。</p>
+<p>还可以按风险分级来读这些对象：</p>
+<div class="table-wrap"><table><thead><tr><th>对象类型</th><th>低风险例子</th><th>高风险信号</th></tr></thead><tbody><tr><td>ALV / classic report</td><td>只读查询、少量数据、非关键用户使用</td><td>月末/决算使用、后台 job、下载给外部系统、直接更新数据</td></tr><tr><td>Forms / output</td><td>内部通知、非合规打印物</td><td>发票、采购订单、税号、银行信息、法定字段、多语言输出</td></tr><tr><td>Migration / upload</td><td>一次性测试数据导入</td><td>主数据/余额/开放项目迁移、cutover 关键路径、错误不可轻易回滚</td></tr><tr><td>LSMW / BDC / Z upload</td><td>历史补录工具、可人工复核</td><td>无 owner、无日志、无 rehearsal、字段 mapping 靠个人记忆</td></tr></tbody></table></div>
+<p>这张表的目的不是让读者马上学会开发所有对象，而是让读者知道哪些对象需要升级到项目风险讨论层面。看到“表单少一个字段”时，要问它是不是法定输出；看到“只是 ALV”时，要问它是不是月末 reconciliation；看到“Excel 上传”时，要问它是不是 cutover 的关键步骤。</p>
+<p>是否迁移或替代时，可以问：</p>
+<pre><code class="language-text">1. Usage:
+   这个报表/表单/迁移工具还在被谁使用？频度如何？
+
+2. Risk:
+   是否涉及法定输出、财务数据、核心主数据、批量更新或生产 job？
+
+3. Replacement:
+   是否有标准 Fiori app、CDS analytical query、standard API、
+   Migration Cockpit object、output management 或 released extension？
+
+4. Effort:
+   只是 UI/格式替换，还是业务逻辑、权限、数据模型都要重做？
+
+5. Decision:
+   保留、封存、轻微改修、迁移到现代方案，还是作为例外管理？</code></pre>
+<p>迁移或替代路线可以用一个更清楚的决策树表达：</p>
+<pre><code class="language-text">Classic asset found
+  -&gt; Is it still used?
+       no  -&gt; archive evidence and retire from migration scope
+       yes -&gt; Is there a standard S/4HANA / Fiori / analytical / migration object replacement?
+              yes -&gt; evaluate replacement fit, data gaps, user retraining, regression scope
+              no  -&gt; Is it legally/business critical?
+                     yes -&gt; keep or rebuild with explicit owner, tests, performance and cutover plan
+                     no  -&gt; consider phased retirement or minimal compatibility support</code></pre>
+<p>对 ABAP 开发者来说，最重要的不是“新旧技术站队”，而是把判断证据写出来。为什么这个 ALV 暂时保留？为什么这个 Smart Form 必须改？为什么这个 LSMW 不能继续用作新项目默认迁移方式？这些都应该在调查表、迁移方針、改修方針或 cutover plan 中留下证据。</p>
+<p>一个可复用的调查模板如下：</p>
+<div class="table-wrap"><table><thead><tr><th>项目</th><th>要填写的内容</th></tr></thead><tbody><tr><td>Object name</td><td>report/form/migration object/program/job/template 名称</td></tr><tr><td>Business owner</td><td>使用部门、关键用户、运维 owner</td></tr><tr><td>Usage</td><td>使用频度、业务时点、是否月末/决算/cutover 关键</td></tr><tr><td>Technical shape</td><td>ALV、SAPscript、Smart Forms、Adobe Forms、Migration Cockpit、LSMW、Z upload 等</td></tr><tr><td>Data and risk</td><td>读取/更新对象、数据量、个人信息、法定字段、财务影响</td></tr><tr><td>Evidence</td><td>variant、job、spool、sample output、mapping sheet、error log、rehearsal result</td></tr><tr><td>Decision</td><td>retain、retire、replace、rebuild、exception</td></tr><tr><td>Next action</td><td>性能测试、权限检查、表单确认、迁移 rehearsal、用户确认</td></tr></tbody></table></div>
+<h4 id="34-5-738288fd" class="semantic-heading semantic-japan">34.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>ALV</code>、<code>レポート</code>、<code>帳票</code>、<code>フォーム</code>、<code>Smart Forms</code>、<code>Adobe Forms</code>、<code>SAPscript</code>、<code>移行コックピット</code>、<code>LSMW</code>、<code>データ移行</code>、<code>項目マッピング</code>、<code>移行リハーサル</code>、<code>切替</code>、<code>出力管理</code>。</p>
+<p>调查时可以这样说：</p>
+<ul>
+<li>既存レポートがALV表示のみなのか、更新処理やファイル出力を含むのかを確認します。</li>
+<li>帳票については、フォームだけでなく、データ取得ロジックと出力条件も調査対象に含めます。</li>
+<li>データ移行では、項目マッピング、変換ルール、エラー処理、移行リハーサルの証跡を確認します。</li>
+</ul>
+<p>边界确认时可以这样说：</p>
+<ul>
+<li>この範囲はawarenessとして扱い、詳細な帳票開発やLSMW手順の教育は本コースの主線外とします。</li>
+<li>新規開発ではFiori/CDS/RAPや標準移行ツールの利用可否を先に確認します。</li>
+<li>既存帳票は、レイアウトだけでなく、出力条件、データ取得、スプール、印刷・メール送信の流れまで確認します。</li>
+<li>移行ツールは手順だけでなく、リハーサル結果、エラー一覧、再実行可否、業務承認を証跡として残します。</li>
+</ul>
+<h4 id="34-6-english-terms-4216ee5c" class="semantic-heading semantic-terms">34.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ALV</code>, <code>SAP List Viewer</code>, <code>SAPscript</code>, <code>Smart Forms</code>, <code>Adobe Forms</code>, <code>SAP S/4HANA Migration Cockpit</code>, <code>LSMW</code>.</li>
+<li>Related terms: <code>classic report</code>, <code>selection screen</code>, <code>output management</code>, <code>spool</code>, <code>driver program</code>, <code>form interface</code>, <code>staging table</code>, <code>data migration</code>, <code>field mapping</code>, <code>migration object</code>.</li>
+<li>Recommended search pattern: <code>SAP ALV ABAP report</code>, <code>SAP Smart Forms Adobe Forms</code>, <code>SAP S/4HANA Migration Cockpit</code>, <code>SAP LSMW migration</code>.</li>
+<li>注意：LSMW 在现代 S/4HANA 和云化语境中并不是推荐主线；学习重点是识别旧项目资料，而不是把它作为新项目默认方案。</li>
+</ul>
+<h4 id="34-7-example-f5d58eb3" class="semantic-heading semantic-example">34.7 Example / 学习例子</h4>
+<p>假设客户要求“把旧系统的库存差异报表迁移到 S/4HANA”。不要马上估算“做一个报表”。先做识别：</p>
+<pre><code class="language-text">Current object:
+  ZMM_STOCK_DIFF_REPORT
+
+Type:
+  Classic report + ALV output
+
+Inputs:
+  Plant, storage location, material range, posting date
+
+Logic:
+  Reads stock tables and movement history
+  Calculates difference and displays ALV
+
+Output:
+  ALV display + Excel download
+
+Usage:
+  Month-end reconciliation
+
+Risk:
+  Large data volume
+  Finance/month-end dependency
+  Possible replacement by standard Fiori app or CDS analytical query
+
+Decision candidates:
+  Keep as classic report temporarily
+  Replace with CDS analytical query + Fiori elements
+  Rebuild as RAP/OData only if interactive process is needed</code></pre>
+<p>另一个例子是表单：客户说“发票 PDF 少了一个字段”。调查对象不只是 Adobe Form layout，还包括输出类型、driver program、数据结构、字段来源、语言和打印/邮件流程。ABAP 开发者可能需要补取数字段，但最终格式和业务字段含义通常要和功能顾问、业务用户一起确认。</p>
+<p>迁移场景中，如果客户说“用 Excel 上传主数据”，也要先确认是不是 Migration Cockpit 标准对象、LSMW 历史方案、Z upload program，还是应该用 released API。不同选择会影响校验、错误日志、重试、cutover 和责任分工。</p>
+<p>再看一个 migration mini case。客户要把旧 ECC 供应商主数据迁移到 S/4HANA。初学者可能只看到“Excel 模板上传”，但项目上要拆成：</p>
+<pre><code class="language-text">Migration object:
+  Supplier / Business Partner
+
+Tool candidate:
+  SAP S/4HANA Migration Cockpit standard object
+
+Legacy reference:
+  Old LSMW recording and Z upload program exist, but only for historical analysis
+
+ABAP role:
+  Help analyze custom fields, validation exits, error logs, mapping helper,
+  and possible API/custom staging gaps
+
+Functional role:
+  Define field mapping, business rules, number range, BP role, reconciliation
+
+Business role:
+  Cleanse data, approve mapping, validate rehearsal result
+
+Cutover evidence:
+  rehearsal run ID, error list, correction log, migrated count,
+  reconciliation result, sign-off</code></pre>
+<p>这个例子能说明：迁移不是“谁写个上传程序”。Migration Cockpit、API、Z program、LSMW 历史资料都可能出现，但真正的交付物是可追溯的数据迁移结果和业务确认。</p>
+<p>表单场景也类似。客户说“采购订单 PDF 格式不对”时，调查应至少包括：</p>
+<pre><code class="language-text">Output object:
+  Purchase order form
+
+Technical candidates:
+  SAPscript / Smart Forms / Adobe Forms / output management
+
+Checkpoints:
+  output type
+  driver program / print program
+  form interface
+  language and translation
+  tax / address / bank fields
+  spool and PDF generation
+  email / print channel
+  sample output approved by business</code></pre>
+<p>如果只改 form layout，不查 output condition、driver program 和字段来源，很容易出现“开发机 PDF 正常，QAS 打印不出”或“日语模板对了，英语模板漏字段”的问题。</p>
+<h4 id="34-8-counterexample-failure-mode-0522a543" class="semantic-heading semantic-example">34.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十二类。</p>
+<p>第一，把 ALV/forms/LSMW 全部扩写成主线，导致一个月 ABAP 项目就绪课程失焦。它们重要，但不是本课程的主轴。</p>
+<p>第二，完全不认识旧报表和迁移工具，导致 brownfield onboarding 时无法参与调查。</p>
+<p>第三，把 ALV 报表当成纯 UI。很多旧报表还包含下载、更新、后台 job、接口文件生成或业务校验。</p>
+<p>第四，只改表单 layout，不查 driver program 和输出条件。字段取不到、语言不对、打印条件不对时，问题可能不在 form 版式。</p>
+<p>第五，以为 Migration Cockpit 只是“上传 Excel”。真正困难在字段 mapping、数据清洗、校验、错误处理、迁移 rehearsal 和业务确认。</p>
+<p>第六，继续用 LSMW 作为新项目默认方案。旧项目可以识别和维护，现代方案要优先查 S/4HANA 推荐迁移工具、API 或标准能力。</p>
+<p>第七，把旧报表全部重写成 Fiori。迁移要看使用频度、业务价值、替代标准功能和成本，不是为了技术新而重写。</p>
+<p>第八，迁移估算只看程序数量，不看表单、variant、job、spool、权限、用户操作手顺和依赖接口。</p>
+<p>第九，迁移 rehearsal 不留证据。只说“测试过一次”不够，要有输入文件版本、执行时间、错误清单、修正记录、成功件数、失败件数、业务签收。</p>
+<p>第十，把法定表单当成普通打印格式。发票、税务、银行、工资、采购合同等输出可能有合规要求，不能只从 UI 美观角度处理。</p>
+<p>第十一，旧报表下载文件被外部系统当接口使用。表面是 ALV，实际是接口契约；迁移时若改字段顺序或文件格式，会影响外部系统。</p>
+<p>第十二，只问“是否能迁移到 Fiori”。更实际的问题是：有没有标准 app/analytical query 替代？用户是否接受？权限、性能、下载、打印、审计、历史 variant 怎么处理？</p>
+<h4 id="34-9-aee75a90" class="semantic-heading semantic-practice">34.9 思考问题</h4>
+<ul>
+<li>当前任务是识别旧对象、支持迁移，还是设计新开发主线？</li>
+<li>这个 report 是否只读？是否更新数据、生成文件或被 background job 调用？</li>
+<li>这个 form 的数据来源、输出条件、语言和打印/邮件流程在哪里？</li>
+<li>数据迁移中 ABAP 开发者、功能顾问、业务用户、数据团队各负责哪一段？</li>
+<li>是否有标准 Fiori app、CDS analytical query、Migration Cockpit object 或 released API 可以替代？</li>
+</ul>
+<h4 id="34-10-5da95939" class="semantic-heading semantic-reference">34.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>SAP Help Portal / SAP Learning: search <code>SAP List Viewer</code>, <code>ALV</code>, <code>Smart Forms</code>, <code>Adobe Forms</code>, <code>SAP S/4HANA Migration Cockpit</code>.</li>
+<li>SAP Help Portal: <a href="https://help.sap.com/docs/SAP_S4HANA_CLOUD" target="_blank" rel="noopener noreferrer">SAP S/4HANA Cloud</a></li>
+<li>SAP Help Portal: <a href="https://help.sap.com/docs/abap-cloud" target="_blank" rel="noopener noreferrer">ABAP Cloud</a></li>
+<li>SAP Learning: search <code>SAP S/4HANA Migration Cockpit</code>, <code>data migration</code>, <code>SAP List Viewer</code>, <code>forms output management</code>.</li>
+<li>Legacy awareness only: search <code>LSMW</code> when reading old project documentation, but confirm modern S/4HANA recommendation before using it for new work.</li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20List%20Viewer%20ALV" target="_blank" rel="noopener noreferrer">SAP Help search - SAP List Viewer ALV</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Smart%20Forms%20Adobe%20Forms" target="_blank" rel="noopener noreferrer">SAP Help search - Smart Forms Adobe Forms</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20S%2F4HANA%20Migration%20Cockpit" target="_blank" rel="noopener noreferrer">SAP Help search - SAP S/4HANA Migration Cockpit</a></li>
+<li><a href="https://learning.sap.com/search?query=SAP%20S%2F4HANA%20Migration%20Cockpit" target="_blank" rel="noopener noreferrer">SAP Learning search - SAP S/4HANA Migration Cockpit</a></li>
+<li><a href="https://learning.sap.com/search?query=data%20migration%20SAP%20S%2F4HANA" target="_blank" rel="noopener noreferrer">SAP Learning search - data migration SAP S/4HANA</a></li>
+</ul>
+<h4 id="34-11-connections-c7c293e0">34.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Practice</span></li>
+<li>Upstream: <a class="wiki" href="section-04-023-background-job-and-submit-basics-11cfa86d.html">Background job and SUBMIT basics</a></li>
+<li>Downstream: <a class="wiki" href="section-04-035-sap-note-and-oss-note-workflow-0e2994f8.html">SAP Note and OSS note workflow</a></li>
+<li>Related: <a class="wiki" href="section-04-033-classic-integration-interfaces-awareness-a838d9eb.html">Classic integration interfaces awareness</a></li>
+<li>Related: <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>Related: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Related: <a class="wiki" href="section-03-001-why-cds-cds-089bd732.html">Why CDS 为什么需要 CDS</a></li>
+<li>Related: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 27 - Clean Core 与上线前加固</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+</ul>
+<h4 id="34-12-89c56990" class="semantic-heading semantic-practice">34.12 学习任务</h4>
+<ul>
+<li>用中文区分 ALV、SAPscript、Smart Forms、Adobe Forms、Migration Cockpit、LSMW。</li>
+<li>写一张旧报表调查表：输入、读取对象、是否更新、输出、job/variant、替代候选。</li>
+<li>用日语写 2 句：一句说明本课程只做 awareness，一句说明新开发要先确认 Fiori/CDS/RAP 或标准迁移工具。</li>
+<li>找一个旧 report、form 或迁移任务，判断 ABAP 开发者、功能顾问、业务用户的交付边界。</li>
+<li>选一个旧 ALV 报表，说明它是否值得迁移到 CDS analytical query / Fiori，还是应暂时保留。</li>
+<li>追加练习：用本节调查模板分析一个旧表单，写出 output type、driver program、form interface、sample output 和业务确认方式。</li>
+<li>追加练习：为一个主数据迁移对象写一张 rehearsal 证据表，包括输入文件版本、成功件数、错误件数、修正记录和业务 sign-off。</li>
+</ul>
+<h4 id="34-13-confidence-next-action-a7305949" class="semantic-heading semantic-status">34.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High，classic reporting/forms/migration 的识别框架和项目边界稳定，Claude review 已给出 <code>Pass with fixes</code>；当前文本已补足尾部残留清理、Public Cloud / ABAP Cloud 边界、ALV 新旧写法识别线索，以及 LSMW 只作旧项目调查对象而非新迁移默认工具的说明。Joule v2 证据仍停留在已提交但未捕获最终 verdict 的状态，所以本节后续如能恢复 Joule，应补一次最终 SAP-specialist verdict；具体对象、工具推荐和替代方案仍需按 SAP S/4HANA release、客户输出管理、迁移策略和项目职责确认。</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-035-sap-note-and-oss-note-workflow-0e2994f8.html">SAP Note and OSS note workflow</a>，补充生产问题、标准缺陷、SAP Note/OSS 处理和客户沟通的项目现场能力。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-034-classic-reporting-forms-and-migration-awareness-8fcbd306.html">Classic reporting forms and migration awareness</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-033-classic-integration-interfaces-awareness-a838d9eb.html">Previous section</a><a href="section-04-035-sap-note-and-oss-note-workflow-0e2994f8.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

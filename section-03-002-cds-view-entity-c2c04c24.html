@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>CDS view entity 视图实体 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="2-cds-view-entity-9d73ab55" class="chapter-title">2. CDS view entity 视图实体</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 02</li><li>self-contained study note</li></ul><h4 id="2-1-a3ea43e5" class="semantic-heading semantic-concept">2.1 一句话结论</h4>
+<p>CDS view entity 视图实体，是现代 ABAP CDS 中用 <code>DEFINE VIEW ENTITY</code> 定义的语义读模型。它把底层表或其他 CDS entity 组织成一个可复用、可激活、可被 ABAP SQL / RAP / OData / Fiori / analytics 消费的 repository object；它不是数据库表，也不是普通 SQL view，更不是完整的 RAP business object。</p>
+<p>上一节 <a class="wiki" href="section-03-001-why-cds-cds-089bd732.html">Why CDS 为什么需要 CDS</a> 回答“为什么 SAP 需要语义模型这一层”。本节回答“这个语义模型最常见、最应该优先学习的现代对象长什么样”。读者学完以后，应该能打开一个 <code>.ddls</code> 文件，判断它的数据来源、key、字段别名、association、annotation、access-control 入口和下游消费方，而不是只看到一堆 <code>define view entity</code> 语法。</p>
+<h4 id="2-2-c3ac3d85" class="semantic-heading semantic-concept">2.2 到底学什么</h4>
+<p>本节的重点不是把 CDS DDL 的所有语法背完，而是学会用项目视角阅读和设计一个 view entity。一个健康的 CDS view entity 至少要回答：它从哪里取数据、对外表达什么实体、哪些字段构成 key、字段名字是否是业务语言、哪些关系用 association 暴露、哪些 annotation 影响消费、是否需要 DCL / access control、谁会消费它。</p>
+<p>需要掌握七个判断点。</p>
+<ul>
+<li>Object form：CDS view entity 是 ABAP repository development object，由 DDL source 定义并通过 activation 进入可用状态。</li>
+<li>Data source：它可以基于 database table、DDIC view、其他 CDS entity 或合适的数据源建模，但自身不存储业务数据。</li>
+<li>Elements：<code>key</code>、field alias、calculated field、built-in function、cast、case expression 等共同组成对外字段。</li>
+<li>Association：association 表达可导航关系，不等于每个消费场景都应该写成硬编码 join。</li>
+<li>Annotation：annotation 给模型补语义和消费元数据，但不同 annotation 的消费者不同。</li>
+<li>Access control：view entity 可以和 CDS access control / DCL 配合，但不能替代完整授权和事务控制。</li>
+<li>Modern boundary：新建 CDS 模型优先学习和使用 view entity；旧式 DDIC-based CDS view / <code>DEFINE VIEW</code> 需要在 legacy 依赖和迁移策略下保守处理。</li>
+</ul>
+<h4 id="2-3-2a4013b3" class="semantic-heading semantic-why">2.3 为什么重要</h4>
+<p>view entity 是 Week 3 后续内容的“承重墙”。没有它，<a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a> 没有附着点，<a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a> 没有模型上下文，<a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a> 没有被投影的对象，<a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a> 和 <a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a> 也会变成抽象名词。现代 ABAP 项目经常围绕一组 CDS entities 组织数据模型，再在它们之上建立 RAP behavior、service definition、service binding 和 OData 服务。</p>
+<p>它对项目交付的重要性有三层。</p>
+<p>第一，view entity 把散落的读取逻辑收敛成可复用模型。同一个“销售订单基本信息”如果在 10 个 class 中各写一遍 <code>SELECT</code>，字段名、join 条件、过滤条件、金额/币种处理和授权入口都可能漂移。把它建成 view entity 后，多个消费者可以复用同一套语义。</p>
+<p>第二，view entity 是 review 的对象。reviewer 可以围绕 DDL source 讨论：key 是否合理、字段别名是否清楚、association cardinality 是否可信、annotation 是否过度、DCL 是否需要、公开范围是否过大、是否违反 Clean Core/released API 要求。这比 review 一堆分散 SQL 更可控。</p>
+<p>第三，view entity 是向 RAP/OData 过渡的入口。RAP 不会凭空出现业务对象；它需要 entity model、root/projection 结构和 behavior definition。OData 也不会只暴露“表”；它暴露的是有字段、关联、元数据和行为边界的服务模型。view entity 正是这条链路的底层骨架之一。</p>
+<p>对 Java/Python 背景学习者来说，可以暂时把 view entity 类比为“可复用 read model / projection model”，但不要把它等同于 ORM entity。ORM entity 通常与对象生命周期、持久化状态、更新行为绑定；普通 CDS view entity 默认更接近声明式读模型。更新、行为、事务和 save sequence 需要进入 RAP 或 ABAP application layer 设计。</p>
+<h4 id="2-4-key-mechanism-ab339ff8" class="semantic-heading semantic-mechanism">2.4 Key mechanism / 核心机制</h4>
+<h5 id="2-4-1-4-1-ddl-source-repository-object-activation-93480ad5">2.4.1 4.1 DDL source、repository object 和 activation</h5>
+<p>一个 CDS view entity 通常写在 ADT 中的 DDL source 里，语法入口是 <code>DEFINE VIEW ENTITY</code>。它属于 ABAP repository 世界：有 package、transport、activation、where-used 和语法检查。和普通本地 SQL 字符串不同，view entity 激活后可以被其他 ABAP repository object 引用，也可以作为 ABAP SQL、RAP 或 service exposure 的数据源。</p>
+<p>这意味着 view entity 不是“运行时拼出来的查询”。它要通过 activation，字段、类型、数据源、association 和 annotation 都会被检查。项目上如果修改 view entity 的公开字段或 key，影响可能扩散到 ABAP SQL 消费方、RAP projection、service definition、Fiori Elements 页面、analytics 模型或测试代码。</p>
+<h5 id="2-4-2-4-2-view-entity-5a352872">2.4.2 4.2 View entity 不等于数据库表</h5>
+<p>数据库表负责存储数据。view entity 不直接存储业务数据，它声明的是一个基于其他数据源的模型。它可以把表字段投影出来、改成更清楚的字段名、组合其他 CDS entity、计算派生字段、暴露 association、加 annotation、接入 access control。它的重点是“如何看这组数据”，不是“数据物理存在哪里”。</p>
+<p>因此不要对 view entity 做三个错误期待。</p>
+<ul>
+<li>它不会因为写了 <code>key</code> 就自动改变底层表的 primary key。</li>
+<li>它不会因为暴露了字段就自动允许更新。</li>
+<li>它不会因为名字像业务对象就自动拥有 RAP behavior、lock、validation 或 action。</li>
+</ul>
+<p><code>key</code> 在 CDS entity 中表达实体结果的关键字段，应该符合模型的唯一性和消费需求；但它不是随手装饰，也不是底层数据库约束的替代品。初学者读 view entity 时，一定要问：这些 <code>key</code> 字段真的能唯一识别当前模型中的一行吗？下游 service 或 UI 是否依赖这个 key？</p>
+<h5 id="2-4-3-4-3-view-entity-define-view-58f321b4">2.4.3 4.3 View entity 和旧式 <code>DEFINE VIEW</code></h5>
+<p>现代 ABAP CDS 新建模型应优先学习 view entity，也就是 <code>DEFINE VIEW ENTITY</code>。旧式 DDIC-based CDS view 使用 <code>DEFINE VIEW</code>，历史上常伴随生成的 SQL view name 和 DDIC 依赖。view entity 的设计方向更现代，避免了很多旧式 DDIC SQL view 相关负担，也更适合作为新教程的主线。</p>
+<p>一个很实用的识别点是：如果看到 <code>@AbapCatalog.sqlViewName</code>，通常说明你正在看旧式 DDIC-based CDS view 的世界，而不是现代 view entity 主线。初学者不需要一开始深挖所有历史差异，但要知道它们不是同一个对象形态；迁移或包装旧对象时，SQL view name、where-used、OData/BW/analytics 依赖都要进入影响调查。</p>
+<p>但项目处理不能粗暴。客户系统里常有旧式 CDS view、DDIC view、BW/analytics extraction、OData 服务、custom ABAP SQL、外部接口和权限配置依赖旧对象。看到 <code>DEFINE VIEW</code> 不代表立刻重写；正确动作是先做 where-used / impact analysis，确认 release、接口、性能、授权和测试范围，再决定保留、包装、迁移或重构。</p>
+<p>本书的学习策略是：新学习者先掌握 view entity，知道旧式 <code>DEFINE VIEW</code> 是 legacy/兼容背景；真正进项目时再根据系统版本和依赖决定处理方式。</p>
+<h5 id="2-4-4-4-4-as-select-from-23c171f4">2.4.4 4.4 基本结构：从 <code>as select from</code> 读起</h5>
+<p>一个最小 view entity 大致由这些部分组成：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales Order Basic View&#x27;
+@AccessControl.authorizationCheck: #CHECK
+define view entity ZI_SalesOrder
+  as select from zsales_order
+{
+  key zsales_order.order_id    as SalesOrder,
+      zsales_order.customer_id as Customer,
+      zsales_order.net_amount  as NetAmount,
+      zsales_order.currency    as Currency
+}</code></pre>
+<p>读这段时，不要只翻译关键字。应该按顺序看：</p>
+<ul>
+<li><code>@EndUserText.label</code>：给人读的说明，不等于业务设计完成。</li>
+<li><code>@AccessControl.authorizationCheck</code>：提示 access-control 检查策略，但仍要确认是否有对应 DCL 和完整授权设计。</li>
+<li><code>define view entity ZI_SalesOrder</code>：对象名表达它的层级和用途；<code>ZI_</code> 常被项目用作 interface/basic view 命名，但这不是 SAP 强制全局规则。</li>
+<li><code>as select from zsales_order</code>：底层来源是自建表，需确认这在当前项目 / ABAP Cloud / Clean Core 语境是否允许。</li>
+<li><code>key</code>：模型 key 是否合理。</li>
+<li><code>as SalesOrder</code> 等 alias：对外字段名是否是业务语言，而不是原始技术字段的简单搬运。</li>
+</ul>
+<h5 id="2-4-5-4-5-field-alias-18b8b891">2.4.5 4.5 Field alias 和语义命名</h5>
+<p>view entity 的字段名会被下游消费。一个字段在底层表叫 <code>vbeln</code>、<code>kunnr</code> 或自建字段名，不代表对外也应该叫这个名字。CDS 的价值之一，就是把对外模型的字段命名变成业务语言。</p>
+<p>例如：</p>
+<pre><code class="language-abap">key zsales_order.order_id     as SalesOrder,
+    zsales_order.customer_id  as Customer,
+    zsales_order.net_amount   as NetAmount,
+    zsales_order.currency     as Currency</code></pre>
+<p>这里 <code>SalesOrder</code>, <code>Customer</code>, <code>NetAmount</code>, <code>Currency</code> 比底层技术字段更适合服务和 UI 消费。但命名不能随意创造。如果项目已有标准字段名、SAP released API 字段名、Fiori Elements 约定或接口契约，应优先保持一致。字段名一旦被 OData/API 暴露，后续改名就可能是 breaking change。</p>
+<h5 id="2-4-6-4-6-association-join-d65143c4">2.4.6 4.6 Association：可导航关系，不是无脑 join</h5>
+<p>view entity 可以定义 association：</p>
+<pre><code class="language-abap">association [0..1] to ZI_Customer as _Customer
+  on _Customer.Customer = zsales_order.customer_id</code></pre>
+<p>association 的意义是让模型表达“当前实体和另一个实体之间存在关系”，并允许下游通过 path expression、projection、service exposure 或 UI metadata 使用这个关系。它比在每个消费方手写 join 更接近语义模型。</p>
+<p>但 association 不是免费午餐。cardinality 如果写错，会误导优化、UI、OData navigation 或 reviewer；<code>on</code> condition 如果没有业务唯一性，也会产生重复或错误导航；association 暴露太多，会把内部模型细节泄漏给消费层。初学者应先学会问三件事：关系是否真实、cardinality 是否可信、下游是否真的需要导航。</p>
+<h5 id="2-4-7-4-7-annotation-492a43de">2.4.7 4.7 Annotation：元数据不是装饰</h5>
+<p>annotation 看起来像“注释”，但它不是普通 comment。CDS annotation 可能影响 label、UI 行为、OData metadata、analytics、authorization check、search、value help、semantics 或 framework 解释。不同 annotation 有不同消费者，不是写了就一定被所有地方使用。</p>
+<p>初学者常见误区是把 annotation 当作“以后再补的 UI 装饰”。实际项目中，annotation 经常是服务可读性、Fiori Elements 页面生成、字段语义和 API metadata 的一部分。另一方面，annotation 也不能乱堆。把 UI annotation、analytics annotation、技术 annotation 和业务语义混在一个基础 view 里，可能让底层模型被过早绑定到某个消费场景。</p>
+<p>本节只要求知道：annotation 是 view entity 语义的一部分；下一节 <a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a> 会专门展开。</p>
+<h5 id="2-4-8-4-8-access-control-dcl-20cd0f39">2.4.8 4.8 Access control：和 DCL 配合，但不替代所有权限</h5>
+<p>view entity 可以通过 annotation 和 DCL / access control 结合。常见设计是模型中声明 authorization check 策略，再用 DCL role 表达哪些用户能读哪些数据。但这仍然主要是 read access 相关的一部分，不是完整 SAP authorization。</p>
+<p>例如，某个销售订单 view entity 可以通过 DCL 限制“当前用户只能看到自己销售组织的数据”。但这不代表用户一定能执行 release action、修改订单、调用接口、跳过 UI 按钮控制、或通过 background job 看到同样数据。完整授权还要结合 <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a>、<a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a>、RAP authorization、authorization object、技术用户和 audit 要求。</p>
+<h5 id="2-4-9-4-9-view-entity-rap-odata-15282025">2.4.9 4.9 View entity 在 RAP/OData 链路中的位置</h5>
+<p>view entity 常常处在这条链路中：</p>
+<pre><code class="language-text">table / persistence
+  -&gt; interface/basic CDS view entity
+  -&gt; root view entity / composition model
+  -&gt; projection view
+  -&gt; behavior definition
+  -&gt; service definition
+  -&gt; service binding
+  -&gt; OData / Fiori / API consumer</code></pre>
+<p>不同项目命名会不同，但层次思想类似。基础 view entity 尽量表达可复用的业务数据；root view entity 和 composition 组织业务对象结构；projection view 控制暴露给某类消费方的字段和行为；behavior definition 才定义 create/update/delete/action/validation/determination/lock/save 相关行为；service definition / binding 决定暴露什么以及通过什么协议消费。</p>
+<p>因此，view entity 是现代 ABAP 应用开发的入口，但不是终点。它负责“模型骨架”，不负责所有“行为肌肉”。</p>
+<h5 id="2-4-10-4-10-view-entity-design-review-checklist-81070504">2.4.10 4.10 View entity design review checklist</h5>
+<p>Review 一个 CDS view entity 时，可以按下面的顺序看。它比逐行翻译语法更接近项目现场：</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>What to verify</th><th>Risk if ignored</th></tr></thead><tbody><tr><td>What is the model role?</td><td>basic/interface/root/projection/consumption 中大致属于哪一层。</td><td>一个 view 同时承担复用模型、API 暴露和临时报表，边界混乱。</td></tr><tr><td>Is the source appropriate?</td><td>底层表、released CDS、其他 CDS entity 是否符合 Clean Core/release 约束。</td><td>直接依赖不稳定底层对象，后续升级或云就绪性风险高。</td></tr><tr><td>Are keys credible?</td><td><code>key</code> 字段能否唯一识别结果行，consumer 是否依赖这些 key。</td><td>UI/OData/RAP consumer 出现重复行、导航错误或更新定位问题。</td></tr><tr><td>Are aliases semantic?</td><td>字段名是否用业务语言，amount/currency、quantity/unit 是否成对清楚。</td><td>下游 consumer 需要重新猜字段含义。</td></tr><tr><td>Are associations intentional?</td><td>cardinality、ON condition、是否公开给 consumer 都有理由。</td><td>association 看起来方便，但造成错误导航或性能/授权问题。</td></tr><tr><td>Are annotations scoped?</td><td>annotation 的 consumer 是 UI、API、analytics、authorization 还是 framework。</td><td>把 annotation 当装饰，实际影响服务元数据或运行行为。</td></tr><tr><td>Is access control clear?</td><td><code>@AccessControl...</code> 与 DCL/授权策略是否一致。</td><td>读权限被遗漏，或误以为 DCL 解决所有授权。</td></tr><tr><td>Is consumer contract stable?</td><td>谁会用它：ABAP SQL、RAP、OData、Fiori、analytics、test。</td><td>修改字段/key/alias 时影响范围不可控。</td></tr></tbody></table></div>
+<p>一个实用原则是：view entity 的公开字段、key 和 association 一旦被下游消费，就开始变成 contract。早期练习可以大胆改；真实项目里要把它当 repository API 来 review。</p>
+<h4 id="2-5-a69f2d9b" class="semantic-heading semantic-japan">2.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>CDSビューエンティティ</code>、<code>DDLソース</code>、<code>有効化</code>、<code>キー項目</code>、<code>項目別名</code>、<code>アソシエーション</code>、<code>カーディナリティ</code>、<code>アノテーション</code>、<code>アクセス制御</code>、<code>DCL</code>、<code>射影ビュー</code>、<code>消費ビュー</code>。</li>
+<li>说明句：<code>CDSビューエンティティは、テーブルそのものではなく、業務データを再利用可能な意味付きモデルとして定義するオブジェクトです。</code></li>
+<li>Review 句：<code>このビューエンティティのキー項目、項目別名、アソシエーションのカーディナリティ、アクセス制御の有無を確認してください。</code></li>
+<li>Legacy 句：<code>既存の DEFINE VIEW を置き換える場合は、SQLビュー名、利用箇所、OData/BW/分析依存を先に影響調査してください。</code></li>
+<li>RAP 句：<code>保存処理、ロック、アクション、バリデーションはビューエンティティではなく RAP Behavior 側で設計します。</code></li>
+</ul>
+<p>现场沟通时，<code>CDSビュー</code> 常被泛称使用；如果讨论的是现代 <code>DEFINE VIEW ENTITY</code> 对象，建议明确说 <code>CDSビューエンティティ</code>。如果讨论旧式对象，则说明 <code>従来の CDS ビュー</code> 或 <code>DEFINE VIEW ベースの CDS ビュー</code>，避免混淆。</p>
+<h4 id="2-6-english-terms-cbeeb31f" class="semantic-heading semantic-terms">2.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>CDS view entity</code>, <code>DEFINE VIEW ENTITY</code>, <code>ABAP CDS entity</code>, <code>DDL source</code>, <code>ABAP repository object</code>, <code>activation</code>, <code>CDS elements</code>, <code>CDS associations</code>, <code>CDS annotations</code>, <code>CDS access control</code>.</li>
+<li>Modeling terms: <code>key element</code>, <code>field alias</code>, <code>semantic read model</code>, <code>association cardinality</code>, <code>path expression</code>, <code>projection view</code>, <code>root view entity</code>, <code>service definition</code>, <code>service binding</code>.</li>
+<li>Boundary terms: <code>database table</code>, <code>DDIC-based CDS view</code>, <code>DEFINE VIEW</code>, <code>SQL view name</code>, <code>legacy CDS view</code>, <code>RAP business object</code>, <code>behavior definition</code>, <code>save sequence</code>, <code>authorization</code>.</li>
+<li>Recommended search pattern: <code>CDS view entity ABAP Keyword Documentation</code>, <code>DEFINE VIEW ENTITY ABAP CDS</code>, <code>ABAP CDS view entity association annotation access control</code>.</li>
+</ul>
+<h4 id="2-7-example-cc14c85d" class="semantic-heading semantic-example">2.7 Example / 学习例子</h4>
+<p>下面是一个教学用 view entity。它故意保持简单，用来说明阅读顺序：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales Order Basic View&#x27;
+@AccessControl.authorizationCheck: #CHECK
+define view entity ZI_SalesOrder
+  as select from zsales_order
+  association [0..1] to ZI_Customer as _Customer
+    on _Customer.Customer = zsales_order.customer_id
+{
+  key zsales_order.order_id     as SalesOrder,
+      zsales_order.customer_id  as Customer,
+      _Customer,
+      zsales_order.net_amount   as NetAmount,
+      zsales_order.currency     as Currency,
+      zsales_order.status       as SalesOrderStatus
+}</code></pre>
+<p>初学者可以这样读：</p>
+<ol>
+<li>这是 <code>ZI_SalesOrder</code>，看起来是销售订单的基础/interface 模型。</li>
+<li>数据来自 <code>zsales_order</code>，所以要确认这张表是否是允许直接建模的自建 persistence。</li>
+<li><code>SalesOrder</code> 被声明为 key，要确认订单号在这个模型中是否唯一。</li>
+<li><code>Customer</code>, <code>NetAmount</code>, <code>Currency</code>, <code>SalesOrderStatus</code> 是对外字段名，要看是否符合项目命名和 API 契约。</li>
+<li><code>_Customer</code> 是 association，不是普通字段；它可能用于导航、projection 或服务暴露。</li>
+<li><code>@AccessControl.authorizationCheck: #CHECK</code> 说明有访问控制检查意图，但还要确认 DCL role 是否存在、规则是否正确。</li>
+<li>这个 view entity 还没有 behavior；它不能单独说明订单如何保存、release 或锁定。</li>
+</ol>
+<p>再看一个坏例子：</p>
+<pre><code class="language-abap">define view entity ZI_AllOrderEverything
+  as select from zsales_order
+{
+  key order_id,
+      field1,
+      field2,
+      field3,
+      very_technical_flag,
+      internal_note,
+      temporary_status
+}</code></pre>
+<p>坏不在于它语法一定错，而在于模型意图不清。名字像“什么都要”，字段别名没有业务语义，内部字段被直接公开，也没有说明消费方、authorization、association 或 projection 边界。这样的 view entity 只是把表搬了一层，并没有真正完成语义建模。</p>
+<h4 id="2-8-counterexample-failure-mode-42905632" class="semantic-heading semantic-example">2.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把 view entity 当数据库表。修正：它是基于其他数据源的语义读模型，不直接存储业务数据。</li>
+<li>误区 2：把 <code>key</code> 当底层数据库主键。修正：CDS key 表达当前模型的实体关键字段，要和结果唯一性、服务消费和 UI 需求一致。</li>
+<li>误区 3：新建对象还从旧式 <code>DEFINE VIEW</code> 学起。修正：新学习和新建模型优先 view entity；旧对象作为 legacy/迁移主题处理。</li>
+<li>误区 4：看到旧式 CDS 就无脑替换。修正：先查 where-used、SQL view name、OData/BW/analytics/API 依赖、性能和权限影响。</li>
+<li>误区 5：association cardinality 随便写。修正：cardinality 是模型承诺，必须由业务关系和数据唯一性支撑。</li>
+<li>误区 6：annotation 当注释。修正：annotation 是元数据，可能影响 UI、API、analytics、authorization 或 framework 行为。</li>
+<li>误区 7：把 view entity 当完整 RAP business object。修正：behavior、lock、action、validation、determination、save sequence 需要 RAP behavior 设计。</li>
+<li>误区 8：把所有消费场景塞进一个巨大 view。修正：基础复用、root/composition、projection/consumption、service exposure 分层处理。</li>
+</ul>
+<h4 id="2-9-0169d316" class="semantic-heading semantic-practice">2.9 思考问题</h4>
+<ul>
+<li>这个 view entity 的数据源是什么？是表、DDIC view、其他 CDS entity，还是更复杂的组合？</li>
+<li><code>key</code> 字段是否真的能唯一识别当前模型的一行？下游是否依赖这个 key？</li>
+<li>字段别名是否是业务语言？是否会作为 OData/API 字段名暴露？</li>
+<li>association 的 cardinality 是否由真实数据关系支撑？是否有下游消费者需要导航？</li>
+<li>哪些 annotation 是基础语义，哪些是 UI/API/analytics 消费语义？是否放错层？</li>
+<li>有没有 DCL / access-control 设计？它覆盖的是 read access 的哪一部分？</li>
+<li>这个 view entity 应该是基础复用模型、root view entity、projection view，还是消费视图？</li>
+<li>如果它来自旧式 <code>DEFINE VIEW</code> 或需要替换旧对象，哪些依赖必须先做影响调查？</li>
+</ul>
+<h4 id="2-10-89eeda0f" class="semantic-heading semantic-reference">2.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_VIEW_ENTITY.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS - CDS Entities</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Core Data Services (ABAP CDS)</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_ACCESS_CONTROL.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS - Access Control</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_ANNOTATIONS.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS - Annotations</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-03-001-why-cds-cds-089bd732.html">Why CDS 为什么需要 CDS</a></li>
+<li><a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a></li>
+<li><a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li><a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></li>
+<li><a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li><a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a></li>
+<li><a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li><a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="2-11-connections-5f070711">2.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li><a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a></li>
+<li><a class="wiki" href="section-01-032-ddic-database-table-e05a6263.html">DDIC database table 字典表</a></li>
+<li><a class="wiki" href="section-03-001-why-cds-cds-089bd732.html">Why CDS 为什么需要 CDS</a></li>
+<li><a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a></li>
+<li><a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li><a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li><a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a></li>
+<li><a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Upstream: <a class="wiki" href="section-03-001-why-cds-cds-089bd732.html">Why CDS 为什么需要 CDS</a></li>
+<li>Downstream: <a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 15 - CDS 入门与 View Entity</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="2-12-b6214de9" class="semantic-heading semantic-practice">2.12 学习任务</h4>
+<ul>
+<li>找一个 view entity 示例，标出 <code>define view entity</code>、data source、key、field alias、association 和 annotation。</li>
+<li>用 5-8 行中文说明：为什么 view entity 不是数据库表，也不是完整 RAP business object。</li>
+<li>写一句日语 review comment，要求确认 key、field alias、association cardinality 和 access control。</li>
+<li>找一个 legacy <code>DEFINE VIEW</code> 或旧式 CDS 的说明资料，列出迁移前必须确认的依赖。</li>
+<li>画出 <code>basic/interface view entity -&gt; root view entity -&gt; projection view -&gt; service definition -&gt; service binding</code> 的链路。</li>
+<li>用 English Terms 找 1 个 SAP 官方链接，补到自己的学习记录中。</li>
+</ul>
+<h4 id="2-13-confidence-next-action-d97d8471" class="semantic-heading semantic-status">2.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for view entity as ABAP CDS entity/read model and for annotation/access-control boundaries based on SAP Help / ABAP Keyword Documentation. Medium-High for legacy migration wording because the section stays at recognition / impact-analysis level and avoids recommending mechanical replacement.</li>
+<li>Joule review: attempted on 2026-06-13; Joule returned the same UI error as Section 1. Evidence is recorded in <code>90-Review/Joule Day15 CDS View Entity Section Review 2026-06-13.md</code>. Current session exposes no callable Chrome/Joule control tool, so this is an official-source closure with Joule debt, not a Joule-passed section.</li>
+<li>Claude review: old file-based review failed with credentials, and current Claude health check timed out. Treat Claude as external review debt, not as a blocker for this official-source closure.</li>
+<li>Next action: 本节可作为 <code>expanded-review</code> 书稿正文使用；继续到 <a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a>，理解 annotation 如何把字段语义、UI/API 元数据和不同消费方连接起来。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-001-why-cds-cds-089bd732.html">Previous section</a><a href="section-03-003-cds-annotation-0061bb02.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

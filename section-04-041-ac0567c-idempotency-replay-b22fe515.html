@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>AC0567C idempotency replay | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="41-ac0567c-idempotency-replay-99872960" class="chapter-title">41. AC0567C idempotency replay</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 41</li><li>self-contained study note</li></ul><h4 id="41-1-44306b0c" class="semantic-heading semantic-concept">41.1 一句话结论</h4>
+<p>AC0567C idempotency replay 不是泛泛讲“接口要防重复”，而是用本地 POC 证据复盘：同一个 AC0567C batch upload 请求被重复执行时，当前实现如何用 <code>ImportId</code> 派生业务 key、如何在写入前查 <code>ZCOM_B_ACTT397</code>、如何返回 <code>CONFLICT</code>，以及这个 POC 设计距离生产级幂等还差哪些锁、唯一约束、request log 和 application log。</p>
+<p>一句话记忆：AC0567C 当前已经证明了“重复同一 <code>ImportId</code> 的真实执行不会再次插入同一组已存在行，而是返回 <code>CONFLICT</code>”；但它还不是完整的生产级 idempotency framework。它没有独立的 request header/status table，没有持久化 idempotency ledger，没有并发重复压测证据，也没有 application log 级别的全链路审计。</p>
+<p>为什么要这么谨慎？因为幂等性很容易被写成一句漂亮口号：重复请求不会造成重复业务结果。真正项目里，必须追问三个问题：</p>
+<ul>
+<li>“同一个请求”到底由什么 key 定义。</li>
+<li>重复命中时返回已有结果、返回 conflict，还是允许重试。</li>
+<li>并发、网络超时、失败后重跑、不同用户重发时，证据是否仍然成立。</li>
+</ul>
+<p>AC0567C 的学习价值就在这里。它是一个真实 POC，不是教材里凭空画的理想架构。它已经有可引用的 ABAP class、RAP behavior pool、PowerShell 测试脚本和 test evidence；同时也清楚暴露出 POC 边界：当前重复检查是 row-key duplicate check，不是完整的 API-level idempotency store。读这一节时，要同时学会肯定已经证明的部分，也要能指出不能夸大成生产完成的部分。</p>
+<h4 id="41-2-5ce1a7e7" class="semantic-heading semantic-concept">41.2 到底学什么</h4>
+<p>第一，要学 idempotency key 的边界。AC0567C API 参数里有 <code>ImportId</code>，但当前实现并不是把完整 <code>ImportId</code> 原样保存成 request ledger。服务类 <code>ZCL_RPA01_AC0567C_IMP_SVC</code> 会从 <code>ImportId</code> 里寻找最后一段连续 14 位数字，把它解释成 <code>YYYYMMDDHHMMSS</code>，再派生为目标表 <code>ZCOM_B_ACTT397</code> 的 <code>zzup_dat</code> 和 <code>zzup_tme</code>。</p>
+<p>第二，要学当前 POC 的重复判断字段。<code>ExecuteImport</code> 构造 <code>ZCOM_B_ACTT397</code> 行时，重复检查使用这些字段：</p>
+<pre><code class="language-text">bukrs      = CompanyCode
+kunnr      = CustomerCode
+zzup_dat   = ImportId 派生日期
+zzup_tme   = ImportId 派生时间
+zzup_name  = sy-uname
+zzgroup_no = Rows[] 中的 GroupNo
+zzseq_no   = 当前行序号</code></pre>
+<p>也就是说，当前 AC0567C 的幂等证据更准确地说是“基于 ImportId 派生时间戳 + 当前 SAP 用户 + group/sequence 的目标表重复保护”。它不是“只要 <code>ImportId</code> 相同，任何 payload 变化都被 request log 精确识别”的完整设计。</p>
+<p>第三，要学重复请求的当前响应契约。真实执行第一次通过时，测试证据显示 <code>ExecuteImport Status = IMPORTED</code> 且 <code>InsertedRows = 2</code>；同一个 <code>ImportId</code> 再执行时，状态为 <code>CONFLICT</code>，消息字段为 <code>Idempotency</code>，文本是 <code>Duplicate ZCOM_B_ACTT397 key found for this ImportId/user/group/sequence</code>。</p>
+<p>第四，要学 <code>AllowRealUpdate</code> 和幂等测试的关系。当前测试脚本中，没有 <code>-AllowRealUpdate</code> 时，真实写入和 duplicate/idempotency 检查都会被跳过；只有设置 <code>AllowRealUpdate = X</code>，才会真正执行插入和重复检查。这个开关是 POC 安全门，不是幂等键，也不是授权。</p>
+<p>第五，要学 RAP save sequence 边界。当前 POC 的服务类在 action path 中做 validation、authorization、duplicate check 和 staging；真正 <code>INSERT zcom_b_actt397 FROM TABLE @lt_insert</code> 在 behavior saver 的 <code>save</code> 方法中执行。这比直接在 action handler 里 <code>INSERT</code> 更接近 RAP 事务模型，但它也带来一个复盘重点：duplicate check 发生在 staging 前，最终插入发生在 saver，中间仍要考虑并发和 save failure。</p>
+<p>第六，要学证据和缺口并列写。AC0567C 已有真实 insert、重复 <code>CONFLICT</code>、status lookup 证据；但 artifact quality gate 仍把 production lock/enqueue、persistent audit log、authorization-negative test、CSV/TSV parser hardening 列为未完成。一本面向项目交付的书，不能只写“通过”，也要写“没证明什么”。</p>
+<h4 id="41-3-93a76c08" class="semantic-heading semantic-why">41.3 为什么重要</h4>
+<p>上传类 API 最怕“调用方不知道刚才到底成功了没有”。外部系统发送 batch 后，如果网络超时，调用方可能按 retry policy 再发一次；用户在画面上看不到返回，可能再点一次；job 失败后可能重新跑；middleware 也可能因为 at-least-once delivery 重发消息。没有幂等设计时，这些重复动作可能变成重复创建、重复过账、重复日志、重复状态推进。</p>
+<p>对 AC0567C 来说，业务对象是批量上传到 <code>ZCOM_B_ACTT397</code>。如果同一个上传批次重复插入，后续 AC0568、对账、账务调整或人工确认都会被污染。重复数据不是“多了一行”这么简单，它会让客户/公司/组号/序号维度上的业务事实变得不可信。</p>
+<p>对 Java/Python 背景学习者来说，可以把 AC0567C 类比成一个 HTTP API 使用 <code>Idempotency-Key</code> 的场景，但 SAP 项目有自己的约束：ABAP 运行在 AS ABAP work process 中，保存受 <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a> 和 RAP save sequence 影响，重复保护经常落在 DDIC table key、enqueue lock、application log、business object 状态和测试证据之间，不只是 web controller 里查一下 Redis。</p>
+<p>在日本 SAP 项目里，这类问题通常会以更业务化的语言出现：<code>二重登録防止</code>、<code>再送時の扱い</code>、<code>リトライ仕様</code>、<code>排他制御</code>、<code>証跡</code>。客户不一定会问“idempotency key 有没有设计好”，但会问“同じファイルを再送した場合、二重登録されませんか”。本节就是训练读者把这个现场问题翻译成可检查的 SAP/ABAP 设计。</p>
+<h4 id="41-4-key-mechanism-7f8b3dd9" class="semantic-heading semantic-mechanism">41.4 Key mechanism / 核心机制</h4>
+<p>AC0567C 当前实现可以按一条实际链路理解：</p>
+<pre><code class="language-text">POST /PriorAllocationImportsC/execute
+  -&gt; RAP static action ExecuteImport
+  -&gt; ZCL_RPA01_AC0567C_IMP_SVC=&gt;execute_import
+  -&gt; validate_batch
+  -&gt; AllowRealUpdate = X check
+  -&gt; AUTHORITY-CHECK F_BKPF_BUK / ACTVT = 01
+  -&gt; derive_upload_timestamp( ImportId )
+  -&gt; SELECT SINGLE zcom_b_actt397 by derived row key
+  -&gt; if found: Status = CONFLICT, MessageField = Idempotency
+  -&gt; if not found: stage rows into save buffer
+  -&gt; RAP saver save
+  -&gt; INSERT zcom_b_actt397 FROM TABLE @lt_insert</code></pre>
+<h5 id="41-4-1-importid-key-9f015259">41.4.1 ImportId 到日期时间 key 的派生</h5>
+<p><code>derive_upload_timestamp</code> 的实现先把 <code>ev_date</code> / <code>ev_time</code> 默认设成当前 <code>sy-datum</code> / <code>sy-uzeit</code>，然后扫描 <code>ImportId</code> 中的数字串。如果找到长度至少 14 的连续数字串，就取最后 14 位作为 timestamp。例子：</p>
+<pre><code class="language-text">ImportId = POC-AC0567C-20260612115720
+timestamp token = 20260612115720
+zzup_dat = 20260612
+zzup_tme = 115720</code></pre>
+<p>这个实现修正了一个很重要的 POC 问题：<code>AC0567C</code> 本身也包含数字，如果简单“收集全部数字”，会把业务代号里的 <code>0567</code> 混进时间戳。最终版使用最后一段连续 14 位 timestamp token，测试证据也记录了 <code>POC-AC0567C-20260612115720</code> 映射到 <code>20260612 / 115720</code>。</p>
+<h5 id="41-4-2-request-ledger-3637fb10">41.4.2 重复检查不是完整 request ledger</h5>
+<p>当前 duplicate check 是对目标表 <code>ZCOM_B_ACTT397</code> 做 <code>SELECT SINGLE mandt</code>：</p>
+<pre><code class="language-abap">SELECT SINGLE mandt FROM zcom_b_actt397
+  WHERE bukrs = @ls_target-bukrs
+    AND kunnr = @ls_target-kunnr
+    AND zzup_dat = @ls_target-zzup_dat
+    AND zzup_tme = @ls_target-zzup_tme
+    AND zzup_name = @ls_target-zzup_name
+    AND zzgroup_no = @ls_target-zzgroup_no
+    AND zzseq_no = @ls_target-zzseq_no
+  INTO @DATA(lv_duplicate_mandt).</code></pre>
+<p>如果查到已有行，服务返回：</p>
+<pre><code class="language-text">Status = CONFLICT
+MessageField = Idempotency
+MessageText = Duplicate ZCOM_B_ACTT397 key found for this ImportId/user/group/sequence</code></pre>
+<p>这说明当前幂等保护的核心是“目标业务表中是否已经存在同一派生 row key”。它能证明重复执行同一测试 payload 不会再插入同一组行；但它不能证明系统有一张完整 request log，可以回答“这个 request 第一次何时收到、payload hash 是什么、第一次返回给调用方的 response 是什么、是否可以把既有 result 原样返回”。</p>
+<h5 id="41-4-3-cf0f9282">41.4.3 真实测试证据</h5>
+<p><code>04_tests/TEST_EVIDENCE.md</code> 记录了两类证据。</p>
+<p>无写入测试：</p>
+<pre><code class="language-text">ImportId = POC-AC0567C-20260612134648
+8/8 checks passed
+Real execute skipped unless -AllowRealUpdate is set
+Duplicate/idempotency skipped unless -AllowRealUpdate is set</code></pre>
+<p>真实写入测试：</p>
+<pre><code class="language-text">ImportId = POC-AC0567C-20260612115720
+ExecuteImport Status = IMPORTED
+InsertedRows = 2
+Repeat same ImportId Status = CONFLICT
+GetStatus Status = IMPORTED
+GetStatus InsertedRows = 2</code></pre>
+<p>这个证据很有价值，因为它不是“设计上应该如此”，而是脚本确实调用了 <code>/PriorAllocationImportsC/execute</code> 两次，并记录了第一次插入和第二次 <code>CONFLICT</code>。同时也要注意：这组真实 insert / <code>CONFLICT</code> 证据来自 <code>TEST_EVIDENCE.md</code> 中标注为 <code>Real Insert Test Already Proven</code> 的早期实写/手动验证运行；最新 no-write 8/8 回归测试是安全回归，明确跳过 real execute 和 duplicate/idempotency。它证明的是顺序重复测试，不是并发重复测试。</p>
+<h5 id="41-4-4-getstatus-72139133">41.4.4 GetStatus 的边界</h5>
+<p><code>GetStatus</code> 会根据 <code>CompanyCode</code>、<code>CustomerCode</code>、<code>ImportId</code> 派生日期时间和 <code>sy-uname</code> 去 <code>ZCOM_B_ACTT397</code> 计数。查到行时返回 <code>IMPORTED</code> 和 <code>InsertedRows</code>；查不到时返回 <code>NOT_FOUND</code> 或带信息消息。</p>
+<p>这对 POC 足够：测试可以证明“刚才那个 ImportId 派生的 key 已经有两行”。但生产级接口通常还需要独立状态模型，例如 <code>RECEIVED</code>、<code>VALIDATED</code>、<code>PROCESSING</code>、<code>IMPORTED</code>、<code>FAILED_RETRYABLE</code>、<code>FAILED_FINAL</code>。当前 AC0567C 没有这种 request header/status table，所以不要把 <code>GetStatus</code> 误读成完整工作流状态机。</p>
+<h5 id="41-4-5-2fddb078">41.4.5 并发风险</h5>
+<p>当前 duplicate check 是“先 SELECT，再 stage，最后 saver INSERT”。如果两个完全相同请求几乎同时到达，理论上可能都先 SELECT 到“没有记录”，然后都进入 staging。最终是否重复写入，要看 <code>ZCOM_B_ACTT397</code> 的真实主键/唯一约束、RAP lock/enqueue、数据库冲突处理以及 saver 错误处理。当前证据没有证明并发重复安全。</p>
+<p>因此，本节对 AC0567C 的准确评价是：</p>
+<ul>
+<li>已证明：顺序重复同一真实 <code>ImportId</code> 会返回 <code>CONFLICT</code>，不会再次插入同一组已存在记录。</li>
+<li>未证明：并发重复、跨用户重复、失败后重试、payload 改写后重试、完整 request-response replay、application log 全链路审计。</li>
+</ul>
+<h5 id="41-4-6-77a1928a">41.4.6 生产级补强方向</h5>
+<p>如果要把 AC0567C 从 POC 推到生产设计，至少要补四类对象：</p>
+<div class="table-wrap"><table><thead><tr><th>维度</th><th>POC 当前状态</th><th>生产补强方向</th></tr></thead><tbody><tr><td>幂等 key</td><td><code>ImportId</code> 派生 timestamp + row key</td><td>明确外部稳定 idempotency key / request id，并持久化</td></tr><tr><td>状态</td><td><code>GetStatus</code> 计数目标表</td><td>独立 request header/status table 或业务对象状态</td></tr><tr><td>并发</td><td>顺序 duplicate test 已证明</td><td>enqueue / RAP lock / DB unique constraint / duplicate insert handling</td></tr><tr><td>审计</td><td>test evidence 和消息返回</td><td><a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> / request log / trace id</td></tr><tr><td>响应契约</td><td>重复返回 <code>CONFLICT</code></td><td>明确是返回既有结果、409 conflict，还是 retry-after</td></tr><tr><td>测试</td><td>no-write 8/8 + real duplicate</td><td>并发、失败后重试、权限失败后重试、跨用户重试</td></tr></tbody></table></div>
+<h4 id="41-5-810ce82a" class="semantic-heading semantic-japan">41.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>冪等性</code>、<code>重複リクエスト</code>、<code>二重登録防止</code>、<code>再送</code>、<code>リトライ</code>、<code>リクエストID</code>、<code>一意キー</code>、<code>ステータス管理</code>、<code>再処理</code>、<code>排他制御</code>、<code>証跡</code>。</p>
+<p>描述当前 AC0567C POC 时，可以这样说：</p>
+<ul>
+<li>AC0567C POC では、同一 ImportId から派生される日付・時刻、会社コード、得意先、ユーザ、グループ番号、行番号を用いて、ZCOM_B_ACTT397 の重複登録を検知します。</li>
+<li>同一 ImportId で再実行した場合、初回は <code>IMPORTED</code>、二回目は <code>CONFLICT</code> を返すことをテスト証跡で確認済みです。</li>
+<li>ただし、現時点では request header table や application log による完全な冪等性管理までは実装していません。</li>
+</ul>
+<p>review 时可以这样问：</p>
+<ul>
+<li>重複判定のキーは「ImportId」そのものですか、それとも ImportId から派生した登録日付・時刻と業務キーですか。</li>
+<li>並行リクエストが来た場合、DB一意制約または排他制御で二重登録を防げますか。</li>
+<li>再送時に <code>CONFLICT</code> を返す設計でよいですか。それとも既存の処理結果を返すべきですか。</li>
+<li>エラー後の再処理可否は、ステータス管理または運用手順書に明記されていますか。</li>
+</ul>
+<p>交付文档中可以使用更稳妥的表达：</p>
+<ul>
+<li>本 POC は、同一 ImportId の順次再実行に対して二重登録を防止することを確認済みです。</li>
+<li>本番化にあたっては、同時再送時の排他制御、request ID の永続管理、application log による証跡管理を追加検討します。</li>
+<li><code>AllowRealUpdate</code> は実更新を許可するセーフティスイッチであり、冪等性キーまたは権限制御ではありません。</li>
+</ul>
+<h4 id="41-6-english-terms-3fb14d2d" class="semantic-heading semantic-terms">41.6 English Terms</h4>
+<ul>
+<li>Local / project term: <code>AC0567C idempotency replay</code>.</li>
+<li>Current POC terms: <code>ImportId</code>, <code>ImportId-derived key</code>, <code>Duplicate/idempotency rejects repeated ImportId</code>, <code>CONFLICT</code>, <code>GetStatus</code>, <code>InsertedRows</code>, <code>AllowRealUpdate</code>.</li>
+<li>General terms: <code>idempotency</code>, <code>idempotency key</code>, <code>duplicate request</code>, <code>retry</code>, <code>deduplication</code>, <code>business key</code>, <code>request ledger</code>, <code>status machine</code>, <code>concurrency</code>, <code>locking</code>.</li>
+<li>SAP terms: <code>SAP LUW</code>, <code>RAP save sequence</code>, <code>validation</code>, <code>precheck</code>, <code>saver</code>, <code>enqueue lock</code>, <code>application log</code>, <code>COMMIT WORK restriction in RAP</code>.</li>
+<li>Recommended search pattern: <code>SAP RAP save sequence idempotency</code>, <code>ABAP enqueue lock duplicate request</code>, <code>RAP validation precheck saver</code>, <code>SAP application log retry</code>.</li>
+</ul>
+<h4 id="41-7-example-ed748bc8" class="semantic-heading semantic-example">41.7 Example / 学习例子</h4>
+<p>先看 AC0567C 已验证的真实顺序重复场景：</p>
+<pre><code class="language-text">First call:
+  POST /PriorAllocationImportsC/execute
+  ImportId = POC-AC0567C-20260612115720
+  AllowRealUpdate = X
+  Rows = 2
+
+Result:
+  Status = IMPORTED
+  InsertedRows = 2
+
+Second call:
+  same endpoint
+  same ImportId
+  same payload
+  AllowRealUpdate = X
+
+Result:
+  Status = CONFLICT
+  MessageField = Idempotency</code></pre>
+<p>这说明：在同一用户、同一 company/customer、同一 <code>ImportId</code> 派生日期时间、同一 group/sequence 的顺序重复请求下，当前 POC 不会再次把同一批目标行插入 <code>ZCOM_B_ACTT397</code>。</p>
+<p>再看一个生产化设计表。当前 POC 已覆盖第一行和第三行的一部分，其他行需要补强：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>当前 POC 证据</th><th>生产建议</th></tr></thead><tbody><tr><td>首次真实上传</td><td><code>IMPORTED</code>, <code>InsertedRows = 2</code></td><td>保留 request log 和 response trace</td></tr><tr><td>无写入验证</td><td>no-write 8/8 passed</td><td>作为 CI/smoke test 保留</td></tr><tr><td>成功后顺序重试</td><td>same <code>ImportId</code> returns <code>CONFLICT</code></td><td>明确是否返回 409 conflict 或既有 result</td></tr><tr><td>成功后并发重试</td><td>未证明</td><td>增加 enqueue/unique constraint/并发测试</td></tr><tr><td>失败后重试</td><td>未证明</td><td>定义 retryable / final failure 状态</td></tr><tr><td>授权失败后重试</td><td>未证明</td><td>区分 authorization denied 与 idempotency conflict</td></tr><tr><td>payload 改写但 ImportId 相同</td><td>未证明</td><td>用 payload hash 或 request ledger 判断非法重放</td></tr><tr><td>跨用户同 ImportId</td><td>当前 key 包含 <code>sy-uname</code></td><td>判断是否应按 technical user / business user 归属</td></tr></tbody></table></div>
+<p>最后看一个缺陷票式例子：</p>
+<pre><code class="language-text">Incident:
+  外部系统因 HTTP timeout 重发同一上传请求。
+
+Observed:
+  SAP 返回 CONFLICT，没有新增第二组 ZCOM_B_ACTT397 行。
+
+Evidence:
+  ImportId = POC-AC0567C-20260612115720
+  first ExecuteImport = IMPORTED / InsertedRows 2
+  repeat ExecuteImport = CONFLICT
+  GetStatus = IMPORTED / InsertedRows 2
+
+Remaining question:
+  这是顺序重试证据；并发重试还需要锁或唯一约束证据。</code></pre>
+<p>这样的例子能帮助初学者把“幂等”从抽象名词落到可审计证据：请求参数、返回状态、目标表行数、重复消息、测试脚本、未覆盖场景。</p>
+<h4 id="41-8-counterexample-failure-mode-8c3fb0bb" class="semantic-heading semantic-example">41.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下。</p>
+<p>第一，把 <code>ImportId</code> 当成已经完整持久化的 idempotency ledger。当前 POC 只是从 <code>ImportId</code> 派生 <code>zzup_dat/zzup_tme</code> 并检查目标表行 key，没有保存完整 request / payload / response 历史。</p>
+<p>第二，把 <code>AllowRealUpdate</code> 当成幂等控制。它只是实更新安全开关；不开 <code>AllowRealUpdate = X</code> 时，真实 insert 和 duplicate test 都不会执行。</p>
+<p>第三，只看 <code>CONFLICT</code>，不看 key 组成。如果重复检查 key 包含 <code>sy-uname</code>，那么 technical user、business user、代理执行或 batch user 的设计都会影响重复判断范围。</p>
+<p>第四，只证明顺序重复，不证明并发重复。两个同时到达的请求可能都在 INSERT 前 SELECT 到“未存在”。生产要补锁、唯一约束或冲突处理。</p>
+<p>第五，把 <code>GetStatus</code> 当成完整状态机。当前 <code>GetStatus</code> 是按 ImportId-derived key 计数目标表行，不是 request workflow header。</p>
+<p>第六，重复请求返回技术异常。重复是可预期业务场景，应明确是 <code>CONFLICT</code>、existing result、processing 还是 retry-after。</p>
+<p>第七，不区分授权失败、业务校验失败和幂等冲突。<code>F_BKPF_BUK</code> 授权失败应是 authorization denial；金额格式错误应是 validation error；已有目标 key 才是 idempotency conflict。</p>
+<p>第八，没有 application log。测试脚本能证明 POC，但生产运维需要 BAL / <code>cl_bali_log</code> 或等价 request log 来追踪首次处理、重复命中、失败原因和操作用户。</p>
+<p>第九，payload 改了但 request id 相同。当前 row-key duplicate check 可能只发现已经存在的 group/sequence；如果调用方用同一 <code>ImportId</code> 发送不同 payload，生产设计应决定是拒绝非法重放、返回原结果，还是允许新批次。</p>
+<p>第十，只在设计书写“防止重复”，没有把 BDEF、service class、saver、test script、test result 和 transport evidence 串起来。幂等设计必须能被 review、测试和运维证明。</p>
+<h4 id="41-9-ad4c5c56" class="semantic-heading semantic-practice">41.9 思考问题</h4>
+<ul>
+<li>AC0567C 当前重复检查的 key 是否等同于完整 idempotency key？差异在哪里？</li>
+<li><code>ImportId = POC-AC0567C-20260612115720</code> 为什么能派生出 <code>20260612 / 115720</code>？</li>
+<li>如果同一 <code>ImportId</code>、同一用户、同一 group/sequence 顺序重试，当前 POC 返回什么？</li>
+<li>如果两个同样请求并发到达，当前证据能否证明不会重复插入？还缺什么？</li>
+<li>生产设计应选择“重复返回既有成功结果”还是“重复返回 <code>CONFLICT</code>”？这会影响调用方 retry 逻辑吗？</li>
+<li><code>GetStatus</code> 当前证明了什么，又没有证明什么？</li>
+</ul>
+<h4 id="41-10-9661f9dc" class="semantic-heading semantic-reference">41.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">AC0567C Project Case</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>Local POC source: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\02_abap_source\ZCL_RPA01_AC0567C_IMP_SVC.abap</code></li>
+<li>Local POC source: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\02_abap_source\ZBP_RPA01_I_AC0567C_IMPORT.localtypes.abap</code></li>
+<li>Local POC evidence: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\04_tests\TEST_EVIDENCE.md</code></li>
+<li>Local POC evidence: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\04_tests\Invoke-Ac0567CBatchPoc.ps1</code></li>
+<li>Local POC evidence: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\06_reports\artifact-quality-gate-ac0567c-package.md</code></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/abap-restful-application-programming-model" target="_blank" rel="noopener noreferrer">ABAP RESTful Application Programming Model</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=RAP%20save%20sequence" target="_blank" rel="noopener noreferrer">RAP save sequence</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=SAP%20enqueue%20lock%20ABAP" target="_blank" rel="noopener noreferrer">SAP locks / enqueue</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=Application%20Log%20ABAP" target="_blank" rel="noopener noreferrer">Application Log ABAP</a></li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Latest</a></li>
+</ul>
+<h4 id="41-11-connections-692e4173">41.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Practice</span></li>
+<li>Upstream: <a class="wiki" href="section-04-040-ac0567c-authorization-replay-626f837b.html">AC0567C authorization replay</a></li>
+<li>Downstream: <a class="wiki" href="section-04-042-ac0567c-rap-saver-replay-19af2964.html">AC0567C RAP saver replay</a></li>
+<li>Related: <a class="wiki" href="section-04-039-ac0567c-poc-architecture-replay-be4cadf1.html">AC0567C POC architecture replay</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Related: <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 28 - AC0567C POC 架构复盘</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="41-12-e4b7542f" class="semantic-heading semantic-practice">41.12 学习任务</h4>
+<ul>
+<li>用自己的话写出 AC0567C 当前重复检查的 7 个 key 字段。</li>
+<li>解释为什么 <code>AC0567C</code> 中的数字不能被混入 timestamp 解析。</li>
+<li>用测试证据复述：第一次 <code>ExecuteImport</code>、第二次 <code>ExecuteImport</code>、<code>GetStatus</code> 分别返回什么。</li>
+<li>写 2 句日语：一句说明顺序再送已确认 <code>CONFLICT</code>，一句说明并发再送仍需排他制御或一意制約。</li>
+<li>画出 <code>execute_import -&gt; duplicate check -&gt; save buffer -&gt; saver save -&gt; INSERT</code> 的链路。</li>
+<li>列出 production hardening 还缺的 4 项：lock/enqueue、request log、application log、concurrency test。</li>
+</ul>
+<h4 id="41-13-confidence-next-action-75bf5b23" class="semantic-heading semantic-status">41.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High for current AC0567C POC facts, because this section is grounded in local source files, test script, test evidence, artifact quality gate, and Claude 2026-06-18 <code>Pass with fixes</code> review. Current text distinguishes earlier real-insert/manual proof from the latest no-write 8/8 safety run, and the synced book section normalizes nested mechanism headings so they do not appear as orphaned <code>4.x</code> chapter headings. Joule review remains deferred; if Joule becomes callable, capture a SAP-specialist verdict for idempotency / enqueue / retry semantics. Medium for production recommendations, because exact DB primary key, lock strategy, request log design, and concurrent retry behavior still require SAP system/DDIC verification.</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-042-ac0567c-rap-saver-replay-19af2964.html">AC0567C RAP saver replay</a>，把幂等检查、staging、save buffer、saver <code>INSERT</code> 和并发/rollback 风险继续放到 RAP 保存阶段中复盘。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-040-ac0567c-authorization-replay-626f837b.html">Previous section</a><a href="section-04-042-ac0567c-rap-saver-replay-19af2964.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

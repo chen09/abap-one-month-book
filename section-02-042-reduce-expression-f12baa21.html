@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>REDUCE expression 归约表达式 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="42-reduce-expression-588533e7" class="chapter-title">42. REDUCE expression 归约表达式</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 42</li><li>self-contained study note</li></ul><h4 id="42-1-9cb44372" class="semantic-heading semantic-concept">42.1 一句话结论</h4>
+<p><code>REDUCE expression</code> 是 ABAP 的 reduction operator，用来把一次或多次 <code>FOR</code> iteration expression 的结果“折叠”为一个最终值。它最常见的用途是对已经在 ABAP 内部表中的数据做小型、纯粹、可读的汇总，例如求和、计数、拼接文本、构造一个 summary structure，或者在 ABAP Unit 中从测试输入算出期望值。</p>
+<pre><code class="language-abap">DATA(total_amount) = REDUCE decfloat34(
+  INIT total = CONV decfloat34( 0 )
+  FOR item IN lt_items
+  NEXT total = total + item-amount
+).</code></pre>
+<p>可以把它读成：先把 accumulator <code>total</code> 初始化为 <code>0</code>，然后逐行遍历 <code>lt_items</code>，每一轮都用当前行的 <code>amount</code> 更新 <code>total</code>，最后整个 <code>REDUCE</code> 表达式返回最终的 <code>total</code>。它不是“更高级的 <code>LOOP</code>”，也不是数据库聚合的替代品。它适合把一个简单的内部表归约逻辑写成一个值表达式；如果逻辑需要消息、异常、数据库访问、复杂分支或大量调试，普通 <code>LOOP</code> 往往更清楚。</p>
+<h4 id="42-2-8016acc6" class="semantic-heading semantic-concept">42.2 到底学什么</h4>
+<p>本节要掌握六件事。</p>
+<ul>
+<li><code>REDUCE type( INIT ... FOR ... NEXT ... )</code> 的基本形状。</li>
+<li><code>INIT</code> 定义 accumulator，且第一个 <code>INIT</code> 变量决定整个 <code>REDUCE</code> 的最终结果。</li>
+<li><code>FOR</code> 在 <code>REDUCE</code> 中是核心和必需部分，可用于 table iteration，也可用于条件式迭代。</li>
+<li><code>NEXT</code> 描述每一轮如何更新 accumulator，并且多个 <code>NEXT</code> 赋值按顺序影响后续赋值。</li>
+<li><code>REDUCE</code> 和 <code>LOOP</code>、<code>VALUE #( FOR ... )</code>、ABAP SQL <code>SUM</code> / <code>COUNT</code> / <code>GROUP BY</code> 的边界。</li>
+<li>日本项目 review 中如何说明 <code>REDUCE式</code>、<code>畳み込み</code>、<code>集約</code>、<code>累積変数</code>、<code>INIT指定</code>、<code>NEXT指定</code> 和 <code>LOOP文に戻す</code>。</li>
+</ul>
+<p>初学者不要先追求短写法。先问三个问题：我要归约成什么结果？初始值是什么？每一轮的更新规则是否一眼能看懂？只要这三个问题不清楚，<code>REDUCE</code> 就会比 <code>LOOP</code> 更难读。</p>
+<h4 id="42-3-c9b81a42" class="semantic-heading semantic-why">42.3 为什么重要</h4>
+<p>ABAP 项目里常见这种内部表汇总：</p>
+<pre><code class="language-abap">DATA total_amount TYPE decfloat34.
+
+LOOP AT lt_items INTO DATA(item).
+  total_amount = total_amount + item-amount.
+ENDLOOP.</code></pre>
+<p>如果逻辑只是“把内部表每一行的金额加起来”，<code>REDUCE</code> 可以把结果类型、初始值、迭代对象、更新公式集中在一个表达式中。</p>
+<pre><code class="language-abap">DATA(total_amount) = REDUCE decfloat34(
+  INIT total = CONV decfloat34( 0 )
+  FOR item IN lt_items
+  NEXT total = total + item-amount
+).</code></pre>
+<p>这对小型 helper method、ABAP Unit、DTO summary、测试数据构造很有价值。读者能看到：结果类型是 <code>decfloat34</code>，初始值是 <code>0</code>，遍历的是 <code>lt_items</code>，每轮只做一件事。</p>
+<p>但 SAP 项目中也有一个重要边界：如果数据还在数据库里，不要为了使用 <code>REDUCE</code> 先把大量数据 SELECT 到 ABAP 再汇总。能在数据库端安全完成的聚合，应优先考虑 ABAP SQL 的 <code>SUM</code>、<code>COUNT</code>、<code>GROUP BY</code>。<code>REDUCE</code> 的主要位置是“数据已经在 ABAP internal table 中，并且需要本地小型归约”。</p>
+<h4 id="42-4-key-mechanism-269613bb" class="semantic-heading semantic-mechanism">42.4 Key mechanism / 核心机制</h4>
+<h5 id="basic-form-sums-a-column-4e7f581b">Basic form sums a column</h5>
+<p>最小示例是内部表字段求和。</p>
+<pre><code class="language-abap">DATA(total_quantity) = REDUCE i(
+  INIT total = 0
+  FOR item IN lt_items
+  NEXT total = total + item-quantity
+).</code></pre>
+<p>逐段读：</p>
+<ul>
+<li><code>REDUCE i( ... )</code>：整个表达式的结果类型是 <code>i</code>。</li>
+<li><code>INIT total = 0</code>：定义 accumulator <code>total</code>，初始值是 <code>0</code>。</li>
+<li><code>FOR item IN lt_items</code>：逐行遍历内部表。</li>
+<li><code>NEXT total = total + item-quantity</code>：每一轮用旧的 <code>total</code> 加当前行数量，得到新的 <code>total</code>。</li>
+</ul>
+<p>循环结束后，第一个 <code>INIT</code> 变量 <code>total</code> 的最终值就是 <code>REDUCE</code> 表达式的返回值。</p>
+<h5 id="first-init-variable-is-the-result-8e6ffa33">First INIT variable is the result</h5>
+<p><code>INIT</code> 可以定义多个临时变量，但第一个 <code>INIT</code> 变量决定最终返回值。后面的变量是辅助 accumulator。</p>
+<pre><code class="language-abap">DATA(text) = REDUCE string(
+  INIT result = ``
+       count  = 0
+  FOR item IN lt_items
+  NEXT count  = count + 1
+       result = |{ result }{ count }: { item-name }; |
+).</code></pre>
+<p>这里最终返回的是 <code>result</code>，不是 <code>count</code>。<code>count</code> 只是帮助拼接序号。review 时看到多个 <code>INIT</code> 变量，要先问：第一个变量真的是想返回的东西吗？如果不是，变量顺序就错了。</p>
+<p>这一点对初学者很容易踩坑。因为最后一行 <code>NEXT result = ...</code> 看起来像“返回 result”，但真正的规则来自 <code>INIT</code> 的第一个变量，而不是 <code>NEXT</code> 中最后出现的赋值。</p>
+<h5 id="for-is-mandatory-60eb21b0">FOR is mandatory</h5>
+<p><code>REDUCE</code> 必须包含至少一个 <code>FOR</code> iteration expression。没有迭代，就没有归约。</p>
+<p>Table iteration：</p>
+<pre><code class="language-abap">DATA(total_amount) = REDUCE decfloat34(
+  INIT total = CONV decfloat34( 0 )
+  FOR item IN lt_items
+  NEXT total = total + item-amount
+).</code></pre>
+<p>Conditional iteration：</p>
+<pre><code class="language-abap">DATA(sum_1_to_10) = REDUCE i(
+  INIT sum = 0
+  FOR n = 1 UNTIL n &gt; 10
+  NEXT sum = sum + n
+).</code></pre>
+<p>如果迭代变量不是默认加 1，也可以用 <code>THEN</code> 指定下一轮如何变化。</p>
+<pre><code class="language-abap">DATA(countdown) = REDUCE string(
+  INIT text = ``
+  FOR n = 10 THEN n - 1 WHILE n &gt; 0
+  NEXT text = |{ text } { n }|
+).</code></pre>
+<p>一段 <code>REDUCE</code> 里也可以出现多个 <code>FOR</code>，形成类似嵌套循环的效果。但这通常会迅速降低可读性。书稿和项目代码里，多个 <code>FOR</code> 的 <code>REDUCE</code> 要非常克制，必要时拆成 <code>LOOP</code> 或 helper method。</p>
+<h5 id="next-updates-the-accumulator-b85a721a">NEXT updates the accumulator</h5>
+<p><code>NEXT</code> 是每一轮迭代结束时如何更新 accumulator 的地方。</p>
+<pre><code class="language-abap">NEXT total = total + item-amount</code></pre>
+<p>这句可以读成：新的 <code>total</code> 等于旧的 <code>total</code> 加当前行金额。初学阶段建议先使用这种完整赋值写法，不急着用 <code>+=</code> 或 <code>&amp;&amp;=</code>。</p>
+<p>如果 <code>NEXT</code> 中有多个赋值，按照从左到右的顺序求值和更新。后一项可以读到前一项更新后的值。因此多个 accumulator 之间存在依赖时，顺序要显式 review。</p>
+<pre><code class="language-abap">DATA(text) = REDUCE string(
+  INIT result = ``
+       count  = 0
+  FOR item IN lt_items
+  NEXT count  = count + 1
+       result = |{ result }{ count }: { item-name }; |
+).</code></pre>
+<p>这里 <code>result</code> 使用的是已经更新后的 <code>count</code>。如果调换赋值顺序，结果就可能不同。</p>
+<p>Joule review 还特别提醒：虽然 <code>INIT</code> 技术上可以定义 field symbol，但初学和普通项目代码中，不要把 field symbol 当成主 accumulator，尤其不要和 <code>+=</code>、<code>&amp;&amp;=</code> 这类 compound assignment 混用。field symbol 的赋值语义更接近重新绑定目标，容易导致读者误解。普通求和、拼接、计数时，用普通变量 accumulator。</p>
+<h5 id="table-iteration-additions-445d8a6b">Table iteration additions</h5>
+<p><code>FOR item IN itab</code> 是 iteration expression，因此可以带一些表迭代相关 addition。</p>
+<pre><code class="language-abap">DATA(open_amount) = REDUCE decfloat34(
+  INIT total = CONV decfloat34( 0 )
+  FOR item IN lt_items
+  WHERE ( status = &#x27;OPEN&#x27; )
+  NEXT total = total + item-amount
+).</code></pre>
+<p><code>WHERE ( ... )</code> 表示只处理满足条件的行。还可能看到 <code>INDEX INTO</code>、<code>USING KEY</code>、<code>FROM</code>、<code>TO</code>、<code>STEP</code> 等 table iteration 相关 addition。它们不是 <code>REDUCE</code> 专有，而是 <code>FOR</code> iteration expression 的能力。</p>
+<p>如果过滤逻辑很复杂，或者 key 选择影响性能，就不要把所有东西塞进一行 <code>REDUCE</code>。先用普通 <code>LOOP</code> 或拆出 helper method，确认行为后再考虑是否表达式化。</p>
+<h5 id="building-a-table-with-reduce-is-possible-but-not-always-best-cce6bdd6">Building a table with REDUCE is possible but not always best</h5>
+<p><code>REDUCE</code> 的结果可以是 internal table。例如把每一行转换成一行文本。</p>
+<pre><code class="language-abap">DATA(lines) = REDUCE string_table(
+  INIT result = VALUE string_table( )
+  FOR item IN lt_items
+  NEXT result = VALUE #(
+    BASE result
+    ( |{ item-id }: { item-amount }| )
+  )
+).</code></pre>
+<p>这能工作，但不一定是最清楚的写法。SAP 文档和项目经验通常会把“从一张表构造另一张表”优先写成 <code>VALUE #( FOR ... )</code> 的 table comprehension。</p>
+<pre><code class="language-abap">DATA(lines) = VALUE string_table(
+  FOR item IN lt_items
+  ( |{ item-id }: { item-amount }| )
+).</code></pre>
+<p>可以这样区分：如果核心意图是“多行归约成一个标量、结构或小型 summary”，<code>REDUCE</code> 合适；如果核心意图是“从表生成表”，<code>VALUE #( FOR ... )</code> 往往更直观。</p>
+<h5 id="structured-accumulator-needs-preservation-5d11e756">Structured accumulator needs preservation</h5>
+<p>当 accumulator 是结构时，要小心 <code>VALUE #( ... )</code> 重建结构时遗漏组件。</p>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_summary,
+         total TYPE decfloat34,
+         count TYPE i,
+       END OF ty_summary.
+
+DATA(summary) = REDUCE ty_summary(
+  INIT result = VALUE ty_summary( )
+  FOR item IN lt_items
+  NEXT result = VALUE #(
+    BASE result
+    total = result-total + item-amount
+    count = result-count + 1
+  )
+).</code></pre>
+<p>这里使用 <code>BASE result</code> 是为了保留未显式赋值的组件。如果写成 <code>VALUE #( total = ... )</code>，没有列出的组件会回到初始值，容易造成“上一轮累计值突然消失”的问题。结构 accumulator 是 <code>REDUCE</code> 中比较容易出错的地方，初学阶段要优先写得清楚，而不是写得短。</p>
+<h5 id="reduce-vs-loop-vs-sql-aggregate-32e53b0b">REDUCE vs LOOP vs SQL aggregate</h5>
+<p>项目里可以按这个顺序判断。</p>
+<ul>
+<li>数据还在数据库里，要做总数、平均、最大最小、分组汇总：优先考虑 ABAP SQL <code>SUM</code>、<code>COUNT</code>、<code>MIN</code>、<code>MAX</code>、<code>AVG</code>、<code>GROUP BY</code>。</li>
+<li>数据已经在 internal table 中，逻辑是纯粹小型归约：可以考虑 <code>REDUCE</code>。</li>
+<li>需要消息、异常、日志、多字段状态更新、复杂判断、外部调用或逐步调试：使用 <code>LOOP</code>。</li>
+<li>从一张表构造另一张表：优先考虑 <code>VALUE #( FOR ... )</code>，不必硬用 <code>REDUCE</code>。</li>
+<li>逻辑看起来像一行数学公式，但 review 时解释不清：退回 helper method 或 <code>LOOP</code>。</li>
+</ul>
+<p>不要把 <code>REDUCE</code> 当成性能优化。它首先是表达力工具。性能关键场景要看数据位置、表类型、key、算法复杂度、数据库下推可能性，而不是看代码是不是一行。</p>
+<h5 id="debugging-and-readability-761f93f9">Debugging and readability</h5>
+<p>SAP-samples cheat sheet 提醒过一个很实用的点：constructor expressions 和 iteration expressions 可以让代码更短，但复杂时可读性、可维护性和可调试性会下降。</p>
+<p>当 <code>REDUCE</code> 结果不对时，最稳的调试办法是临时展开成 <code>LOOP</code>。</p>
+<pre><code class="language-abap">DATA total TYPE decfloat34.
+
+LOOP AT lt_items INTO DATA(item).
+  total = total + item-amount.
+ENDLOOP.</code></pre>
+<p>确认每一轮变化后，再决定是否恢复为 <code>REDUCE</code>。在日本项目 review 里，<code>REDUCE式をLOOP文に戻す</code> 不是“退步”，而是为了障害調査、レビュー、保守性做出的工程判断。</p>
+<h4 id="42-5-82263ae6" class="semantic-heading semantic-japan">42.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>REDUCE式</code></li>
+<li><code>畳み込み</code></li>
+<li><code>集約</code></li>
+<li><code>内部テーブル集約</code></li>
+<li><code>累積変数</code></li>
+<li><code>集約結果</code></li>
+<li><code>INIT指定</code></li>
+<li><code>FOR反復式</code></li>
+<li><code>REDUCE内のFOR反復式</code></li>
+<li><code>NEXT指定</code></li>
+<li><code>条件付き反復</code></li>
+<li><code>テーブル反復</code></li>
+<li><code>型推論</code></li>
+<li><code>可読性</code></li>
+<li><code>保守性</code></li>
+<li><code>デバッグ容易性</code></li>
+<li><code>LOOP文に戻す</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>この <code>REDUCE式</code> は、内部テーブルの複数行を一つの集約結果に畳み込むための式です。</li>
+<li><code>INIT指定</code> の最初の変数が <code>REDUCE式</code> の最終結果を決定します。</li>
+<li><code>NEXT句</code> 内の複数の代入は左から右の順に評価されるため、代入順序を確認してください。</li>
+<li>テーブルからテーブルを構築する目的であれば、<code>REDUCE式</code> より <code>VALUE #( FOR ... )</code> の方が読みやすい可能性があります。</li>
+<li>データがまだDB上にある大量データ集計であれば、ABAP側の <code>REDUCE式</code> ではなく SQL の <code>SUM</code> / <code>GROUP BY</code> を検討してください。</li>
+<li>複雑な処理になっているため、可読性とデバッグ容易性を考慮して <code>LOOP文</code> または helper method に戻してください。</li>
+</ul>
+<p>术语注意：<code>FOR式</code> 这个说法在日语材料里可能同时指 <code>REDUCE</code> 内的迭代，也可能指 <code>VALUE #( FOR ... )</code> 的 table comprehension。为了避免混淆，本节建议说 <code>REDUCE内のFOR反復式</code>。</p>
+<h4 id="42-6-english-terms-1d911675" class="semantic-heading semantic-terms">42.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>REDUCE</code>, <code>REDUCE operator</code>, <code>reduction operator</code>, <code>iteration expression</code>, <code>FOR expression</code></li>
+<li>ABAP syntax: <code>REDUCE type( [ LET ... IN ] INIT result = start FOR item IN itab NEXT result = ... )</code></li>
+<li>Core additions: <code>INIT</code>, <code>FOR</code>, <code>NEXT</code>, <code>WHERE ( ... )</code>, <code>INDEX INTO</code>, <code>USING KEY</code>, <code>UNTIL</code>, <code>WHILE</code>, <code>THEN</code></li>
+<li>Related terms: <code>accumulator</code>, <code>temporary variable</code>, <code>field symbol</code>, <code>result type</code>, <code>table iteration</code>, <code>conditional iteration</code>, <code>aggregation</code>, <code>summary value</code></li>
+<li>Comparison terms: <code>LOOP AT</code>, <code>VALUE #( FOR ... )</code>, <code>SUM</code>, <code>COUNT</code>, <code>GROUP BY</code>, <code>internal table aggregation</code>, <code>debuggability</code></li>
+<li>Recommended search pattern: <code>ABAP REDUCE operator INIT FOR NEXT SAP Help</code>, <code>ABAP REDUCE expression SAP Samples</code>, <code>ABAP iteration expressions FOR REDUCE</code></li>
+</ul>
+<p>读官方资料时要把 <code>FOR</code> 和 <code>NEXT</code> 一起看。只看 <code>FOR</code> 会以为它只是循环；只看 <code>NEXT</code> 会看不出每一轮从哪里来。<code>REDUCE</code> 的核心是：用 <code>FOR</code> 产生迭代，用 <code>NEXT</code> 更新 accumulator，用第一个 <code>INIT</code> 变量作为最终结果。</p>
+<h4 id="42-7-example-18b39f30" class="semantic-heading semantic-example">42.7 Example / 学习例子</h4>
+<h5 id="1-883c5f31">例 1：金额求和</h5>
+<pre><code class="language-abap">DATA(total_amount) = REDUCE decfloat34(
+  INIT total = CONV decfloat34( 0 )
+  FOR item IN lt_items
+  NEXT total = total + item-amount
+).</code></pre>
+<p>适合场景：数据已经在内部表中，数量不大，逻辑只有求和。金额字段还要注意货币语义；不同 currency 的金额不能随便直接相加。</p>
+<h5 id="2-open-d98f8753">例 2：只汇总 OPEN 行</h5>
+<pre><code class="language-abap">DATA(open_amount) = REDUCE decfloat34(
+  INIT total = CONV decfloat34( 0 )
+  FOR item IN lt_items
+  WHERE ( status = &#x27;OPEN&#x27; )
+  NEXT total = total + item-amount
+).</code></pre>
+<p>这里 <code>WHERE</code> 是 <code>FOR</code> table iteration 的过滤条件。review 时要确认 <code>status = &#x27;OPEN&#x27;</code> 是技术常量还是业务 code list，必要时用常量替代裸字面量。</p>
+<h5 id="3-a4a4d80b">例 3：计数加拼接</h5>
+<pre><code class="language-abap">DATA(text) = REDUCE string(
+  INIT result = ``
+       count  = 0
+  FOR item IN lt_items
+  NEXT count  = count + 1
+       result = |{ result }{ count }: { item-id }; |
+).</code></pre>
+<p>这个例子展示多个 accumulator。最终返回 <code>result</code>，<code>count</code> 只是辅助变量。注意 <code>count</code> 在 <code>result</code> 前更新，所以 <code>result</code> 读到的是新计数。</p>
+<h5 id="4-summary-5656b023">例 4：结构型 summary</h5>
+<pre><code class="language-abap">DATA(summary) = REDUCE ty_summary(
+  INIT result = VALUE ty_summary( )
+  FOR item IN lt_items
+  NEXT result = VALUE #(
+    BASE result
+    total = result-total + item-amount
+    count = result-count + 1
+  )
+).</code></pre>
+<p>重点是 <code>BASE result</code>。没有它，未列出的结构组件可能被初始化，造成累积结果丢失。</p>
+<h5 id="5-abap-unit-986d24b9">例 5：ABAP Unit 中固定期望值</h5>
+<pre><code class="language-abap">DATA(actual) = REDUCE i(
+  INIT total = 0
+  FOR item IN lt_items
+  NEXT total = total + item-quantity
+).
+
+cl_abap_unit_assert=&gt;assert_equals(
+  exp = 6
+  act = actual
+).</code></pre>
+<p>测试应覆盖 normal table、empty table、filtered-out table、zero / negative value 等边界。<code>REDUCE</code> 自身不是测试，测试要证明初始值和每轮更新符合业务规则。</p>
+<h4 id="42-8-counterexample-failure-mode-23b60c55" class="semantic-heading semantic-example">42.8 Counterexample / Failure mode</h4>
+<h5 id="1-loop-reduce-701b2c92" class="semantic-heading semantic-failure">误区 1：把所有 <code>LOOP</code> 都改成 <code>REDUCE</code></h5>
+<p>错误心智：Modern ABAP 就是把循环变成表达式。</p>
+<p>修正：<code>REDUCE</code> 适合产生一个结果值，不适合承载消息、日志、数据库更新、异常路径、多对象状态修改。复杂流程应留在 <code>LOOP</code>。</p>
+<h5 id="2-init-cbad9074" class="semantic-heading semantic-failure">误区 2：忘记第一个 <code>INIT</code> 变量才是结果</h5>
+<p>错误心智：<code>NEXT</code> 最后一行赋值给谁，谁就是返回值。</p>
+<p>修正：最终结果由第一个 <code>INIT</code> 变量决定。多个 accumulator 时，先确认第一个变量是不是想返回的结果。</p>
+<h5 id="3-0-731a855e" class="semantic-heading semantic-failure">误区 3：初始值随手写 <code>0</code></h5>
+<p>错误心智：求最大值、最小值、金额汇总都可以从 <code>0</code> 开始。</p>
+<p>修正：初始值必须符合业务语义。负数、空表、初始金额、不同货币、不同单位都可能让 <code>0</code> 成为错误默认值。</p>
+<h5 id="4-abap-reduce-06e400a3" class="semantic-heading semantic-failure">误区 4：用 ABAP <code>REDUCE</code> 替代数据库聚合</h5>
+<p>错误心智：先 SELECT 全部数据到内部表，再用 <code>REDUCE</code> 汇总。</p>
+<p>修正：如果数据还在数据库中，优先让数据库做 <code>SUM</code> / <code>COUNT</code> / <code>GROUP BY</code>，同时处理 currency/unit、权限、released API / Clean Core 等边界。</p>
+<h5 id="5-accumulator-base-34b77757" class="semantic-heading semantic-failure">误区 5：结构 accumulator 忘记 <code>BASE</code></h5>
+<p>错误心智：<code>VALUE #( total = ... )</code> 只会改 <code>total</code>。</p>
+<p>修正：<code>VALUE #( ... )</code> 重建结构时，没有列出的组件会变成初始值。需要保留旧组件时用 <code>BASE result</code>，或者改成更清楚的 <code>LOOP</code>。</p>
+<h5 id="6-debug-75da3ef5" class="semantic-heading semantic-failure">误区 6：表达式太复杂难以 debug</h5>
+<p>错误心智：能写成一行就更好。</p>
+<p>修正：调试困难时，先展开为 <code>LOOP</code>。通过测试和 review 后，再决定是否恢复为 <code>REDUCE</code>。</p>
+<h4 id="42-9-334b1f69" class="semantic-heading semantic-practice">42.9 思考问题</h4>
+<ul>
+<li>这个 <code>REDUCE</code> 的最终 result type 是什么？</li>
+<li>第一个 <code>INIT</code> 变量是谁？它真的是想返回的结果吗？</li>
+<li>初始值是否对 empty table、负数、初始金额、不同单位都合理？</li>
+<li><code>FOR</code> 遍历的是 internal table 还是条件式计数？是否有 <code>WHERE</code>、<code>USING KEY</code>、<code>INDEX INTO</code>？</li>
+<li><code>NEXT</code> 中多个赋值是否依赖顺序？后一项是否读取前一项更新后的值？</li>
+<li>数据是否还在数据库里？是否应该用 SQL aggregate 而不是 ABAP 侧 <code>REDUCE</code>？</li>
+<li>这段逻辑是否需要日志、消息、异常或逐步 debug？如果需要，是否应该改成 <code>LOOP</code>？</li>
+<li>如果结果是 internal table，是否用 <code>VALUE #( FOR ... )</code> 更直观？</li>
+<li>结构 accumulator 是否需要 <code>BASE result</code>？</li>
+<li>在日本项目 review 中，应说 <code>REDUCE式</code>、<code>内部テーブル集約</code>、<code>累積変数</code>，还是建议 <code>LOOP文に戻す</code>？</li>
+</ul>
+<h4 id="42-10-129a5e58" class="semantic-heading semantic-reference">42.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONSTRUCTOR_EXPRESSION_REDUCE.html" target="_blank" rel="noopener noreferrer">REDUCE, Reduction Operator</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENFOR.html" target="_blank" rel="noopener noreferrer">FOR, Iteration Expressions</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENITERATION_EXPRESSIONS.html" target="_blank" rel="noopener noreferrer">Iteration Expressions</a></li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/05_Constructor_Expressions.md" target="_blank" rel="noopener noreferrer">ABAP Cheat Sheets - Constructor Expressions</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="42-11-connections-07041294">42.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-041-switch-expression-12d08ab5.html">SWITCH expression 多分支表达式</a></li>
+<li>Related: <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a></li>
+<li>Related: <a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Related: <a class="wiki" href="section-02-007-aggregate-functions-c767e82c.html">Aggregate functions 聚合函数</a></li>
+<li>Related: <a class="wiki" href="section-02-038-value-expression-a0792b7e.html">VALUE expression 值构造表达式</a></li>
+<li>Related: <a class="wiki" href="section-02-040-cond-expression-4810482a.html">COND expression 条件表达式</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Downstream: <a class="wiki" href="section-02-046-clean-abap-naming-955e5592.html">Clean ABAP naming 命名规则</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="42-12-b29fc828" class="semantic-heading semantic-practice">42.12 学习任务</h4>
+<ul>
+<li>写一个 <code>REDUCE i( ... )</code>，对内部表数量字段求和。</li>
+<li>写一个 <code>REDUCE decfloat34( ... )</code>，只汇总 <code>status = &#x27;OPEN&#x27;</code> 的金额。</li>
+<li>写一个带两个 accumulator 的 <code>REDUCE</code>，第一个返回拼接文本，第二个辅助计数。</li>
+<li>写一个结构型 accumulator，并用 <code>VALUE #( BASE result ... )</code> 保留旧组件。</li>
+<li>把一个简单 <code>LOOP</code> 求和改成 <code>REDUCE</code>，说明可读性是否提升。</li>
+<li>把一个过度复杂的 <code>REDUCE</code> 改回 <code>LOOP</code>，说明为什么更容易 debug。</li>
+<li>比较 <code>REDUCE</code> 和 ABAP SQL <code>SUM</code>，说明数据在 DB / internal table 时分别应该用哪个。</li>
+<li>用 ABAP Unit 固定 empty table、normal table、filtered table 三条边界。</li>
+<li>用 English Terms 找 SAP Help 的 <code>REDUCE, Reduction Operator</code> 页面，并用中文解释 <code>INIT</code>、<code>FOR</code>、<code>NEXT</code> 的关系。</li>
+</ul>
+<h4 id="42-13-confidence-next-action-19f964c5" class="semantic-heading semantic-status">42.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High。内容已根据 SAP Help / ABAP Keyword Documentation 的 <code>REDUCE, Reduction Operator</code>、<code>FOR, Iteration Expressions</code>、<code>Iteration Expressions</code> 以及 SAP-samples constructor-expression cheat sheet 校正；已有 Joule 专节快照 <code>90-Review/joule-reduce-expression-snapshot-2026-06-13.txt</code> 给出 <code>Pass with fixes</code>，本稿已纳入第一个 <code>INIT</code> 变量决定结果、<code>NEXT</code> 多赋值顺序、field symbol accumulator 警告、表构造优先 <code>VALUE #( FOR ... )</code>、结构 accumulator 需要 <code>BASE</code>、SQL aggregate 边界、以及复杂逻辑退回 <code>LOOP</code> 的修正。Claude CLI 在本轮上下文中仍存在健康检查超时/历史 credential error 记录，因此 Claude 复审作为外部 review debt 保留。</li>
+<li>Next action: 本节已同步到 Chapter 02 Section 42 和完整离线书稿；如果后续 Claude CLI 确认可用，再对 Section 42 做补充文件式 review。学习者下一步可继续 <a class="wiki" href="section-02-046-clean-abap-naming-955e5592.html">Clean ABAP naming 命名规则</a>，并用 ABAP Unit 固定 empty table、normal table、filtered table 三条边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-042-reduce-expression-f12baa21.html">REDUCE expression 归约表达式</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-041-switch-expression-12d08ab5.html">Previous section</a><a href="section-02-043-sy-subrc-discipline-and-silent-failure-patterns-17a684f1.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

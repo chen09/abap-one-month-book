@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP business events | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="48-rap-business-events-968980ed" class="chapter-title">48. RAP business events</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 48</li><li>self-contained study note</li></ul><h4 id="48-1-ae67b725" class="semantic-heading semantic-concept">48.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-048-rap-business-events-fd3eab08.html">RAP business events</a> 是 RAP business object 在业务状态发生重要变化时，对外发布“发生了什么”的事件机制。它适合把“主业务保存成功后需要通知、集成、异步处理”的场景从 action handler 和 save logic 中解耦出来；但它不是 validation、determination、action、additional save 或接口调用的替代品，也不是初学 RAP 必须第一天掌握的核心语法。</p>
+<p>一句话记忆：business event 是“保存成功后的业务事实通知”，不是“在 handler 里顺手做外部副作用”。</p>
+<p>把这节放在 <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a> 和 <a class="wiki" href="section-03-049-rap-extensibility-a515afa6.html">RAP extensibility</a> 之间，是因为事件是现代 SAP 扩展设计里非常容易被误用的一环。很多需求听起来像“保存后通知一下外部系统”，但如果直接把 HTTP 调用、邮件发送、外部写入塞进 handler 或 saver，就会把 SAP LUW、外部系统可用性、重试、超时和回滚混在一起。Business event 的意义，是把“主业务事实已经成立”与“下游如何反应”分开。</p>
+<p>初学者要先记住一个边界：event 描述已经发生的事实，不负责决定这个事实能不能发生。能不能保存、能不能批准、字段是否合法、用户有没有权限，这些仍然属于 validation、precheck、authorization、action result 或 save sequence。Event 只适合在事实成立之后，通知下游系统、workflow、集成层或扩展逻辑去处理后续动作。</p>
+<h4 id="48-2-9e5013e6" class="semantic-heading semantic-concept">48.2 到底学什么</h4>
+<p>本节放在 Day 21 的末尾，是因为读者已经学过 action、save sequence、additional save、OData/API testing 和 direct side-effect 反模式。现在可以理解一个更成熟的设计问题：当 Travel 被批准、上传任务完成、采购申请状态改变时，外部系统、workflow、notification、analytics 或 extension 要知道这件事，应该怎么设计？</p>
+<p>坏做法是在 action handler 或 <code>save_modified</code> 中直接发 HTTP、发邮件、写外部系统，然后希望它和 SAP 保存一起“自然一致”。好做法通常是把主业务保存和外部响应解耦：保存成功后产生 business event 或 outbox 记录，由事件消费者、integration flow、background job 或后续处理接走。</p>
+<p>本节不追求让初学者立刻实现完整 event framework，而是建立边界意识：event 表达业务事实；event consumer 是异步/解耦的一方；event payload 要稳定；event 可能重复或延迟；消费者必须考虑幂等；不能用 event 来替代同步业务校验和事务内保存。</p>
+<p>学习本节时，可以把 business event 拆成五个问题：</p>
+<div class="table-wrap"><table><thead><tr><th>问题</th><th>要回答什么</th></tr></thead><tbody><tr><td>What happened?</td><td>事件名称是否是业务事实，例如 <code>TravelApproved</code></td></tr><tr><td>When is it true?</td><td>它是否只在保存成功后才成立</td></tr><tr><td>Who consumes it?</td><td>下游系统、workflow、BTP integration、后台任务还是审计流程</td></tr><tr><td>What is the contract?</td><td>payload 是否稳定、最小、版本化</td></tr><tr><td>How is it operated?</td><td>重复、延迟、失败、监控和重试如何处理</td></tr></tbody></table></div>
+<p>如果这些问题回答不出来，就不应该急着说“用 event”。Event-driven design 不是把同步代码换个地方，而是承认下游处理是独立生命周期，需要明确 contract 和运维机制。</p>
+<h4 id="48-3-e85e406d" class="semantic-heading semantic-why">48.3 为什么重要</h4>
+<p>Business events 重要，是因为它们解决的是项目里最容易出事故的一类需求：主业务保存成功后，还要通知别人。比如订单批准后通知外部仓储，上传批次处理完成后通知前端轮询，主数据变更后触发 BTP integration flow。若这些动作直接塞进 handler，保存失败、重复点击、超时、外部系统不可用都会让事务边界变得混乱。</p>
+<p>事件思维让系统更可维护。主系统只负责说明“业务事实已发生”；消费者负责对事实做反应。这样可以降低耦合，也更符合 Clean Core 和扩展架构：核心 BO 不必知道所有下游系统细节，下游系统也不必通过轮询或直接读表理解状态变化。</p>
+<p>但 event 也不是银弹。事件通常是异步的，可能有延迟、重复、失败重试和消费顺序问题。项目必须设计 event payload、event version、idempotency key、monitoring、dead-letter/retry、消费者权限和审计。对于必须同步阻断的规则，仍然要用 validation、authorization、precheck 或 action result，而不是等 event consumer 再失败。</p>
+<p>对 Java/Python 背景学习者，可以类比 domain event / integration event / outbox pattern。RAP business event 的特殊点在于它和 RAP BO、BDEF、save sequence、SAP eventing/integration 能力以及 Clean Core 扩展策略相关。</p>
+<p>对 SAP 项目交付来说，business events 常常是 Clean Core 的关键工具。核心系统不应该知道每个外部系统的调用细节；它只发布“订单已批准”“上传已完成”“状态已变更”这样的业务事实。下游通过 SAP eventing、integration flow、side-by-side service、background job 或订阅机制处理自己的事情。这样升级标准 BO、调整外部系统或增加新消费者时，核心逻辑不必被每个下游需求拖着改。</p>
+<p>但这也带来新的责任：事件一旦成为 contract，就要像 API 一样管理。事件名称、payload 字段、语义、版本、兼容策略、监控方式，都要进入设计和测试。否则事件只是“更难排查的隐形接口”。</p>
+<h4 id="48-4-key-mechanism-a891b4e5" class="semantic-heading semantic-mechanism">48.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是业务事实。Event 名称应该表达已经发生的事实，例如 <code>TravelApproved</code>、<code>UploadCompleted</code>、<code>SalesOrderChanged</code>，而不是命令式的 <code>ApproveTravel</code>。命令是 action，事实是 event。</p>
+<p>第二层机制是触发时机。Business event 应该和保存成功后的业务状态一致。不要在 interaction phase 里过早发事件；否则后续 validation/save 失败时，下游已经收到错误事实。</p>
+<p>第三层机制是 payload。Event payload 应足够让消费者定位业务对象和理解变化，但不应把内部实现全部暴露。常见 payload 包括 BO key、event type、timestamp、changed semantic fields、correlation id。过大 payload 会增加兼容和隐私风险。</p>
+<p>第四层机制是幂等。Event consumer 必须假设事件可能重复到达。消费者应使用业务 key、event id、version、processed table 或 outbox 状态避免重复处理。</p>
+<p>第五层机制是监控和重试。事件发布或消费失败不能靠“用户再点一次”解决。项目需要监控、重试、错误队列、application log 或 integration monitoring。</p>
+<p>第六层机制是与 outbox 的关系。某些场景中，项目可能不直接使用 RAP business event，而是保存一条 outbox 记录，再由后台任务或 integration layer 发布。两者目标相近：避免在业务事务中直接调用不可回滚外部系统。</p>
+<p>第七层机制是边界。Event 不替代 <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a>、<a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a>、<a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a>、<a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a> 或 <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a>。它是解耦通知机制，不是同步业务流程的全部。</p>
+<p>一个更完整的设计流程如下：</p>
+<pre><code class="language-text">1. Identify the business fact
+2. Confirm the fact is true only after successful save
+3. Define event name and version
+4. Define minimal stable payload
+5. Decide publisher responsibility
+6. Decide consumer responsibility
+7. Design idempotency and retry
+8. Design monitoring and evidence
+9. Test duplicate, delay, failure, and replay</code></pre>
+<p>事件 payload 可以用这个模板设计：</p>
+<pre><code class="language-text">Business Event Payload
+
+eventType:
+  TravelApproved
+
+eventVersion:
+  1
+
+eventId:
+  globally unique id
+
+businessKey:
+  TravelUUID / UploadJobId / SalesOrder
+
+occurredAt:
+  timestamp
+
+correlationId:
+  request id / job id / application log id
+
+semanticFields:
+  only stable fields needed by consumers</code></pre>
+<p>最小 payload 不等于信息越少越好。它应该足够让消费者重新读取必要数据、做幂等判断、关联日志和解释业务语义；同时避免暴露内部表字段、临时状态、敏感信息或 UI-only 字段。对于可能变化的字段，最好让 consumer 通过 released API 读取最新状态，而不是把所有内部数据塞进 event。</p>
+<p>还要在设计书里写清楚“event 不保证什么”。例如 <code>TravelApproved</code> 可以表示生产者系统中 Travel 已进入 approved 业务事实，但它不保证仓储系统已处理、邮件已发送、外部系统已同步成功。后者是 consumer 侧处理结果，需要自己的 monitoring、retry、application log 和验收证据。把 producer event 与 consumer side effect 混为一谈，是事件驱动项目最常见的误解。</p>
+<p>事件测试也要像 API 测试一样具体：</p>
+<div class="table-wrap"><table><thead><tr><th>测试</th><th>目的</th></tr></thead><tbody><tr><td>Save success emits event</td><td>只有保存成功后才有事件</td></tr><tr><td>Save failure emits no event</td><td>validation/save 失败时不发布错误事实</td></tr><tr><td>Duplicate delivery</td><td>consumer 重复收到不重复处理</td></tr><tr><td>Delayed delivery</td><td>consumer 晚到仍能读到一致状态</td></tr><tr><td>Consumer failure</td><td>失败进入 retry/monitoring，而不是静默丢失</td></tr><tr><td>Payload compatibility</td><td>新字段不破坏旧 consumer</td></tr><tr><td>Authorization/data privacy</td><td>payload 不泄露不该给下游的数据</td></tr></tbody></table></div>
+<h5 id="event-design-review-matrix-ce1e958e">Event design review matrix</h5>
+<p>Business event 的设计审查要同时看 producer 和 consumer。只讨论“什么时候发事件”是不够的；还要确认消费者如何处理重复、延迟、失败和版本变化。</p>
+<div class="table-wrap"><table><thead><tr><th>Review area</th><th>Producer side</th><th>Consumer side</th><th>Evidence</th></tr></thead><tbody><tr><td>Business fact</td><td>事件名是否表达已成立事实，而不是命令</td><td>是否把事件当事实处理，而不是反向调用生产系统完成命令</td><td>event name / semantic definition</td></tr><tr><td>Save boundary</td><td>是否只在保存成功后产生事件或 outbox 记录</td><td>是否假设事件到达时主业务状态已可查询</td><td>save-success / save-failure test</td></tr><tr><td>Payload</td><td>是否只发布稳定、必要、非敏感字段</td><td>是否用 key/correlation id 读取详情，而不是依赖内部字段</td><td>payload schema / privacy check</td></tr><tr><td>Idempotency</td><td>是否提供 event id、business key、correlation id</td><td>是否记录已处理 event，避免重复副作用</td><td>duplicate delivery test</td></tr><tr><td>Ordering</td><td>是否说明事件顺序保证或不保证</td><td>是否能处理乱序、延迟、重复到达</td><td>replay / delay test</td></tr><tr><td>Failure handling</td><td>发布失败或 outbox 未处理时如何监控</td><td>consumer 失败时如何 retry、告警、人工再处理</td><td>monitoring / retry evidence</td></tr><tr><td>Versioning</td><td>新增字段、语义变化、弃用策略是否明确</td><td>旧 consumer 是否能忽略未知字段或迁移</td><td>event version policy</td></tr><tr><td>Operation</td><td>谁负责生产端、集成层、消费端的问题分界</td><td>缺陷单如何关联 event id、log id、business key</td><td>runbook / owner map</td></tr></tbody></table></div>
+<p>这张矩阵也能帮助判断“是否应该用 event”。如果需求要求同步阻断保存、立即返回外部系统结果、或把外部失败作为当前事务失败条件，那么它更像 action/validation/API 编排问题，不应该简单丢给 business event。相反，如果主系统只需要在事实成立后通知下游，让下游异步响应，那么 business event 或 outbox 就是更健康的方向。</p>
+<h4 id="48-5-7342008e" class="semantic-heading semantic-japan">48.5 日本项目现场说法</h4>
+<ul>
+<li><code>ビジネスイベント</code>：business event。</li>
+<li><code>イベント発行</code>：event publishing。</li>
+<li><code>イベント消費者</code>：event consumer。</li>
+<li><code>非同期連携</code>：asynchronous integration。</li>
+<li><code>冪等性</code>：idempotency。</li>
+<li><code>再処理</code>：reprocessing。</li>
+<li><code>監視</code>：monitoring。</li>
+<li><code>アウトボックス</code>：outbox。</li>
+</ul>
+<p>この処理は保存成功後の通知なので、handler 内の直接 HTTP 呼び出しではなく business event または outbox 方式を検討します。</p>
+<p>意思是：这个处理是保存成功后的通知，因此不应在 handler 中直接 HTTP 调用，而应考虑 business event 或 outbox 方式。</p>
+<p>イベント消費側は重複受信を前提に、冪等に処理できる設計にしてください。</p>
+<p>意思是：事件消费方要以前提“可能重复收到”为基础，设计成幂等处理。</p>
+<p>このイベントは同期チェックではないため、保存を止める業務ルールは validation 側で実装します。</p>
+<p>意思是：这个 event 不是同步校验；需要阻断保存的业务规则要在 validation 侧实现。</p>
+<p>设计审查常用表达：</p>
+<pre><code class="language-text">イベント名は命令形ではなく、保存後に成立した業務事実として定義します。</code></pre>
+<p>含义：事件名不要用命令式，而要定义成保存后成立的业务事实。</p>
+<pre><code class="language-text">イベントペイロードは最小限かつ安定した項目に限定し、内部実装項目を公開しない方針にします。</code></pre>
+<p>含义：event payload 限定为最小且稳定的字段，不公开内部实现字段。</p>
+<pre><code class="language-text">イベント失敗時の監視、再処理、デッドレター相当の運用手順を設計に含めます。</code></pre>
+<p>含义：把事件失败时的监控、再处理、类似 dead-letter 的运维流程纳入设计。</p>
+<pre><code class="language-text">外部システム側は event id または業務キーで重複処理を防止します。</code></pre>
+<p>含义：外部系统侧用 event id 或业务 key 防止重复处理。</p>
+<h4 id="48-6-english-terms-bdc897a8" class="semantic-heading semantic-terms">48.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP business events</code></li>
+<li>Related terms: <code>business event</code>, <code>event publishing</code>, <code>event consumer</code>, <code>domain event</code>, <code>integration event</code>, <code>outbox pattern</code>, <code>idempotency</code>, <code>event payload</code>, <code>correlation id</code>, <code>event monitoring</code>, <code>asynchronous integration</code></li>
+<li>Recommended search pattern: <code>SAP RAP business events event consumption outbox</code></li>
+<li>Design terms to keep in English: <code>event</code>, <code>consumer</code>, <code>payload</code>, <code>event id</code>, <code>correlation id</code>, <code>retry</code>, <code>monitoring</code>, <code>outbox</code></li>
+</ul>
+<h4 id="48-7-example-46c80e11" class="semantic-heading semantic-example">48.7 Example / 学习例子</h4>
+<p>假设 Travel 被批准后要通知外部系统。不要这样设计：</p>
+<pre><code class="language-text">Action handler AcceptTravel
+  -&gt; update status in buffer
+  -&gt; directly call external HTTP API
+  -&gt; save later fails</code></pre>
+<p>这样会出现 SAP 保存失败但外部系统已收到批准通知的问题。</p>
+<p>更合理的思路是：</p>
+<pre><code class="language-text">Action handler
+  -&gt; change BO status to Approved in transactional buffer
+
+Save sequence
+  -&gt; validate and persist the approved state
+
+After successful save
+  -&gt; publish TravelApproved business event
+  -&gt; consumer/integration flow processes notification</code></pre>
+<p>如果项目暂时没有完整 event framework，也可以用 outbox：</p>
+<pre><code class="language-text">Additional save / save sequence
+  -&gt; write outbox row with event type and key
+
+Background job / integration flow
+  -&gt; reads outbox
+  -&gt; calls external system
+  -&gt; marks processed / retries on failure</code></pre>
+<p>对 AC0567C POC，可以把上传任务完成看成事件候选：<code>UploadValidationCompleted</code>、<code>UploadExecutionCompleted</code>、<code>UploadFailed</code>。但要注意，初学阶段不必马上实现 event；先把状态、日志、API testing workflow 做稳定，再考虑事件解耦。</p>
+<p>AC0567C 的 event candidate 可以这样分析：</p>
+<div class="table-wrap"><table><thead><tr><th>Event candidate</th><th>何时成立</th><th>可能消费者</th><th>Payload 最小字段</th></tr></thead><tbody><tr><td><code>UploadValidationCompleted</code></td><td>validate 阶段完成且结果已保存/可查询</td><td>UI、监控、后续 execute 编排</td><td>job id、validation status、summary count、log id</td></tr><tr><td><code>UploadExecutionCompleted</code></td><td>execute 阶段完成且状态已提交</td><td>外部通知、报表、后续流程</td><td>job id、execution status、success count、error count、log id</td></tr><tr><td><code>UploadFailed</code></td><td>validate 或 execute 最终失败且错误可查询</td><td>监控、运维通知</td><td>job id、failure stage、error category、log id</td></tr></tbody></table></div>
+<p>这些事件不应该替代 <code>/status</code> API。Event 通知“状态变了”，<code>/status</code> API 仍然是消费者查询稳定状态的入口。这样 payload 可以保持小，消费者也能在收到事件后用 released/stable API 拉取详细结果。</p>
+<p>如果项目暂时不接入 SAP eventing，也可以先做 outbox：</p>
+<pre><code class="language-text">Outbox row:
+  event_type
+  event_version
+  business_key
+  payload_json
+  status = NEW / SENT / FAILED
+  retry_count
+  last_error
+  created_at
+  application_log_id</code></pre>
+<p>后台 job 或 integration flow 负责读取 outbox、发送、重试和标记状态。这样比在 handler 里直接 HTTP 调用更容易监控和重跑。</p>
+<h4 id="48-8-counterexample-failure-mode-e26c6eed" class="semantic-heading semantic-example">48.8 Counterexample / Failure mode</h4>
+<p>反例一：把 event 当 action。<code>ApproveTravel</code> 是命令，<code>TravelApproved</code> 才是事实事件。修正方式是区分 action 与 event。</p>
+<p>反例二：保存前就发 event。后续 validation 失败，下游已经处理。修正方式是把事件放到保存成功后的语义中。</p>
+<p>反例三：event payload 包含过多内部字段。消费者开始依赖内部实现，后续无法重构。修正方式是定义稳定、最小、语义化 payload。</p>
+<p>反例四：consumer 不幂等。重复事件导致重复发货、重复通知、重复日志。修正方式是使用 event id / business key / processed flag。</p>
+<p>反例五：没有监控。事件消费失败后无人知道。修正方式是设计 monitoring、retry、application log。</p>
+<p>反例六：把 event 当同步校验。外部系统拒绝后才发现 SAP 已保存。修正方式是同步阻断规则前移到 validation/precheck/authorization。</p>
+<p>反例七：payload 暴露敏感字段。为了方便下游，把个人信息、权限敏感字段或内部诊断字段全部塞进 event。修正方式是做数据最小化和授权/隐私审查。</p>
+<p>反例八：没有版本策略。payload 改名或删除字段后，旧 consumer 直接失败。修正方式是维护 event version，新增字段保持向后兼容。</p>
+<p>反例九：事件顺序假设过强。consumer 假设一定先收到 A 再收到 B，但异步系统可能延迟或重试。修正方式是用业务状态查询和幂等设计，而不是只靠顺序。</p>
+<p>反例十：没有事件证据。上线后外部系统说没收到，SAP 侧没有 event id、outbox 状态、application log 或 integration monitoring。修正方式是把 event evidence 纳入测试和运维。</p>
+<h4 id="48-9-5d0ce8a8" class="semantic-heading semantic-practice">48.9 思考问题</h4>
+<ul>
+<li>这个需求是同步阻断，还是保存成功后的通知？</li>
+<li>Event 名称是业务事实，还是命令？</li>
+<li>Event payload 最小需要哪些字段？</li>
+<li>消费方如何处理重复事件？</li>
+<li>事件失败如何监控和重试？</li>
+<li>是否需要 outbox，而不是直接外部调用？</li>
+<li>AC0567C 的 validate/execute/status 中，哪些状态变化适合作为 event？</li>
+<li>payload 中哪些字段是稳定 contract，哪些只是内部实现？</li>
+<li>consumer 如果重复收到同一个 event，会发生什么？</li>
+<li>event 失败后，谁负责监控、重试和人工恢复？</li>
+</ul>
+<h4 id="48-10-53065e65" class="semantic-heading semantic-reference">48.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/business-events" target="_blank" rel="noopener noreferrer">SAP Help - RAP Business Events</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/event-mesh" target="_blank" rel="noopener noreferrer">SAP Help - SAP Event Mesh</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20RAP%20event%20consumption" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP RAP event consumption, pending precise page</a></li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/raising-and-handling-business-events" target="_blank" rel="noopener noreferrer">SAP Learning - Raising and Handling Business Events</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/working-with-event-parameters" target="_blank" rel="noopener noreferrer">SAP Learning - Working with Event Parameters</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/search?query=event-driven%20architecture%20SAP%20BTP" target="_blank" rel="noopener noreferrer">SAP Learning search - event-driven architecture SAP BTP</a></li>
+<li><a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li><a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li><a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a></li>
+<li><a class="wiki" href="section-03-038-rap-action-handler-anti-pattern-direct-insert-7325d509.html">RAP Action Handler Anti-Pattern: Direct INSERT</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><a class="wiki" href="section-03-049-rap-extensibility-a515afa6.html">RAP extensibility</a></li>
+<li><a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+<li><a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="48-11-connections-7781d6df">48.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">RAP %control field-level change tracking</a></li>
+<li>Downstream: <a class="wiki" href="section-03-049-rap-extensibility-a515afa6.html">RAP extensibility</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="48-12-636f0f59" class="semantic-heading semantic-practice">48.12 学习任务</h4>
+<ul>
+<li>写出 action、business event、outbox 三者区别。</li>
+<li>设计一个 <code>TravelApproved</code> event payload，限制在 5 个字段内。</li>
+<li>补 2 个日语句子：一条说明 event 是保存后通知，一条说明 consumer 要幂等。</li>
+<li>写一个反例：handler 直接 HTTP 调用为什么危险。</li>
+<li>如果进入 Week 4，把 AC0567C POC 的状态变化画成 event candidate list。</li>
+<li>用 <code>Business Event Payload</code> 模板设计一个 <code>UploadExecutionCompleted</code> event。</li>
+<li>为一个 event consumer 写出重复事件处理规则。</li>
+<li>设计一条 event monitoring 证据：event id、业务 key、发送状态、失败原因、application log id。</li>
+</ul>
+<h4 id="48-13-confidence-next-action-aba541a0" class="semantic-heading semantic-status">48.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High for beginner-facing RAP business event design boundary after official-source closure。正文已补并于 2026-06-18 复核 SAP Help <code>RAP Business Events</code>、SAP Help <code>SAP Event Mesh</code>、SAP Learning <code>Raising and Handling Business Events</code> 和 <code>Working with Event Parameters</code> 精确入口，可支撑 business event、event parameter、local handling、event-driven integration 的基本定位。当前内容已覆盖 event 是保存成功后的业务事实、action / validation / additional save / outbox 边界、payload 最小化、consumer idempotency、monitoring evidence、delivery/retry caveat 和 AC0567C event candidate 视角。具体 Event Mesh / enterprise eventing 配置、delivery guarantee、monitoring 和 retry 机制仍需按当前 SAP Help / SAP Learning、系统 release 与项目架构确认。</li>
+<li>Review status: prior Joule / Claude review artifacts for this section are deferred or timed out and explicitly state that no usable verdict was obtained；2026-06-18 Claude CLI 当前 session expired，外部 review debt 保留。由于本节已完成官方资料闭环和 event design review matrix 说明，不再停留在提纲草稿状态。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；下一节继续 <a class="wiki" href="section-03-049-rap-extensibility-a515afa6.html">RAP extensibility</a>，之后进入 Day 22 授权章节。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-048-rap-business-events-fd3eab08.html">RAP business events</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-047-odata-v4-expand-and-navigation-properties-28c33331.html">Previous section</a><a href="section-03-049-rap-extensibility-a515afa6.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

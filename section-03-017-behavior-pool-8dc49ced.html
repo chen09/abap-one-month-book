@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Behavior pool 行为池 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="17-behavior-pool-be54c096" class="chapter-title">17. Behavior pool 行为池</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 17</li><li>self-contained study note</li></ul><h4 id="17-1-86d0aa84" class="semantic-heading semantic-concept">17.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a> 是 <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a> 的 ABAP 实现容器：BDEF 声明 RAP business object 能做什么，behavior pool 里的本地 handler class 和 saver class 负责把这些行为真正实现出来。</p>
+<p>初学者可以先记成一句话：BDEF 是契约，behavior pool 是实现；handler class 处理 interaction phase，saver class 处理 save sequence。看 RAP 代码时，如果想知道 validation、determination、action、authorization、feature control、unmanaged CRUD 或 custom save 到底怎么写，就要打开 behavior pool。</p>
+<h4 id="17-2-fdc85b1f">17.2 概念说明</h4>
+<p>RAP 的 behavior pool 是一种 ABAP repository object，也常在 ADT 中以 behavior implementation class 的形式看到。它和普通 ABAP class 长得相似，但语义不同：它是为某个 RAP BO 的行为实现服务的特殊 class pool。ABAP Keyword Documentation 对 behavior pool 的说明很直接：behavior implementation 会写在 behavior pool 的 CCIMP include 中，由本地 RAP handler class 和需要时的 RAP saver class 组成。初学者在 ADT 中打开 <code>BP_*</code> 全局类时要注意：global class 本体通常是一个 <code>CLASS ... FOR BEHAVIOR OF ... ENDCLASS</code> 的空壳，隐式为 <code>ABSTRACT</code> 和 <code>FINAL</code>；真正的实现代码在 Local Types / CCIMP 里的本地类中。</p>
+<p>上一节的 <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a> 已经说明：BDEF 用 BDL 声明 <code>create</code>、<code>update</code>、<code>delete</code>、<code>action</code>、<code>validation</code>、<code>determination</code>、<code>lock</code>、<code>authorization</code>、<code>numbering</code>、<code>mapping for</code>、draft 等行为边界。但声明本身不等于逻辑已经存在。比如 BDEF 中写了 <code>validation validateDates on save { field BeginDate, EndDate; }</code>，实际检查日期的 ABAP 代码要放在 behavior pool 的本地 handler class 方法中。</p>
+<p>行为池内部常见两类本地类。第一类是 handler class，通常以 <code>lhc_</code> 开头，例如 <code>lhc_travel</code>、<code>lhc_booking</code>。它们继承 <code>CL_ABAP_BEHAVIOR_HANDLER</code>，实现 create/read/update/delete、action、function、validation、determination、authorization、feature control、early numbering、lock 等和 interaction phase 相关的方法。第二类是 saver class，通常以 <code>lsc_</code> 开头，继承 <code>CL_ABAP_BEHAVIOR_SAVER</code>，负责 save sequence 中的保存阶段方法，例如 unmanaged save、managed with unmanaged save、managed with additional save、finalize、check before save、cleanup 等场景。标准 managed BO with managed save 可能不生成自定义 saver class，因为标准保存由 RAP runtime 完成。</p>
+<p>在 composite BO 中，一个 BO 可能有 root、child、grandchild 多个 entity；behavior pool 中可以有多个 handler class，通常一个实体一个 handler class。默认命名一般是 <code>lhc_&lt;entity_name&gt;</code>，若 BDEF 使用 alias，也可能使用 alias；saver class 的默认命名则是 <code>lsc_&lt;BO_name&gt;</code>，其中 BO name 是 root entity 的全局名，不是 root alias。但 saver class 属于整个 BO，而不是某一个 child entity。SAP Learning 的说法是：saver class always belongs to the business object as a whole。这个点很重要，因为保存不是某一行 child 的孤立动作，而是整个 BO 事务缓冲进入 save sequence 的统一处理。</p>
+<p>还有一个容易被忽略的结构点：一个 BDEF 可以指定不止一个 behavior pool。可以在 header level 指定覆盖没有单独实现类的实体，也可以为特定 entity 指定 entity-level behavior pool。初学阶段常见的是一个 BO 一个 behavior pool，但读真实项目代码时不要把这种简化当成硬规则。</p>
+<h4 id="17-3-b4b8c62a">17.3 边界</h4>
+<p>Behavior pool 不定义业务对象的数据模型。Root view entity、composition tree、association、field list 和 projection view 仍在 CDS 层。Behavior pool 也不定义“这个行为是否存在”，行为是否被允许、何时触发、是否暴露，仍先看 BDEF 和 projection behavior。Behavior pool 的职责是实现已经声明的行为。</p>
+<p>Behavior pool 不是随便可调用的 service class。它里面的 RAP handler 方法有特殊签名，例如 <code>FOR MODIFY</code>、<code>FOR READ</code>、<code>FOR ACTION</code>、<code>FOR VALIDATE ON SAVE</code>、<code>FOR DETERMINE ON MODIFY</code>、<code>FOR INSTANCE FEATURES</code> 等。这些方法由 RAP runtime 按生命周期调用，通常不是让开发者从普通 ABAP 代码里直接 new 出来调用。需要消费 BO 时，应优先用 EML 或 service API，而不是绕过 runtime 调用 behavior pool 内部方法。</p>
+<p>Behavior pool 也不是把所有业务逻辑都塞进去的垃圾桶。它应该承接 BO 生命周期相关逻辑：校验、派生、动作、授权、保存协调、消息返回、和遗留逻辑的适配。复杂的可复用算法、外部接口封装、格式转换、领域计算，仍可以放在普通 class 中，由 behavior pool 调用。这样做能保持 handler 方法短而可测试，也能避免 RAP 生命周期代码和普通 utility code 混在一起。</p>
+<p>Behavior pool 不等于 database transaction controller。特别是在 RAP handler 和 saver 方法中，<code>COMMIT WORK</code> 与 <code>ROLLBACK WORK</code> 是 prohibited statements，不只是“不建议随便用”。修改请求先进入 RAP transactional buffer，再由 <code>COMMIT ENTITIES</code> 触发 save sequence。Behavior pool 参与这个过程，但不应该破坏它。</p>
+<h4 id="17-4-be41e4f0" class="semantic-heading semantic-mechanism">17.4 核心机制</h4>
+<p>第一层机制是 interaction phase 和 save sequence 的分工。interaction phase 中，消费者发起 create、update、delete、read、action 等请求，RAP runtime 维护 transactional buffer，handler class 处理与当前交互相关的逻辑。save sequence 中，缓冲中的修改被 finalize、checked、number adjusted、saved 和 cleaned up，saver class 处理保存阶段逻辑。读 behavior pool 时，先问：这个方法属于交互阶段，还是保存阶段？</p>
+<p>第二层机制是 handler class。Handler class 是 behavior pool 中最常见的本地类，继承 <code>CL_ABAP_BEHAVIOR_HANDLER</code>。BDEF 中声明的 validation、determination、action、function、authorization、feature control、lock、early numbering、unmanaged CRUD 等，最终会映射到 handler method。ADT Quick Fix 常能根据 BDEF 中新增的声明自动生成缺失的方法签名，这是初学者观察 BDEF 和 behavior pool 对应关系的好入口。</p>
+<p>第三层机制是 saver class。Saver class 继承 <code>CL_ABAP_BEHAVIOR_SAVER</code>，如果存在，它属于整个 RAP BO。Managed with managed save 场景中，标准持久化主要由 RAP runtime 处理，开发者可能不需要自定义 saver class；unmanaged BO 或 managed with unmanaged save 场景中，saver class 会承担把缓冲内容写入数据库或遗留逻辑的责任；additional save 场景中，saver 可以在 managed write 之外追加处理，例如产生业务事件或写补充记录。不要看到 <code>lsc_</code> 就以为所有 BO 都必须手写保存。</p>
+<p>第四层机制是方法签名由 RAP 语法决定。普通 ABAP method 的参数由开发者随意设计；RAP handler/saver 方法的参数通常由 BDEF derived types 推导。比如 action 方法会有 keys 或参数表，validation 有 keys，并通过隐式 <code>failed</code> / <code>reported</code> 返回失败实例和消息；determination 通常通过 local EML 修改实体；unmanaged create/update/delete/read 方法使用 <code>entities</code> 或 <code>keys</code>，并通过 <code>mapped</code> / <code>failed</code> / <code>reported</code> 反馈结果。读代码时要把这些参数当成 RAP runtime contract，而不是普通自定义结构。</p>
+<p>第五层机制是 local EML。Behavior pool 内部经常使用 <code>READ ENTITIES</code>、<code>MODIFY ENTITIES</code> 或 <code>IN LOCAL MODE</code> 的 EML 操作当前 BO 实例。这样做的意义是继续留在 RAP transactional buffer 和 BO 生命周期内，而不是直接改数据库表；在 BO 自己的 handler 中使用 <code>IN LOCAL MODE</code>，也可以避免内部派生/校验逻辑再次被 feature control 或 authorization check 阻断。比如 determination 计算状态后，应该通过 EML 修改 BO entity；validation 读取相关字段后，通过 <code>failed</code> / <code>reported</code> 返回结果。</p>
+<p>第六层机制是 managed、unmanaged 和 custom save 的差异。Managed BO 中，标准 CRUD 和持久化可以大量交给 runtime；unmanaged BO 中，runtime 更像把请求转发给 behavior implementation，开发者要实现 CRUD、buffer 和保存；managed with unmanaged save 则介于二者之间，runtime 管理 interaction buffer 和标准操作，但实际 DB write 转交给 saver 的 <code>save_modified</code>。因此 behavior pool 的代码量不是“越多越高级”，而是由 implementation scenario 决定。</p>
+<p>第七层机制是 determination 触发语义。多个 determination 被同一条件触发时，不应假设固定执行顺序；<code>on modify</code> determination 可能在同一个 LUW 中因多次修改而多次触发，而 <code>on save</code> determination 按保存序列执行。若逻辑依赖顺序，应重构触发条件或合并处理，而不是靠偶然执行顺序。</p>
+<p>第八层机制是消息和错误反馈。Behavior pool 不应该只抛异常或写日志，而要使用 RAP 的 response structures。<code>failed</code> 告诉 runtime 哪些实例失败，<code>reported</code> 返回可显示给消费者的消息，<code>mapped</code> 把临时 key 映射到最终 key。这样 Fiori、OData、EML 调用方才能得到结构化响应。日本项目中很多“保存失败但前端消息不清楚”的问题，根源就是 behavior pool 没有按 RAP 方式返回消息。</p>
+<p>第九层机制是授权、特性控制和锁。BDEF 里声明了 authorization、feature control 或 lock 后，behavior pool 中可能需要实现对应 handler method。Global authorization 判断当前用户是否能执行某类操作；instance authorization 判断某个实例能否被当前用户操作；feature control 可以动态控制 action/button/field 是否可用。它们不是 UI 小装饰，而是服务契约、权限设计和测试项目的一部分。</p>
+<h4 id="17-5-5b9e823e" class="semantic-heading semantic-why">17.5 项目意义</h4>
+<p>Behavior pool 是 RAP 代码 review 的核心对象之一。BDEF 说明“应该有这些行为”，behavior pool 证明“这些行为是否被正确实现”。在实际项目里，很多缺陷不会出现在 CDS view entity 本身，而会出现在 behavior pool：action 直接插表、validation 没填 <code>failed</code>、determination 顺序被错误假设、unmanaged update 没处理 <code>%control</code>、authorization 方法只做了 global 没做 instance、saver 里做了不可回滚外部调用、消息没有进入 <code>reported</code>。</p>
+<p>对交付来说，behavior pool 直接影响事务一致性、错误消息、权限、并发、测试和上线风险。一个 RAP 服务能打开，不代表 behavior pool 正确；OData 返回 200，也不代表 save sequence 和业务规则完整。设计评审时要问：哪些逻辑在 handler，哪些在 saver，哪些交给 runtime，哪些调用普通 service class，失败时如何返回，是否允许重试，是否涉及外部副作用。</p>
+<p>对 Java/Python 背景学习者来说，behavior pool 有点像 domain service + lifecycle callback + transaction handler 的组合，但它不等于 Spring Controller、Django View 或普通 repository。它被 RAP runtime 驱动，方法签名和调用时机由 BDEF 和 BO 生命周期决定。把它当普通 service class 会误解事务边界；把所有逻辑都写在里面又会让代码难测、难复用。</p>
+<p>对日本 SAP 项目来说，behavior pool 常出现在 <code>実装クラス</code>、<code>ハンドラクラス</code>、<code>セーバークラス</code>、<code>保存シーケンス</code>、<code>検証処理</code>、<code>派生処理</code>、<code>権限チェック</code> 的讨论中。评审时不只看“有没有代码”，还会问 <code>どのフェーズで実行されますか</code>、<code>failed/reported に正しく返していますか</code>、<code>COMMIT WORK を使っていませんか</code>、<code>projection 側の公開範囲と一致していますか</code>。</p>
+<h4 id="17-6-example-332009a1" class="semantic-heading semantic-example">17.6 Example / 学习例子</h4>
+<p>以 Travel BO 为例，BDEF 中声明 <code>validation validateDates on save { field BeginDate, EndDate; }</code>。ADT Quick Fix 会在 behavior pool 的 <code>lhc_travel</code> 中生成 handler method。定义区的声明类似 <code>METHODS validateDates FOR VALIDATE ON SAVE IMPORTING keys FOR Travel~validateDates.</code>；实现区则是普通的 <code>METHOD validateDates. ... ENDMETHOD.</code>。实现中读取 keys 对应实例，检查日期关系，错误时向 <code>failed-travel</code> 加入 key，并向 <code>reported-travel</code> 加入 message。这样保存流程能知道哪些实例失败，也能把消息返回给 UI 或 OData consumer。</p>
+<p>再看 determination。BDEF 声明 <code>determination setInitialStatus on modify { create; }</code> 后，behavior pool 中的 handler method 在 create 后被调用。实现通常先 <code>READ ENTITIES</code> 取得新建实例，再用 <code>MODIFY ENTITIES</code> 设置 Status。这里不要直接 <code>UPDATE ztable SET status = ...</code>，因为此时数据可能还在 transactional buffer 中，直接改表会绕开 RAP 生命周期。</p>
+<p>再看 action。BDEF 中定义 <code>action accept result [1] $self;</code>，behavior pool 中实现 <code>accept</code> 方法。方法里应检查当前状态、权限、必要字段和业务规则，然后通过 EML 修改状态，并用 <code>reported</code> 返回成功或错误消息。如果这个 action 要被 Fiori/OData 调用，还要确认 projection behavior 和 service 层是否暴露。</p>
+<p>再看 unmanaged BO。假设项目要封装既有 function module。BDEF 声明 unmanaged implementation，behavior pool 的 handler class 实现 create/update/delete/read，把 RAP derived types 映射到旧 function module 的结构，并处理 <code>%control</code> 表示哪些字段被修改。Saver class 再在 save sequence 中把 buffered change 写入旧逻辑。这里最容易出错的是：忘记维护 buffer、忘记把旧消息映射到 <code>reported</code>、或者在 interaction phase 直接提交。</p>
+<h4 id="17-7-counterexample-failure-mode-42e1c51d" class="semantic-heading semantic-example">17.7 Counterexample / Failure mode</h4>
+<p>第一个失败模式是在 action handler 中直接 <code>INSERT</code> / <code>UPDATE</code> 持久化表并 <code>COMMIT WORK</code>。这看起来快，但会绕开 RAP transactional buffer、save sequence、draft、消息处理和回滚语义；在 RAP handler/saver 方法中，<code>COMMIT WORK</code> / <code>ROLLBACK WORK</code> 属于禁止语句。正确做法是通过 EML 或合适的 saver/custom save 设计，让框架统一处理事务。</p>
+<p>第二个失败模式是把 validation 写成普通异常。比如检查失败时直接 <code>RAISE EXCEPTION</code>，没有填 <code>failed</code> / <code>reported</code>。结果前端可能只看到技术错误，无法定位是哪一行、哪个字段、哪条业务规则失败。RAP validation 的价值在于结构化反馈。</p>
+<p>第三个失败模式是假设 determination 顺序固定。SAP Learning 明确提醒：如果多个 determination 被同一条件触发，不能依赖固定执行顺序。若两个 determination 有依赖关系，应重构触发条件、合并逻辑或明确保存阶段设计，而不是靠“现在看起来先执行 A 再执行 B”。</p>
+<p>第四个失败模式是把 handler class 写成大而全的业务系统。几千行 handler method 混合权限、计算、接口调用、格式转换、DB 操作和消息拼接，短期能跑，长期无法 review。更好的做法是让 behavior pool 保持 RAP 生命周期协调，复杂可复用逻辑拆到普通 class，并用 ABAP Unit 或集成测试覆盖。</p>
+<p>第五个失败模式是只实现 root handler，忘记 child entity。Composite BO 中 child 也可能有自己的 validation、determination、authorization、feature control 或 action。尤其是 create-by-association、child delete、child update、parent 总计重算等场景，不能只看 root。</p>
+<h4 id="17-8-d988c0c9" class="semantic-heading semantic-japan">17.8 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ビヘイビアプール</code>、<code>ビヘイビア実装クラス</code>、<code>ハンドラクラス</code>、<code>セーバークラス</code>、<code>保存シーケンス</code>、<code>検証処理</code>、<code>派生処理</code>、<code>アクション実装</code>、<code>failed/reported</code>、<code>トランザクションバッファ</code>。</li>
+<li>说明句：ビヘイビア定義で宣言した validation は、ビヘイビアプールのハンドラクラスで実装します。</li>
+<li>说明句：保存フェーズの処理はセーバークラス側に配置し、ハンドラメソッドおよびセーバーメソッド内で COMMIT WORK / ROLLBACK WORK を実行しないでください。</li>
+<li>说明句：エラー時は例外だけでなく、failed / reported に業務メッセージを返す設計にしてください。</li>
+<li>使用场景：RAP 详细设计、code review、単体テスト項目作成、Fiori/OData 结合测试缺陷分析、保存失败调查、Clean Core 审查。</li>
+</ul>
+<h4 id="17-9-english-terms-82d043c2" class="semantic-heading semantic-terms">17.9 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP behavior pool</code></li>
+<li>Common abbreviation: <code>ABP</code></li>
+<li>Related terms: <code>behavior implementation</code>, <code>local handler class</code>, <code>local saver class</code>, <code>CL_ABAP_BEHAVIOR_HANDLER</code>, <code>CL_ABAP_BEHAVIOR_SAVER</code>, <code>interaction phase</code>, <code>save sequence</code>, <code>transactional buffer</code>, <code>handler method</code>, <code>saver method</code>, <code>failed</code>, <code>reported</code>, <code>mapped</code>, <code>local EML</code>, <code>FOR VALIDATE ON SAVE</code>, <code>FOR DETERMINE ON MODIFY</code>, <code>FOR ACTION</code>, <code>FOR READ</code>, <code>FOR MODIFY</code>.</li>
+<li>Recommended search pattern: <code>ABAP behavior pool RAP handler saver class</code></li>
+</ul>
+<h4 id="17-10-7b6e3a0b" class="semantic-heading semantic-reference">17.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenabap_behavior_pools.html" target="_blank" rel="noopener noreferrer">ABAP Behavior Pools | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBEHAVIOR_POOL_GLOSRY.html" target="_blank" rel="noopener noreferrer">ABAP behavior pool | ABAP Keyword Documentation Glossary</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapclass_for_behavior_of.html" target="_blank" rel="noopener noreferrer">CLASS, FOR BEHAVIOR OF | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABP_CL_ABAP_BEH_HANDLER.html" target="_blank" rel="noopener noreferrer">CL_ABAP_BEHAVIOR_HANDLER, RAP Handler Class | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABP_CL_ABAP_BEH_SAVER.html" target="_blank" rel="noopener noreferrer">CL_ABAP_BEHAVIOR_SAVER, RAP Saver Class | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring Behavior Implementation Options | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/setting-values-using-numbering-and-determinations" target="_blank" rel="noopener noreferrer">Setting Values Using Numbering and Determinations | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/implementing-input-checks-using-validations" target="_blank" rel="noopener noreferrer">Implementing Input Checks Using Validations | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="17-11-connections-dfb777e0">17.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Upstream: <a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a></li>
+<li>Downstream: <a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a></li>
+<li>Downstream: <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li>Downstream: <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li>Downstream: <a class="wiki" href="section-03-030-determination-375d9597.html">Determination 派生逻辑</a></li>
+<li>Downstream: <a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a></li>
+<li>Downstream: <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 18 - RAP Business Object 与 Behavior</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="17-12-0bcd26bc" class="semantic-heading semantic-practice">17.12 学习任务</h4>
+<ul>
+<li>用自己的中文解释：为什么 BDEF 是契约，behavior pool 是实现？</li>
+<li>在一个 RAP 示例或 AC0567C POC 中找出 <code>lhc_</code> handler class 和 <code>lsc_</code> saver class。</li>
+<li>找一个 validation 或 determination，说明它在 BDEF 中如何声明、在 behavior pool 中如何实现。</li>
+<li>检查一个 action handler 是否通过 <code>failed</code> / <code>reported</code> 返回业务消息。</li>
+<li>用日语写一句 review 说明：<code>ハンドラ内で COMMIT WORK を実行せず、RAP の保存シーケンスに従って実装します。</code></li>
+</ul>
+<h4 id="17-13-confidence-next-action-dbbe5c30" class="semantic-heading semantic-status">17.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for tutorial use。本节已按 ABAP Keyword Documentation、SAP Learning、Joule <code>Pass with fixes</code>、Claude <code>Pass</code> 和 Claude follow-up <code>Pass</code> 复核；handler/saver 分工、managed/unmanaged/custom save、local EML、<code>failed</code> / <code>reported</code> / <code>mapped</code>、determination trigger nuance 和 <code>COMMIT WORK</code> restriction 已闭环。Release-specific behavior implementation details still require target-system verification.</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿结构同步；随后继续 <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-016-sap-locking-architecture-overview-d3a88b67.html">Previous section</a><a href="section-03-018-managed-rap-833bfafa.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

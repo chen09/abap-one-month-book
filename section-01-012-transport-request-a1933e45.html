@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Transport request 传输请求 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="12-transport-request-c4208908" class="chapter-title">12. Transport request 传输请求</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 12</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Transport request 传输请求，是 SAP 用来记录、组织、释放并传递 repository object / customizing 变更的 CTS/Transport Organizer 单位，并会对 Workbench repository objects 形成 transport-based lock；本节要学的是：它不是 Git commit，也不是“点了 release 就已经上线”，而是 ABAP 对象从 DEV 走向 QAS/PRD 的受控变更容器。</p>
+<p><strong>正文</strong></p>
+<p>前两节已经知道：开发对象要放进 <a class="wiki" href="section-01-011-abap-package-f43e032c.html">package</a>，package 决定对象是否进入正式 software logistics。Transport request 是下一步：当你在非临时 package 里创建或修改 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a> 时，ADT 通常会要求你把这个变更分配到一个 transport request。这个 request 会记录对象列表、负责人、开发者 task、状态、release 结果和后续 export/import 线索。</p>
+<p>Transport request 很容易被 Java/Python 背景的人误解成 Git commit、branch、pull request 或 deploy job。它们确实都和“变更管理”有关，但不是同一个东西。Git commit 记录本地/远端代码仓库中的文本差异；transport request 记录 SAP 系统中 repository objects 或 customizing settings 的变更。transport request 可以包含多个对象、多个开发者 task、Workbench 或 Customizing 类型，也会和 object lock、Transport Organizer、TMS、import queue、import log 发生关系。</p>
+<p>最小流程可以这样理解：开发者在 DEV 创建或修改对象，系统把对象记录到自己的 task；开发完成后，开发者先 release task；所有相关 task 都 release 后，request owner / project lead release transport request。对 transportable request 来说，release 通常触发 export，把对象从 DEV 系统数据库复制到 central transport directory；QAS/PRD 的 import 是后续由 TMS / cTMS、transport admin、项目流程或相应 cloud transport 工具触发的单独动作。也就是说，“request released”不等于“QAS 已经变了”，更不等于“PRD 已经上线”。</p>
+<p>本节还要分清两类 request。Workbench request 主要记录 repository objects 和 cross-client 对象，例如 ABAP class、DDIC object、CDS、RAP object 等；Customizing request 主要记录 client-specific customizing settings。Day 02 不需要会做 IMG customizing，但要知道它和 ABAP Workbench 变更不是一回事。对象锁也不同：Workbench request 会对 repository object 形成 transport-based repository lock；Customizing request 的锁更多依赖过程控制，不能简单说“所有 customizing 都被 transport lock 锁住”。</p>
+<p>最后，要知道 local request / local object 的差异。正式 transportable request release 后才会进入 export/import 路径；local transport request release 可能只记录 repository object 版本，并不会 export 到 file system，也不会出现在目标系统的 STMS import queue 里。初学者看到“release 成功但 QAS 队列里没有”，不一定是 Basis 出错，可能只是 request 本来就是 local。</p>
+<p><strong>为什么重要</strong></p>
+<p>transport request 是 SAP 项目交付的证据链。它回答几个项目问题：这次改了哪些对象？谁改的？属于哪个变更？是否已经由开发者 release task？负责人是否 release request？是否已经 export？是否进入 QAS import queue？import log 是否成功？是否已经进 PRD？如果没有这个链路，代码即使在 DEV 能运行，也很难被测试、审计和维护。</p>
+<p>对开发者来说，它也是协作边界。一个对象进入某个 Workbench request 后，其他不在 request/team 里的开发者通常不能随便改同一个对象；这避免多个团队在同一对象上互相覆盖。release task / release request 的顺序，也让项目负责人能控制“一个可测试单元”何时整体进入 QAS。SAP Learning 强调 transport request 应该把属于同一 testable unit 的对象聚在一起，这比“每改一点就建一个 request”更容易管理。</p>
+<p>对日本 SAP 项目来说，<code>移送依頼番号</code> 是日常沟通中的硬信息。别人问 <code>この修正はどの移送依頼に入っていますか</code>，不是在问 Git hash，而是在问：这个 SAP 变更由哪个 request 管理，是否已经 task release / request release，能不能安排 QAS import 或本番反映。不会读 transport request，就很难参与移送前确认、结合测试缺陷分析和上线判定。</p>
+<p><strong>核心机制</strong></p>
+<p>第一层机制是 request / task。transport request 是上层容器，task 是开发者记录自己变更的下层单位。项目负责人或 request owner 可以创建 request 并分配开发者；系统会为开发者创建 task。开发者 release 自己的 task 后，task 中对象列表会并入 request；所有 task release 完，owner 才能 release request。空 task 在 release request 时可能被自动删除，这不是对象丢失，而是任务没有记录变更。</p>
+<p>第二层机制是 object recording。非临时 package 中创建 repository object 时，ADT 通常会弹出 transport assignment，对象会被记录到某个 request/task。对象记录的粒度不是“这一行代码”，而是 SAP repository object 或 subobject 的变更项。一个 request 里可能有 class、CDS、DDIC、service binding，也可能混入 customizing。好习惯是让 request 表达一个 testable unit，不要把多个无关需求、多个缺陷修正、多个上线批次混在同一个 request。</p>
+<p>第三层机制是 lock。ABAP 开发里至少要区分两种锁：editor / enqueue lock 与 transport-based repository lock。前者偏“当前谁正在编辑”；后者偏“这个 repository object 已经归某个 Workbench request/team 管理”。Workbench request 的 object lock 会阻止不属于该 request 的开发者随意修改同一对象。Customizing request 不要简单套用这个模型；很多 customizing 变更更依赖流程管控、客户审批和团队沟通。</p>
+<p>第四层机制是 release / export / import。release task 是开发者动作；release request 是负责人或 request owner 动作；export 是把 transportable request 的对象从源系统数据库复制到 central transport directory；import 是把这些对象导入 QAS/PRD 等目标系统。import 通常不是 release 后自动完成，而是由 TMS、transport admin 或项目流程触发，并产生 import log。local request release 不会走完整 export/import 路径。</p>
+<p>第五层机制是 Workbench request vs Customizing request。Workbench request 通常用于 ABAP repository objects 和 cross-client 变更；Customizing request 通常用于 client-specific customizing。开发者不需要 Day 02 就掌握所有 customizing 类型，但要会判断：今天改的是 ABAP repository object，还是 IMG / 配置表相关 customizing。这个判断会影响 request type、锁、测试 client、移送说明和审批人。</p>
+<p>第六层机制是 Transport Organizer / TMS。ADT 中可以用 Transport Organizer view 观察 request、task、object list、状态；classic 系统里 SE09 / SE10 是常见入口，STMS 用于 import queue、transport route、import log 等 TMS 侧工作。开发者不需要配置 STMS，但至少要知道：transport request release 后，还要看 import queue / import log / return code。常见 return code 可先记 awareness：0 通常成功，4 警告，8 错误，12 或更高通常是严重错误，需要查 log。</p>
+<p>第七层机制是 cloud caveat。在 SAP S/4HANA Cloud Public Edition、BTP ABAP Environment 或 ABAP Cloud 场景里，transport 工具和 UI 可能不再是经典 SE09/STMS 一套。Public Edition 可能通过 ATO、Export Software Collection、Export Customizing Transports、Import Collection 等 Fiori app 区分不同内容；BTP ABAP Environment 可能围绕 software component 和 Git-based lifecycle。Day 02 先记住治理原则：变更要被记录、成组、release、导入、验证；具体工具随系统形态变化。</p>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>移送依頼</code>、<code>移送依頼番号</code>、<code>タスク</code>、<code>タスクリリース</code>、<code>依頼リリース</code>、<code>リリース</code>、<code>オブジェクトロック</code>、<code>ワークベンチ依頼</code>、<code>Workbench依頼</code>、<code>カスタマイジング依頼</code>、<code>インポート</code>、<code>移送ログ</code>、<code>インポートログ</code>、<code>インポートキュー</code>、<code>移送ルート</code>、<code>本番反映</code>、<code>SE09/SE10</code>、<code>STMS</code>。</li>
+<li>说明句：修正内容は移送依頼に紐づけて、タスクリリース後に依頼リリースしてください。</li>
+<li>说明句：依頼リリース済みですが、まだ検証機へインポートされていないため、QAS では確認できません。</li>
+<li>说明句：この移送依頼には別件のオブジェクトが混在していないか、リリース前にオブジェクト一覧を確認してください。</li>
+<li>说明句：インポートログのリターンコードを確認してから、結合テストへ進めます。</li>
+<li>使用场景：移送前確認、単体テスト完了報告、結合テスト準備、障害修正、リリース判定、本番反映後確認。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>Transport request</code></li>
+<li>Related terms: <code>Change and Transport System</code>, <code>CTS</code>, <code>Transport Organizer</code>, <code>Workbench request</code>, <code>Customizing request</code>, <code>transport task</code>, <code>request owner</code>, <code>object list</code>, <code>repository object lock</code>, <code>enqueue lock</code>, <code>release task</code>, <code>release transport request</code>, <code>export</code>, <code>import</code>, <code>import queue</code>, <code>import log</code>, <code>transport route</code>, <code>Transport Management System</code>, <code>TMS</code>, <code>SE09</code>, <code>SE10</code>, <code>STMS</code>, <code>return code</code></li>
+<li>Recommended search pattern: <code>Transport request ABAP Development Tools SAP Help</code>, <code>Transport Organizer ADT SAP Help</code>, <code>SAP transport request task release import queue</code>, <code>Workbench request Customizing request SAP Learning</code></li>
+<li>读官方资料时注意：有些文档使用 <code>change request</code>，有些使用 <code>transport request</code>；在开发者语境里，本教程统一讲 <code>transport request / 移送依頼</code>。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>假设你在 DEV 中创建一个练习 class。选择非临时 package 后，ADT 弹出 transport assignment。你可以选择已有 request，也可以创建新的 Workbench request。系统为你的用户分配 task，class 的创建记录进入 task。此时 class 即使已经 <a class="wiki" href="section-01-013-activation-ff7e1caa.html">activation</a>，也只是 DEV 可用；QAS 不会自动出现这个 class。</p>
+<p>开发完成后，你先 release 自己的 task。若同一个 request 下还有其他开发者 task，request 仍不能 release。所有 task release 后，request owner / project lead release request。对 transportable request 来说，release 后发生 export；随后 transport admin 或流程工具把 request import 到 QAS。QAS import 成功后，测试人员才能在 QAS 验证。PRD import 又是另一个受控动作，通常需要审批窗口和上线计划。</p>
+<p>最小检查清单：打开 Transport Organizer，记录 <code>DEVK9xxxxx</code> 这样的移送依頼番号；查看 request description 是否能看懂；确认 object list 里只有本次变更相关对象；确认自己的 task 已 release；确认 request 是否 release；如果已经进入 QAS，查看 import log 和 return code。这个练习比背定义更重要，因为真实项目里大家就是用这些字段沟通。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>误区 1：以为 release transport request 就等于部署到 QAS/PRD。修正：release、export、import 是不同步骤，QAS/PRD 是否变化要看 import。</li>
+<li>误区 2：把 transport request 当成 Git commit。修正：transport request 记录 SAP repository/customizing 对象变更，不是文本 diff，也不等于 branch。</li>
+<li>误区 3：把无关对象混进同一个 request。修正：request 应该表达 testable unit，移送前检查 object list。</li>
+<li>误区 4：忘记 release task，只让负责人 release request。修正：task 必须先 release，request 才能 release。</li>
+<li>误区 5：以为所有 request 都会 export。修正：local request release 可能只记录版本，不会进入 STMS import queue。</li>
+<li>误区 6：把 Workbench request 的 object lock 套到所有 customizing。修正：customizing request 的并发风险更多靠流程和团队治理控制。</li>
+<li>误区 7：只会说“我改完了”，不能提供移送依頼番号。修正：开发完成报告里要包含 request number、task/request release 状态和测试对象。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li><code>activation</code>、<code>release task</code>、<code>release transport request</code>、<code>import into QAS</code> 分别解决什么问题？</li>
+<li>为什么 transport request 应该尽量围绕 testable unit，而不是每个小修改都新建一个？</li>
+<li>如果一个 request 混入了三个无关需求，会给 QAS 测试和本番反映带来什么风险？</li>
+<li>Workbench request 的 object lock 和 editor/enqueue lock 有什么区别？</li>
+<li>为什么 local request release 后，目标系统 import queue 里可能看不到它？</li>
+<li>在日本项目里，如何用一句话说明“这个修正已经 task release，但还没有 import 到 QAS”？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><a href="https://learning.sap.com/courses/introducing-sap-abap-platform-fundamentals/introducing-transport-requests-and-the-transport-process" target="_blank" rel="noopener noreferrer">SAP Learning - Introducing Transport Requests and the Transport Process</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/4ec223686e391014adc9fffe4e204223.html" target="_blank" rel="noopener noreferrer">SAP Help - Transport Request</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/887826352cd6469f90dcb5661c2f95b2.html" target="_blank" rel="noopener noreferrer">SAP Help - Transport Organizer in ABAP Development Tools</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-i-of-sap-s-4hana-and-sap-business-suite/describing-software-logistics-for-as-abap-based-sap-systems" target="_blank" rel="noopener noreferrer">SAP Learning - Describing Software Logistics for AS ABAP based SAP systems</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-ii-of-sap-s-4hana-and-sap-business-suite/transport-requests-for-customizing-1" target="_blank" rel="noopener noreferrer">SAP Learning - Transport Requests for Customizing</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-ii-of-sap-s-4hana-and-sap-business-suite/setting-up-the-transport-management-system-tms--1" target="_blank" rel="noopener noreferrer">SAP Learning - Setting Up the Transport Management System (TMS)</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/SAP_S4HANA_CLOUD/b249d650b15e4b3d9fc2077ee921abd0/1a02302321054e6ab4d9e7244156d31b.html" target="_blank" rel="noopener noreferrer">SAP Help - Transports in SAP S/4HANA Cloud Public Edition</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+</ul>
+<p>原子笔记入口: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-011-abap-package-f43e032c.html">Previous section</a><a href="section-01-013-activation-ff7e1caa.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

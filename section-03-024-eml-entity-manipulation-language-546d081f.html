@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>EML Entity Manipulation Language | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="24-eml-entity-manipulation-language-164542d8" class="chapter-title">24. EML Entity Manipulation Language</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 24</li><li>self-contained study note</li></ul><h4 id="24-1-e0f2f46d" class="semantic-heading semantic-concept">24.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a> 是 ABAP 中用于访问 RAP business object 的专用语言子集；它让 ABAP 程序、测试代码和 behavior implementation 用 <code>READ ENTITIES</code>、<code>MODIFY ENTITIES</code>、<code>COMMIT ENTITIES</code> 等语句按 RAP BO 契约读取、修改和提交业务对象，而不是绕过 BO 直接操作底层表。</p>
+<p>一句话记忆：SQL 面向表，EML 面向 RAP BO；SQL 问“表里有什么”，EML 问“这个业务对象允许我读、改、执行 action、提交吗”。</p>
+<h4 id="24-2-78588256">24.2 概念说明</h4>
+<p>ABAP Keyword Documentation 对 EML 的定义很清楚：ABAP Entity Manipulation Language 是 ABAP 的一个子集，用来访问 RAP BO 和 RAP BO interface。SAP Learning 也说明，EML statements 允许读取或修改 RAP BO 的 data content / transactional buffer，并触发 modified data 的持久化。</p>
+<p>EML 不是 SQL 的新写法。<code>SELECT</code> 从数据库表或 CDS entity 读取数据；EML 则通过 RAP runtime 访问 BO。它会进入 behavior definition、behavior pool、handler、saver、authorization、validation、determination、action、draft、lock、save sequence 等 RAP 生命周期。用 EML 访问 BO 时，调用者面对的是 BO 契约，而不是裸表。</p>
+<p>EML 可以在普通 ABAP 程序中作为 BO consumer 使用，也可以在 behavior pool 内部使用。SAP Learning 特别提醒：在 behavior implementation 中也可以使用 EML，而且有一些 special variants。最常见的就是 handler method 内部使用 <code>IN LOCAL MODE</code>，读取或修改当前 BO 的 transactional buffer，而不是绕过 RAP runtime。</p>
+<p>初学者要先把 EML 的三类动作分清楚：</p>
+<ul>
+<li><code>READ ENTITIES</code>：读取 RAP BO entity 实例。</li>
+<li><code>MODIFY ENTITIES</code>：执行 create、update、delete、create by association、action 等修改型操作。</li>
+<li><code>COMMIT ENTITIES</code>：结束 RAP LUW，触发 save sequence，把 transactional buffer 中的修改提交到持久层。</li>
+</ul>
+<h4 id="24-3-e4797f16" class="semantic-heading semantic-why">24.3 为什么重要</h4>
+<p>EML 是 RAP 世界里的“内部 API”。如果只会 CDS 和 OData，不会 EML，就很难写 action、determination、unit test、report 调用 RAP BO、后台任务消费 BO、或者在 behavior implementation 中安全读写当前事务数据。</p>
+<p>它也改变了 ABAP 开发者的思维。传统 ABAP 常见做法是 <code>SELECT</code>、<code>UPDATE</code>、<code>CALL FUNCTION</code>、<code>COMMIT WORK</code>。RAP 中，若业务对象已经建成 BO，很多操作应该优先通过 EML 走 BO 契约。这样 validation、authorization、lock、draft、numbering、action result、message 和 save sequence 都能保持一致。</p>
+<p>对项目交付来说，EML 直接影响测试和集成。ABAP Unit 可以用 EML 构造 BO 数据并验证 action；migration / batch / report 可以用 EML 调用 BO 而不是复制保存逻辑；故障分析时也可以从 <code>failed</code> / <code>reported</code> / <code>mapped</code> 看出到底是授权、validation、编号、save sequence 还是 action 失败。</p>
+<p>对 Java/Python 背景学习者，可以把 EML 类比成类型安全的 domain API / repository API，但它不是普通 library call。它会触发 RAP runtime，并且以 RAP LUW 和 <code>COMMIT ENTITIES</code> 为事务边界。</p>
+<h4 id="24-4-7ceb7b2a">24.4 边界</h4>
+<p>第一条边界：EML 不是 SQL。<code>READ ENTITIES</code> 不是 <code>SELECT</code> 的替代拼写；它访问的是 BO 实例，返回的是 BO 契约下的数据和响应。若只需要分析报表或大批量读取，仍可能使用 CDS/ABAP SQL；若要遵守 BO 行为、draft、authorization、action 和 save sequence，就应考虑 EML。</p>
+<p>第二条边界：<code>MODIFY ENTITIES</code> 不等于立即写库。它通常修改 RAP transactional buffer。只有 <code>COMMIT ENTITIES</code> 触发后，RAP save sequence 才会运行。初学者最常见错误是执行 MODIFY 后去数据库表查，发现没有数据，就误以为 EML 失败；其实只是还没有 commit RAP LUW。</p>
+<p>第三条边界：<code>COMMIT ENTITIES</code> 不是 <code>COMMIT WORK</code> 的同义词。RAP consumer 使用 <code>COMMIT ENTITIES</code> 提交 RAP BO 修改；behavior implementation 内部不能随意 <code>COMMIT WORK</code>。是否允许以及何时提交，必须遵守 RAP transaction boundary。</p>
+<p>第四条边界：behavior pool 内部使用 EML 时要理解 <code>IN LOCAL MODE</code>。Local mode 用于在当前 BO 实现中访问 transactional buffer，常见于 action / determination 中读取或修改同一个 BO 的实例。它不是给外部 consumer 绕过权限和校验的后门。</p>
+<p>第五条边界：EML 不是 OData。OData 是远程服务协议，EML 是 ABAP 内部访问 RAP BO 的语句。Fiori / HTTP consumer 通过 service binding / OData 访问；ABAP 程序和 behavior implementation 则可以通过 EML 访问同一 BO 契约。</p>
+<h4 id="24-5-d2801d32" class="semantic-heading semantic-mechanism">24.5 核心机制</h4>
+<p>第一层机制是 BDEF-derived types。EML 的输入输出结构不是随便声明的内表，而是从 CDS view 和 behavior definition 派生出来的类型，例如 <code>TYPE TABLE FOR READ IMPORT</code>、<code>TYPE TABLE FOR CREATE</code>、<code>TYPE TABLE FOR UPDATE</code>、<code>TYPE TABLE FOR ACTION IMPORT</code>、<code>TYPE TABLE FOR EVENT</code> 等。这样 EML 语句和 BO 契约保持类型一致。</p>
+<p>第二层机制是 response tables。几乎所有重要 EML modify/read 操作都要看 <code>FAILED</code>、<code>REPORTED</code>，create / numbering 相关场景还要看 <code>MAPPED</code>。<code>FAILED</code> 告诉你哪些实例失败；<code>REPORTED</code> 返回消息；<code>MAPPED</code> 把临时 <code>%cid</code> 映射到最终 key。不要只看语句有没有语法错误，更要看 response。</p>
+<p>第三层机制是 technical keys 和 content ID。RAP 中常见 <code>%tky</code>、<code>%key</code>、<code>%cid</code>、<code>%cid_ref</code>、<code>%is_draft</code>、<code>%control</code> 等特殊组件。<code>%tky</code> 可以先理解为 transactional key，即 key 与 draft 状态等事务上下文组合出来的技术标识；<code>%key</code> 是业务对象实例的 key；<code>%cid</code> 用于一次 EML create 请求中临时引用新对象；<code>%cid_ref</code> 常用于 create by association，把 child 创建挂到 parent；<code>%control</code> 指示 update 中哪些字段被请求修改。</p>
+<p>第四层机制是 read。典型语法是：</p>
+<pre><code class="language-abap">READ ENTITIES OF zi_travel
+  ENTITY Travel
+  ALL FIELDS WITH lt_keys
+  RESULT DATA(lt_travel)
+  FAILED DATA(ls_failed)
+  REPORTED DATA(ls_reported).</code></pre>
+<p>它读取的是 RAP BO entity，不是直接读表。是否读到 draft、是否含 transactional changes、是否受 authorization / DCL / behavior 影响，要结合具体 BO、调用位置和语句变体判断。</p>
+<p>第五层机制是 modify。典型 create/update/delete/action 通过 <code>MODIFY ENTITIES</code> 发起：</p>
+<pre><code class="language-abap">MODIFY ENTITIES OF zi_travel
+  ENTITY Travel
+  CREATE FROM lt_create
+  MAPPED DATA(ls_mapped)
+  FAILED DATA(ls_failed)
+  REPORTED DATA(ls_reported).</code></pre>
+<p>这一步把请求交给 RAP runtime。Managed BO 可能由 runtime 处理标准 operation；unmanaged BO 可能转发给 handler class；action 会调用对应 action handler。它不是裸 SQL insert。</p>
+<p>第六层机制是 commit。外部 ABAP consumer 或 EML test scenario 通常需要：</p>
+<pre><code class="language-abap">COMMIT ENTITIES
+  RESPONSE OF zi_travel
+  FAILED DATA(ls_commit_failed)
+  REPORTED DATA(ls_commit_reported).</code></pre>
+<p><code>COMMIT ENTITIES</code> 触发 save sequence。没有这一步，前面的 modify 可能只停留在 RAP transactional buffer。行为实现内部是否需要或允许 commit，要看是否是 consumer 代码还是 behavior implementation；不要在 handler/saver 中随意提交。</p>
+<p>第七层机制是 local mode。Behavior implementation 中经常写：</p>
+<pre><code class="language-abap">READ ENTITIES OF zi_travel IN LOCAL MODE
+  ENTITY Travel
+  FIELDS ( Status TotalPrice )
+  WITH keys
+  RESULT DATA(lt_travel)
+  FAILED DATA(ls_failed)
+  REPORTED DATA(ls_reported).</code></pre>
+<p><code>IN LOCAL MODE</code> 表示在当前 BO 的本地实现上下文中访问 transactional buffer。它适合 determination/action 内部读取当前状态、更新派生字段、避免直接 SQL 绕过 buffer。因为 local mode 面向 BO 自身实现，可能跳过普通外部 consumer 路径中的 authorization control 或 feature control，所以它应该出现在 behavior implementation 的受控语境里，而不是被当作外部调用者绕过规则的手段。</p>
+<p>第八层机制是 action 与 create by association。EML 不只 CRUD，还可以执行 action、create by association、deep create 等。Composite BO 中常见 parent 和 child 一起创建，使用 <code>%cid</code> / <code>%cid_ref</code> 建立临时关系，commit 后 runtime 再完成真实 key 和保存。</p>
+<h4 id="24-6-7241c4f4" class="semantic-heading semantic-why">24.6 项目意义</h4>
+<p>设计评审时，EML 要回答：“这个 ABAP 程序为什么要通过 BO，而不是直接访问表？”如果需求涉及业务规则、状态转换、authorization、draft、action、validation、numbering、消息返回，EML 通常更合适。如果只是大批量分析读数，ABAP SQL/CDS 可能更合适。</p>
+<p>代码 review 时，重点看四类问题。第一，modify 后是否处理 <code>failed</code> / <code>reported</code> / <code>mapped</code>。第二，是否忘记 <code>COMMIT ENTITIES</code>。第三，behavior implementation 内部是否错误使用外部 consumer 风格 EML。第四，是否用 <code>SELECT</code> / <code>UPDATE</code> 绕过 BO，导致 validation、authorization、draft、lock 全部失效。</p>
+<p>测试时，EML 非常有价值。单体测试或集成测试可以通过 EML create 数据、执行 action、检查 reported message、commit 后验证结果。相比直接插表，EML 更接近真实 consumer 行为，也更能发现 BDEF / behavior pool / save sequence 问题。</p>
+<p>日本项目里，EML 经常出现在“RAP BO を ABAP から呼び出す”“テストコードで BO を操作する”“action を EML で実行する”“COMMIT ENTITIES を忘れていないか”这类讨论中。它是 RAP 项目调试和测试的关键工具。</p>
+<h4 id="24-7-example-bde8e4b5" class="semantic-heading semantic-example">24.7 Example / 学习例子</h4>
+<p>假设要在 ABAP report 或 test 中创建一个 Travel。第一步准备 create table，包含临时 <code>%cid</code>：</p>
+<pre><code class="language-abap">DATA lt_create TYPE TABLE FOR CREATE zi_travel\Travel.
+
+lt_create = VALUE #(
+  ( %cid = &#x27;CID_001&#x27;
+    AgencyId = &#x27;070001&#x27;
+    CustomerId = &#x27;000123&#x27;
+    BeginDate = cl_abap_context_info=&gt;get_system_date( )
+    EndDate = cl_abap_context_info=&gt;get_system_date( ) + 3
+    %control-AgencyId = if_abap_behv=&gt;mk-on
+    %control-CustomerId = if_abap_behv=&gt;mk-on
+    %control-BeginDate = if_abap_behv=&gt;mk-on
+    %control-EndDate = if_abap_behv=&gt;mk-on ) ).</code></pre>
+<p>第二步用 EML create：</p>
+<pre><code class="language-abap">MODIFY ENTITIES OF zi_travel
+  ENTITY Travel
+  CREATE FROM lt_create
+  MAPPED DATA(ls_mapped)
+  FAILED DATA(ls_failed)
+  REPORTED DATA(ls_reported).</code></pre>
+<p>这时要先看 <code>ls_failed</code> 和 <code>ls_reported</code>。如果 create 被 validation、authorization、numbering 或 handler 拒绝，不能直接继续假设成功。若 successful create 使用临时 <code>%cid</code>，还要从 <code>ls_mapped</code> 取得最终 key。</p>
+<p>第三步提交：</p>
+<pre><code class="language-abap">COMMIT ENTITIES
+  RESPONSE OF zi_travel
+  FAILED DATA(ls_commit_failed)
+  REPORTED DATA(ls_commit_reported).</code></pre>
+<p>只有 commit 后，save sequence 才真正运行。若使用 managed save，runtime 写主表；若使用 unmanaged save，saver class <code>save()</code> 可能参与；若使用 adjusted saver / additional save，<code>save_modified</code> 或附加保存逻辑可能在保存阶段发生。这个例子把前面几节串起来：BDEF 定义契约，handler 处理行为，saver 处理保存，EML 作为 ABAP consumer 调用 BO。</p>
+<h4 id="24-8-counterexample-failure-mode-50f5db04" class="semantic-heading semantic-example">24.8 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 EML 当 SQL。开发者用 <code>MODIFY ENTITIES</code> 之后马上查数据库，发现没有记录，就在旁边加 <code>COMMIT WORK</code>。正确做法是理解 RAP LUW：外部 consumer 用 <code>COMMIT ENTITIES</code>，不要用 <code>COMMIT WORK</code> 破坏 RAP 边界。</p>
+<p>第二个失败模式是不看 response。<code>FAILED</code> / <code>REPORTED</code> 里已经有 validation 错误或 authorization 错误，代码却只判断内表是否 initial，继续后续逻辑。结果是后续 key 空、消息丢失、UI 或 report 只显示“保存失败”。</p>
+<p>第三个失败模式是 update 忘记 <code>%control</code>。EML update 中没有正确标记字段控制，runtime 或 handler 可能不知道哪些字段要更新；反过来，把未修改字段也标成 changed，可能覆盖旧数据。</p>
+<p>第四个失败模式是 <code>%cid</code> / <code>%cid_ref</code> 用错。Deep create 时 child 没有正确引用 parent 临时 ID，导致 child 创建失败或挂错父对象。Composite BO 中这是非常常见的初学错误。</p>
+<p>第五个失败模式是在 behavior pool 内部不用 <code>IN LOCAL MODE</code>，而是直接 <code>SELECT</code> 表来读当前状态。这样读不到 transactional buffer 中尚未提交的变化，determination/action 会基于旧数据计算。</p>
+<p>第六个失败模式是把 EML 当远程 API。EML 只能在 ABAP 内部使用；外部系统要通过 OData/service binding/API，而不是“调用 EML”。设计接口时要区分 ABAP 内部消费和外部消费。</p>
+<h4 id="24-9-d76daf8d" class="semantic-heading semantic-japan">24.9 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>EML</code>、<code>エンティティ操作言語</code>、<code>READ ENTITIES</code>、<code>MODIFY ENTITIES</code>、<code>COMMIT ENTITIES</code>、<code>トランザクショナルバッファ</code>、<code>ローカルモード</code>、<code>failed / reported / mapped</code>。</li>
+<li>说明句：EML は ABAP 内部から RAP BO を操作するための言語要素で、テーブルを直接更新するのではなく BO の振る舞い定義に従って処理します。</li>
+<li>Review 句：<code>MODIFY ENTITIES</code> の後に <code>FAILED</code>、<code>REPORTED</code>、<code>MAPPED</code> を確認しているか、最後に <code>COMMIT ENTITIES</code> が必要かを確認してください。</li>
+<li>边界句：外部システムから EML を直接呼び出すことはできません。外部公開は OData / service binding 側で設計します。</li>
+<li>调查句：保存されていない場合、<code>MODIFY ENTITIES</code> だけで終わっていないか、<code>COMMIT ENTITIES</code> が実行されているかを確認します。</li>
+<li>Local mode 句：behavior implementation 内では <code>IN LOCAL MODE</code> を使い、現在の transactional buffer を参照する必要があります。</li>
+</ul>
+<h4 id="24-10-english-terms-60207f82" class="semantic-heading semantic-terms">24.10 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP Entity Manipulation Language</code></li>
+<li>Official / search term: <code>EML</code></li>
+<li>Official / search term: <code>READ ENTITIES</code></li>
+<li>Official / search term: <code>MODIFY ENTITIES</code></li>
+<li>Official / search term: <code>COMMIT ENTITIES</code></li>
+<li>Official / search term: <code>IN LOCAL MODE</code></li>
+<li>Official / search term: <code>TYPE TABLE FOR CREATE</code></li>
+<li>Official / search term: <code>TYPE TABLE FOR READ IMPORT</code></li>
+<li>Official / search term: <code>FAILED</code></li>
+<li>Official / search term: <code>REPORTED</code></li>
+<li>Official / search term: <code>MAPPED</code></li>
+<li>Official / search term: <code>%cid</code></li>
+<li>Official / search term: <code>%cid_ref</code></li>
+<li>Official / search term: <code>%control</code></li>
+<li>Related terms: <code>RAP BO consumer</code>, <code>transactional buffer</code>, <code>RAP LUW</code>, <code>BDEF-derived types</code>, <code>COMMIT ENTITIES RESPONSES</code>.</li>
+</ul>
+<h4 id="24-11-d614bd24" class="semantic-heading semantic-reference">24.11 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">Entity Manipulation Language (EML)</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abeneml.html" target="_blank" rel="noopener noreferrer">ABAP EML - Consuming RAP BOs</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT_ENTITIES.html" target="_blank" rel="noopener noreferrer">COMMIT ENTITIES</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapmodify_entity_entities.html" target="_blank" rel="noopener noreferrer">MODIFY ENTITY, ENTITIES</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapread_entity_entities.html" target="_blank" rel="noopener noreferrer">READ ENTITY, ENTITIES</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPIN_LOCAL_MODE.html" target="_blank" rel="noopener noreferrer">IN LOCAL MODE</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENAEML_GLOSRY.html" target="_blank" rel="noopener noreferrer">ABAP Entity Manipulation Language glossary</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/using-the-entity-manipulation-language-eml-to-access-business-objects" target="_blank" rel="noopener noreferrer">Using the Entity Manipulation Language to Access Business Objects</a> (accessed 2026-06-18)</li>
+<li>SAP-samples ABAP Cheat Sheet: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/08_EML_ABAP_for_RAP.md" target="_blank" rel="noopener noreferrer">ABAP for RAP - Entity Manipulation Language</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/message-behavior-in-eml-entity-manipulation-language" target="_blank" rel="noopener noreferrer">Message Behavior in EML</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">RAP business object</span></li>
+<li><a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a></li>
+<li><a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li><a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+</ul>
+<h4 id="24-12-connections-94a2c083">24.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li>Downstream: <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li>Related: <span class="wiki unresolved">RAP business object</span></li>
+<li>Related: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Related: <a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a></li>
+<li>Related: <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li>Related: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="24-13-73942d4b" class="semantic-heading semantic-practice">24.13 学习任务</h4>
+<ul>
+<li>用三句话区分 SQL、EML、OData。</li>
+<li>写出一个最小 EML create 流程：准备 <code>TYPE TABLE FOR CREATE</code>、<code>MODIFY ENTITIES</code>、检查 <code>FAILED/REPORTED/MAPPED</code>、<code>COMMIT ENTITIES</code>。</li>
+<li>用日语写一句 code review 问题：<code>MODIFY ENTITIES</code> 后是否检查 response。</li>
+<li>找一个 behavior implementation 中的 <code>IN LOCAL MODE</code>，说明它为什么不能用普通 <code>SELECT</code> 代替。</li>
+<li>设计一个测试：validation 失败时，EML 返回 <code>FAILED/REPORTED</code>，并且 <code>COMMIT ENTITIES</code> 不产生持久化数据。</li>
+</ul>
+<h4 id="24-14-confidence-next-action-a469c163" class="semantic-heading semantic-status">24.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。正文基于 SAP Help、ABAP Keyword Documentation、SAP Learning 和 SAP-samples cheat sheet 整理，并结合前几节 handler、saver、save sequence 的 review 结论；2026-06-18 已重新访问官方资料入口，Claude 初审和 follow-up 均返回 <code>Pass</code>。Joule 因前序 timeout 未重试，已记录为后续可补充依赖。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-03-025-rap-draft-handling-1cd663ca.html">RAP draft handling</a>，继续展开 draft、active instance、draft table、total ETag 与 OData/Fiori 交互中的事务边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-023-saver-class-bd45280f.html">Previous section</a><a href="section-03-025-rap-draft-handling-1cd663ca.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

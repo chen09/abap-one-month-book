@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Exception vs message 异常与消息 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="17-exception-vs-message-dd52713b" class="chapter-title">17. Exception vs message 异常与消息</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 17</li><li>self-contained study note</li></ul><h4 id="17-1-86d0aa84" class="semantic-heading semantic-concept">17.1 一句话结论</h4>
+<p>Exception vs message 异常与消息 的核心，是区分“程序是否还能继续执行”和“人或调用方应该看到什么反馈”；在本教程里要学的是：异常用于控制错误路径，消息用于表达可理解的业务结果，两者要配合，而不是互相替代。</p>
+<p>在 ABAP 项目里，很多代码坏味道都来自这个边界不清。有人把所有业务校验都写成技术异常，结果用户看到一堆内部错误；有人把严重技术错误吞掉，只返回一条 <code>处理失败</code>，结果开发者无法追踪；也有人在深层工具类里直接 <code>MESSAGE e...</code>，导致方法无法复用、无法测试、也无法被接口场景正确处理。</p>
+<p>正确的思路是：底层逻辑发现无法继续的技术或契约错误时，可以抛出 exception；业务规则判断出的可预期结果，应转成明确 message 或 reported message；接口、批处理和 UI 层再把这些信息组织成 <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a> 中讲过的 error code、message、target、retryable、log id。这样程序内部可维护，对外反馈也可理解。</p>
+<h4 id="17-2-20d9e6aa" class="semantic-heading semantic-concept">17.2 到底学什么</h4>
+<p>第一，要学异常的角色。异常表示当前执行路径遇到了不能正常继续的情况，例如输入契约被破坏、依赖对象不可用、数据库访问失败、外部系统返回不可恢复错误、程序状态不一致等。异常的重点是控制流：抛出、捕获、转换、记录、终止或恢复。</p>
+<p>第二，要学消息的角色。消息表示给用户、调用方、测试人员或业务流程看的反馈，例如“公司代码不存在”“该单据已审批，不能修改”“用户没有执行权限”“对象正在被锁定，请稍后重试”。消息的重点是沟通：让接收者理解问题和下一步动作。</p>
+<p>第三，要学分层转换。底层类不应该随便决定 UI 怎么显示，接口层也不应该把所有内部异常原文暴露出去。更稳妥的设计是：底层抛出语义清楚的 exception，应用服务层捕获并转换成业务消息或 API error response，最外层再附上 request id、<a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 编号或字段定位。</p>
+<p>第四，要学可测试性。异常可以用 ABAP Unit 验证“这个输入会抛出哪个异常”；消息可以用测试验证“这个业务场景会返回哪个 message id / error code / target field”。如果代码在任意深度直接弹消息或终止流程，就很难写测试，也很难在 RAP、OData、后台 job 和批处理之间复用。</p>
+<p>第五，要学错误分类。项目里常见错误至少可以分为业务校验、权限、锁/并发、幂等/重复请求、技术依赖失败、系统程序错误。不同类别对外消息、重试建议、日志深度和负责人都不同。把它们都变成 <code>SYSTEM_ERROR</code>，会让用户、接口调用方和运维都失去判断依据。</p>
+<p>第六，要学入口差异。同一个错误在 Fiori、OData/API、background job、ABAP Unit 中表现不同：Fiori 需要字段定位和用户文案；API 需要稳定 error code 和 payload；background job 需要 job log / spool / application log；ABAP Unit 需要可断言的结果对象或异常类型。因此深层逻辑不要直接绑定某一种入口。</p>
+<h4 id="17-3-7af0d0e0" class="semantic-heading semantic-why">17.3 为什么重要</h4>
+<p>这个边界影响项目的稳定性。用户看到的不是代码结构，而是消息；开发者维护的是异常路径和调用栈；运维需要的是日志和证据；接口调用方需要的是可解析的错误契约。如果 exception 和 message 混乱，四方都会痛苦。</p>
+<p>在经典 SAP GUI 场景里，<code>MESSAGE</code> 语句可能直接控制画面流程；但在现代项目里，同一段业务逻辑可能被 Fiori、OData、RAP behavior、后台 job、测试类和接口复用。深层逻辑直接发 UI 消息，会把代码绑定到某个调用方式。把异常和消息分层处理，才能让业务规则在不同入口下保持一致。</p>
+<p>在 RAP/OData/API 场景里，这个边界更关键。RAP handler 或 service 层需要把业务校验结果放到 reported messages 或 response payload；真正不可恢复的技术问题要以受控方式记录和返回。外部系统不应看到内部异常栈，但也不能只收到一个无法判断的 <code>failed</code>。在 RAP 里，<code>failed</code> 标记哪条 key / instance 失败，<code>reported</code> 携带要返回的消息文本，两者配合使用。</p>
+<p>错误设计还会影响支持成本。一个好消息能告诉用户“改哪一项、能不能重试、联系谁”；一个好异常能告诉开发者“哪里坏了、上下文是什么、调用栈怎么走”；一个好日志能告诉运维“哪笔业务、哪个 request id、哪个技术依赖失败”。这三者不是互斥，而是同一个错误契约在不同受众面前的不同表达。</p>
+<h4 id="17-4-key-mechanism-4e1ab2dd" class="semantic-heading semantic-mechanism">17.4 Key mechanism / 核心机制</h4>
+<p>可以用一个简单规则判断：如果问题表示“这条执行路径不能继续”，优先考虑 exception；如果问题表示“业务上不允许或需要提醒”，优先考虑 message；如果问题既中断流程又要告诉用户原因，就在上层捕获 exception 后转换成 message 或 API error。</p>
+<p>例如，数据库连接异常、反序列化失败、必需依赖对象为空、外部服务协议不符合预期，这些更接近技术异常。公司代码不存在、审批状态不允许修改、输入日期超过允许范围、用户缺少某公司代码权限，这些更接近业务消息或可预期错误。锁冲突、重复请求、外部系统超时则需要结合上下文判断：它们可能以异常形式中断当前路径，但对外必须转成可行动消息，说明是否可重试。</p>
+<p>异常类应尽量有语义，不要所有地方都抛同一个泛用异常。参见 <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a> 和 <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a>。业务消息应尽量稳定、可翻译、可定位，参见 <a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a>。两者的共同点是都属于错误契约，不能随意变更。</p>
+<p>还有一个重要机制是“不要吞异常”。捕获异常后如果只写一条含糊消息，不记录原始上下文，就会丢失诊断证据。比较好的做法是：用户可见消息保持清楚和安全；内部日志记录 exception type、上下文、request id、业务键和 application log id；敏感信息不要外泄。</p>
+<p>可以用下面的错误分类表做设计：</p>
+<div class="table-wrap"><table><thead><tr><th>错误类别</th><th>内部表达</th><th>对外消息</th><th>是否可重试</th><th>证据</th></tr></thead><tbody><tr><td>业务校验</td><td>validation result / business exception</td><td>字段级 message、业务 error code</td><td>修正数据后可重试</td><td>target field、业务键</td></tr><tr><td>权限不足</td><td>authorization result / exception</td><td>无权限 message，不暴露内部对象过多细节</td><td>授权修复后可重试</td><td>SU53/trace、user、role</td></tr><tr><td>锁冲突</td><td>lock exception/result</td><td>对象被占用、稍后重试</td><td>通常可重试</td><td>lock key、holder/time</td></tr><tr><td>重复请求</td><td>idempotency decision</td><td>已处理/返回既有状态</td><td>按状态判断</td><td>request id、existing status</td></tr><tr><td>外部系统失败</td><td>technical exception</td><td>技术错误、稍后重试或联系支持</td><td>视情况</td><td>external ref、log id</td></tr><tr><td>程序错误</td><td>unchecked/program exception</td><td>安全泛化消息</td><td>不建议用户盲目重试</td><td>dump/log/correlation id</td></tr></tbody></table></div>
+<p>分层映射可以这样写：</p>
+<pre><code class="language-text">Deep logic
+  Raise semantic exception or return structured validation result.
+
+Application service
+  Map exception/result to error category, message id, target, retryable.
+
+API/RAP/UI/job adapter
+  Convert to reported message, OData error, job/application log, or UI message.
+
+Operations evidence
+  Store request id, business key, root cause, safe user message, log id.</code></pre>
+<p>这样做的关键是：内部 root cause 不丢，对外信息不泄露，调用方能判断下一步。</p>
+<h4 id="17-5-7985ed4b" class="semantic-heading semantic-japan">17.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>例外</code>、<code>例外クラス</code>、<code>メッセージ</code>、<code>業務エラー</code>、<code>技術エラー</code>、<code>エラー応答</code>、<code>メッセージID</code>、<code>呼び出し元</code>、<code>再実行可否</code>、<code>障害調査</code>。</p>
+<p>设计说明中可以这样写：</p>
+<ul>
+<li>下位クラスでは画面メッセージを直接出力せず、例外または結果オブジェクトとして上位層へ返却します。</li>
+<li>業務チェック結果は、呼び出し元でユーザ向けメッセージまたはAPIエラー応答に変換します。</li>
+<li>技術例外は内部ログに詳細を記録し、ユーザ向けには機微情報を含まないメッセージを返却します。</li>
+</ul>
+<p>代码 review 时可以这样问：</p>
+<ul>
+<li>この例外は呼び出し元で適切にメッセージへ変換されていますか。</li>
+<li>深い階層のクラスで <code>MESSAGE</code> を直接出していませんか。</li>
+<li>業務エラーと技術エラーの切り分けは明確ですか。</li>
+<li>ユーザ向けメッセージには対応方法を示し、内部例外の詳細はアプリケーションログに記録します。</li>
+<li>API 応答では安定したエラーコード、対象項目、再実行可否を返してください。</li>
+<li>バックグラウンドジョブでは、ジョブログだけでなく業務キー付きのアプリケーションログを確認します。</li>
+</ul>
+<h4 id="17-6-english-terms-7dff68fc" class="semantic-heading semantic-terms">17.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>exception handling</code>, <code>message</code>, <code>message class</code>, <code>T100 message</code>, <code>ABAP exception class</code>.</li>
+<li>Related terms: <code>business error</code>, <code>technical error</code>, <code>reported message</code>, <code>error response</code>, <code>exception mapping</code>, <code>retryable</code>, <code>root cause</code>, <code>application log</code>.</li>
+<li>Recommended search pattern: <code>SAP ABAP exception handling</code>, <code>SAP ABAP MESSAGE statement</code>, <code>SAP RAP reported messages</code>, <code>SAP message class T100</code>.</li>
+<li>读官方资料时注意区分 classic ABAP <code>MESSAGE</code> 语句、class-based exceptions、RAP reported messages、OData error response 等不同技术上下文。</li>
+</ul>
+<h4 id="17-7-example-401af9cb" class="semantic-heading semantic-example">17.7 Example / 学习例子</h4>
+<p>假设有一个校验公司代码的服务方法。坏设计是在工具方法里直接弹消息：</p>
+<pre><code class="language-abap">  IF lv_bukrs IS INITIAL.
+    &quot; 假设 zmsg 的 001 号消息文本为 &quot;Company code is required&quot;
+    MESSAGE e001(zmsg).
+  ENDIF.</code></pre>
+<p>这样做的问题是：这个方法一旦被后台 job、OData 服务或 ABAP Unit 调用，<code>MESSAGE e</code> 的行为可能不符合调用方需要。更好的设计是让底层表达业务校验结果或抛出有语义的异常，由上层决定怎么转成消息。</p>
+<p>概念上可以这样分层：</p>
+<pre><code class="language-text">Domain/service logic:
+  detects missing company code
+  returns validation result or raises business exception
+
+Application/API layer:
+  converts it to message ID / error code / target field
+  adds request id and application log id
+
+UI/API caller:
+  displays or processes the message</code></pre>
+<p>在 AC0567C 的批量上传中，第 27 行公司代码无效，底层校验可以返回结构化 validation error；API 层把它转成 <code>BUSINESS_VALIDATION_FAILED</code>，target 为 <code>items[27].companyCode</code>；Application Log 记录完整处理明细。这样既没有把 UI 消息写死在底层，也没有丢失用户需要的信息。</p>
+<p>再看一个完整映射例子：</p>
+<pre><code class="language-text">Internal condition:
+  Company code 9999 is not allowed for current user.
+
+Internal result:
+  zcx_authorization_denied
+  context: user, company_code, operation=EXECUTE
+
+Application mapping:
+  errorCategory = AUTHORIZATION
+  errorCode = AUTHORIZATION_FAILED
+  target = header.companyCode
+  retryable = false until authorization is changed
+  logId = BAL-4711
+
+API response:
+  Do not expose raw authorization object values unless project policy allows it.
+  Return stable error code and user-safe message.
+
+Operations evidence:
+  SU53/trace can be collected with user/time/operation.</code></pre>
+<p>同样地，外部系统 timeout 不应该直接把原始 HTTP stack trace 返回给调用方。服务层可以把它映射成 <code>TECHNICAL_DEPENDENCY_FAILED</code>，返回 request id 和 log id；Application Log 保存外部 endpoint、response code、timeout category 和是否可重试。</p>
+<h4 id="17-8-counterexample-failure-mode-cf82cca1" class="semantic-heading semantic-example">17.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有以下十类。</p>
+<p>第一，深层工具类直接 <code>MESSAGE</code>。这会让代码难以复用，也让测试和接口处理变得不可控。</p>
+<p>第二，所有错误都抛技术异常。业务校验失败本来是可预期结果，却被包装成系统异常，用户和调用方无法判断是否修正数据即可重试。</p>
+<p>第三，吞掉异常只返回泛用消息。开发者丢失 root cause，运维无法定位，用户只能反复截图。</p>
+<p>第四，把内部异常细节暴露给外部系统。完整 stack trace、SQL、类名、服务器路径、token 和敏感字段都不应直接出现在外部 error response。</p>
+<p>第五，没有统一映射规则。不同开发者各写各的异常和消息，导致同一种业务错误在不同 API、报表、Fiori app 中表现不同，测试和客户都无法形成稳定预期。</p>
+<p>第六，业务消息没有 target。批量输入第 27 行错了，但消息只说“输入错误”，用户不知道改哪里。</p>
+<p>第七，所有技术异常都返回可重试。某些程序错误或数据不一致不是用户重试能解决的，错误契约要区分 retryable。</p>
+<p>第八，日志只记录用户可见文本。用户文本通常经过翻译和简化，不能替代 root cause、exception type、业务键和 request id。</p>
+<p>第九，API、UI、job 各自定义一套错误码。同一业务错误在不同入口表现不同，回归测试和客户文档都会混乱。</p>
+<p>第十，把安全敏感信息写进外部消息。SQL、token、内部类名、服务器路径、完整授权对象值都需要按项目安全规则控制。</p>
+<h4 id="17-9-d21dafe1" class="semantic-heading semantic-practice">17.9 思考问题</h4>
+<ul>
+<li>一个业务校验失败应该抛 exception、返回 message，还是两者都参与？在哪一层转换？</li>
+<li>为什么深层类直接 <code>MESSAGE e...</code> 会影响复用和测试？</li>
+<li>技术异常对用户可见时，哪些信息应该隐藏？哪些信息应写入受控日志？</li>
+<li>在 RAP/OData 场景里，reported message 和 exception 的职责有什么差异？</li>
+<li>AC0567C POC 中哪一段逻辑最需要明确 exception-to-message mapping？</li>
+<li>错误是否有稳定 error code、target、retryable 和 log id？</li>
+<li>用户可见消息和内部 root cause 是否分开保存？</li>
+<li>同一个业务错误在 UI、API、background job 中是否保持一致语义？</li>
+</ul>
+<h4 id="17-10-7b6e3a0b" class="semantic-heading semantic-reference">17.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPTRY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - TRY</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPRAISE_EXCEPTION.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - RAISE EXCEPTION</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMESSAGE.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - MESSAGE</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20RAISE%20EXCEPTION%20TRY%20CATCH" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP RAISE EXCEPTION TRY CATCH</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20MESSAGE%20statement%20message%20class" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP MESSAGE statement message class</a></li>
+<li><a href="https://help.sap.com/docs/search?q=RAP%20reported%20messages%20failed%20reported" target="_blank" rel="noopener noreferrer">SAP Help search - RAP reported messages failed reported</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20application%20log%20exception%20message" target="_blank" rel="noopener noreferrer">SAP Help search - SAP application log exception message</a></li>
+</ul>
+<h4 id="17-11-connections-dfb777e0">17.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a></li>
+<li>Downstream: <a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a></li>
+<li>Related: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li>Related: <a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 24 - 错误消息、应用日志与审计日志</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="17-12-0bcd26bc" class="semantic-heading semantic-practice">17.12 学习任务</h4>
+<ul>
+<li>找一段会直接 <code>MESSAGE e...</code> 的逻辑，说明如果它被 OData 或后台 job 调用会有什么问题。</li>
+<li>为一个业务校验失败设计 exception-to-message mapping：异常/结果对象、message ID、error code、target field、retryable。</li>
+<li>写 2 句日语 review 评论：一句指出深层类不应直接出消息，一句要求补充异常到消息的转换规则。</li>
+<li>检查 AC0567C POC：哪些错误属于业务消息，哪些应作为技术异常记录？</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 <code>MESSAGE</code>、class-based exception 或 RAP reported messages 的官方说法。</li>
+</ul>
+<h4 id="17-13-confidence-next-action-dbbe5c30" class="semantic-heading semantic-status">17.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the exception-as-control-flow versus message-as-communication boundary, layered exception-to-message mapping, RAP <code>failed</code> / <code>reported</code> distinction, semantic exception / stable message-id guidance, ten failure-mode framing, and corrected <code>MESSAGE e001(zmsg).</code> example; Claude 2026-06-18 returned <code>Pass with fixes</code>, and the required count correction plus recommended RAP/message fixes are already integrated. Medium-High for exact UI <code>MESSAGE</code> behavior, RAP/OData message payloads, job-log behavior, and API error mapping because they depend on calling context and framework conventions. Joule review remains deferred for this section.</li>
+</ul>
+<ul>
+<li>Next action: 继续学习 <a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a>，把异常路径和消息映射纳入可测试服务逻辑；后续如 Joule 工具恢复，可补一次 SAP-specialist confirmation。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-017-exception-vs-message-414fed45.html">Exception vs message 异常与消息</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-016-error-message-design-c05159c6.html">Previous section</a><a href="section-04-018-abap-unit-for-service-logic-23443f8e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

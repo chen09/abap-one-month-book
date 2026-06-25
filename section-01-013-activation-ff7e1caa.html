@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Activation 激活机制 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="13-activation-7b1bc9d9" class="chapter-title">13. Activation 激活机制</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 13</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Activation 激活机制，是把已保存的 inactive ABAP development object 转换成 active version 并生成对应 runtime object 的步骤；本节要学的是：<code>保存</code> 不等于 <code>运行时已经使用</code>，<code>激活</code> 也不等于 <code>已经移送到 QAS/PRD</code>。</p>
+<p><strong>正文</strong></p>
+<p>在 <a class="wiki" href="section-01-008-abap-development-tools-in-eclipse-fef5783a.html">ADT</a> 里改一个 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">repository object</a> 时，第一反应通常是按 <code>Ctrl+S</code> 保存。对 Java/Python 背景的人来说，“保存文件”往往意味着本地文件已经变成最新内容，下一步就是编译、运行或提交 Git。但 ABAP 是 server-based development：对象保存在 SAP 后端 repository 里，而且保存后的版本可能只是 inactive version。也就是说，编辑器里看到的新代码已经存在于系统数据库中，但普通运行时调用的仍然可能是旧的 active version。</p>
+<p>Activation 就是把这个 inactive version 推到“系统可使用状态”的动作。成功 activation 会创建 active version，并生成或更新 runtime object。ABAP 程序、class、DDIC object、CDS view entity、RAP object 等对象在运行、引用、语法检查和生成时，都依赖这个 active/runtime 层。SAP Learning 对初学者的描述很直白：要运行 ABAP object，必须先 activate；activation 会检查语法、保存对象并生成 runtime version。如果存在阻塞性语法错误，对象不会被激活。</p>
+<p>这里要特别分两种场景。第一种是修改一个已经 active 的对象：你保存了新代码，但 activation 失败，系统运行时仍然使用最近一次成功激活的 active version。于是会出现“我明明改了代码，为什么运行结果还是旧的”的现象。第二种是新建对象：它从一开始就是 inactive version，首次 activation 成功之前没有旧的 active version 可以兜底，所以它还不能被正常运行或被其他对象稳定引用。</p>
+<p>ADT 里可以观察这些状态。当前打开对象可以用工具栏 <code>Activate</code>、快捷键 <code>Ctrl+F3</code> 或上下文菜单激活；多个 inactive objects 优先通过 Worklist of Inactive Objects / Activate inactive ABAP development objects 一起激活，部分 ADT 版本或上下文也支持 <code>Ctrl+Shift+F3</code>。Properties view 里可能看到 active / inactive 相关状态；当一个已激活对象又被改过但未激活时，ADT 可能显示类似 <code>Active (inactive version also exists)</code> 的组合状态。Problems view 和 activation log 则用于查看 activation errors。</p>
+<p>本节还要明确一个边界：activation 是当前 SAP system 内部的对象可用性动作，不是 <a class="wiki" href="section-01-012-transport-request-a1933e45.html">transport request</a> release，也不是 export/import，更不是 QAS/PRD production deployment。对象可以在 DEV 被成功激活，但还没有 release transport request；也可以被记录在 transport request 里，但因为 activation error 无法 release 或无法进入后续移送流程。把这几个动作混在一起，是初学者最常见的 SAP 生命周期误判。</p>
+<p><strong>为什么重要</strong></p>
+<p>Activation 是 ABAP 开发里“能不能被系统实际使用”的门槛。只保存不激活，代码可能只是开发者正在编辑的 inactive version；activation 失败，运行时仍然使用旧 active version；新建对象没有成功 activation，就没有可运行的 runtime object。初学者如果不理解这一点，会把很多问题误判成缓存、权限、transport 或 SAP GUI/ADT 不同步。</p>
+<p>它也解释了 SAP 项目里很多看似奇怪的现象。你改了一个 class，按保存后没有语法红线，但运行结果没变，原因可能是还没激活。你新建了一个 CDS view entity，另一个对象引用它时报错，原因可能是 CDS 自己或它依赖的 DDIC object 没有激活成功。你 release transport request 前被系统拦住，原因可能是 request 里还有 inactive objects。很多“为什么 QAS 没变化”的问题，实际要先确认 DEV 是否已经 successful activation，再确认 request/task release 和 import。</p>
+<p>对团队协作来说，activation 也是依赖管理。一个对象可能依赖另一个对象：ABAP class 依赖 interface，CDS projection 依赖 root view entity，service binding 依赖 service definition，RAP behavior implementation 依赖 behavior definition。只激活其中一个对象，可能会因为依赖对象还处于 inactive 状态而失败。更细的一点是：ADT 有 personal inactive object list。每个开发者有自己的 inactive object list，其他开发者不能直接访问；如果两个人分别改了互相依赖的对象，就需要约定谁先激活、是否一起处理 inactive object list，而不是各自在本地想当然。</p>
+<p>对日本 SAP 项目来说，<code>有効化済みですか</code> 是代码 review、単体テスト、移送前確認里的基础问题。这里问的不是“有没有保存”，而是“当前系统里 active version / runtime object 是否已经更新，是否还有非アクティブバージョン”。如果无法回答，就很难解释测试对象、缺陷再现、移送依赖和上线确认。</p>
+<p><strong>核心机制</strong></p>
+<p>第一层机制是 save vs activation。<code>Save</code> 把开发对象的当前编辑结果写入 ABAP Repository，但可能只是 inactive version；<code>Activation</code> 才尝试把 inactive version 转成 active version。保存更像“把草稿放进 SAP 后端”，激活才像“让系统可以用这份草稿生成运行时对象”。所以不要把 <code>Ctrl+S</code> 当成 Java/Python 的“保存文件后下一次运行自然用新代码”。</p>
+<p>第二层机制是 active version / inactive version / runtime object。inactive version 是正在开发、尚未成功激活的版本；active version 是系统认可并可用于生成 runtime object 的版本；runtime object 是运行时实际使用的生成结果。对已有对象来说，inactive version 可以和 active version 同时存在；运行时继续使用 active version。对新建对象来说，第一次 activation 成功前没有 active version，也没有可用 runtime object。</p>
+<p>第三层机制是 activation check。activation 不只是 syntax check，但 syntax correctness 是成功 activation 的必要条件。不同对象会触发不同检查：ABAP class 要通过 ABAP syntax / type / reference 检查；DDIC table activation 可能涉及数据库表定义和字典 runtime 信息；CDS activation 可能检查 source、annotation、association、dependent data definition；RAP 对象还会连接 behavior definition、behavior implementation、service definition / binding 等链条。Day 02 只需要知道“activation 会检查并生成”，更深的 DDIC activation cascade、CDS activation graph 和 RAP save sequence，后面章节再展开。</p>
+<p>第四层机制是 ADT 操作入口。当前对象用 <code>Ctrl+F3</code> / Activate；多个对象优先用 Worklist of Inactive Objects，部分 ADT 版本或上下文也可以用 <code>Ctrl+Shift+F3</code>；错误看 Problems view、editor marker、activation log；状态看 Properties view 或对象图标。初学者练习时不要只看“编辑器没有红线”，还要确认 activation 是否真的成功，Problems view 是否清空，对象状态是否已经 active。</p>
+<p>第五层机制是依赖对象一起激活。真实项目里很少只有一个孤立对象。比如新建一个 CDS view entity 后，又建 metadata extension、service definition、service binding；或者新建 interface 后，再改 class 实现。若只激活最后一个对象，系统可能提示引用对象不存在、类型不一致、DDIC object inactive、CDS source inactive。正确做法是把相关 inactive objects 作为一个小单元检查和激活；多人协作时，要注意 personal inactive object list 的隔离，不要假设自己能替别人激活他未完成的对象。</p>
+<p>第六层机制是 activation vs transport。activation 发生在当前 system；transport release / export / import 才把对象变更带到其他 system。对象必须先在 DEV 形成可用的 active version，才有资格进入严肃的测试和移送讨论。transport request 记录和运送对象，不负责把语法错误的 inactive version 变成可运行对象；import 到 QAS/PRD 后，目标系统也可能在导入过程中处理或检查 runtime object，但这已经是 transport/software logistics 范围，不是 Day 02 的 activation 基础概念。无论是 on-premise、private cloud 还是 ABAP Cloud-compatible 对象，activation 的 active/inactive/runtime 心智模型基本一致；差异主要在后续 transport / software component / cloud transport 工具链，本教程后面再展开。</p>
+<p>第七层机制是术语边界。不要把这里的 ABAP development object activation 和 ICF service activation、Fiori app activation、Best Practices scope item activation 混在一起。它们都可能被中文翻成“激活”，但对象、工具、风险和项目责任不同。本节讨论的是 ABAP repository/development objects 的 active/inactive/runtime 生命周期。</p>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>有効化</code>、<code>アクティベート</code>、<code>有効バージョン</code>、<code>非アクティブバージョン</code>、<code>非有効バージョン</code>、<code>未有効バージョン</code>、<code>ランタイムオブジェクト</code>、<code>有効化エラー</code>、<code>アクティベーションエラー</code>、<code>非有効オブジェクト一覧</code>、<code>Problemsビュー</code>。</li>
+<li>说明句：このオブジェクトは保存済みですが、まだ有効化されていないため、実行時には直近の有効バージョンが使用されます。</li>
+<li>说明句：移送依頼をリリースする前に、関連オブジェクトがすべて有効化済みであることを確認してください。</li>
+<li>使用场景：ADT 开发、代码 review、単体テスト前确认、CDS/RAP 依赖错误排查、移送前确认、结合测试缺陷再现。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>Activation</code>, <code>active version</code>, <code>inactive version</code>, <code>runtime object</code></li>
+<li>ADT terms: <code>Activate the ABAP Development Object</code>, <code>Worklist of Inactive Objects</code>, <code>Problems view</code>, <code>Properties view</code></li>
+<li>Related search pattern: <code>ABAP activation inactive version active version runtime object</code>, <code>Activating Development Objects ABAP Development Tools</code></li>
+<li>读官方资料时优先保留 <code>active version</code>、<code>inactive version</code>、<code>runtime object</code>、<code>activation error</code> 等英文术语；这些词会直接出现在 SAP Help、SAP Learning、ADT UI 和英文项目资料中。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<ul>
+<li>新建一个实现 <code>IF_OO_ADT_CLASSRUN</code> 的 class，先保存但不激活，观察 Properties view / Problems view；再用 <code>Ctrl+F3</code> 激活，确认状态变成 active，最后用 <code>F9</code> 运行。</li>
+<li>修改一个已经能运行的 class，故意加入一个语法错误并保存。思考：保存后 inactive version 是否存在？运行时是否仍使用旧 active version？activation error 在哪里显示？</li>
+<li>找一个 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a> 或 service definition，观察它依赖哪些对象。若 activation 失败，先看错误是否来自当前对象，还是来自上游 DDIC/CDS/RAP 依赖。</li>
+<li>最小动作：用 5-8 行中文写出 <code>Save</code>、<code>Activation</code>、<code>Transport release</code> 三者的区别。</li>
+<li>进阶动作：在 ADT 中打开 Worklist of Inactive Objects，确认当前 system / 当前用户下有哪些 inactive objects；如果没有系统环境，则阅读本节官方链接并画出 active/inactive/runtime 三层图。</li>
+</ul>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>误区一：以为保存等于运行时立即使用。结果是代码已经在编辑器里，但测试仍跑旧逻辑。</li>
+<li>误区二：以为没有红线就等于 activation 成功。实际可能还存在 activation error、dependent object error 或未处理的 Problems view message。</li>
+<li>误区三：以为 activation 等于移送。实际 activation 只是 DEV 当前 system 内对象可用；QAS/PRD 是否变化取决于 transport release / export / import。</li>
+<li>误区四：只激活最后一个对象，不激活上游依赖。比如 class 引用了未激活 interface，CDS projection 引用了未激活 root view entity，service binding 引用了未激活 service definition。</li>
+<li>误区五：多人开发时忽略 personal inactive object list。一个开发者看不到或不能直接处理另一个开发者的 inactive objects，依赖激活失败时需要团队协调，而不是反复点击 Activate。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>为什么 ABAP 需要 active / inactive version，而不是保存后直接覆盖运行时？</li>
+<li>对已有对象来说，activation 失败后运行时使用哪个版本？对新建对象来说，activation 前是否有可运行版本？</li>
+<li>如果 <code>Ctrl+S</code> 成功但 <code>Ctrl+F3</code> 失败，下一步应该看 editor、Problems view、activation log 还是 transport request？</li>
+<li>本节的 activation 和 <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a>、<a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a>、<a class="wiki" href="section-01-016-abap-debugger-05add8e6.html">ABAP debugger 调试器入口</a> 分别是什么关系？</li>
+<li>在日本项目里，如果上级问 <code>有効化済みですか</code>，应该怎样用一句日语回答对象状态？</li>
+<li>Week 3 学 RAP 时，为什么 <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a> 不能和 activation 混为一谈？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-for-visual-studio-code/activation" target="_blank" rel="noopener noreferrer">SAP Help - Activation</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/SAP_NETWEAVER_AS_ABAP_752/c238d694b825421f940829321ffa326a/4ec4f1336e391014adc9fffe4e204223.html" target="_blank" rel="noopener noreferrer">SAP Help - Activating Development Objects</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/7070bb486bf41014b5040bee4e204223.html" target="_blank" rel="noopener noreferrer">SAP Help - Switching between Inactive and Active Versions of a Source-based Object</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/troubleshooting-for-activation-errors-in-context-of-abap-dictionary-objects" target="_blank" rel="noopener noreferrer">SAP Help - Troubleshooting for Activation Errors in the Context of ABAP Dictionary Objects</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-i-of-sap-s-4hana-and-sap-business-suite/accessing-and-editing-abap-repository-objects" target="_blank" rel="noopener noreferrer">SAP Learning - Accessing and Editing ABAP Repository Objects</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/learn-the-basics-of-abap-programming-on-sap-btp/developing-your-first-abap_c89963e5-a6f6-414b-94cd-f505dd28d4f5" target="_blank" rel="noopener noreferrer">SAP Learning - Developing your First ABAP Application</a> (accessed 2026-06-13).</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p>原子笔记入口: <a class="wiki" href="section-01-013-activation-ff7e1caa.html">Activation 激活机制</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-012-transport-request-a1933e45.html">Previous section</a><a href="section-01-014-abapgit-gcts-d16f46ae.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

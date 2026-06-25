@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP feature control | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="26-rap-feature-control-73beb2c9" class="chapter-title">26. RAP feature control</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 26</li><li>self-contained study note</li></ul><h4 id="26-1-d2c4af4d" class="semantic-heading semantic-concept">26.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a> 是 RAP 用来控制“某个操作或字段此刻是否可用”的机制：它可以让 <code>update</code>、<code>delete</code>、draft <code>Edit</code>、自定义 action、甚至部分字段，根据业务对象状态或全局条件在 Fiori / OData 消费中显示为 enabled、disabled、read-only 等行为。</p>
+<p>一句话记忆：authorization 问“你有没有权限”，feature control 问“这个功能现在该不该可用”。两者经常一起出现，但不能互相替代。</p>
+<h4 id="26-2-434c9319">26.2 概念说明</h4>
+<p>Feature control 解决的是动态可用性问题。比如 Travel 已经 <code>Accepted</code>，就不应该再允许编辑、删除或再次执行 <code>Accept</code> action；Travel 已经 <code>Rejected</code>，就不应该再执行 <code>Reject</code> action；某些字段在特定状态下只读，防止用户改坏业务状态。RAP feature control 让这些规则进入 BO behavior，而不是只靠前端隐藏按钮。</p>
+<p>ABAP Keyword Documentation 对 RAP feature control 的定义很直接：它用于启用或禁用 RAP BO operation，并有不同变体。SAP-samples RAP110 / RAP100 练习也把它用于标准操作 <code>update</code> / <code>delete</code>、draft action <code>Edit</code> 和自定义 action 的动态启停。也就是说，feature control 不是 UI 小技巧，而是 BO 行为契约的一部分。</p>
+<p>初学者要先分清两组概念：</p>
+<ul>
+<li>Static / design-time control：在 BDEF 里声明字段 <code>readonly</code>、<code>mandatory</code>、operation 是否存在等，规则不依赖单条实例状态。</li>
+<li>Dynamic feature control：在运行时根据实例数据或全局条件返回可用性结果。</li>
+</ul>
+<p>动态 feature control 又分两类：</p>
+<ul>
+<li>Instance feature control：按每条 BO instance 的状态判断，例如某个 Travel 是 Open / Accepted / Rejected。</li>
+<li>Global feature control：不依赖单条实例，而是按全局条件判断，例如系统开关、日期窗口、维护模式、业务配置。</li>
+</ul>
+<h4 id="26-3-74845953" class="semantic-heading semantic-why">26.3 为什么重要</h4>
+<p>没有 feature control，Fiori UI 可能会显示一堆“理论上存在但当前不该执行”的按钮。用户点了以后，后端 validation 再报错，体验差，测试也难解释。更糟的是，如果只在前端隐藏按钮，其他 OData / EML consumer 仍可能调用同样 action，造成行为不一致。</p>
+<p>Feature control 把按钮、字段和操作的可用性放回 RAP BO 语义中。UI 可以根据 OData metadata / runtime response 展示正确状态；后台 action 也能和 BO 状态保持一致。它不是最后一道安全门，但能让“当前状态不该做什么”提前反馈给用户。</p>
+<p>对项目交付来说，feature control 直接影响设计说明、测试用例和缺陷分析。比如“审批后按钮还可点”“草稿状态下按钮不该显示”“已关闭单据仍可删除”“字段应该只读但 UI 可编辑”，这些问题不一定是 UI annotation 错，也不一定是 authorization 错，可能就是 feature control 没声明或实现不完整。</p>
+<p>对 Java/Python 背景学习者，可以把 feature control 类比成 domain object 的 command availability / state machine guard，再加上 UI metadata 的协作。但 RAP 的关键差异是：这个可用性由 BDEF 声明、behavior pool 实现，并通过 RAP runtime 暴露给 Fiori/OData/EML 语义。</p>
+<h4 id="26-4-b14a88db">26.4 边界</h4>
+<p>第一条边界：feature control 不是 authorization。用户没有权限执行 action，应由 RAP authorization、PFCG/IAM、authorization object 或实例授权处理。Feature control 可以让 action 在某个状态下 disabled，但不能替代真正的权限检查。安全设计里，二者要同时考虑。</p>
+<p>第二条边界：feature control 不是 validation。Validation 是“你提交的内容是否有效”；feature control 是“这个操作/字段当前是否应该可用”。如果用户绕过 UI 调用 action，后端仍要用 authorization、validation、precheck 或 action logic 防止非法状态改变。</p>
+<p>第三条边界：feature control 不等于 UI annotation。<code>@UI</code> annotation 决定字段如何展示、按钮如何布局、对象页如何组织；feature control 决定运行时可用性。按钮位置不对可能是 UI annotation；按钮可点不可点则常要看 feature control / authorization。</p>
+<p>第四条边界：instance feature control 不适合做昂贵查询。<code>get_instance_features</code> 可能被 UI 频繁请求；实现里应读取必要字段，不要做复杂跨系统调用或大量数据库扫描。SAP-samples 的练习也只读取 <code>TravelID</code> 和 <code>OverallStatus</code> 来判断操作状态。</p>
+<p>第五条边界：disabled 不是 hidden。Feature control 常见结果是 operation enabled/disabled、field read-only 等。UI 是否完全隐藏、置灰、只读，取决于 RAP 语义、OData metadata、Fiori Elements 支持和具体前端行为。写书稿时用“不可用/置灰/只读”比简单说“隐藏”更稳。</p>
+<h4 id="26-5-980bdf5c" class="semantic-heading semantic-mechanism">26.5 核心机制</h4>
+<p>第一层机制是 BDEF 声明。只有在 behavior definition 中把操作声明为受 feature control 管理，RAP runtime 才会生成相应 handler 方法并在运行时请求结果。常见写法包括：</p>
+<pre><code class="language-abap">define behavior for ZI_Travel alias Travel
+{
+  update ( features : instance );
+  delete ( features : instance );
+
+  draft action Edit ( features : instance );
+  action ( features : instance ) acceptTravel result [1] $self;
+  action ( features : instance ) rejectTravel result [1] $self;
+}</code></pre>
+<p>这段是教学示意。具体语法受 ABAP release、draft/non-draft、projection behavior 和 strict mode 影响，实际项目以 ADT syntax check 和 SAP 文档为准。</p>
+<p>第二层机制是 handler method。ADT 通常会为 entity 生成或提示添加 <code>get_instance_features</code> / <code>get_global_features</code> 这类方法。SAP developer tutorial 对 <code>get_instance_features</code> 的接口说明包括 <code>keys</code>、<code>requested_features</code>、<code>result</code>，以及 handler class 语境中可用的 <code>failed</code>、<code>reported</code>。也就是说，实现方法不是“随便返回一个布尔值”，而是按 RAP method signature 和隐式响应参数返回结构化 feature result。</p>
+<p>第三层机制是只计算 requested features。<code>requested_features</code> 告诉实现当前 consumer 请求了哪些字段、operation 或 action 的可用性。高质量实现应先看 <code>requested_features</code>，只计算需要的内容，避免每次都算所有规则。这对复杂对象和大列表页很重要。</p>
+<p>第四层机制是读取实例状态。Instance feature control 常在 handler 中用 EML local read 读取当前 BO 的关键字段：</p>
+<pre><code class="language-abap">READ ENTITIES OF zi_travel IN LOCAL MODE
+  ENTITY Travel
+  FIELDS ( OverallStatus )
+  WITH CORRESPONDING #( keys )
+  RESULT DATA(lt_travel)
+  FAILED failed.</code></pre>
+<p>这里用 <code>IN LOCAL MODE</code> 是因为 feature control 属于当前 behavior implementation 语境，需要看到 transactional buffer 中的当前状态。直接 <code>SELECT</code> active table 可能读不到用户刚在草稿或事务缓冲中改过的状态。</p>
+<p>第五层机制是返回 <code>%features</code> 或 operation 状态。SAP-samples 中常见结果是按实例 append 到 <code>result</code>，使用 <code>if_abap_behv=&gt;fc-o-enabled</code> / <code>if_abap_behv=&gt;fc-o-disabled</code> 控制 operation 或 action：</p>
+<pre><code class="language-abap">LOOP AT lt_travel ASSIGNING FIELD-SYMBOL(&lt;travel&gt;).
+  APPEND VALUE #(
+    %tky = &lt;travel&gt;-%tky
+    %update = COND #( WHEN &lt;travel&gt;-OverallStatus = &#x27;A&#x27;
+                      THEN if_abap_behv=&gt;fc-o-disabled
+                      ELSE if_abap_behv=&gt;fc-o-enabled )
+    %delete = COND #( WHEN &lt;travel&gt;-OverallStatus = &#x27;A&#x27;
+                      THEN if_abap_behv=&gt;fc-o-disabled
+                      ELSE if_abap_behv=&gt;fc-o-enabled )
+    %action-acceptTravel = COND #( WHEN &lt;travel&gt;-OverallStatus = &#x27;A&#x27;
+                                   THEN if_abap_behv=&gt;fc-o-disabled
+                                   ELSE if_abap_behv=&gt;fc-o-enabled )
+  ) TO result.
+ENDLOOP.</code></pre>
+<p>字段级 feature control 则常通过 <code>%field-&lt;fieldname&gt;</code> 返回字段状态，例如 <code>if_abap_behv=&gt;fc-f-read_only</code>；其他常见值还包括 <code>fc-f-mandatory</code> 和 <code>fc-f-unrestricted</code>。字段、operation、action 的 result 结构不同，初学者不要硬套同一个 <code>%action-...</code> 写法。</p>
+<p>第六层机制是 global feature control。Global feature control 用于不依赖单条实例的条件，例如系统维护开关、全局配置、当前日期是否在允许窗口、后台任务是否正在运行。BDEF 中声明 <code>features : global</code> 后，实现 <code>get_global_features</code>，返回全局可用性。一个极简锚点是 <code>create ( features : global );</code>，表示 create 是否可用由全局 feature control 决定。它适合“整个服务当前都不能创建/执行某 action”的场景。</p>
+<p>第七层机制是 projection、association 和 draft。Feature control 可能涉及 draft action <code>Edit</code>、普通 action、create-by-association、projection behavior 暴露范围和 Fiori Elements 按钮状态。更进阶的 association feature control 可能通过 <code>%assoc-&lt;association_name&gt;</code> 影响关联创建可用性，本节只先建立入口概念。上一节 <a class="wiki" href="section-03-025-rap-draft-handling-1cd663ca.html">RAP draft handling</a> 讲过，draft actions 是草稿生命周期的一部分；本节要记住，draft action 也可能需要 feature control，例如某个状态下不允许继续编辑。</p>
+<h4 id="26-6-849a2217" class="semantic-heading semantic-why">26.6 项目意义</h4>
+<p>设计评审时，feature control 要回答：“这个按钮/字段/操作在什么状态下应该可用？”不要只写“审批按钮”，要写清楚 open 时可用、approved 时不可用、rejected 时不可用、draft 时是否可用、锁定时如何处理、无权限时是隐藏还是报错。</p>
+<p>代码 review 时，重点看四类问题。第一，BDEF 是否声明了 <code>( features : instance )</code> 或 <code>( features : global )</code>。第二，handler 是否实现了对应 <code>get_*_features</code> 方法。第三，是否用 <code>READ ENTITIES ... IN LOCAL MODE</code> 读取必要状态，而不是直接查表。第四，是否把 feature control 和 authorization / validation 的责任混在一起。</p>
+<p>测试时，要覆盖 UI 和 API 两条路径。UI 上看按钮是否置灰、字段是否只读；API/EML 上还要确认即使 action 被调用，后端授权、validation 或 action logic 也不会让非法状态改变成功。Feature control 提升体验，但不能是唯一防线。</p>
+<p>日本项目中，feature control 常出现在 Fiori 缺陷单里：<code>承認済みなのに承認ボタンが押せる</code>、<code>却下済みなのに編集できる</code>、<code>項目が読取専用にならない</code>。分析时不要直接说“UI bug”，要先确认 BDEF、behavior implementation、projection、authorization 和 Fiori metadata 是否一致。</p>
+<h4 id="26-7-example-5c6eae76" class="semantic-heading semantic-example">26.7 Example / 学习例子</h4>
+<p>假设 Travel 有三个状态：Open、Accepted、Rejected。业务规则是：</p>
+<ul>
+<li>Open：允许 update、delete、Accept、Reject。</li>
+<li>Accepted：不允许 update、delete、Accept；通常也不允许 Edit draft。</li>
+<li>Rejected：不允许 Reject；是否允许重新编辑要看业务。</li>
+</ul>
+<p>BDEF 中先声明哪些 operation/action 受 instance feature control 管理：</p>
+<pre><code class="language-abap">update ( features : instance );
+delete ( features : instance );
+draft action Edit ( features : instance );
+action ( features : instance ) acceptTravel result [1] $self;
+action ( features : instance ) rejectTravel result [1] $self;</code></pre>
+<p>Behavior pool 中的 <code>get_instance_features</code> 读取 <code>OverallStatus</code>，然后给每个 instance 返回不同 feature state。这样列表页选中不同 Travel 时，Fiori Elements 可以把不该执行的按钮置灰；对象页中字段或 action 也可以按实例状态变化。</p>
+<p>这个例子有两个重点。第一，按钮可用性来自后端 BO 状态，而不是前端写死。第二，feature control 只是提前告诉 consumer “现在不该点”，真正修改状态的 action 仍应检查业务前提，防止非 UI consumer 绕过按钮状态。</p>
+<h4 id="26-8-counterexample-failure-mode-699f6131" class="semantic-heading semantic-example">26.8 Counterexample / Failure mode</h4>
+<p>第一个失败模式是只在 UI 隐藏按钮。Fiori 页面看起来不能点，但 OData action 仍能被外部 consumer 调用。修正：把业务可用性放入 feature control，并在 action / authorization / validation 中保留后端防线。</p>
+<p>第二个失败模式是把 authorization 写进 feature control。比如用户没权限审批，就只让按钮 disabled，却没有 RAP authorization 或权限对象检查。这样换一个 consumer 可能仍能调用。修正：权限归 authorization，状态可用性归 feature control，二者协作。</p>
+<p>第三个失败模式是用 <code>SELECT</code> active table 判断状态。Draft 或 transaction buffer 中状态已变，active table 还是旧值，按钮状态就会错。修正：在 behavior implementation 中优先使用 EML <code>READ ENTITIES ... IN LOCAL MODE</code>。</p>
+<p>第四个失败模式是不看 <code>requested_features</code>。实现每次都算所有 action、所有字段、还做复杂查询，列表页性能变差。修正：只计算 consumer 请求的 feature，并把判断字段控制在最小范围。</p>
+<p>第五个失败模式是只测 happy path。Open 状态按钮正常，但 Accepted / Rejected / draft / locked / unauthorized 状态没测，上线后缺陷集中爆发。修正：把 feature matrix 写进测试用例。</p>
+<p>第六个失败模式是误以为 disabled 等于业务规则已完成。Feature control disabled 只是可用性提示；如果 action handler 不检查状态，仍可能在特殊调用路径中执行。修正：feature control、authorization、validation、action logic 分层防守。</p>
+<h4 id="26-9-2a6ffc0d" class="semantic-heading semantic-japan">26.9 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>フィーチャ制御</code>、<code>機能制御</code>、<code>ボタン制御</code>、<code>項目制御</code>、<code>有効 / 無効</code>、<code>読取専用</code>、<code>インスタンス依存</code>、<code>グローバル制御</code>。</li>
+<li>说明句：Feature control は、RAP BO の状態に応じて操作や項目を有効化・無効化するための仕組みです。</li>
+<li>Review 句：承認済みステータスの場合、更新・削除・承認アクションが無効になるように <code>get_instance_features</code> で制御されていますか。</li>
+<li>调查句：ボタンが押せる/押せない問題は、UI アノテーションだけでなく BDEF、feature control、authorization、metadata 更新を確認します。</li>
+<li>区分句：権限チェックは authorization、状態によるボタン制御は feature control として分けて設計します。</li>
+</ul>
+<h4 id="26-10-english-terms-b832e278" class="semantic-heading semantic-terms">26.10 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP feature control</code></li>
+<li>Official / search term: <code>instance feature control</code></li>
+<li>Official / search term: <code>global feature control</code></li>
+<li>Official / search term: <code>get_instance_features</code></li>
+<li>Official / search term: <code>get_global_features</code></li>
+<li>Official / search term: <code>requested_features</code></li>
+<li>Official / search term: <code>features : instance</code></li>
+<li>Official / search term: <code>features : global</code></li>
+<li>Official / search term: <code>if_abap_behv=&gt;fc-o-disabled</code></li>
+<li>Official / search term: <code>if_abap_behv=&gt;fc-f-read_only</code></li>
+<li>Recommended search pattern: <code>RAP feature control get_instance_features SAP</code></li>
+<li>Recommended search pattern: <code>ABAP Keyword Documentation RAP feature control features instance</code></li>
+</ul>
+<h4 id="26-11-43a9c648" class="semantic-heading semantic-reference">26.11 参考资料入口</h4>
+<ul>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_ACTIONS_FC.html" target="_blank" rel="noopener noreferrer">RAP - feature control</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/global-feature-control" target="_blank" rel="noopener noreferrer">Global Feature Control</a> (accessed 2026-06-18)</li>
+<li>SAP Developer Tutorial: <a href="https://developers.sap.com/tutorials/abap-environment-rap100-dynamic-feature-control.html" target="_blank" rel="noopener noreferrer">Enhance the Business Object Behavior With Dynamic Feature Control</a> (accessed 2026-06-18)</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-platform-rap110/blob/main/exercises/ex12/README.md" target="_blank" rel="noopener noreferrer">abap-platform-rap110 Exercise 12 - Dynamic Instance Feature Control</a> (accessed 2026-06-18)</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/36_RAP_Behavior_Definition_Language.md" target="_blank" rel="noopener noreferrer">abap-cheat-sheets - RAP Behavior Definition Language</a> (accessed 2026-06-18)</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-platform-fiori-feature-showcase/blob/main/01_general_features.md" target="_blank" rel="noopener noreferrer">abap-platform-fiori-feature-showcase general features</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="26-12-connections-ba7c0156">26.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li><a class="wiki" href="section-03-025-rap-draft-handling-1cd663ca.html">RAP draft handling</a></li>
+<li><a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a></li>
+<li><a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li>Upstream: <a class="wiki" href="section-03-025-rap-draft-handling-1cd663ca.html">RAP draft handling</a></li>
+<li>Downstream: <a class="wiki" href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">RAP %control field-level change tracking</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="26-13-534b9b6b" class="semantic-heading semantic-practice">26.13 学习任务</h4>
+<ul>
+<li>用自己的中文解释 feature control 与 authorization 的区别。</li>
+<li>设计一个 Travel 状态矩阵：Open / Accepted / Rejected 下 update、delete、Accept、Reject 是否可用。</li>
+<li>找一个 <code>get_instance_features</code> 示例，指出 <code>keys</code>、<code>requested_features</code>、<code>result</code> 的作用。</li>
+<li>用日语写一句缺陷分析句：按钮可用性异常时要检查 BDEF、feature control 和 authorization。</li>
+<li>写一个测试用例：Accepted 状态下 <code>Accept</code> action 应 disabled，但 action handler 仍要防止重复审批。</li>
+</ul>
+<h4 id="26-14-confidence-next-action-1a62010f" class="semantic-heading semantic-status">26.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level RAP feature control, instance/global distinction, BDEF declaration, handler method shape, <code>requested_features</code>, operation/action/field result concepts, and UI/authorization boundary based on ABAP Keyword Documentation, SAP Help, SAP Developer Tutorial, and SAP-samples evidence. 2026-06-18 已重新访问官方资料入口，Claude 初审 <code>Pass with fixes</code>、follow-up <code>Pass</code>。Exact syntax details still require target-system ADT syntax check because feature-control declarations vary by operation type, projection, draft, and target ABAP release; Joule 因前序 timeout 未重试，已记录为后续可补充依赖。</li>
+<li>Review state: 已同步到 Chapter 03 与离线书稿；Claude initial review 返回 <code>Pass with fixes</code>，follow-up 返回 <code>Pass</code>；Joule 因前序 timeout / slow 状态未重试，已记录依赖。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">RAP %control field-level change tracking</a>，继续展开字段级变更跟踪、<code>%control</code> 标志和 update request 的差异。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-025-rap-draft-handling-1cd663ca.html">Previous section</a><a href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

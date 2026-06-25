@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>OData V2 基础差异 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="41-odata-v2-5771378a" class="chapter-title">41. OData V2 基础差异</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 41</li><li>self-contained study note</li></ul><h4 id="41-1-44306b0c" class="semantic-heading semantic-concept">41.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-041-odata-v2-9ff5a688.html">OData V2 基础差异</a> 是学习 SAP OData 时必须认识的旧生态基础：很多 ECC、SAP Gateway、早期 Fiori、既有接口和客户扩展仍在使用 OData V2。现代 RAP 新开发通常更偏向 OData V4，尤其是 OData V4 UI / Web API binding；但项目现场仍需要读懂 V2 的 URL、metadata、batch、CSRF token、Gateway error 和兼容限制。</p>
+<p>一句话记忆：OData V2 不是“应该新学的唯一方向”，而是“很多旧系统和既有 Fiori/API 仍然存在的现实”。</p>
+<h4 id="41-2-5ce1a7e7" class="semantic-heading semantic-concept">41.2 到底学什么</h4>
+<p>本节不要求把 OData V2 规范全部背下来，而是要让初学者在 SAP 项目中看到 V2 服务时不慌。尤其是在日本 SAP 项目里，维护既有 Fiori app、Gateway service、<code>/sap/opu/odata/sap/...</code> 路径、<code>$metadata</code>、<code>$batch</code>、CSRF token、SEGW 生成类、IWFND 错误日志，仍然很常见。</p>
+<p>要先分清三件事。第一，OData 是协议，不是 ABAP 语言，也不是 CDS 本身。第二，OData V2 是协议版本和 SAP Gateway 旧生态中的主力之一；OData V4 是后续更现代的协议方向，RAP 新服务常围绕 V4 展开。第三，协议版本不等于业务能力：一个 V2 服务也可以很复杂，一个 V4 服务也可能只暴露简单读取；关键是看服务模型、实现方式、权限和事务语义。</p>
+<p>本节重点学习 V2 的项目识别能力：看到 URL 能判断它大概率是 V2；看到 <code>$metadata</code> 能知道 entity set 和 association；知道修改请求通常要带 CSRF token；知道批量请求可能通过 <code>$batch</code>；知道错误排查不只看浏览器，还要看 Gateway / backend log；知道从 RAP 新开发角度，V2 多数是兼容或历史原因，而不是默认首选。</p>
+<p>还要学会 V2 的“维护者视角”。新开发者常问“既然有 V4，为什么还学 V2？”答案是：很多项目不是从空白开始。既有 UI5 可能写死了 V2 model；外部系统可能只认证过 V2 endpoint；客户网关、SICF、hub deployment、metadata cache 和错误日志流程都围绕 SAP Gateway 建好。读懂 V2，才能安全维护、联调和评估迁移，而不是盲目重写。</p>
+<p>本节不会教读者从零手写 SEGW 服务，而是让读者掌握排查链：URL -&gt; metadata -&gt; request headers -&gt; CSRF/cookie -&gt; batch inner response -&gt; Gateway log -&gt; backend implementation -&gt; authorization/transaction evidence。能走完这条链，就已经具备项目初级交付能力。</p>
+<h4 id="41-3-93a76c08" class="semantic-heading semantic-why">41.3 为什么重要</h4>
+<p>OData V2 重要，是因为项目不会因为新技术推荐 V4 就立刻没有 V2。很多生产系统运行多年，Fiori app、UI5 前端、外部接口、Excel/ETL 工具、middleware 都可能已经绑定 V2 endpoint。学习 ABAP/RAP 时，如果只知道“现在推荐 V4”，却读不懂旧 V2 服务，就很难参与真实项目维护。</p>
+<p>对交付来说，V2 常出现在缺陷分析和接口联调中。用户说“Fiori 保存失败”，实际可能是 CSRF token 过期、Gateway metadata cache 未更新、<code>$batch</code> 中某个 change set 报错、DPC_EXT 实现抛异常、backend authorization 失败，或前端解析 V2 error payload 不完整。没有 V2 基础，就容易把所有问题都归咎于 CDS 或 RAP。</p>
+<p>对 Java/Python 背景学习者，OData V2 看起来像 REST，但不完全等同普通 REST。它有 <code>$metadata</code>、entity set、navigation、query option、batch、CSRF token、SAP Gateway runtime 和 Fiori/UI5 消费约定。不能只用“GET/POST JSON”理解它。</p>
+<p>同时也要避免另一个极端：不要把 V2 当成所有新项目的默认答案。若是在 ABAP Cloud / RAP 新开发语境下，通常应先看 OData V4 UI 或 Web API binding 是否更合适；只有在兼容既有 UI5、Gateway、外部系统约束或客户标准时，才有充分理由选择或维护 V2。</p>
+<h4 id="41-4-key-mechanism-7f8b3dd9" class="semantic-heading semantic-mechanism">41.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 endpoint 形态。经典 SAP Gateway V2 服务经常能看到类似 <code>/sap/opu/odata/sap/Z_SRV/</code> 的路径。服务名、entity set、key predicate、navigation、query option 都会进入 URL。看到这类路径时，要先想到 Gateway / OData V2 生态。</p>
+<p>第二层机制是 <code>$metadata</code>。V2 metadata 描述 entity type、entity set、property、association、navigation property、function import 等对象。前端和工具通过 metadata 理解服务模型。调试时，先看 metadata 是否包含预期 entity/action/function，再看具体请求。</p>
+<p>第三层机制是 query option。V2 常见 <code>$filter</code>、<code>$select</code>、<code>$expand</code>、<code>$orderby</code>、<code>$top</code>、<code>$skip</code> 等查询参数。它们很像数据库查询条件，但不是直接 SQL。后端实现需要把这些请求语义转换成合适的读取逻辑，并注意性能和权限。</p>
+<p>第四层机制是 CSRF token。对修改类请求，SAP OData V2 场景常需要先获取 <code>X-CSRF-Token</code>，再在 POST/PUT/MERGE/DELETE 或 <code>$batch</code> 中带上。很多“POST 失败”其实不是业务逻辑错，而是 token、cookie、session 或 header 处理不对。</p>
+<p>第五层机制是 <code>$batch</code> 和 change set。前端可能把多个读取或修改请求打包成 batch。错误分析时，要打开 batch response，找到具体哪一个 change set 或 operation 失败。只看最外层 HTTP status 往往不够。</p>
+<p>第六层机制是 Gateway runtime。传统 V2 服务可能由 SEGW / MPC_EXT / DPC_EXT、CDS publish、Gateway hub/embedded deployment 等方式提供。错误排查常涉及 <code>/IWFND/ERROR_LOG</code>、<code>/IWBEP/ERROR_LOG</code>、metadata cache、service activation、ICF node、authorization、backend dump。</p>
+<p>第七层机制是和 RAP 的关系。RAP 也可以暴露 OData 服务，但现代 RAP 教程通常优先讲 V4 binding。学习 V2 的目的，是识别旧服务、理解兼容场景、做联调和迁移评估，而不是把 RAP 写回旧 Gateway 手工实现模式。</p>
+<p>第八层机制是服务实现位置。传统 V2 服务常见两类：一类是 SEGW 项目生成的 MPC/MPC_EXT、DPC/DPC_EXT 类，模型定义和数据提供逻辑分开；另一类是基于 CDS 或其他框架暴露的 Gateway 服务。项目排查时要先问“这个 service 是怎么实现的”：是手写 DPC_EXT、CDS exposure、BOPF/Fiori 旧栈、还是标准 SAP 服务。实现来源不同，能改的对象、测试方式和风险完全不同。</p>
+<p>第九层机制是 Gateway hub vs embedded。某些系统是前端 Gateway hub 和后端业务系统分离；某些是 embedded Gateway。错误可能发生在前端服务器的 service activation、ICF、metadata cache、系统别名、destination，也可能发生在后端 ABAP 实现、权限、dump 或业务逻辑。只看一个系统的日志，可能看不到完整原因。</p>
+<p>第十层机制是 V2/V4 迁移判断。迁移不是“把 <code>/sap/opu/odata/sap/Z_SRV</code> 改成一个 V4 URL”。要检查消费者代码、metadata、function import/action 映射、batch 行为、CSRF/session、错误 payload、authorization、ETag/concurrency、性能、监控和运维。若外部系统依赖 V2 payload 格式，迁移必须作为 API 变更管理。</p>
+<p>可以用下面的排障矩阵：</p>
+<div class="table-wrap"><table><thead><tr><th>现象</th><th>首先检查</th><th>常见原因</th></tr></thead><tbody><tr><td><code>GET $metadata</code> 失败</td><td>service activation / ICF / system alias</td><td>服务未激活、ICF 节点、Gateway 配置</td></tr><tr><td>list 读取为空</td><td><code>$filter</code>、权限、DPC_EXT/CDS 实现</td><td>过滤条件、DCL/authorization、后端逻辑</td></tr><tr><td>POST/MERGE/DELETE 失败</td><td><code>X-CSRF-Token</code>、cookie、method、payload</td><td>token 缺失/过期、session 不一致、payload 不符</td></tr><tr><td><code>$batch</code> 报错</td><td>batch 内层 response / change set</td><td>某个 operation 失败、事务组处理失败</td></tr><tr><td>DEV 正常 QAS 失败</td><td>transport、service registration、role、cache</td><td>移送不完整、metadata cache、权限差异</td></tr><tr><td>前端报 generic error</td><td>Gateway error log、backend dump、message mapping</td><td>DPC_EXT 异常、business error 未结构化返回</td></tr></tbody></table></div>
+<p>这个矩阵不是替代系统经验，而是帮助初学者知道第一步该看哪里。</p>
+<h5 id="v2-v4-decision-and-compatibility-table-9329bb96">V2 / V4 decision and compatibility table</h5>
+<p>项目现场真正困难的地方，往往不是“V2 和 V4 哪个更新”，而是“当前系统、当前消费者、当前交付风险允许哪一种”。可以用下面的表做初步判断：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>倾向</th><th>判断理由</th><th>必须确认</th></tr></thead><tbody><tr><td>既有 UI5 app 已经使用 <code>sap.ui.model.odata.v2.ODataModel</code></td><td>维护 V2，谨慎迁移</td><td>前端模型、batch、error handling、CSRF 逻辑可能都按 V2 写死</td><td>是否有改前端预算；metadata / payload / batch 是否兼容</td></tr><tr><td>ECC 或老 S/4HANA Gateway 服务稳定运行</td><td>维护 V2</td><td>生产接口已被外部系统消费，变更成本高</td><td>服务 owner、调用方清单、SLA、错误日志和回归测试</td></tr><tr><td>新 RAP Fiori Elements 应用</td><td>优先 V4 UI binding</td><td>RAP、draft、annotation、side effect 等更自然地进入 V4 语境</td><td>UI annotation、authorization、draft/action/save sequence</td></tr><tr><td>新外部 API，且消费者可接受 V4</td><td>优先 V4 Web API</td><td>新 contract 可按现代 RAP/OData V4 设计</td><td>metadata contract、HTTP status、版本策略、communication user</td></tr><tr><td>外部系统只能消费 V2 或客户标准要求 V2</td><td>V2 wrapper 或兼容层</td><td>技术选择受消费者能力约束</td><td>wrapper 是否丢失 RAP message/action/transaction 语义</td></tr><tr><td>计划把 V2 服务迁到 V4</td><td>作为 API 变更项目处理</td><td>URL 替换不是迁移；消费者 contract 可能变化</td><td>字段名、key、navigation、function import/action、batch、error payload、权限</td></tr></tbody></table></div>
+<p>如果只能记住一个原则：<strong>新开发先问 V4 是否合适，既有服务先问 V2 依赖在哪里</strong>。前者避免继续复制旧模式，后者避免为了“升级技术”破坏生产接口。日本项目中，这类判断通常要落到 <code>既存互換性</code>、<code>影響調査</code>、<code>移行方針</code> 和 <code>回帰テスト範囲</code>，不能只写“V2 は古いので V4 にする”。</p>
+<h4 id="41-5-810ce82a" class="semantic-heading semantic-japan">41.5 日本项目现场说法</h4>
+<ul>
+<li><code>OData V2</code>：OData version 2。</li>
+<li><code>Gateway サービス</code>：SAP Gateway service。</li>
+<li><code>メタデータ</code>：metadata。</li>
+<li><code>CSRF トークン</code>：CSRF token。</li>
+<li><code>バッチリクエスト</code>：batch request。</li>
+<li><code>エラー応答</code>：error response。</li>
+<li><code>既存サービス</code>：existing service。</li>
+<li><code>互換性</code>：compatibility。</li>
+</ul>
+<p>このサービスは OData V2 の既存 Gateway サービスなので、CSRF トークンと <code>$batch</code> のエラー内容を確認してください。</p>
+<p>意思是：这个服务是既有 OData V2 Gateway 服务，所以请确认 CSRF token 和 <code>$batch</code> 的错误内容。</p>
+<p>新規 RAP 開発では OData V4 を優先検討しますが、既存 UI5 との互換性がある場合は V2 の制約も確認します。</p>
+<p>意思是：新 RAP 开发优先考虑 OData V4，但如果要兼容既有 UI5，就要确认 V2 的限制。</p>
+<p>プレビューで見えるだけでなく、メタデータ、権限、エラー応答、バッチ処理をテスト証跡として残してください。</p>
+<p>意思是：不只看 preview，还要把 metadata、权限、错误响应、batch 处理作为测试证据留下。</p>
+<h4 id="41-6-english-terms-3fb14d2d" class="semantic-heading semantic-terms">41.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>OData V2</code></li>
+<li>Related terms: <code>SAP Gateway</code>, <code>OData service</code>, <code>$metadata</code>, <code>$batch</code>, <code>CSRF token</code>, <code>X-CSRF-Token</code>, <code>entity set</code>, <code>navigation property</code>, <code>function import</code>, <code>MPC_EXT</code>, <code>DPC_EXT</code>, <code>/IWFND/ERROR_LOG</code>, <code>/IWBEP/ERROR_LOG</code></li>
+<li>Recommended search pattern: <code>SAP Gateway OData V2 CSRF token batch metadata</code></li>
+<li>HTTP terms to keep in English: <code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>MERGE</code>, <code>DELETE</code>, <code>header</code>, <code>cookie</code>, <code>status code</code>, <code>payload</code></li>
+</ul>
+<h4 id="41-7-example-ed748bc8" class="semantic-heading semantic-example">41.7 Example / 学习例子</h4>
+<p>一个典型 V2 服务 URL 可能像这样：</p>
+<pre><code class="language-text">/sap/opu/odata/sap/Z_TRAVEL_SRV/TravelSet(&#x27;0000000123&#x27;)</code></pre>
+<p>开发者首先要识别几个部分：</p>
+<ul>
+<li><code>/sap/opu/odata/sap/</code>：SAP Gateway OData 服务路径的常见形态。</li>
+<li><code>Z_TRAVEL_SRV</code>：服务技术名。</li>
+<li><code>TravelSet</code>：entity set。</li>
+<li><code>(&#x27;0000000123&#x27;)</code>：key predicate。</li>
+</ul>
+<p>查看 metadata 时，可能访问：</p>
+<pre><code class="language-text">/sap/opu/odata/sap/Z_TRAVEL_SRV/$metadata</code></pre>
+<p>如果要执行修改请求，常见联调顺序是：</p>
+<pre><code class="language-text">1. GET service root or metadata with header X-CSRF-Token: Fetch
+2. 从 response header 取 X-CSRF-Token 和 cookie
+3. POST / PUT / MERGE / DELETE 时带回 token 和 cookie
+4. 检查 HTTP status、response payload、Gateway error log、backend log</code></pre>
+<p>如果前端使用 <code>$batch</code>，还要展开 batch response，确认是哪个 operation 失败。很多时候浏览器只显示“batch failed”，但真正的业务错误在 change set 内层 response。</p>
+<p>把这个例子和 RAP V4 对比：V4 章节会更关注现代 RAP binding、action/function、metadata 和事务语义；V2 章节更强调既有 Gateway 服务的兼容、联调和故障分析。</p>
+<p>可以把 V2 联调证据整理成一页：</p>
+<pre><code class="language-text">V2 API Evidence Sheet
+
+Service:
+  Technical service name:
+  Service root:
+  System/client:
+  Gateway deployment: hub / embedded / unknown
+
+Metadata:
+  Entity sets:
+  Navigation:
+  Function imports:
+  Last cache refresh / activation evidence:
+
+Request:
+  Method:
+  URL:
+  Headers:
+  CSRF token handling:
+  Payload:
+
+Response:
+  HTTP status:
+  OData error payload:
+  Batch inner response:
+  Gateway error log:
+  Backend dump/log:
+
+Decision:
+  Frontend issue / Gateway config / backend implementation / authorization / data / SAP standard</code></pre>
+<p>AC0567C 如果要兼容一个既有 V2 consumer，也要先写清：消费者为什么不能直接用 V4？是否需要 V2 wrapper？wrapper 是否会丢失 RAP action/validation/message 语义？是否需要保留旧 payload 字段名？这些问题属于接口兼容和变更管理，不是单纯技术 URL 选择。</p>
+<h4 id="41-8-counterexample-failure-mode-8c3fb0bb" class="semantic-heading semantic-example">41.8 Counterexample / Failure mode</h4>
+<p>反例一：把 V2 当普通 REST。只会 Postman 发 JSON，不看 <code>$metadata</code>、CSRF token、batch 和 Gateway log。修正方式是按 OData/Gateway 证据链排查。</p>
+<p>反例二：POST 失败就改后端业务代码。实际原因是缺少 <code>X-CSRF-Token</code> 或 cookie。修正方式是先验证 HTTP header/session/token。</p>
+<p>反例三：只看最外层 batch status。实际失败在 batch 内某个 change set。修正方式是解析完整 batch response。</p>
+<p>反例四：新 RAP 项目默认选 V2。没有兼容理由却沿用旧习惯，导致错过 V4/RAP 更自然的服务模型。修正方式是先评估 OData V4 UI / Web API binding。</p>
+<p>反例五：忽略 metadata cache。后端模型已改，前端看到旧 metadata。修正方式是检查 Gateway metadata cache、服务注册和目标系统状态。</p>
+<p>反例六：只在 DEV 测试。QAS/PRD 的 Gateway hub、ICF、role、service activation 不一致。修正方式是把系统环境分层和移送后验证纳入测试。</p>
+<p>反例七：把 function import 当成 RAP action。V2 旧服务里的 function import 和 RAP/V4 bound action 在模型、事务语义、错误返回和 UI 消费上可能不同。修正方式是迁移时重新设计 operation contract。</p>
+<p>反例八：metadata cache 没有作为交付步骤。开发系统模型已变，QAS 仍读旧 metadata，前端字段或 navigation 不出现。修正方式是在移送/部署 checklist 中加入 metadata/cache/activation 验证。</p>
+<p>反例九：迁移 V2 到 V4 不做消费者影响分析。旧 UI5 或 middleware 依赖 V2 payload、batch 和错误格式，换成 V4 后解析失败。修正方式是保留兼容层、版本化接口或安排消费者改造。</p>
+<h4 id="41-9-ad4c5c56" class="semantic-heading semantic-practice">41.9 思考问题</h4>
+<ul>
+<li>当前服务是 OData V2 还是 V4？证据是什么？</li>
+<li>URL 中的 service name、entity set、key predicate 分别是什么？</li>
+<li><code>$metadata</code> 中是否包含预期 entity set、association、function import？</li>
+<li>修改请求是否正确处理 CSRF token、cookie 和 header？</li>
+<li>如果使用 <code>$batch</code>，是否检查了内层 response？</li>
+<li>错误排查时应看前端 console、Gateway log、backend dump 还是 authorization trace？</li>
+<li>新开发时选择 V2 的理由是兼容、客户标准，还是只是习惯？</li>
+</ul>
+<h4 id="41-10-9661f9dc" class="semantic-heading semantic-reference">41.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help / SAP Gateway documentation: OData V2 service, CSRF token, batch processing, Gateway error log</li>
+<li>OData official documentation: OData Version 2 protocol concepts</li>
+<li><a href="https://www.odata.org/documentation/odata-version-2-0/" target="_blank" rel="noopener noreferrer">OData Version 2.0 documentation</a></li>
+<li><a href="https://www.odata.org/documentation/odata-version-2-0/uri-conventions/" target="_blank" rel="noopener noreferrer">OData V2 URI Conventions</a></li>
+<li><a href="https://www.odata.org/documentation/odata-version-2-0/batch-processing/" target="_blank" rel="noopener noreferrer">OData V2 Batch Processing</a></li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-an-odata-ui-service" target="_blank" rel="noopener noreferrer">SAP Learning - Defining OData UI Services</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-binding" target="_blank" rel="noopener noreferrer">SAP Help - Service Binding</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/using-service-binding-editor-for-odata-v4-service" target="_blank" rel="noopener noreferrer">SAP Help - Using Service Binding Editor for OData V4 Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20Gateway%20OData%20V2%20CSRF%20token" target="_blank" rel="noopener noreferrer">SAP Help search - SAP Gateway OData V2 CSRF token, pending precise page</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20Gateway%20error%20log%20IWFND" target="_blank" rel="noopener noreferrer">SAP Help search - SAP Gateway error log IWFND, pending precise page</a></li>
+<li><a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li><a class="wiki" href="section-03-047-odata-v4-expand-and-navigation-properties-28c33331.html">OData V4 expand and navigation properties</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="41-11-connections-692e4173">41.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Downstream: <a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="41-12-e4b7542f" class="semantic-heading semantic-practice">41.12 学习任务</h4>
+<ul>
+<li>找一个 V2 URL，标出 service name、entity set、key predicate。</li>
+<li>打开 <code>$metadata</code>，记录 1 个 entity set、1 个 property、1 个 navigation 或 function import。</li>
+<li>写出修改请求为什么需要 CSRF token。</li>
+<li>补 2 个日语现场句子：一条说明 CSRF token，一条说明 batch error 要看内层 response。</li>
+<li>比较 V2 与下一节 V4：它们在项目定位上分别适合什么场景？</li>
+</ul>
+<h4 id="41-13-confidence-next-action-75bf5b23" class="semantic-heading semantic-status">41.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High after protocol/source closure. 2026-06-18 已复核 OData Version 2.0 official documentation、URI conventions、batch processing、SAP Learning <code>Defining OData UI Services</code>、SAP Help <code>Service Binding</code> 与 ADT OData V4 service binding editor 入口，可支撑 V2/V4 项目定位、metadata、query option、batch、CSRF handling concept、Gateway-style troubleshooting 和 service binding 迁移边界。CSRF token、Gateway transaction、<code>/IWFND/ERROR_LOG</code> 等 SAP Gateway 细节仍会随 hub/embedded deployment、release 和安全配置变化，当前保留 SAP Help 精确搜索入口，等待 Joule / 目标系统版本证据补精确页。Claude/Joule review artifacts 仍是 deferred/no usable verdict，且 2026-06-18 Claude CLI 当前 session expired；外部 review debt 保留，但本节不再停留在提纲草稿。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review，尤其补 SAP Gateway CSRF / error-log / hub-vs-embedded 的精确 SAP Help 页面；下一节继续 <a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-041-odata-v2-9ff5a688.html">OData V2 基础差异</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-040-service-binding-c23e7cdd.html">Previous section</a><a href="section-03-042-odata-v4-8703e611.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

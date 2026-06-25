@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>CDS Test Double Framework | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="21-cds-test-double-framework-942cce5e" class="chapter-title">21. CDS Test Double Framework</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 21</li><li>self-contained study note</li></ul><h4 id="21-1-b71dc55f" class="semantic-heading semantic-concept">21.1 一句话结论</h4>
+<p>CDS Test Double Framework 是在 ABAP Unit 中隔离 CDS 读取依赖的测试能力；在本教程里要学的是：当业务逻辑依赖 CDS view entity、association、projection 或 CDS-based query 时，如何用受控测试数据验证语义，而不是依赖真实系统数据。</p>
+<p><a class="wiki" href="section-04-020-abap-sql-test-double-framework-54bfde0c.html">ABAP SQL Test Double Framework</a> 更偏向 ABAP SQL（旧资料和类名中也常写作 Open SQL / OSQL）表访问和查询逻辑；CDS Test Double 关注的是 CDS 作为语义模型时的读取结果。CDS 不只是“换一种 SELECT”，它可能包含字段投影、计算字段、association、path expression、过滤条件、annotation、projection、access control 等语义。测试时如果只看真实系统里某个 CDS 当前能查出数据，就很难证明模型逻辑是对的。</p>
+<p>CDS Test Double 的目标，是让测试在可控数据下验证 CDS 消费结果：某个 association 是否按正确键关联，projection 是否暴露了正确字段，过滤条件是否生效，空结果和重复结果是否按预期处理，基于 CDS 的 service logic 是否在数据变化时仍然稳定。</p>
+<p>初学者可以先把它想成“给 CDS 模型搭一张小型实验台”。真实系统里的数据通常太复杂，也太偶然：今天某个公司代码刚好没有重复数据，某个状态刚好没有边界值，某个 association 刚好没有一对多情况。测试通过只能说明“当前数据下看起来没问题”。CDS Test Double 的价值，是把这些偶然性拿掉，让测试数据专门暴露模型语义是否正确。</p>
+<p>这一节不要求读者马上记住所有框架 API，而是要先建立判断：什么时候应该测试 CDS 语义，什么时候应该测试 ABAP service logic，什么时候应该去做真实系统的权限、OData 或性能验证。分清边界，比背一个类名更重要。</p>
+<h4 id="21-2-8382fbf0" class="semantic-heading semantic-concept">21.2 到底学什么</h4>
+<p>第一，要学 CDS 测试和普通 SQL 测试的差异。普通 SQL 测试多关注表和 SELECT 条件；CDS 测试还要关注语义层：字段别名、计算表达式、association cardinality、path expression、projection view、root/projection 分层，以及这些语义被服务或应用逻辑消费时是否稳定。</p>
+<p>第二，要学测试边界。CDS Test Double 适合验证 CDS-based read model 的结果和依赖它的服务逻辑，不适合证明所有运行时行为。例如真实数据库性能、真实 DCL 权限、Fiori metadata 消费、OData runtime、HANA optimizer、生产数据分布，都需要其他测试或系统证据。</p>
+<p>第三，要学受控数据设计。测试 CDS association 时，需要准备主表和关联表的最小数据；测试 projection 时，需要确认只暴露或消费预期字段；测试计算字段时，需要准备边界值；测试过滤时，需要准备命中和不命中的干扰数据。数据越小，测试越能说明问题。</p>
+<p>第四，要学与权限测试分工。CDS access control / DCL 影响数据可见性，但 CDS Test Double 不应被误用为完整授权证明。涉及 <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>、RAP authorization 或实际用户角色时，还要结合权限测试、SU53/trace、服务层测试和项目安全证据。</p>
+<p>第五，要学“测试数据就是设计语言”。一个好的 CDS 测试，不是塞很多行数据，而是每一行都有目的：一行验证正常关联，一行验证 company code 干扰，一行验证缺失关联，一行验证 to-many 放大，一行验证状态过滤。读者应该能看着测试数据说明：“这行是为了抓什么错误”。</p>
+<p>第六，要学和 release/support 范围的关系。CDS Test Double Framework 的具体能力、支持对象和 API 可能随 ABAP Platform / S/4HANA release 变化。项目中不能只照搬博客或旧系统经验，要用目标系统的 SAP Help / ABAP Keyword Documentation / 本地可用类确认。书中讲的是测试思路，落地时要查当前系统。</p>
+<h4 id="21-3-9eedf10c" class="semantic-heading semantic-why">21.3 为什么重要</h4>
+<p>CDS 是 Week 3/4 的关键连接点：它既是数据模型，又可能直接服务 RAP、OData、Fiori、报表和 API。如果 CDS 语义错了，上层服务再漂亮也会拿到错误数据。比如 association 键漏了 company code，projection 暴露了不该暴露的字段，path expression 误用导致重复行，过滤条件没覆盖状态字段，这些都可能变成生产问题。</p>
+<p>对项目交付来说，CDS Test Double 可以把“模型语义”变成可回归证据。开发者修改 CDS 字段、association 或 projection 后，测试能告诉团队：消费方依赖的结果是否还一致。尤其在多层 CDS 模型中，底层基础 view 改动可能影响 root view、projection view 和服务暴露，测试能减少隐性破坏。</p>
+<p>对 Java/Python 背景学习者来说，可以把 CDS Test Double 类比为对 view/model/query layer 的单元测试，但 SAP CDS 的语义更贴近平台运行时。它不只是 SQL 结果，还可能影响授权、UI annotation、OData metadata 和 RAP 行为边界，所以测试需要知道自己证明的是哪一层。</p>
+<p>这也是为什么 CDS 测试适合放在 Week 4，而不是 Week 3 刚学 CDS 时就展开。Week 3 先学会 view entity、association、projection、DCL 和 service binding；Week 4 再回头问：这些模型进入项目后如何被证明、如何被回归、如何避免一次“很小的字段改动”破坏上层 API。这个顺序更符合项目经验。</p>
+<p>在日本项目中，CDS 变更经常会被问“影響範囲はどこですか”“回帰確認は何をしましたか”。如果只有人工点画面，很难说明 association、projection 和过滤语义都被覆盖。受控数据测试能把“影响调查”和“回归证据”变得更具体。</p>
+<h4 id="21-4-key-mechanism-94db7802" class="semantic-heading semantic-mechanism">21.4 Key mechanism / 核心机制</h4>
+<p>CDS Test Double 的核心机制可以概括为：为 CDS 依赖准备受控测试数据，使被测 CDS 或依赖 CDS 的 ABAP 逻辑在 ABAP Unit 中读取这些数据，然后断言 CDS 消费结果。具体类名、API 和支持范围会随 SAP release、ABAP Platform、ABAP Cloud/on-premise 差异变化，项目中必须查官方文档确认。</p>
+<p>测试设计时先问：要验证 CDS 本身，还是验证依赖 CDS 的 service logic？如果验证 service logic，可以用 repository 或 reader interface 把 CDS 读取替换掉；如果验证 CDS read model 的组合语义，则需要在测试数据中覆盖相关基础表、关联对象和过滤条件。</p>
+<p>一个好的 CDS test double 场景通常包含：</p>
+<ul>
+<li>主数据一条命中记录。</li>
+<li>一条相同业务键但不同 company code/client/status 的干扰记录。</li>
+<li>一条没有关联明细的记录，用来验证 outer/inner association 语义。</li>
+<li>一条重复或多明细记录，用来验证 cardinality 和聚合假设。</li>
+<li>一条边界值记录，用来验证计算字段或状态转换。</li>
+</ul>
+<p>还要注意 DCL 和授权边界。测试 CDS 读取结果时，如果没有真实用户/授权上下文，就不能宣称 DCL 已被完整验证。有些框架或目标系统可能允许在特定方式下演练 DCL 相关逻辑，但这仍不能替代真实 PFCG role、用户分配、SU53/trace 和服务层权限证据。可以测试“服务逻辑在读到某类数据时怎么处理”，但不能把它当成“生产权限一定正确”的证据。</p>
+<p>可以把 CDS 测试设计拆成四个问题：</p>
+<div class="table-wrap"><table><thead><tr><th>问题</th><th>设计判断</th></tr></thead><tbody><tr><td>测 CDS 本身还是测消费方逻辑</td><td>CDS 语义用受控数据；消费方逻辑可用 reader/repository abstraction</td></tr><tr><td>测哪个语义</td><td>association、projection、filter、calculation、aggregation、path expression</td></tr><tr><td>需要哪些干扰数据</td><td>错 company code、错 status、无 child、多 child、重复 key、边界值</td></tr><tr><td>不能证明什么</td><td>DCL 真实授权、OData metadata、Fiori rendering、HANA 性能、生产数据分布</td></tr></tbody></table></div>
+<p>再进一步，可以把测试数据写成“意图注释”：</p>
+<pre><code class="language-text">H1: normal header, company 1000, should match item I1.
+H2: same batch id, company 2000, should not match H1.
+H3: no item, verifies no accidental inner join assumption.
+I1: item for H1.
+I2: item for H2, catches missing company code in association.
+I3/I4: two items for one header, catches wrong cardinality assumption.</code></pre>
+<p>这种写法比“准备几条测试数据”更像项目证据。reviewer 能看出测试数据不是随机样本，而是专门针对模型风险设计的。</p>
+<p>CDS Test Double 还要和 <a class="wiki" href="section-04-020-abap-sql-test-double-framework-54bfde0c.html">ABAP SQL Test Double Framework</a> 分工。ABAP SQL Test Double 更适合测试 repository 方法中 <code>SELECT</code> 条件、排序、存在性判断、ABAP SQL 结果处理；CDS Test Double 更适合验证 CDS read model 的语义组合。两者可以一起出现：底层 repository 用 SQL test double，服务层依赖 CDS read model 时用 CDS test double 或 reader abstraction。</p>
+<p>对于 RAP 项目，还要问 projection 层是否稳定。底层 root view 增减字段不一定应该影响 API；projection view 暴露的字段和 behavior projection 才更接近服务契约。测试如果直接依赖底层 CDS 的所有字段，就会把内部模型变成外部契约，后续重构会很痛苦。</p>
+<h4 id="21-5-bbb0c243" class="semantic-heading semantic-japan">21.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>CDSテストダブル</code>、<code>CDSビュー</code>、<code>アソシエーション</code>、<code>プロジェクションビュー</code>、<code>テストデータ</code>、<code>結合条件</code>、<code>リードモデル</code>、<code>アクセス制御</code>、<code>DCL</code>、<code>回帰確認</code>。</p>
+<p>设计或 review 中可以这样说：</p>
+<ul>
+<li>CDSビューの結合条件とアソシエーションは、最小限のテストデータで回帰確認します。</li>
+<li>CDSテストダブルはリードモデルの単体テスト用であり、実ユーザのDCL権限確認を置き換えるものではありません。</li>
+<li>Projection View の公開項目と消費側ロジックの前提をテストで明確にします。</li>
+</ul>
+<p>代码 review 时可以这样问：</p>
+<ul>
+<li>このアソシエーションは company code や client を含めて正しく結合されていますか。</li>
+<li>DCL の確認と CDS のデータモデル確認を混同していませんか。</li>
+<li>Projection の変更で上位サービスの期待結果が壊れないことをテストしていますか。</li>
+</ul>
+<p>测试说明中也可以这样写：</p>
+<ul>
+<li>テストデータには正常データだけでなく、会社コード違い、ステータス違い、明細なし、複数明細のケースを含めます。</li>
+<li>CDSテストダブルで確認する範囲はリードモデルの結果であり、OData実行時のメタデータやFiori表示は別途確認します。</li>
+<li>DCL権限の実ユーザ確認は、本テストとは別の権限テストで実施します。</li>
+<li>CDS変更時の影響範囲として、Root View、Projection View、Service Definition、消費側ロジックを確認します。</li>
+</ul>
+<h4 id="21-6-english-terms-434b8ba7" class="semantic-heading semantic-terms">21.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>CDS Test Double Framework</code>, <code>CDS test double</code>, <code>ABAP CDS test double</code>.</li>
+<li>Related terms: <code>CDS view entity</code>, <code>association</code>, <code>projection view</code>, <code>path expression</code>, <code>access control</code>, <code>DCL</code>, <code>test data</code>, <code>read model</code>.</li>
+<li>SAP-specific search terms: <code>CDS Test Double Framework ABAP Unit</code>, <code>CDS test environment</code>, <code>ABAP CDS unit test</code>.</li>
+<li>Recommended search pattern: <code>SAP CDS Test Double Framework</code>, <code>SAP ABAP CDS test double</code>, <code>CDS Test Double Framework ABAP Unit</code>.</li>
+</ul>
+<h4 id="21-7-example-e58a813c" class="semantic-heading semantic-example">21.7 Example / 学习例子</h4>
+<p>假设 AC0567C 有一个 interface/root 层的 CDS view <code>ZI_BatchStatus</code>，它从 batch header 关联到 batch item，并被 status API 的 projection 或 reader 使用。测试只用真实系统数据时，很难证明 association 是否正确。更好的受控数据可以是：</p>
+<pre><code class="language-text">Header:
+  B001 / company 1000 / status COMPLETED
+  B001 / company 2000 / status ERROR
+  B002 / company 1000 / status RUNNING
+
+Item:
+  B001 / company 1000 / line 10 / success
+  B001 / company 2000 / line 10 / error
+  B002 / company 1000 / line 10 / running</code></pre>
+<p>如果 CDS association 只按 batch id 关联，<code>B001 / company 1000</code> 可能错误拿到 company 2000 的 item。测试数据故意准备这种干扰，就能验证 association 是否包含完整业务键。</p>
+<p>再看 projection view。底层 CDS 有很多字段，但 API projection 只应暴露 status、message summary、log id，不应暴露内部技术字段或敏感 payload。测试可以验证消费逻辑只依赖 projection 中的公开字段，避免底层字段变动影响 API 契约。</p>
+<p>把这个例子写成测试意图，可以更清楚：</p>
+<pre><code class="language-text">Test: association key completeness
+
+Given:
+  Header B001 / company 1000
+  Header B001 / company 2000
+  Item   B001 / company 1000 / success
+  Item   B001 / company 2000 / error
+
+When:
+  Read status for B001 / company 1000
+
+Then:
+  Result must include only company 1000 item status.
+  Company 2000 item must not affect summary or error count.</code></pre>
+<p>这个测试不是为了证明数据库 JOIN 语法会工作，而是为了证明 CDS association 的业务 key 完整。如果缺了 company code，测试就应该失败。这类失败比生产后发现“某公司代码看到了别人的明细”要便宜得多。</p>
+<p>再设计一个 projection 契约测试：</p>
+<pre><code class="language-text">Test: projection contract
+
+Given:
+  Internal CDS has raw_payload, retry_counter, technical_status.
+  Projection is expected to expose batch_id, business_status, message_summary, log_id.
+
+When:
+  Service logic reads the projection.
+
+Then:
+  Consumer logic must not depend on raw_payload or retry_counter.
+  Sensitive payload must not become part of the public API result.</code></pre>
+<p>这里的重点是让读者理解：测试不只是断言某个值等于某个值，也是在保护架构边界。projection 的价值就在于控制上层能看见什么、依赖什么。注意：projection 暴露哪些字段首先是编译期的静态契约，不是测试数据本身能“断言”出来的。CDS test double 真正能验证的是：消费逻辑在受控数据下只依赖公开字段，且不会因为底层内部字段变化而改变对外结果。</p>
+<p>如果项目暂时不能使用 CDS Test Double Framework，也可以退一步做 reader abstraction：把 CDS 读取封装成接口，在 ABAP Unit 中用 fake reader 返回受控数据。这样不能证明 CDS association 本身，但能证明 service logic 面对不同读取结果时的行为。文档里要清楚标注“证明范围”：这是 service logic test，不是 CDS model test。</p>
+<h4 id="21-8-counterexample-failure-mode-aedecfe1" class="semantic-heading semantic-example">21.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有以下十类。</p>
+<p>第一，只用真实系统数据验证 CDS。真实数据可能刚好没有覆盖错误条件，导致 association 或过滤条件问题被隐藏。</p>
+<p>第二，把 CDS Test Double 当 DCL 测试。数据模型测试不等于真实用户授权测试，不能替代安全和权限证据。</p>
+<p>第三，测试数据没有干扰项。只准备一条完美数据，JOIN/association 漏条件也可能通过。</p>
+<p>第四，忽略 projection 契约。底层 CDS 改字段，上层服务或 UI 依赖被破坏，但没有测试固定 projection 的消费语义。</p>
+<p>第五，过度相信 test double。CDS 测试通过，不代表真实数据库性能、OData metadata、Fiori annotation、RAP behavior 和生产权限都正确。</p>
+<p>第六，把测试数据做得太像生产快照。复制一大段生产式数据会让测试难读、难维护、难解释。单元级测试应该用小而有意图的数据，集成/性能测试才使用更接近真实的数据量。</p>
+<p>第七，忘记 aggregation 和 to-many 风险。一个 association 从一对一变成一对多，可能让上层汇总、计数、状态判断全变。测试中应故意放多条 child 记录。</p>
+<p>第八，测试直接依赖 annotation 或 UI 行为。CDS annotation 可能影响 Fiori 或 OData metadata，但 CDS Test Double 的验证范围未必覆盖 UI runtime。不要把 annotation 消费行为混进模型单元测试里。</p>
+<p>第九，不清理测试环境。测试 double / test environment 如果未正确 destroy 或隔离，可能影响后续 ABAP Unit case，让结果互相污染。</p>
+<p>第十，测试名称只写 <code>test_cds</code>。好的测试名应该表达业务风险，例如 <code>association_uses_company_code</code>、<code>projection_hides_raw_payload</code>、<code>status_filter_excludes_cancelled_batch</code>。</p>
+<h4 id="21-9-39da4176" class="semantic-heading semantic-practice">21.9 思考问题</h4>
+<ul>
+<li>CDS Test Double 和 ABAP SQL Test Double 分别更适合验证什么？</li>
+<li>如果 association 漏了 company code，如何设计最小测试数据抓出来？</li>
+<li>为什么 CDS Test Double 不能替代 DCL 权限测试？</li>
+<li>Projection view 的字段变化会怎样影响上层服务契约？</li>
+<li>AC0567C POC 中哪个 CDS/read model 最值得先做受控数据测试？</li>
+</ul>
+<h4 id="21-10-b55400bd" class="semantic-heading semantic-reference">21.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_UNIT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP Unit</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_VIEW_ENTITY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP CDS CDS Entities</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_ACCESS_CONTROL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP CDS Access Control</a></li>
+<li>SAP Help Portal: search <code>CDS Test Double Framework</code>, <code>ABAP CDS test double</code>, <code>CDS test environment</code>.</li>
+<li>SAP Help Portal / ABAP CDS documentation: search <code>CDS view entity</code>, <code>association</code>, <code>projection view</code>, <code>DCL</code>.</li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=CDS%20Test%20Double%20Framework" target="_blank" rel="noopener noreferrer">CDS Test Double Framework</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=ABAP%20CDS%20view%20entity" target="_blank" rel="noopener noreferrer">ABAP CDS view entity</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=ABAP%20CDS%20association" target="_blank" rel="noopener noreferrer">CDS association</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=ABAP%20Unit%20test%20double" target="_blank" rel="noopener noreferrer">ABAP Unit test double</a></li>
+</ul>
+<h4 id="21-11-connections-5c2646a2">21.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li>Upstream: <a class="wiki" href="section-04-020-abap-sql-test-double-framework-54bfde0c.html">ABAP SQL Test Double Framework</a></li>
+<li>Downstream: <a class="wiki" href="section-04-022-authority-check-test-helper-e8ca4248.html">Authority Check Test Helper</a></li>
+<li>Related: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Related: <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li>Related: <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 25 - 测试替身与服务逻辑测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="21-12-51e6e3ee" class="semantic-heading semantic-practice">21.12 学习任务</h4>
+<ul>
+<li>为一个 CDS association 设计最小测试数据，故意加入不同 company code 的干扰记录。</li>
+<li>写出 CDS Test Double 不能证明的 3 件事：真实 DCL、OData metadata、生产性能等。</li>
+<li>选择一个 projection view，列出它对上层 API 的字段契约。</li>
+<li>写 2 句日语 review 评论：一句要求补 association 测试，一句提醒不要把 CDS 测试当成 DCL 测试。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 CDS Test Double Framework 的官方说法和目标 release 支持范围。</li>
+</ul>
+<h4 id="21-13-confidence-next-action-a8b819d5" class="semantic-heading semantic-status">21.13 Confidence &amp; Next Action</h4>
+<p>Confidence: Medium-High。CDS Test Double 的测试边界清晰，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已修正失败模式数量、<code>ZI_BatchStatus</code> 示例命名、projection 静态契约说明、DCL 边界和日本项目术语。具体框架 API、支持 CDS 类型、ABAP Cloud/on-premise 差异和 DCL 交互仍需要用 SAP 官方文档与项目系统确认，Joule scoped review 仍保留为 deferred 证据。</p>
+<p>Next action: 继续学习 <a class="wiki" href="section-04-022-authority-check-test-helper-e8ca4248.html">Authority Check Test Helper</a>，把权限检查辅助测试与 CDS/DCL/RAP authorization 的边界区分清楚。</p>
+<p>原子笔记入口：<a class="wiki" href="section-04-021-cds-test-double-framework-9dce73f3.html">CDS Test Double Framework</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-020-abap-sql-test-double-framework-54bfde0c.html">Previous section</a><a href="section-04-022-authority-check-test-helper-e8ca4248.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

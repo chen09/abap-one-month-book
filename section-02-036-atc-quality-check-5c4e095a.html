@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ATC quality check 代码质量检查 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="36-atc-quality-check-6e999d9f" class="chapter-title">36. ATC quality check 代码质量检查</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 36</li><li>self-contained study note</li></ul><h4 id="36-1-83a58705" class="semantic-heading semantic-concept">36.1 一句话结论</h4>
+<p>ATC quality check 指 ABAP Test Cockpit 对 ABAP repository objects 运行的质量检查。它不是单纯的代码格式检查，而是 SAP 项目里的“开发质量门禁”：在代码进入后续测试、传输或上线前，用统一的 check variant 检查代码是否违反平台规则、项目规则、性能规则、安全规则、ABAP Cloud / Clean Core 约束、released API 边界，必要时还可以把 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit</a> 作为 ATC 检查运行的一部分。</p>
+<p>初学者可以先这样理解：ABAP Unit 回答“行为有没有被测试证明还对”，ATC 回答“这个 repository object 是否符合系统和项目定义的质量规则”。ATC 不能证明业务逻辑一定正确，也不能替代人工设计 review；但它能提前发现很多“上线后很贵”的问题，例如未释放 API 依赖、危险语句、性能反模式、直接访问不该访问的对象、过时用法、云就绪性问题、transport release 前不能放行的高优先级 finding。</p>
+<p>所以本节的核心不是背一个工具名，而是学会一种 SAP 项目习惯：开发完成后，不只看语法是否通过、测试是否为绿，还要看 ATC findings 是否已经修正、解释、豁免或纳入项目风险管理。</p>
+<h4 id="36-2-218f596b" class="semantic-heading semantic-concept">36.2 到底学什么</h4>
+<p>本节要掌握九个点：</p>
+<ul>
+<li>ATC 全称是 <code>ABAP Test Cockpit</code>，是 ABAP 质量检查框架和质量 cockpit。</li>
+<li>ATC 可以包含静态质量检查，也可以在配置中包含动态检查；常见动态例子是通过 ATC 运行 ABAP Unit。对初学者而言，仍要把 ATC 的“质量门禁角色”和 ABAP Unit 的“行为测试角色”区分开。</li>
+<li>ATC 检查对象是 ABAP repository objects，例如 class、program、function group、CDS、package 或更大范围的对象集合；实际范围取决于系统、权限、工具入口和 check variant。</li>
+<li>check variant 定义“跑哪些检查”。它不是随口说的配置名，而是可管理的检查集合；在不少系统中，check variants 也是包里的 ABAP development objects，可以被传输。</li>
+<li>ATC 结果通常称为 findings、ATC results 或 ATC messages，项目沟通中要看 object、source location、check、priority、message、long text 和建议修正方式。</li>
+<li>在 <a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud</a> / <a class="wiki" href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Clean Core</a> 场景下，ATC 常用于检查 unreleased API、language version、cloud readiness、security/CVA 类风险、S/4HANA readiness 和 forbidden classic usage。</li>
+<li>ATC finding 不能随便忽略。常见处理方式是 fix、formal exemption / waiver、或非常谨慎地使用 pseudo comments / pragmas 进行局部抑制。</li>
+<li>在 SAP BTP ABAP Environment 这样的 cloud 场景里，ATC 不只是建议；某些优先级的 findings 会阻止 transport release。</li>
+<li>日本 SAP 项目里，ATC 经常出现在 <code>移送前チェック</code>、<code>品質ゲート</code>、<code>リリース判定</code>、<code>Clean Core review</code>、<code>ATC指摘対応</code> 这些交付动作里。</li>
+</ul>
+<p>最小模型如下：</p>
+<pre><code class="language-text">ABAP repository object
+        |
+        v
+ATC check variant
+        |
+        v
+Findings / ATC results
+        |
+        v
+Fix / exemption / documented suppression
+        |
+        v
+Transport or release decision</code></pre>
+<p>对 Java/Python 背景学习者来说，可以把 ATC 粗略类比为 lint、static analysis、security scan、platform compliance check 和质量门禁的组合。但 SAP 的差异在于：ATC 连接的是 ABAP repository、transport、released APIs、language version、Clean Core、S/4HANA readiness 和项目上线治理，不只是本地 IDE 里的风格提醒。</p>
+<h4 id="36-3-bf58cc50" class="semantic-heading semantic-why">36.3 为什么重要</h4>
+<p>很多 ABAP 代码“能激活、能跑一次 demo”，并不等于“可以进入项目交付”。企业 SAP 系统长期运行，升级、补丁、权限、性能、数据一致性和审计都很重。ATC 的价值，就是把一部分质量判断从人工经验变成可重复执行的检查结果。</p>
+<p>比如，一个开发者直接调用了某个 SAP 内部 class。语法可能通过，demo 也可能跑得起来；但如果这个 class 不是 released API，未来升级时 SAP 不保证它稳定，Clean Core review 也可能要求整改。ATC 可以把这类依赖暴露出来，让团队在进入 QAS/PRD 之前决定：改成 released API、改设计、申请豁免，还是把风险写入交付判断。</p>
+<p>又比如，代码里存在 <code>LOOP AT</code> 内部反复 <code>SELECT SINGLE</code> 的 pattern。这个 pattern 在小数据量 demo 里不明显，但生产数据量上来后可能变成性能问题。ATC 不一定能替代性能测试，但它能让常见反模式尽早进入 review。</p>
+<p>再比如，日本项目的移送前确认里，经常会问：</p>
+<ul>
+<li><code>ATC指摘は残っていますか。</code></li>
+<li><code>優先度1/2の指摘は解消済みですか。</code></li>
+<li><code>免除申請は承認されていますか。</code></li>
+<li><code>リリース済み API への置き換え方針はありますか。</code></li>
+</ul>
+<p>这些问题不是“工具操作细节”，而是项目交付语言。初学者如果只学语法，不学 ATC，会在 code review、transport release、Clean Core review 和上线判定会议里听不懂别人真正关心什么。</p>
+<h4 id="36-4-key-mechanism-a0e7e153" class="semantic-heading semantic-mechanism">36.4 Key mechanism / 核心机制</h4>
+<h5 id="36-4-1-atc-checks-repository-objects-f7a96b3f">36.4.1 ATC checks repository objects</h5>
+<p>ATC 面向的是 ABAP repository objects。一个 class、一个 report、一个 function group、一个 CDS view entity，甚至一个 package 下的一组对象，都可以成为检查对象。检查入口可能在 ADT、SAP GUI、central ATC system、Fiori app、CI/CD 集成或项目规定的质量流程里；本节先不要求配置系统，只要求理解结果含义。</p>
+<p>从学习顺序看，ATC 应该接在 syntax check、activation、ABAP Unit 之后一起理解。语法检查告诉你“代码是否符合语言规则”；activation 让对象进入可用状态；ABAP Unit 验证行为；ATC 则把代码质量、平台合规、项目规则和部分运行型检查纳入同一份检查结果。</p>
+<h5 id="36-4-2-atc-is-the-successor-style-quality-cockpit-79565952">36.4.2 ATC is the successor-style quality cockpit</h5>
+<p>老项目里可能还会听到 Extended Program Check、Code Inspector、SCI 这些词。它们不是本节重点，但要知道历史关系：ATC 是更统一的质量检查入口，很多 Code Inspector / Extended Check 类检查会被纳入 ATC 体系。在 ADT 里，开发者通常把 ATC 当作现代质量检查入口，而不是单独去记一堆老事务码。</p>
+<p>这并不表示 SCI 完全无关。Joule review 特别提醒：ATC finding 的 priority 可能由 check variant 配置调整，而部分配置在传统系统中仍可能通过 transaction <code>SCI</code>，或在新场景中通过 SAP Fiori app <code>ABAP Test Cockpit Configurator</code> 管理。初学者只要先记住：检查规则和优先级不是天然固定不变，项目可以治理它们。</p>
+<h5 id="36-4-3-check-variant-defines-what-is-checked-e9232404">36.4.3 Check variant defines what is checked</h5>
+<p>check variant 是 ATC 的核心。它决定本次检查到底跑哪些 checks、哪些对象范围、哪些规则、哪些 priority。常见 variant 类型包括：</p>
+<ul>
+<li>通用代码质量 variant。</li>
+<li>性能、安全相关 variant。</li>
+<li>ABAP Cloud development variant。</li>
+<li>ABAP Cloud / Clean Core / released API 相关 variant。</li>
+<li>S/4HANA readiness / migration readiness 相关 variant。</li>
+<li>项目自定义 variant。</li>
+</ul>
+<p>在 SAP BTP ABAP Environment 中，常见默认 variant 名称是 <code>ABAP_CLOUD_DEVELOPMENT_DEFAULT</code>。它代表 SAP 推荐的 cloud development 检查基线，并可包含 ABAP Unit execution。项目上通常不是从零开始设计检查集合，而是在 SAP 推荐 variant 或客户中心 variant 基础上复制、扩展、调整。</p>
+<p>另一个需要认识的名称是 <code>S4HANA_READINESS_REMOTE</code>。它常出现在面向 SAP S/4HANA 转换、远程 readiness 分析或 brownfield clean-core 场景的 ATC 讨论中。初学阶段不用会配置 remote ATC，但要知道：ATC 不只是新开发时跑一遍，也可以用于存量代码迁移和 S/4HANA readiness 分析。</p>
+<h5 id="36-4-4-finding-is-not-just-an-error-message-ba8cf072">36.4.4 Finding is not just an error message</h5>
+<p>ATC finding 不是“红色提示”那么简单。一个有用的 finding 通常包含：</p>
+<ul>
+<li>checked object：哪个 class、program、CDS、package 或其他 repository object。</li>
+<li>source location：哪一行、哪个 include、哪个对象元素。</li>
+<li>check / message：是哪条检查规则发现的问题。</li>
+<li>priority：优先级。ATC 官方和项目质量门禁常以 priority 为主轴；有些团队口头会说 severity，但在写交付记录时应确认系统实际字段。</li>
+<li>long text / documentation：为什么这是问题、如何修正。</li>
+<li>quick fix：如果 ADT 提供 quick fix，是否可以安全使用。</li>
+</ul>
+<p>读 ATC result 的顺序应该是：先确认对象和规则，再看 long text，再看代码上下文，最后决定修正策略。不要只看颜色，也不要把所有 finding 都当成同等严重。尤其是 Clean Core / ABAP Cloud / released API 相关 findings，常常代表架构边界，而不只是代码风格。</p>
+<h5 id="36-4-5-priority-can-become-a-hard-gate-78e77d53">36.4.5 Priority can become a hard gate</h5>
+<p>在普通 on-premise 项目里，ATC 是否阻止 transport，取决于系统设置、项目规定和 release 流程。但在 SAP BTP ABAP Environment 中，Joule review 提醒了一个重要事实：priority 1 和 priority 2 的 ATC findings 会自动阻止 transport release；priority 3 notifications 通常不阻止 release。</p>
+<p>这句话要精确理解。它不是说“所有 SAP 系统里 priority 1/2 都一定被系统拦住”，而是说在 BTP ABAP Environment 这类 cloud delivery context 中，ATC findings 会直接进入 release gate。对初学者来说，最重要的项目习惯是：不要把 High/P1/P2 finding 当成“以后再看”的提醒，它可能就是本次 transport 不能释放的原因。</p>
+<h5 id="36-4-6-fix-first-exemption-second-suppression-last-8b5170c0">36.4.6 Fix first, exemption second, suppression last</h5>
+<p>ATC finding 常见处理方式有三类。</p>
+<p>第一类是 fix。能修代码就修代码，例如换成 released API、增加完整 key 条件、移除过时语句、把危险动态 SQL 改成受控写法、把性能反模式改成批量读取。</p>
+<p>第二类是 formal exemption / waiver。某些 finding 短期不能修，或者确实存在合理业务理由，就需要按照项目流程申请豁免。exemption 是否可用取决于 ATC system settings；系统可能禁用豁免，可能只允许 central results 豁免，也可能允许更广范围。SAP BTP ABAP Environment 场景下，Joule review 指出 exemption 可以在 ADT 中创建、审批，并随系统间流程传输。实际项目要按客户规则处理。</p>
+<p>第三类是 inline suppression。ABAP 中可能通过 pseudo comments，例如 <code>&quot;#EC NEEDED</code>，或 pragmas，例如 <code>##needed</code>，对特定检查做局部抑制。二者是不同机制，位置和适用规则也不同；ADT Problems View / finding detail 往往会提示该用 pseudo comment 还是 pragma。学习者要特别小心：suppression 不是 formal exemption，也不是“把问题藏起来”。只有在 long text、项目规范和 reviewer 都认可时，才可以用它记录一个明确、局部、可解释的例外。</p>
+<h5 id="36-4-7-atc-and-abap-unit-are-complementary-b6e72ead">36.4.7 ATC and ABAP Unit are complementary</h5>
+<p>ATC 与 ABAP Unit 不是竞争关系。更准确地说：</p>
+<ul>
+<li>ABAP Unit 是行为测试框架，验证 method / class 的可观察行为。</li>
+<li>ATC 是质量检查与质量门禁框架，可以包含静态检查，也可以编排 ABAP Unit 运行。</li>
+</ul>
+<p>这就是为什么本节一方面说“ATC 不是 ABAP Unit 的替代品”，另一方面又说“ATC 可以包含 ABAP Unit execution”。二者并不矛盾。项目上常见的理想顺序是：开发者先本地跑 ABAP Unit，再跑 ATC；质量门或 pipeline 中再统一跑 ATC variant，其中可能也包含 ABAP Unit。</p>
+<h5 id="36-4-8-atc-and-abap-cloud-clean-core-dbcd7e40">36.4.8 ATC and ABAP Cloud / Clean Core</h5>
+<p>ABAP Cloud / Clean Core 场景下，ATC 特别重要。因为很多边界不能只靠口头 review：</p>
+<ul>
+<li>是否依赖未释放 SAP API。</li>
+<li>是否使用受限 language version 不允许的 classic ABAP 技术。</li>
+<li>是否访问不稳定的 SAP 内部对象或表。</li>
+<li>是否违反 cloud-ready extension 的对象边界。</li>
+<li>是否存在 security / CVA 类风险。</li>
+<li>是否满足 S/4HANA readiness 或 clean-core migration 的基线要求。</li>
+</ul>
+<p><code>ABAP_CLOUD_DEVELOPMENT_DEFAULT</code> 是 cloud development 的重要入口名；<code>S4HANA_READINESS_REMOTE</code> 是迁移/readiness 语境中的重要入口名。Week 2 只要求会解释它们代表的方向。等到 Week 4 的 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a> 和 POC review，再把它们和真实对象、released state、transport gate、CI/CD ATC API 连接起来。</p>
+<h5 id="36-4-9-advanced-topics-to-defer-9cbf1f31">36.4.9 Advanced topics to defer</h5>
+<p>有些 ATC 主题很重要，但不适合 Day 13 展开：</p>
+<ul>
+<li>central ATC system and remote ATC execution over RFC。</li>
+<li>custom ATC checks。</li>
+<li>CI/CD 中通过 ATC API programmatically trigger checks，例如相关 SAP Note / platform API 的配置。</li>
+<li>CVA security scan 的 license / product availability 细节。</li>
+<li>大型 S/4HANA conversion 项目中的 ATC baseline strategy。</li>
+</ul>
+<p>本节只建立读者判断能力：看到 ATC finding 时知道它不是噪音；看到 variant 名称时知道它代表规则集合；看到 exemption / pseudo comment / pragma 时知道它们属于不同治理动作。</p>
+<h5 id="36-4-10-atc-finding-triage-checklist-c1d987d5">36.4.10 ATC finding triage checklist</h5>
+<p>看到 ATC finding 时，不要只问“怎么让红色消失”。项目上更好的处理顺序是先做 triage，再决定 fix、exemption 或 suppression。</p>
+<div class="table-wrap"><table><thead><tr><th>Step</th><th>What to inspect</th><th>Delivery question</th></tr></thead><tbody><tr><td>1. Identify scope</td><td>object、package、transport、source location</td><td>这个 finding 会影响本次交付对象还是历史遗留对象？</td></tr><tr><td>2. Read rule detail</td><td>check name、long text、priority、quick fix</td><td>规则真正禁止什么？是语法风格、性能、安全、released API，还是 cloud readiness？</td></tr><tr><td>3. Find root cause</td><td>具体语句、依赖对象、访问表、动态调用、权限相关代码</td><td>是代码问题、设计问题、旧接口限制，还是检查上下文不足？</td></tr><tr><td>4. Prefer fix</td><td>改用 released API、补 key、改批量处理、删除危险语句</td><td>修复后业务行为和 ABAP Unit 是否仍然通过？</td></tr><tr><td>5. Consider exemption</td><td>有明确业务理由且项目流程允许</td><td>谁审批？豁免范围、期限、风险接受者和证据在哪里？</td></tr><tr><td>6. Use suppression carefully</td><td>只对局部、可解释、review 认可的 finding 使用</td><td>pseudo comment / pragma 是否被规则支持？是否留下理由？</td></tr><tr><td>7. Re-run and capture evidence</td><td>ATC result、ABAP Unit result、transport/check variant 信息</td><td>移送前是否能证明 finding 已处理或风险已被正式接受？</td></tr></tbody></table></div>
+<p>一条好的 ATC 处理记录，至少能回答：<code>which object</code>、<code>which check</code>、<code>which priority</code>、<code>root cause</code>、<code>decision</code>、<code>evidence</code>。如果只是写“ATC 指摘対応済み”，但没有说明修复或豁免依据，日本项目 review 里通常还会被追问。</p>
+<h4 id="36-5-3ef2aaa7" class="semantic-heading semantic-japan">36.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ATCチェック</code>、<code>ABAP Test Cockpit</code>、<code>ATCチェックバリアント</code>、<code>ATC指摘</code>、<code>ATC検出結果</code>、<code>ATC結果</code>、<code>ATCメッセージ</code>、<code>優先度</code>、<code>免除申請</code>、<code>承認済み免除</code>、<code>疑似コメントによる抑制</code>、<code>プラグマによる抑制</code>、<code>移送前チェック</code>、<code>品質ゲート</code>、<code>リリース判定</code>、<code>クリーンコア準拠</code>、<code>リリース済み API</code>。</li>
+<li>用语注意：正式沟通中优先说 <code>ATC指摘</code> 或 <code>ATC検出結果</code>；UI 上可能显示 <code>ATCメッセージ</code> 或 <code>ATC結果</code>。不要把所有结果都叫 <code>エラー</code>，因为有些是 warning / notification。</li>
+<li>用语注意：正式豁免流程说 <code>免除申請</code>。如果是在代码里用 pseudo comment / pragma 抑制，应说 <code>疑似コメントによる抑制</code> 或 <code>プラグマによる抑制</code>，不要把它混称为 <code>免除</code>。</li>
+<li>用语注意：variant 建议说 <code>ATCチェックバリアント</code>，不要只说 <code>バリアント</code>，否则容易和 CDS variant、configuration variant 或项目其他 variant 混淆。</li>
+<li>设计说明句：本開発ではプロジェクト標準の ATCチェックバリアントを適用し、優先度1/2の指摘は移送前に解消または承認済み免除とします。</li>
+<li>Review 指摘句：この実装はリリース済み API ではないオブジェクトに依存しているため、ATC指摘の内容を確認し、代替 API または免除申請の要否を検討してください。</li>
+<li>移送前确认句：ATC検出結果に未対応の優先度1/2が残っていないこと、必要な免除申請が承認済みであることを確認してください。</li>
+<li>抑制说明句：この指摘は false positive と判断したため、理由をコメントに残したうえで、指定されたプラグマによる抑制を適用します。</li>
+</ul>
+<h4 id="36-6-english-terms-52488e3d" class="semantic-heading semantic-terms">36.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>ABAP Test Cockpit</code>, <code>ATC</code>, <code>ATC check</code>, <code>ATC result</code>, <code>ATC finding</code>, <code>check variant</code></li>
+<li>Quality terms: <code>static quality check</code>, <code>dynamic quality check</code>, <code>quality gate</code>, <code>priority</code>, <code>exemption</code>, <code>waiver</code>, <code>pseudo comment</code>, <code>pragma</code>, <code>suppression</code>, <code>quick fix</code></li>
+<li>Tool / configuration terms: <code>Code Inspector</code>, <code>Extended Program Check</code>, <code>transaction SCI</code>, <code>ABAP Test Cockpit Configurator</code>, <code>central check system</code>, <code>remote ATC</code>, <code>ATC API</code></li>
+<li>Cloud / Clean Core terms: <code>ABAP_CLOUD_DEVELOPMENT_DEFAULT</code>, <code>S4HANA_READINESS_REMOTE</code>, <code>ABAP Cloud readiness</code>, <code>released API</code>, <code>unreleased API</code>, <code>Clean Core</code>, <code>language version</code>, <code>CVA</code></li>
+<li>SAP project terms: <code>transport release</code>, <code>quality system</code>, <code>finding list</code>, <code>security checks</code>, <code>S/4HANA readiness</code>, <code>remote readiness check</code></li>
+<li>Recommended search pattern: <code>ABAP Test Cockpit SAP Help</code>, <code>ABAP_CLOUD_DEVELOPMENT_DEFAULT SAP Help</code>, <code>S4HANA_READINESS_REMOTE ATC</code>, <code>ATC exemption pseudo comment pragma SAP ABAP</code></li>
+</ul>
+<p>读官方资料时注意：<code>ATC</code> 不是一个单一检查规则，而是一个运行检查集合的框架；<code>check variant</code> 决定检查集合；<code>finding</code> 是否阻止 release 取决于系统、variant、priority 和项目 gate。</p>
+<h4 id="36-7-example-47de7389" class="semantic-heading semantic-example">36.7 Example / 学习例子</h4>
+<h5 id="36-7-1-1-unreleased-api-finding-80a40d84">36.7.1 例 1：unreleased API finding</h5>
+<p>假设代码里直接调用了某个 SAP 内部 class。它在当前系统里语法通过，demo 也能跑，但 ATC 报出 unreleased API 或 usage of non-released object finding。</p>
+<p>初学者不要把它理解成“SAP 太严格”。真正的问题是升级稳定性：SAP 没有承诺这个内部对象作为客户开发 API 长期稳定。正确处理顺序是：</p>
+<ol>
+<li>打开 finding long text，确认违规对象和检查规则。</li>
+<li>查找 released API、released CDS view entity、RAP BO、BAdI 或官方 extension point。</li>
+<li>如果有替代方案，改设计。</li>
+<li>如果短期没有替代方案，记录影响范围、升级风险、客户/架构师判断，并按项目流程申请 exemption。</li>
+<li>不要只加 pseudo comment 把 finding 压掉。</li>
+</ol>
+<h5 id="36-7-2-2-performance-pattern-finding-b38882fb">36.7.2 例 2：performance pattern finding</h5>
+<p>代码中有如下逻辑：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  SELECT SINGLE name
+    FROM zcustomer
+    WHERE customer_id = @ls_item-customer_id
+    INTO @DATA(lv_name).
+ENDLOOP.</code></pre>
+<p>ATC 可能提示循环中数据库访问的性能风险。这个 finding 不一定知道业务数据量，但它提醒 reviewer：这里可能变成 N+1 query。</p>
+<p>更好的思路通常是先收集 key，一次性读取，再用 internal table key 做内存查找。修正方式要结合数据量、索引、缓存、事务一致性和业务语义决定；ATC 的价值是把风险提前放到 review 桌面上。</p>
+<h5 id="36-7-3-3-transport-release-gate-9cb539cb">36.7.3 例 3：transport release 前的 gate</h5>
+<p>一个开发任务准备移送：</p>
+<pre><code class="language-text">1. Syntax check -&gt; OK
+2. Activation -&gt; OK
+3. ABAP Unit -&gt; Green
+4. ATC with project variant -&gt; Findings reviewed
+5. Priority 1/2 -&gt; fixed or approved exemption
+6. Transport release -&gt; allowed by project rule / system gate</code></pre>
+<p>如果这是 SAP BTP ABAP Environment，priority 1/2 findings 可能直接阻止 release。对开发者来说，ATC 不是最后一刻才看的报告，而是每天开发中就要跑的反馈机制。</p>
+<h5 id="36-7-4-4-pseudo-comment-pragma-be341f3d">36.7.4 例 4：pseudo comment / pragma 的边界</h5>
+<p>某个 ATC finding 被项目 architect 判断为 false positive。ADT finding detail 指示可以用 pragma 抑制，例如：</p>
+<pre><code class="language-abap">DATA lv_flag TYPE abap_bool ##needed.</code></pre>
+<p>或者某些 legacy check 可能提示 pseudo comment，例如：</p>
+<pre><code class="language-abap">&quot;#EC NEEDED</code></pre>
+<p>这类写法不是“推荐模板”，而是治理动作。代码旁边应能看出为什么需要抑制，review 记录里也应能追溯判断依据。能修代码时，永远优先修代码。</p>
+<h4 id="36-8-counterexample-failure-mode-2bad3992" class="semantic-heading semantic-example">36.8 Counterexample / Failure mode</h4>
+<h5 id="36-8-1-1-atc-lint-a82dcd04" class="semantic-heading semantic-failure">36.8.1 误区 1：把 ATC 当成纯静态 lint</h5>
+<p>ATC 常被静态检查使用，但它的角色比 lint 宽：它可以作为质量 cockpit，包含静态和动态质量检查，也可以编排 ABAP Unit。</p>
+<p>修正动作：说“ATC 是质量检查/质量门禁框架”，不要只说“静态扫描工具”。</p>
+<h5 id="36-8-2-2-atc-abap-unit-e4daf3a9" class="semantic-heading semantic-failure">36.8.2 误区 2：把 ATC 当成 ABAP Unit 的替代品</h5>
+<p>ATC finding 为空，不代表业务行为已经被测试覆盖。</p>
+<p>修正动作：ATC 与 ABAP Unit 一起使用。ATC 看规则与合规，ABAP Unit 看行为证据。</p>
+<h5 id="36-8-3-3-finding-b7c237a5" class="semantic-heading semantic-failure">36.8.3 误区 3：看到 finding 就机械修改</h5>
+<p>有些 finding 需要架构判断。机械替换 API、机械消除 warning，可能破坏业务语义。</p>
+<p>修正动作：先读 long text 和代码上下文；必要时找 reviewer / architect 判断。</p>
+<h5 id="36-8-4-4-finding-false-positive-ee965c9c" class="semantic-heading semantic-failure">36.8.4 误区 4：把所有 finding 都当 false positive</h5>
+<p>“本地能跑”不代表没有问题。ATC finding 可能指向升级、性能、安全、Clean Core、transport gate 风险。</p>
+<p>修正动作：如果要 false positive 判断，必须说明为什么、由谁确认、影响范围是什么。</p>
+<h5 id="36-8-5-5-exemption-pseudo-comment-pragma-7362925c" class="semantic-heading semantic-failure">36.8.5 误区 5：混淆 exemption、pseudo comment 和 pragma</h5>
+<p>formal exemption 是项目/系统治理流程；pseudo comment / pragma 是代码级抑制机制。二者不是同一件事。</p>
+<p>修正动作：交付文档中分清 <code>免除申請</code>、<code>疑似コメントによる抑制</code>、<code>プラグマによる抑制</code>。</p>
+<h5 id="36-8-6-6-atc-05663325" class="semantic-heading semantic-failure">36.8.6 误区 6：临近移送才第一次跑 ATC</h5>
+<p>如果 release 前才发现 priority 1/2 findings，项目会被迫赶工、申请豁免或推迟移送。</p>
+<p>修正动作：开发中就跑本地 ATC；merge / transport / pipeline 前再跑项目标准 variant。</p>
+<h4 id="36-9-b7c2b080" class="semantic-heading semantic-practice">36.9 思考问题</h4>
+<ul>
+<li>当前项目使用哪个 ATC check variant？它是 SAP 默认、客户中心 variant，还是项目复制/扩展 variant？</li>
+<li>哪些 priority 的 findings 会阻止 transport release？这是系统硬门禁，还是项目流程门禁？</li>
+<li>一个 ATC finding 应该修正、申请 exemption，还是用 pragma / pseudo comment 抑制？判断依据是什么？</li>
+<li>如果 finding 指向 unreleased API，替代方案应该从哪里找？</li>
+<li><code>ABAP_CLOUD_DEVELOPMENT_DEFAULT</code> 和 <code>S4HANA_READINESS_REMOTE</code> 分别更像“新开发质量基线”还是“存量迁移/readiness 分析”？</li>
+<li>在日本项目里，如何用一句话解释 <code>ATC指摘</code> 和 <code>免除申請</code> 的关系？</li>
+<li>Week 3/4 读 AC0567C POC 时，哪些 class、CDS、RAP objects 应该纳入 ATC 检查？</li>
+</ul>
+<h4 id="36-10-bee9ac78" class="semantic-heading semantic-reference">36.10 参考资料入口</h4>
+<ul>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=ABAP%20Test%20Cockpit%20ATC" target="_blank" rel="noopener noreferrer">ABAP Test Cockpit ATC</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=ABAP_CLOUD_DEVELOPMENT_DEFAULT" target="_blank" rel="noopener noreferrer">ABAP_CLOUD_DEVELOPMENT_DEFAULT</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=S4HANA_READINESS_REMOTE" target="_blank" rel="noopener noreferrer">S4HANA_READINESS_REMOTE</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=ATC%20exemption%20pseudo%20comment%20pragma" target="_blank" rel="noopener noreferrer">ATC exemption pseudo comment pragma</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=ABAP%20Test%20Cockpit%20Configurator" target="_blank" rel="noopener noreferrer">ABAP Test Cockpit Configurator</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP-TESTCOCKPIT_GUIDL.html" target="_blank" rel="noopener noreferrer">ABAP Test Cockpit</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/improving-code-quality-using-abap-test-cockpit_dd1d868f-a539-49ee-8e49-e57563131058" target="_blank" rel="noopener noreferrer">Improving Code Quality using ABAP Test Cockpit</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li><a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud 现代开发模型</a></li>
+<li><a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+</ul>
+<h4 id="36-11-connections-11c08137">36.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Downstream: <a class="wiki" href="section-02-037-inline-declaration-d2da10ac.html">Inline declaration 内联声明</a></li>
+<li>Related: <a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud 现代开发模型</a></li>
+<li>Related: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Related: <a class="wiki" href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Clean Core Extensibility Levels and Released API Dependency</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="36-12-9bf7541c" class="semantic-heading semantic-practice">36.12 学习任务</h4>
+<ul>
+<li>用中文解释：ATC 和 ABAP Unit 的区别是什么？为什么 ATC 可以包含 ABAP Unit execution，但仍不能替代 ABAP Unit 思维？</li>
+<li>找一个 ATC finding，记录 object、source location、check、priority、message、long text、建议修正方式。</li>
+<li>用日语写一句 review comment，要求开发者处理一个 priority 1/2 ATC finding。</li>
+<li>找到项目标准 <code>ATCチェックバリアント</code> 名称，并说明它是新开发基线、Cloud readiness、S/4HANA readiness，还是项目自定义。</li>
+<li>写 5 行说明：什么时候可以申请 ATC exemption？什么时候不应该用 pseudo comment / pragma？</li>
+<li>用 English Terms 找 SAP Help / SAP Learning 对 <code>ABAP Test Cockpit</code>、<code>check variant</code>、<code>ATC exemption</code> 的说明，并补到个人学习记录。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span>。</li>
+</ul>
+<h4 id="36-13-confidence-next-action-b4bf578b" class="semantic-heading semantic-status">36.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节基于 SAP Help <code>ABAP Test Cockpit</code>、SAP Learning <code>Improving Code Quality using ABAP Test Cockpit</code>，以及 <code>90-Review/joule-atc-snapshot-2-2026-06-13.txt</code> 的 Joule <code>Pass with fixes</code> 修正完成；重点修正包括 static/dynamic quality check、ABAP Unit execution、check variant、<code>ABAP_CLOUD_DEVELOPMENT_DEFAULT</code>、priority 1/2 release gate、exemption、pseudo comments / pragmas、Japanese wording、CVA/security awareness 和 <code>S4HANA_READINESS_REMOTE</code>。Claude 旧 review 为 credential error，2026-06-18 health check 超时，作为外部 review debt 记录。</li>
+<li>Next action: 已同步到 Chapter 02 与离线书稿后，继续质量闭环到 <a class="wiki" href="section-02-037-inline-declaration-d2da10ac.html">Inline declaration 内联声明</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC quality check 代码质量检查</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-035-abap-unit-34ce915f.html">Previous section</a><a href="section-02-037-inline-declaration-d2da10ac.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

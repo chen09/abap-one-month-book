@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>AC0567C RAP saver replay | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="42-ac0567c-rap-saver-replay-8077cb2e" class="chapter-title">42. AC0567C RAP saver replay</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 42</li><li>self-contained study note</li></ul><p><strong>一句话结论</strong></p>
+<p>AC0567C RAP saver replay 是用本地 POC 复盘 RAP 保存阶段的责任边界：<code>ExecuteImport</code> action 负责校验、授权、重复检查和 staging；真正的 <code>INSERT zcom_b_actt397 FROM TABLE @lt_insert</code> 放在 behavior saver 的 <code>save</code> 方法中执行。这是 AC0567C 从“action handler 直接写表”修正为“RAP save phase 写表”的关键设计点。</p>
+<p>一句话记忆：AC0567C 当前的保存链路是 <code>static action ExecuteImport -&gt; service class staging -&gt; local save buffer -&gt; behavior saver save -&gt; ZCOM_B_ACTT397</code>，不是“action 里直接 INSERT 再自己 COMMIT”。这符合 RAP 要求的方向，但它仍然是 POC 级实现：<code>lcl_ac0567c_save_buffer</code> 是 static class-data 桥接，不是完整生产级 request ledger / lock / log / rollback framework。</p>
+<p>这一节要学的不是抽象背诵 <code>save_modified</code>。在 AC0567C 的实际源码里，saver class 是 <code>lsc_ZRPA01_I_AC0567C_IMPORT</code>，继承 <code>cl_abap_behavior_saver</code>，重定义的是 <code>finalize</code>、<code>check_before_save</code>、<code>save</code>、<code>cleanup</code>、<code>cleanup_finalize</code>。真正有落库动作的是 <code>save</code>，不是 <code>finalize</code>，也不是 action handler。</p>
+<p><strong>到底学什么</strong></p>
+<p>第一，要学 BDEF 先行。AC0567C 的 <code>ZRPA01_I_AC0567C_IMPORT.bdef</code> 明确是：</p>
+<pre><code class="language-abap">unmanaged implementation in class zbp_rpa01_i_ac0567c_import unique;
+strict ( 2 );
+
+define behavior for ZRPA01_I_AC0567C_IMPORT alias PriorAllocationImportC
+authorization master ( instance )
+lock master
+{
+  static action ValidateBatch ...
+  static action ExecuteImport ...
+  static action GetStatus ...
+}</code></pre>
+<p>这告诉读者：它是 unmanaged implementation，有三个 static action；BDEF 写了 <code>authorization master ( instance )</code> 和 <code>lock master</code>，<code>ZBP_RPA01_I_AC0567C_IMPORT.localtypes.abap</code> 的 behavior handler 中也确实有空的 <code>get_instance_authorizations</code> 与 <code>lock</code> 方法。但这三个业务入口都是 static action，因此不要误以为 instance authorization / instance lock 已经保护了这些 action。对当前 AC0567C POC 来说，真正生效的门禁是 service class 内部的 <code>AUTHORITY-CHECK F_BKPF_BUK</code>；生产化时还需要补 global authorization / <code>get_global_authorizations</code> 或等效的全局 action 授权设计。</p>
+<p>第二，要学 action handler 的职责。<code>ExecuteImport</code> handler 负责把 deep parameter <code>Rows[]</code> 转成 service class 的 internal table，调用 <code>ZCL_RPA01_AC0567C_IMP_SVC=&gt;execute_import</code>。service class 返回 <code>Status</code>、<code>InsertedRows</code>、<code>MessageField</code> 等结果，同时通过 <code>et_insert</code> 返回准备落库的 <code>ZCOM_B_ACTT397</code> 行。</p>
+<p>第三，要学 staging 的边界。handler 只有在 <code>ls_service_result-status = IMPORTED</code> 且 <code>lt_insert</code> 非空时，才调用：</p>
+<pre><code class="language-abap">lcl_ac0567c_save_buffer=&gt;add( it_insert = lt_insert ).</code></pre>
+<p>这一步不是数据库写入，只是把待插入行放进本地 save buffer。当前实现用 <code>CLASS-DATA gt_insert</code> 暂存这些行；这对 POC 可读、可演示，但生产化时要谨慎评估 request 隔离、并发、异常清理和多 action 调用场景。</p>
+<p>第四，要学 saver 的实际落库点。<code>lsc_ZRPA01_I_AC0567C_IMPORT-&gt;save</code> 中的核心逻辑是：</p>
+<pre><code class="language-abap">DATA(lt_insert) = lcl_ac0567c_save_buffer=&gt;consume( ).
+IF lt_insert IS INITIAL.
+  RETURN.
+ENDIF.
+
+INSERT zcom_b_actt397 FROM TABLE @lt_insert.</code></pre>
+<p>这正是 Joule 早前要求修正的点：真实 DB insert 不应该留在 action call chain 里，而应进入 RAP save phase。<code>conclusion-and-architecture.md</code> 也把它列为 <code>Saver phase fix</code>。</p>
+<p>第五，要学空方法也是证据。当前 <code>finalize</code> 和 <code>check_before_save</code> 是空实现；<code>cleanup</code> 和 <code>cleanup_finalize</code> 清空 buffer；<code>save</code> 没有显式 application log、没有 catch insert error、没有把 DB insert failure 映射成业务消息的证据。这些不是批评，而是 POC 边界。</p>
+<p>第六，要学保存证据的读法。AC0567C 已证明真实 insert <code>InsertedRows = 2</code>，重复同一 <code>ImportId</code> 返回 <code>CONFLICT</code>，<code>GetStatus</code> 返回 <code>IMPORTED</code> 和 count <code>2</code>。但这些证据主要证明“最终表里有数据”和“顺序重复被拒绝”，并不能单独证明并发安全、rollback 语义、application log 完整性或 production-ready atomicity。</p>
+<p><strong>为什么重要</strong></p>
+<p>RAP 项目里最危险的误解之一，是把 action handler 当作普通 service/repository：收到请求就直接 <code>INSERT</code>、<code>UPDATE</code>、<code>COMMIT WORK</code>。在传统 ABAP report 或 function module 里，这种写法很常见；但在 RAP business object 中，runtime 管理 interaction phase、save sequence、消息返回和提交边界。把写表放错位置，可能导致回滚语义失真、response 与 DB 状态不一致、重复请求更难控制。</p>
+<p>AC0567C 正好提供了一个真实修正过程。早期实现路径曾经把 <code>INSERT zcom_b_actt397</code> 放在 action call chain 中，Joule review 把这标成 write-before-execute blocker。最终实现改成：service class 只准备 <code>lt_insert</code>，handler 把它放入 save buffer，saver <code>save</code> 执行实际 insert。这个变化本身就是一本书里非常好的项目经验：不是所有“能写进去”的代码都应该放在最早能写的位置。</p>
+<p>对批量上传 API 来说，保存阶段更关键。一次请求可能包含多行；一行失败时是整批失败还是部分成功；重复请求是在 action 阶段被拒绝还是 saver 阶段冲突；真实 insert 失败时 response 怎么表达；日志是否和业务数据一起提交或独立保留。这些问题不解决，POC 可以演示，生产却难以运维。</p>
+<p>在日本项目里，review 常常会问得很直接：<code>DB登録はどのフェーズで実行されますか</code>、<code>保存前チェックはどこで行いますか</code>、<code>COMMIT WORK は実行していませんか</code>、<code>保存失敗時のロールバック仕様はどうなっていますか</code>。Section 42 的目标，就是让读者能用 AC0567C 的代码回答这些问题。</p>
+<p><strong>Key mechanism / 核心机制</strong></p>
+<p>AC0567C saver replay 可以按六层读。</p>
+<h4 id="42-1-bdef-unmanaged-static-action-7b9476d1">42.1 BDEF 层：这是 unmanaged static action 模型</h4>
+<p><code>ZRPA01_I_AC0567C_IMPORT.bdef</code> 的重点不是字段，而是模型边界：</p>
+<ul>
+<li><code>unmanaged implementation in class zbp_rpa01_i_ac0567c_import unique</code></li>
+<li><code>strict ( 2 )</code></li>
+<li><code>authorization master ( instance )</code></li>
+<li><code>lock master</code></li>
+<li><code>static action ValidateBatch</code></li>
+<li><code>static action ExecuteImport</code></li>
+<li><code>static action GetStatus</code></li>
+</ul>
+<p>这说明 AC0567C 不是 managed CRUD 教材例子，也不是 draft BO。它是一个以 static action 为主的 unmanaged POC。保存行为主要靠 behavior pool 和 saver class 自己实现，因此必须更严格地检查 action phase 与 save phase 的责任分工。</p>
+<p>这里有一个容易误读的点：<code>authorization master ( instance )</code> 和 <code>lock master</code> 出现在 BDEF 里，并不等于 static actions 已经被 instance authorization / lock 保护。<code>ZBP_RPA01_I_AC0567C_IMPORT.localtypes.abap</code> 中当前 <code>get_instance_authorizations</code> 和 <code>lock</code> 是空方法；更关键的是，它们不是这些 static action 的主要门禁。Section 40 已经说明过，AC0567C 当前真正执行的业务授权在 service class 的 <code>ExecuteImport</code> 路径中；Section 42 只补充保存阶段视角，不把 instance authorization 写成已完成的保护机制。</p>
+<h4 id="42-2-handler-deep-parameter-service-input-fc7d2a3c">42.2 Handler 层：把 deep parameter 转成 service input</h4>
+<p><code>lhc_PriorAllocationImportC-&gt;ExecuteImport</code> 遍历 action <code>keys</code>，把 <code>Rows[]</code> 转成 <code>zcl_rpa01_ac0567c_imp_svc=&gt;tt_row</code>，再调用 service class：</p>
+<pre><code class="language-abap">zcl_rpa01_ac0567c_imp_svc=&gt;execute_import(
+  EXPORTING
+    iv_company_code      = ...
+    iv_customer_code     = ...
+    iv_import_id         = ...
+    iv_source_file_name  = ...
+    iv_allow_real_update = ...
+    it_rows              = lt_rows
+  IMPORTING
+    et_insert            = lt_insert ).</code></pre>
+<p>handler 随后把 service result 映射回 action result：<code>Status</code>、<code>Simulation</code>、<code>ReceivedRows</code>、<code>ValidRows</code>、<code>InsertedRows</code>、<code>ImportId</code>、<code>MessageType</code>、<code>MessageField</code>、<code>MessageText</code> 等。这些是 API consumer 看到的证据。</p>
+<h4 id="42-3-service-70e1a236">42.3 Service 层：校验、授权、重复检查、准备待插入行</h4>
+<p><code>ZCL_RPA01_AC0567C_IMP_SVC=&gt;execute_import</code> 的实际源码顺序是：</p>
+<pre><code class="language-text">validate_batch
+  -&gt; if invalid: return
+AllowRealUpdate = X
+  -&gt; if not X: REJECTED
+AUTHORITY-CHECK F_BKPF_BUK / ACTVT = 01
+  -&gt; if failed: REJECTED
+derive_upload_timestamp( ImportId )
+loop Rows[]
+  -&gt; build zcom_b_actt397 row
+  -&gt; SELECT SINGLE duplicate check
+  -&gt; if duplicate: CONFLICT
+append rows to lt_insert
+return et_insert and Status = IMPORTED</code></pre>
+<p>注意这里的 <code>Status = IMPORTED</code> 是 service result 的业务语义，表示“本次 action 已经准备好导入并把待插入行交给 saver”。实际 DB insert 仍在 saver <code>save</code> 中发生。写书时不能把它说成 service class 已经落库。若 saver 在 save sequence 抛出异常，RAP runtime 应以错误结束并回滚当前 LUW；本 POC 的缺口不是“调用方一定会看到成功但 DB 为空”，而是缺少清晰的 insert-failure message mapping、application log 和可审计的失败证据。</p>
+<h4 id="42-4-save-buffer-poc-ledger-0bd470c7">42.4 Save buffer 层：POC 桥接，不是生产级 ledger</h4>
+<p>本地类 <code>lcl_ac0567c_save_buffer</code> 很短：</p>
+<pre><code class="language-abap">CLASS-DATA gt_insert TYPE zcl_rpa01_ac0567c_imp_svc=&gt;tt_actt397.
+
+METHOD add.
+  APPEND LINES OF it_insert TO gt_insert.
+ENDMETHOD.
+
+METHOD consume.
+  rt_insert = gt_insert.
+  CLEAR gt_insert.
+ENDMETHOD.
+
+METHOD clear.
+  CLEAR gt_insert.
+ENDMETHOD.</code></pre>
+<p>它解决的是 POC 桥接问题：action handler 拿到了 <code>lt_insert</code>，但真实 insert 要留到 saver，所以用本地 buffer 暂存。这个设计能说明“写入移到了 save phase”，但不应被包装成完整 production pattern。生产环境还要考虑：</p>
+<ul>
+<li>同一 internal session 中多个 action 调用是否会混入同一 static buffer。</li>
+<li>并发请求是否隔离。</li>
+<li>saver insert 失败后 buffer 是否已经被 <code>consume</code> 清掉。</li>
+<li>是否需要 request header/status table 替代临时 class-data buffer。</li>
+<li>是否需要 application log / outbox / retry table 记录 save attempt。</li>
+</ul>
+<h4 id="42-5-saver-insert-2ae3d7d4">42.5 Saver 层：唯一实际 INSERT 点</h4>
+<p><code>lsc_ZRPA01_I_AC0567C_IMPORT</code> 继承 <code>cl_abap_behavior_saver</code>，重定义：</p>
+<pre><code class="language-text">finalize
+check_before_save
+save
+cleanup
+cleanup_finalize</code></pre>
+<p>当前实现中：</p>
+<ul>
+<li><code>finalize</code> 是空方法。</li>
+<li><code>check_before_save</code> 是空方法。</li>
+<li><code>save</code> 从 save buffer <code>consume</code> 待插入行，并执行 <code>INSERT zcom_b_actt397 FROM TABLE @lt_insert</code>。</li>
+<li><code>cleanup</code> 和 <code>cleanup_finalize</code> 调用 <code>lcl_ac0567c_save_buffer=&gt;clear()</code>。</li>
+</ul>
+<p>所以 AC0567C 的保存事实很清楚：只有 saver <code>save</code> 真正写 <code>ZCOM_B_ACTT397</code>；没有 <code>save_modified</code> 方法；没有 additional save；没有 application log 写入；没有在 saver 内做第二次 authorization check；没有显式处理 insert exception 的证据。</p>
+<h4 id="42-6-23e05312">42.6 事务与回滚边界</h4>
+<p>当前 POC 的正确方向是：不在 action handler 里直接 <code>COMMIT WORK</code>，也不把真实 insert 提前放在 service class。RAP runtime 仍然是事务边界的 owner。这样至少避免了“action 中已经写表，后续 save/commit 失败却无法统一处理”的典型错误。</p>
+<p>但 production review 还不能停在这里。需要继续确认：</p>
+<ul>
+<li><code>INSERT FROM TABLE</code> 如果因重复 key、DB error 或 authorization/lock 之外的问题失败，调用方会看到什么。</li>
+<li><code>Status = IMPORTED</code> 已经放进 action result 后，save failure 是否会被 OData/RAP runtime 正确返回。</li>
+<li>大批量插入时是整批 atomic 还是部分成功。</li>
+<li>是否需要 <code>ACCEPTING DUPLICATE KEYS</code>，通常不应随便加；如果要加，必须有明确业务语义。</li>
+<li>是否需要在 <code>check_before_save</code> 做最终 invariant check。</li>
+<li>是否需要 application log 在失败时也保留，还是随主事务 rollback。</li>
+</ul>
+<h4 id="42-7-ac0567c-bb6e834d">42.7 与 AC0567C 已证据/未证据的关系</h4>
+<p>已证明：</p>
+<ul>
+<li><code>ExecuteImport</code> 可以生成待插入行。</li>
+<li>handler 只在 <code>Status = IMPORTED</code> 且 <code>lt_insert</code> 非空时加入 save buffer。</li>
+<li>saver <code>save</code> 中有实际 <code>INSERT zcom_b_actt397 FROM TABLE @lt_insert</code>。</li>
+<li>真实测试中 <code>InsertedRows = 2</code>。</li>
+<li>同一 <code>ImportId</code> 顺序重复返回 <code>CONFLICT</code>。</li>
+</ul>
+<p>未证明：</p>
+<ul>
+<li>并发重复请求的锁或唯一约束处理。</li>
+<li>saver insert failure 的用户可读消息。</li>
+<li>application log / BAL / <code>cl_bali_log</code> 持久证据。</li>
+<li>大批量 partial success vs all-or-nothing 策略。</li>
+<li>production-grade request ledger/status table。</li>
+<li>save buffer 在复杂多 action / 多请求场景下的隔离性。</li>
+</ul>
+<p><strong>日本项目现场说法</strong></p>
+<p>常见日语：</p>
+<ul>
+<li><code>保存シーケンス</code></li>
+<li><code>セーブフェーズ</code></li>
+<li><code>RAP saver</code></li>
+<li><code>振る舞い実装</code></li>
+<li><code>保存前チェック</code></li>
+<li><code>実登録</code></li>
+<li><code>一時バッファ</code></li>
+<li><code>副作用</code></li>
+<li><code>ロールバック</code></li>
+<li><code>COMMIT禁止</code></li>
+<li><code>証跡</code></li>
+</ul>
+<p>说明当前 AC0567C POC 时，可以这样说：</p>
+<ul>
+<li>AC0567C では、ExecuteImport の action handler では直接 DB 登録を行わず、登録対象行を一時バッファに退避し、RAP saver の <code>save</code> メソッドで <code>ZCOM_B_ACTT397</code> に INSERT します。</li>
+<li><code>finalize</code> と <code>check_before_save</code> は現時点では空実装であり、保存前の追加チェックや application log 登録は本番化時の課題です。</li>
+<li>現在の <code>lcl_ac0567c_save_buffer</code> は POC 用の橋渡しであり、本番設計ではリクエスト単位の分離、排他制御、ログ証跡を別途確認します。</li>
+</ul>
+<p>review 时可以这样问：</p>
+<ul>
+<li>DB 登録は action handler ではなく save phase で実行されていますか。</li>
+<li><code>COMMIT WORK</code> や明示的な <code>ROLLBACK WORK</code> を handler / saver 内で実行していませんか。</li>
+<li>save phase で INSERT が失敗した場合、API 利用者にどのようなエラーが返りますか。</li>
+<li>一時バッファはリクエスト単位で安全に分離されていますか。</li>
+<li>保存失敗時の application log は残す設計ですか、それとも主トランザクションと一緒に rollback しますか。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Local / project term: <code>AC0567C RAP saver replay</code>.</li>
+<li>Current POC terms: <code>lcl_ac0567c_save_buffer</code>, <code>gt_insert</code>, <code>add</code>, <code>consume</code>, <code>clear</code>, <code>lsc_ZRPA01_I_AC0567C_IMPORT</code>, <code>save</code>, <code>cleanup</code>, <code>cleanup_finalize</code>, <code>INSERT zcom_b_actt397</code>.</li>
+<li>RAP terms: <code>behavior definition</code>, <code>behavior pool</code>, <code>behavior saver</code>, <code>interaction phase</code>, <code>save phase</code>, <code>save sequence</code>, <code>unmanaged implementation</code>, <code>static action</code>, <code>reported</code>, <code>failed</code>, <code>mapped</code>, <code>transaction owner</code>.</li>
+<li>Risk terms: <code>write-before-execute</code>, <code>side effect</code>, <code>rollback</code>, <code>partial success</code>, <code>concurrency</code>, <code>temporary buffer</code>, <code>request ledger</code>, <code>application log</code>.</li>
+<li>Recommended search pattern: <code>SAP RAP save sequence behavior saver</code>, <code>RAP unmanaged save INSERT</code>, <code>COMMIT WORK restriction RAP behavior implementation</code>.</li>
+</ul>
+<p><strong>Example / 学习例子</strong></p>
+<p>可以用下面这张表读 AC0567C：</p>
+<div class="table-wrap"><table><thead><tr><th>层级</th><th>当前对象/方法</th><th>做了什么</th><th>没做什么</th></tr></thead><tbody><tr><td>BDEF</td><td><code>ZRPA01_I_AC0567C_IMPORT.bdef</code></td><td>声明 unmanaged、strict(2)、static actions、lock/auth master</td><td>无 draft、无 validation/determination 声明</td></tr><tr><td>Handler</td><td><code>lhc_PriorAllocationImportC-&gt;ExecuteImport</code></td><td>解析 action parameter、调用 service、映射 result、写入 save buffer</td><td>不直接 <code>INSERT</code>、不 <code>COMMIT WORK</code></td></tr><tr><td>Service</td><td><code>ZCL_RPA01_AC0567C_IMP_SVC=&gt;execute_import</code></td><td>validate、<code>AllowRealUpdate</code>、authorization、duplicate check、生成 <code>lt_insert</code></td><td>不直接写 DB</td></tr><tr><td>Buffer</td><td><code>lcl_ac0567c_save_buffer</code></td><td>用 static class-data 暂存待插入行</td><td>不是生产级 request ledger</td></tr><tr><td>Saver</td><td><code>lsc_ZRPA01_I_AC0567C_IMPORT-&gt;save</code></td><td><code>consume</code> buffer 并 <code>INSERT zcom_b_actt397</code></td><td>无显式 log、无异常映射、无二次 check</td></tr><tr><td>Cleanup</td><td><code>cleanup</code> / <code>cleanup_finalize</code></td><td>清空 buffer</td><td>不保留审计证据</td></tr></tbody></table></div>
+<p>一个 AC0567C 保存 replay 可以这样写：</p>
+<pre><code class="language-text">Scenario: Execute AC0567C import
+
+Input:
+  CompanyCode = 1000
+  CustomerCode = 0000001000
+  ImportId = POC-AC0567C-20260612115720
+  AllowRealUpdate = X
+  Rows = 2
+
+Interaction/action phase:
+  ValidateBatch passes
+  AllowRealUpdate gate passes
+  AUTHORITY-CHECK F_BKPF_BUK/01 passes
+  duplicate check finds no existing rows
+  service returns Status = IMPORTED and et_insert = 2 rows
+  handler adds rows to lcl_ac0567c_save_buffer
+
+Save phase:
+  saver save consumes buffer
+  INSERT zcom_b_actt397 FROM TABLE @lt_insert
+
+Evidence:
+  ExecuteImport Status = IMPORTED
+  InsertedRows = 2
+  GetStatus Status = IMPORTED
+  GetStatus InsertedRows = 2</code></pre>
+<p>再看一个反向 replay：</p>
+<pre><code class="language-text">Scenario: Duplicate same ImportId
+
+Interaction/action phase:
+  ValidateBatch passes
+  AllowRealUpdate gate passes
+  AUTHORITY-CHECK passes
+  duplicate check finds existing ZCOM_B_ACTT397 row
+  service returns Status = CONFLICT
+  handler does not add rows to save buffer
+
+Save phase:
+  saver save has no new rows to insert
+
+Evidence:
+  Repeat same ImportId Status = CONFLICT</code></pre>
+<p>这一反向 replay 很重要：重复请求不是在 saver insert 时才发现的，而是在 service class 的 duplicate check 中发现；因此并发场景还要额外评估 SELECT 与 INSERT 之间的 race window。</p>
+<p><strong>Counterexample / Failure mode</strong></p>
+<p>常见失败模式如下。</p>
+<p>第一，只说“用了 RAP saver”，不检查实际 INSERT 位置。必须在 behavior pool 中看到 <code>INSERT zcom_b_actt397 FROM TABLE @lt_insert</code> 位于 saver <code>save</code>。</p>
+<p>第二，把 static save buffer 当成生产级事务 buffer。<code>CLASS-DATA gt_insert</code> 是 POC 桥接，不能自动证明请求隔离、并发安全或异常恢复。</p>
+<p>第三，在 action handler 或 service class 里重新加入 <code>INSERT</code>。这会退回 write-before-execute 风险，破坏本 POC 的关键修正。</p>
+<p>第四，认为 <code>Status = IMPORTED</code> 就等于 DB 已经提交。当前 service result 先返回 imported 语义，实际 insert 在 saver；如果 saver 抛错，运行时应以错误结束并回滚 LUW，但当前 POC 缺少清晰的 insert-failure message mapping 与 application log，诊断证据会不足。</p>
+<p>第五，<code>check_before_save</code> 空着却在设计书里声称有最终保存前检查。当前源码没有这层检查，不能写成已实现。</p>
+<p>第六，缺少 application log。测试脚本能证明 POC，但生产障害調査需要 request id、user、timestamp、insert count、error cause 的持久证据。</p>
+<p>第七，没有并发测试。顺序重复 <code>CONFLICT</code> 不等于并发请求一定安全；SELECT-before-INSERT 仍需锁或唯一约束证据。</p>
+<p>第八，cleanup 清掉 buffer 后没有审计。清理临时状态是必要的，但审计证据必须另有持久化位置。</p>
+<p>第九，把带旧事务副作用的 legacy posting FM 直接塞进 RAP save sequence。比如某些历史路径可能内部到达 <code>CALL TRANSACTION</code>、隐式提交或 GUI 依赖逻辑；这不是 AC0567C saver 已证明的问题，而是从 RAP 保存阶段设计中必须提前排除的通用风险。这类旧事务副作用应拆到更合适的 ICF/job/classic adapter 或异步 worker 设计中，不能简单塞进 RAP saver。</p>
+<p><strong>思考问题</strong></p>
+<ul>
+<li>AC0567C 的真实 <code>INSERT</code> 位于哪个 class、哪个 method？</li>
+<li><code>lcl_ac0567c_save_buffer</code> 的 <code>add</code>、<code>consume</code>、<code>clear</code> 分别在哪个阶段被调用？</li>
+<li>为什么 <code>Status = IMPORTED</code> 不能简单理解为“DB 已经 commit 成功”？</li>
+<li>当前 <code>check_before_save</code> 是空方法，这对 production hardening 意味着什么？</li>
+<li>如果 <code>INSERT FROM TABLE</code> 在 saver 里失败，当前源码中哪里能看到错误映射或 application log？</li>
+<li>为什么顺序 duplicate test 不能证明并发 duplicate safety？</li>
+<li>日本项目 review 时，如何一句话说明“実登録は save phase で行う”？</li>
+</ul>
+<p><strong>参考资料入口</strong></p>
+<ul>
+<li><span class="wiki unresolved">AC0567C Project Case</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+<li><a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+<li><a class="wiki" href="section-04-040-ac0567c-authorization-replay-626f837b.html">AC0567C authorization replay</a></li>
+<li><a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li><a class="wiki" href="section-03-036-rap-save-modified-implementation-84f70d3a.html">RAP save_modified implementation</a></li>
+<li><a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li><a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li><a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>Local POC source: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\02_abap_source\ZRPA01_I_AC0567C_IMPORT.bdef</code></li>
+<li>Local POC source: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\02_abap_source\ZBP_RPA01_I_AC0567C_IMPORT.localtypes.abap</code></li>
+<li>Local POC source: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\02_abap_source\ZCL_RPA01_AC0567C_IMP_SVC.abap</code></li>
+<li>Local POC evidence: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\01_summary\conclusion-and-architecture.md</code></li>
+<li>Local POC evidence: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\10_thread_record\chat-and-decision-record.md</code></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=RAP%20save%20sequence" target="_blank" rel="noopener noreferrer">RAP save sequence</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=RAP%20behavior%20saver" target="_blank" rel="noopener noreferrer">RAP behavior saver</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=COMMIT%20WORK%20restriction%20RAP" target="_blank" rel="noopener noreferrer">COMMIT WORK restriction RAP</a></li>
+<li>SAP Learning search: <a href="https://learning.sap.com/search?query=RAP%20save%20sequence" target="_blank" rel="noopener noreferrer">RAP save sequence</a></li>
+</ul>
+<p><strong>Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Practice</span></li>
+<li>Upstream: <a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+<li>Downstream: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Related: <a class="wiki" href="section-04-039-ac0567c-poc-architecture-replay-be4cadf1.html">AC0567C POC architecture replay</a></li>
+<li>Related: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Related: <a class="wiki" href="section-03-036-rap-save-modified-implementation-84f70d3a.html">RAP save_modified implementation</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a></li>
+<li>Related: <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 28 - AC0567C POC 架构复盘</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>学习任务</strong></p>
+<ul>
+<li>在 AC0567C POC 源码中标出 5 个位置：BDEF、ExecuteImport handler、service class、save buffer、saver <code>save</code>。</li>
+<li>用自己的话解释：为什么 <code>lcl_ac0567c_save_buffer</code> 是 POC 桥接，而不是完整生产设计。</li>
+<li>写 2 句日语：一句说明 DB 登録在 save phase；一句说明 <code>check_before_save</code> 当前为空，需要生产补强。</li>
+<li>设计一个 saver failure test：如果 <code>INSERT</code> 失败，应该如何验证 response、DB 状态和 application log。</li>
+<li>把 Section 41 的 duplicate check 和本节 saver <code>INSERT</code> 画成一张时序图。</li>
+</ul>
+<p><strong>Confidence &amp; Next Action</strong></p>
+<ul>
+<li>Confidence: Medium-High for AC0567C POC facts, because this section is grounded in local BDEF, behavior pool, service class, architecture summary, project decision record, Claude 2026-06-18 <code>Pass with fixes</code> review, and Claude follow-up <code>Pass with minor notes</code>. Current text resolves the static-action authorization must-fix, keeps service-class order tied to source evidence, softens unsupported legacy-FM cautions, and clarifies that saver failure should end in RAP runtime error / LUW rollback while the POC gap is diagnostic evidence and application log. Joule review remains deferred; capture SAP-specialist feedback when Joule becomes callable. Medium for production-hardening recommendations, because exact DB unique constraints, RAP runtime error mapping, lock strategy, and logging design still require system-level verification.</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a>，把 saver / idempotency / authorization 的内部证据继续连接到 API response、test evidence、application log 和交付验收证据。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-042-ac0567c-rap-saver-replay-19af2964.html">AC0567C RAP saver replay</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">Previous section</a><a href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

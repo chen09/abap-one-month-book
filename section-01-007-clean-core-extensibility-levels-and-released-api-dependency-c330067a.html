@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Clean Core Extensibility Levels and Released API Dependency | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="7-clean-core-extensibility-levels-and-released-api-dependency-71b343cc" class="chapter-title">7. Clean Core Extensibility Levels and Released API Dependency</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 07</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Clean Core Extensibility Levels 是 SAP 用来评估扩展方案升级稳定性和核心系统风险的分级框架；本节要学的是：优先选择 released APIs / released objects，理解 Level A/B/C/D 的风险差异，并把“能跑”提升为“可升级、可审计、可交付”。</p>
+<p><strong>正文</strong></p>
+<p>前一节已经讲过 <a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud</a>：现代 ABAP 开发要受语言版本、released APIs、ADT/ATC 检查和 Clean Core 约束。本节把其中最容易被误解的一点单独拿出来：Clean Core 不是一句“代码要干净”的口号，而是一套扩展治理判断。项目上做一个开发方案时，不只问“能不能实现”，还要问“它依赖的 SAP 对象是什么级别，升级时是否稳定，是否适合当前部署形态，是否会破坏标准核心”。</p>
+<p>SAP 早期用过 3-tier extensibility model：Tier 1 是 ABAP Cloud / released APIs 的首选路径，Tier 2 是 Cloud API enablement / wrapper 这种桥接路径，Tier 3 是 Classic ABAP。SAP Learning 现在明确说明这个 3-tier 模型已经 sunset，转向更灵活的 Clean Core level concept，也就是 Level A/B/C/D。Day 01 不需要学习如何迁移旧代码，但要记住一个连续性：已经按旧 3-tier 指南实现的代码，特别是 Tier 2 wrappers，并不因为新模型出现就必须强制重写；新模型的价值是更细致地描述风险和治理优先级。</p>
+<p>Level A 是目标状态：使用 released APIs、released extension points、ABAP Cloud、SAP Build / SAP BTP 或现代 on-stack developer extensibility 等路径，追求最高的 upgrade stability。Level B 是被 SAP 认可的 classic APIs / classic technologies，具有较高升级稳定性，是 brownfield 项目里的现实可用选项，但不等于 public-cloud-ready。Level C 是内部对象或未被正式推荐的对象，可能能满足某些特殊需求，但没有完整稳定性保证，需要风险说明和升级影响调查。Level D 是 not recommended objects / patterns，例如 modification、对 SAP 核心表的非支持写入、implicit enhancement、<code>noAPI</code> 对象等，应避免或进入整改计划。</p>
+<p>本节还要学一个非常实用的判断规则：扩展整体等级取决于它里面最低等级的依赖。一个 class 中大部分代码都使用 released APIs，但只要关键路径调用了一个 Level B classic API，整个扩展就不能再被当成 Level A；如果又用了 Level D 的 not recommended pattern，风险就更高。这一点对 Java/Python 背景的人尤其重要，因为它类似“项目整体风险由最危险的内部依赖决定”，不是由多数代码的风格决定。</p>
+<p>最后，本节建立 <code>released API dependency check</code> 的入口意识。所谓检查，不只是人工看代码，还包括 <a class="wiki" href="section-01-008-abap-development-tools-in-eclipse-fef5783a.html">ADT</a> 的 API State / Released Objects 属性视图、SAP Business Accelerator Hub、Cloudification Repository / Cloudification Repository Viewer、GitHub 上的 SAP Cloudification Repository 数据、以及 <a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC</a> 中的 Usage of APIs / Usage of Released APIs 等检查。具体工具配置放到后面章节，Day 01 先学会“做方案前先查依赖级别”。</p>
+<p><strong>为什么重要</strong></p>
+<p>很多 SAP 项目出问题，不是因为开发者不会写代码，而是因为开发时只证明“当前版本能跑”，没有证明“下一次升级、下一次 SP、下一次 Public Edition / Private Edition 差异评审时仍然可接受”。Clean Core levels 的作用，就是把这种隐性风险变成项目语言。它让开发团队、架构师、Basis、测试、客户和 PM 能围绕同一个问题沟通：这个扩展到底有多 clean，风险在哪里，是否需要例外审批，是否要进技术债清单。</p>
+<p>对 Java/Python 背景的人，可以把它类比成 public API、private API、deprecated API、unsupported hack 的区别。使用 public API 通常最稳定；使用内部类、反射、未公开 endpoint 或直接改数据库表，也许短期可行，但升级时风险大。SAP 里的差异是：这些对象等级与 <a class="wiki" href="section-01-004-sap-s-4hana-932c3511.html">SAP S/4HANA</a> 标准核心、released state、Cloudification Repository、ATC、客户升级责任和 Clean Core review 连在一起，影响的不只是一个库版本，而是整个企业核心系统的生命周期。</p>
+<p>日本 SAP 项目尤其需要这个判断。很多现场是 on-premise 或 Private Edition 的 brownfield，历史上会有 BAPI、classic BAdI、user exit、IDoc、ALV、custom report、implicit enhancement 等现实对象。如果只说“全部必须 Level A”，就不符合现实；如果只说“客户以前一直这么用”，又会失去 Clean Core 方向。正确做法是：Level A 优先，Level B 可作为稳定的 pragmatic option，Level C 要写清风险和影响调查，Level D 尽量避免或整改。</p>
+<p><strong>核心机制</strong></p>
+<p>第一层机制是 clean core boundary。Clean Core 的目标不是禁止所有扩展，而是在不破坏 SAP 标准核心的前提下扩展业务能力。也就是说，扩展要尽量通过 released APIs、released extension points、key user extensibility、developer extensibility、side-by-side extension 或受控 classic APIs 来实现，而不是修改 SAP 标准对象、直接写核心表、调用内部对象或把技术债藏在隐式增强里。</p>
+<p>第二层机制是 A/B/C/D levels。Level A 是最高标准，通常使用 released SAP APIs、released extension points、ABAP Cloud、RAP / CDS / service 化开发、SAP Build 或 BTP side-by-side 等路径，目标是最大升级稳定性和 clean core alignment。Level B 使用 SAP nominated classic APIs / classic technologies，具有较高升级稳定性和较低风险，适合部分 Private Edition / on-premise brownfield 场景，但不应被误读为 Public Edition 可用。Level C 使用 internal objects 或未进入 A/B/D 的对象，可能依赖 changelog / impact analysis 来管理风险。Level D 使用 not recommended objects / patterns，是最高风险类别，应避免、隔离或进入 remediation plan。</p>
+<p>第三层机制是从 3-tier 到 levels 的关系。旧模型可以这样记：Tier 1 = ABAP Cloud / released APIs，Tier 2 = wrapper / Cloud API enablement，Tier 3 = Classic ABAP。新 levels 不是简单把 Tier 1/2/3 改名为 A/B/C/D，而是更细地评价每个扩展里用到的技术和对象。Day 01 的安全说法是：旧 3-tier 是历史背景，新 A-D levels 是更细的现行治理语言；既有 Tier 2 wrapper 不需要因为模型更新而自动重写，但新方案评审时应使用 levels 语言说明风险。</p>
+<p>第四层机制是 lowest-ranked dependency。SAP Learning 给出的规则是，extension 的等级由其中最低等级的 technology / object 决定。比如一个 ABAP class 使用两个 Level A released APIs，又调用一个 Level B classic API，那么整体要按 Level B 理解；如果直接写 SAP 标准表或使用 <code>noAPI</code> 对象，就可能落入 Level D 风险。这个规则比“我大部分代码都很现代”更重要，因为项目升级失败往往就是被少数关键依赖拖住。</p>
+<p>第五层机制是 evidence tools。判断一个对象是不是 released / classic / internal / not recommended，不能靠记忆。常见入口包括 SAP Business Accelerator Hub、ADT 的 API State / Released Objects 属性视图、Cloudification Repository Viewer、SAP 的 Cloudification Repository GitHub 数据、SAP Note 3578329、ATC 的 Usage of APIs / Usage of Released APIs 检查、以及项目中的 ATC 质量门。Week 4 的 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a> 会把这些工具做成具体检查流程。</p>
+<p>第六层机制是 project decision habit。每次看到一个技术方案，都可以先问四个问题：是否能做 Level A？如果不能，Level B classic API 是否被 SAP nominated 且能解释原因？如果落到 Level C，是否有影响调查、测试和升级计划？如果是 Level D，是否有架构师/客户批准和整改路线？Day 01 只要先形成这个习惯，后续学习 RAP、BAdI、BAPI、IDoc、report、ATC 时才有判断标尺。</p>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>クリーンコア</code>、<code>クリーンコア準拠</code>、<code>クリーンコア原則</code>、<code>クリーンコアレベル</code>、<code>リリース済み API</code>、<code>リリース済みオブジェクト</code>、<code>拡張性レベル</code>、<code>Level A/B/C/D</code>、<code>アップグレード安定性</code>、<code>クラシック API</code>、<code>内部オブジェクト</code>、<code>非推奨オブジェクト</code>、<code>使用禁止オブジェクト</code>、<code>ATC チェック</code>、<code>ATCチェック違反</code>、<code>Cloudification Repository</code>、<code>技術負債</code>、<code>改修リスク</code>。</li>
+<li>说明句：この拡張方式はクリーンコア準拠の観点で、リリース済み API またはリリース済みオブジェクトを利用できるかを確認します。</li>
+<li>说明句：Level B はクラシック API を利用する現実的な選択肢ですが、Public Edition でそのまま利用できるという意味ではありません。</li>
+<li>说明句：Level C / D に該当する依存がある場合は、アップグレード影響、ATC 指摘、技術負債としての扱いを設計書に明記します。</li>
+<li>使用场景：基本设计、方式設計、Clean Core review、ATC 指摘説明、移送前確認、アップグレード影響調査、技術負債整理、顧客への例外説明。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>Clean Core Extensibility Levels</code>, <code>Clean Core level concept</code>, <code>released APIs</code>, <code>released objects</code>, <code>SAP Note 3578329</code></li>
+<li>Related terms: <code>Level A</code>, <code>Level B</code>, <code>Level C</code>, <code>Level D</code>, <code>3-tier extensibility model</code>, <code>Tier 1</code>, <code>Tier 2</code>, <code>Tier 3</code>, <code>ABAP Cloud</code>, <code>Cloud API enablement</code>, <code>classic APIs</code>, <code>internal objects</code>, <code>not recommended objects</code>, <code>noAPI</code>, <code>Cloudification Repository</code>, <code>Cloudification Repository Viewer</code>, <code>SAP Business Accelerator Hub</code>, <code>Usage of APIs</code>, <code>Usage of Released APIs</code>, <code>ABAP_CLOUD_DEVELOPMENT_DEFAULT</code>, <code>ABAP_CLOUD_READINESS</code></li>
+<li>Recommended search pattern: <code>Clean Core Extensibility Levels SAP Learning</code>, <code>SAP Note 3578329 Clean Core levels</code>, <code>Cloudification Repository released APIs classic APIs SAP</code>, <code>Clean Core level concept Level A Level B Level C Level D SAP</code></li>
+<li>读官方资料时不要把 <code>Tier 1/2/3</code> 与 <code>Level A/B/C/D</code> 直接一一等同；前者是旧模型背景，后者是更细的现行评估语言。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>假设客户要求“在采购订单保存时，把额外风险等级写入一个扩展字段，并对高风险供应商触发后续审批”。项目上可能出现四种方案：</p>
+<p>第一种方案是 Level A 思路：先查 SAP 是否提供 released API、released BAdI、RAP extension point、key user / developer extensibility 或 side-by-side 事件接口。能用 released extension point 完成，就优先用 released path，并在设计书里写明使用的 released object。</p>
+<p>第二种方案是 Level B 思路：如果当前 Private Edition / on-premise 项目没有合适 released API，但 SAP nominated classic API 或成熟 classic BAdI 可以稳定使用，可以把它作为 pragmatic brownfield option。这里要说明它不是 Public Edition portable，也不应当伪装成 Level A。</p>
+<p>第三种方案是 Level C 风险：直接调用某个内部 function module 或未释放 class，当前系统可能能跑，但 SAP 没有给客户使用稳定性保证。这样的方案必须有影响调查、ATC finding 说明、升级测试和备选路径。</p>
+<p>第四种方案是 Level D 风险：直接修改 SAP 标准对象、隐式增强关键标准逻辑、对 SAP 核心表做不支持的写入，或者依赖 Cloudification Repository 中 <code>noAPI</code> 对象。这类方案不应作为普通开发方案提交，除非有非常明确的例外审批和整改计划。</p>
+<p>学习这个例子时，不需要马上知道采购订单有哪些具体 BAdI 或 API。重点是形成判断顺序：Level A first，Level B if justified，Level C with explicit risk，Level D avoid/remediate。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>误区 1：把 Clean Core 理解成“不要写 Z 代码”。修正：Clean Core 不是禁止扩展，而是要求通过稳定、可升级、可治理的方式扩展。</li>
+<li>误区 2：把旧 3-tier 与新 Level A/B/C/D 一一对应。修正：3-tier 是背景，levels 是更细的评估语言；不要把 Tier 2 简单改名为 Level B。</li>
+<li>误区 3：把 Level B 说成“不一定稳定”。修正：Level B 是 SAP nominated classic APIs / technologies，具有较高升级稳定性和低风险，但不等于 public-cloud-ready。</li>
+<li>误区 4：把 Level C 当成“只要记录一下就可以用”。修正：Level C 没有完整稳定性保证，需要影响调查、ATC 证据、测试和升级风险说明。</li>
+<li>误区 5：把 Level D 当成“高级技巧”。修正：Level D 是 not recommended/highest-risk path，应避免、隔离或整改。</li>
+<li>误区 6：只看自己写的代码，不看依赖对象等级。修正：整体等级由最低等级依赖决定，少数危险依赖也会拉低整个扩展。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>一个扩展 90% 使用 released APIs，但 10% 调用 classic API，整体还能叫 Level A 吗？为什么？</li>
+<li>为什么 Level B 是 brownfield 项目里的现实选择，但不能被说成 Public Edition 可迁移路径？</li>
+<li>如果客户坚持使用一个内部 function module，设计书里至少要补哪些风险说明？</li>
+<li>在日本项目中，如何用一句日语说明“这个方案有 Level D dependency，不能作为普通方案推进”？</li>
+<li>在 AC0567C POC 或后续 RAP 示例里，哪些对象可以作为 Level A / released API 思维的证据？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/explaining-extensibility-model-best-practices_e290f382-800e-40ef-a203-85a13115f487" target="_blank" rel="noopener noreferrer">Exploring Clean Core Extensibility Best Practices</a>（accessed 2026-06-13）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/exploring-released-apis_d80ce197-097e-4e7b-8696-b960738089c7" target="_blank" rel="noopener noreferrer">Exploring Released APIs</a>（accessed 2026-06-13）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/creating-tier-2-cloud-apis_a75bf2cd-815c-42bb-8d3b-2bba4931ecad" target="_blank" rel="noopener noreferrer">Setting Up For Clean Core Development</a>（accessed 2026-06-13）</li>
+<li>SAP Support Portal: <a href="https://me.sap.com/notes/3578329" target="_blank" rel="noopener noreferrer">SAP Note 3578329</a>（login may be required; accessed 2026-06-13）</li>
+<li>SAP GitHub: <a href="https://github.com/SAP/abap-atc-cr-cv-s4hc" target="_blank" rel="noopener noreferrer">SAP Cloud ERP - Released &amp; Classic API list for ATC</a>（accessed 2026-06-13）</li>
+<li>SAP: <a href="https://sap.github.io/abap-atc-cr-cv-s4hc/" target="_blank" rel="noopener noreferrer">Cloudification Repository Viewer</a>（accessed 2026-06-13）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Clean Core Extensibility Levels and Released API Dependency</a> <strong>本日收束</strong></p>
+<p>读完 Day 01 后，不要求记住所有产品名，而要能分清三件事：业务系统是什么，ABAP 代码运行在哪里，项目环境怎样把开发、测试和生产隔离开。若还会把 S/4HANA、ABAP Platform、ADT、BTP 混成一个词，先回到本日第 1-3 节重读；Day 02 会把这张地图落到 ADT 中的实际开发动作。</p>
+<h4 id="7-1-day-02-adt-repository-object-8ac743cd">7.1 Day 02 - ADT 与 Repository Object 生命周期</h4>
+<p>每日课程入口：<span class="wiki unresolved">Day 02 - ADT 与 Repository Object 生命周期</span></p>
+<p><strong>本日导读</strong></p>
+<p>Day 02 的主线是“一个 ABAP 对象从创建到上线前确认，会经历哪些动作”。在 SAP 项目里，代码不是只存在于本地文件系统中；它属于 repository object，被 package 组织，被 transport request 带到其他系统，并且只有 activation 后才真正形成可运行或可引用的版本。</p>
+<p>阅读时重点抓住四个问题：我改的是哪个对象，它属于哪个 package，它是否已经 activation，它的变更会通过哪个 transport request 进入 QAS/PRD。Where-used list、debugger、client strategy 和命名规则都是围绕这四个问题服务的。</p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-006-abap-cloud-80dd1a89.html">Previous section</a><a href="section-01-008-abap-development-tools-in-eclipse-fef5783a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

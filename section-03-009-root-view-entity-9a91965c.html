@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Root view entity 根视图实体 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="9-root-view-entity-b5f11bd4" class="chapter-title">9. Root view entity 根视图实体</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 09</li><li>self-contained study note</li></ul><h4 id="9-1-f12c61f5" class="semantic-heading semantic-concept">9.1 一句话结论</h4>
+<p>Root view entity 根视图实体，是用 <code>define root view entity</code> 把一个 CDS view entity 声明为 RAP business object 的根节点。它不是“字段更多的 CDS view”，而是告诉 RAP：这个实体是一个业务对象的入口，后续 behavior definition、lock、authorization、composition child、projection view 和 OData 服务都要围绕它展开。</p>
+<p>对初学者来说，可以先把它理解成“业务对象的 header / aggregate root”。例如 Travel 是根，Booking 是子；Sales Order 是根，Sales Order Item 是子。根视图实体负责定义这个业务对象最上层的识别方式、核心字段、对外关联和下级组成关系。真正的 create / update / delete、validation、determination、action、save sequence 不写在 root view entity 里，而是在后续 <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a> 和 behavior implementation 中定义。</p>
+<h4 id="9-2-486cffa0" class="semantic-heading semantic-concept">9.2 到底学什么</h4>
+<p>学习 Root view entity，要抓住三个层次。</p>
+<p>第一，它仍然是 CDS view entity。它有 DDL source，有 <code>as select from ...</code>，有 key element、字段别名、annotation、association，也要在 ADT 中保存、语法检查和 activation。前面学过的 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a>、<a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a>、<a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a> 和 <a class="wiki" href="section-03-008-path-expression-a44162f7.html">Path expression 路径表达式</a> 在这里都还有效。</p>
+<p>第二，它多了 <code>root</code> 这个 RAP 语义。SAP ABAP Keyword Documentation 对 <code>ROOT</code> 的定义很直接：这个 addition 把相关 CDS entity 定义为 ABAP RESTful Application Programming Model 中 RAP business object 的 root entity。也就是说，<code>root</code> 不是 UI 装饰，也不是数据库约束；它是 RAP BO 建模的入口语义。</p>
+<p>第三，它通常会成为后续 repository object 的起点。SAP Learning 的 RAP 课程说明，behavior definition 直接依赖 CDS root entity；一个 interface / data-model behavior definition 只对应一个 root entity，而这个 data-model root 通常也只有一个对应的 interface behavior definition。这里要注意层次：projection root view 还可以有单独的 projection behavior definition，用来把底层 BO 的行为暴露给特定 consumer。初学者在项目里看到两个 <code>.bdef</code> 文件时，不要误以为 root 概念冲突，而要先判断一个是不是 projection layer。</p>
+<p>所以本节要学的不是“怎么多写一个关键字”，而是：为什么一个 RAP 应用要先选出根，哪些关系应该挂在根下面，哪些能力不属于根视图实体本身。</p>
+<h4 id="9-3-8f01e469" class="semantic-heading semantic-why">9.3 为什么重要</h4>
+<p>Root view entity 决定 RAP business object 的形状。这个形状一旦进入 behavior definition、projection view、service definition、service binding 和前端消费，就会变成项目中的接口契约。字段名、key、composition、authorization master、lock master、projection 暴露范围，都可能受到根的选择影响。</p>
+<p>如果根选错，后面会出现很典型的项目问题：</p>
+<ul>
+<li>一个本来应该作为子对象存在的 item 被当成 root 暴露，导致 create / update / delete 边界混乱。</li>
+<li>一个 root 只适合查询，却被拿来做 transactional BO，后续 behavior definition 要补很多奇怪的限制。</li>
+<li>composition 和 to-parent association 不成对，activation 或行为建模时反复报错。</li>
+<li>OData 服务暴露后，UI 看到的导航结构和业务人员理解的业务对象结构不一致。</li>
+<li>authorization、lock、draft、save sequence 的讨论没有共同锚点。</li>
+</ul>
+<p>Java/Python 背景的读者可以把 root view entity 类比成 DDD 里的 aggregate root 加上 ORM/DTO 层的一部分影子，但不能完全等同。RAP 的 root 不是普通类，不拥有 ABAP 方法实现；它是 CDS 数据模型中的根节点，行为由 BDL 和 behavior pool 接上。它也不是数据库表本身；一个 root view entity 可以从表、其他 view entity 或更复杂的数据模型选取字段，并通过 association/composition 表达业务关系。</p>
+<h4 id="9-4-key-mechanism-268fdb8f" class="semantic-heading semantic-mechanism">9.4 Key mechanism / 核心机制</h4>
+<h5 id="9-4-1-define-root-view-entity-rap-2907f71d">9.4.1 <code>define root view entity</code> 表达的是 RAP 根</h5>
+<p>普通 CDS view entity 通常写成：</p>
+<pre><code class="language-abap">define view entity ZI_Booking
+  as select from zbooking
+{
+  key booking_id as BookingID,
+      travel_id  as TravelID,
+      ...
+}</code></pre>
+<p>Root view entity 多了 <code>root</code>：</p>
+<pre><code class="language-abap">define root view entity ZI_Travel
+  as select from ztravel
+{
+  key travel_id as TravelID,
+      agency_id as AgencyID,
+      ...
+}</code></pre>
+<p>这个 <code>root</code> 的意义不是“它一定在 SQL 上更快”，也不是“它自动变成 OData 服务”。它只是把 CDS entity 声明为 RAP BO 的根。要让它变成可写的业务对象，还需要 behavior definition；要让它变成服务，还需要 projection view、service definition 和 service binding。</p>
+<h5 id="9-4-2-root-child-composition-to-parent-d127480f">9.4.2 Root、child、composition、to-parent 要一起看</h5>
+<p>RAP 业务对象常常不是单表模型。以 Travel / Booking 为例，Travel 可以是 root，Booking 是 child。根到子通常用 <code>composition</code> 表示，子到父要有 <code>association to parent</code>。</p>
+<pre><code class="language-abap">define root view entity ZI_Travel
+  as select from ztravel
+  composition [0..*] of ZI_Booking as _Booking
+{
+  key travel_id as TravelID,
+      ...
+      _Booking
+}</code></pre>
+<p>子实体则不是 root：</p>
+<pre><code class="language-abap">define view entity ZI_Booking
+  as select from zbooking
+  association [1..1] to parent ZI_Travel as _Travel
+    on $projection.TravelID = _Travel.TravelID
+{
+  key travel_id  as TravelID,
+  key booking_id as BookingID,
+      ...
+      _Travel
+}</code></pre>
+<p>SAP-samples 的 RAP openSAP 教材也用 Travel / Booking 展示这个模式：先创建 Travel root view entity，再创建 Booking view entity，然后给 Travel 加 <code>composition [0..*] of ... as _Booking</code>，给 Booking 加 <code>association to parent ... as _Travel</code>。教材还提醒，这类相互依赖的 CDS views 初次创建时可能需要一起 activation。</p>
+<p>这正是 root view entity 的实际价值：它不是孤立的一张“主表视图”，而是 composition tree 的入口。</p>
+<h5 id="9-4-3-root-view-entity-projection-view-0d1cdc64">9.4.3 Root view entity 不等于 projection view</h5>
+<p>Root view entity 属于 data model / interface model 一侧，projection view 属于消费或服务裁剪一侧。一个常见命名习惯是：</p>
+<ul>
+<li><code>ZI_Travel</code>：interface / data model root view entity。</li>
+<li><code>ZC_Travel</code>：consumption / projection root view entity。</li>
+</ul>
+<p>两者都可能带 <code>root</code>，但语义层不同。前者定义业务对象的核心模型，后者决定某个服务或消费场景能看到哪些字段、哪些 association、哪些 operation。SAP Learning 在 behavior projection 部分也说明，projection behavior 是基于 projection root view 创建的，它把底层 business object 的行为暴露给特定 consumer，而不是重新实现底层行为。标准 RAP 服务建模中，通常要先建立 projection root view，再通过 service definition / service binding 暴露；不要把 interface root view 直接当成最终服务契约。</p>
+<p>因此，本节先讲 root view entity；下一节 <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a> 再讲“服务暴露时如何裁剪”。</p>
+<h5 id="9-4-4-root-view-entity-c237c793">9.4.4 Root view entity 不负责行为实现</h5>
+<p>Root view entity 能定义字段、key、association、composition、annotation，但它不写业务行为。下面这些不是 root view entity 的职责：</p>
+<ul>
+<li>create / update / delete 是否允许。</li>
+<li>validation 和 determination。</li>
+<li>action 的定义与实现。</li>
+<li>lock master / authorization master 的声明。</li>
+<li>draft、early numbering、late numbering。</li>
+<li>save sequence 中何时 check、adjust、save。</li>
+<li>reported / failed message 如何返回。</li>
+</ul>
+<p>这些属于 <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a>、behavior implementation、<a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a>、authorization 和 service 层。SAP Learning 的 behavior definition 模板会为 managed scenario 要求 persistent table、lock type 和 authorization type，并说明 root entity 总是 lock master 和 authorization master。这说明 root 是行为定义的锚点，但不是行为本身。</p>
+<p>还有两个项目风险要提前记住。第一，在 Clean Core、SAP S/4HANA Cloud 和 SAP BTP ABAP Environment 语境下，root view entity、composition target、association target 和 behavior implementation 需要优先使用 released API / released CDS view；引用未 released 对象可能在 activation、ATC 或升级审查中出问题。第二，draft 不是给 root view entity 加一个字段那么简单；启用 draft 会牵涉 behavior definition、draft table、root/child 结构和保存流程，不能在 root 这一层孤立决定。</p>
+<h4 id="9-5-02a36265" class="semantic-heading semantic-japan">9.5 日本项目现场说法</h4>
+<p>常见日语表达：</p>
+<ul>
+<li><code>ルートビューエンティティ</code></li>
+<li><code>RAP BO のルートエンティティ</code></li>
+<li><code>親子構成</code></li>
+<li><code>コンポジション</code></li>
+<li><code>親へのアソシエーション</code></li>
+<li><code>プロジェクションビュー</code></li>
+<li><code>ビヘイビア定義</code></li>
+</ul>
+<p>设计说明中可以这样说：</p>
+<pre><code class="language-text">この CDS は RAP BO のルートビューエンティティとして定義し、明細側は composition と to-parent association で親子関係を表現します。</code></pre>
+<p>代码 review 中可以这样说：</p>
+<pre><code class="language-text">この項目はルートで保持すべき業務キーなのか、子エンティティ側の属性なのかを確認してください。</code></pre>
+<p>移送前确认中可以这样说：</p>
+<pre><code class="language-text">ルートビュー、子ビュー、ビヘイビア定義、プロジェクションビューを同じ移送単位で確認しないと、依存関係の activation エラーが出る可能性があります。</code></pre>
+<h4 id="9-6-english-terms-b56d8e45" class="semantic-heading semantic-terms">9.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>define root view entity</code></li>
+<li>Official / search term: <code>CDS root entity</code></li>
+<li>Official / search term: <code>RAP business object root entity</code></li>
+<li>Official / search term: <code>CDS composition</code></li>
+<li>Official / search term: <code>association to parent</code></li>
+<li>Official / search term: <code>behavior definition root entity</code></li>
+<li>Official / search term: <code>projection behavior definition</code></li>
+<li>Official / search term: <code>EXTEND VIEW ENTITY root entity</code></li>
+</ul>
+<p>检索时可以用：</p>
+<pre><code class="language-text">define root view entity SAP ABAP
+CDS root entity RAP behavior definition SAP Learning
+CDS view entity COMPOSITION ASSOCIATION TO PARENT ABAP Keyword Documentation</code></pre>
+<h4 id="9-7-example-77d09b0a" class="semantic-heading semantic-example">9.7 Example / 学习例子</h4>
+<h5 id="9-1-travel-root-fc4934d9">9.例 1：Travel 作为 root</h5>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Travel root&#x27;
+define root view entity ZI_Travel
+  as select from ztravel as Travel
+  composition [0..*] of ZI_Booking as _Booking
+  association [0..1] to ZI_Agency as _Agency
+    on $projection.AgencyID = _Agency.AgencyID
+{
+  key travel_id  as TravelID,
+      agency_id  as AgencyID,
+      begin_date as BeginDate,
+      end_date   as EndDate,
+      status     as Status,
+
+      _Booking,
+      _Agency
+}</code></pre>
+<p>读这段代码时，不要只看字段。要问五个问题：</p>
+<ul>
+<li><code>TravelID</code> 是否真的是 root 的识别字段？</li>
+<li><code>Booking</code> 是否依附于 Travel 生命周期？</li>
+<li><code>_Booking</code> 是否应该作为 composition 暴露？</li>
+<li><code>_Agency</code> 是普通 lookup association，还是子对象？</li>
+<li>后续 behavior definition 是否应该以 <code>ZI_Travel</code> 为 root？</li>
+</ul>
+<h5 id="9-2-booking-child-9f7f2fe7">9.例 2：Booking 作为 child</h5>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Booking child&#x27;
+define view entity ZI_Booking
+  as select from zbooking as Booking
+  association [1..1] to parent ZI_Travel as _Travel
+    on $projection.TravelID = _Travel.TravelID
+{
+  key travel_id  as TravelID,
+  key booking_id as BookingID,
+      flight_no  as FlightNo,
+      price      as Price,
+
+      _Travel
+}</code></pre>
+<p><code>Booking</code> 不是 root，因为从业务对象角度看，它通常依附于 Travel。它需要回指 parent，才能和 root 的 composition tree 对上。这个结构也为后续 EML、draft、save sequence 和 OData navigation 打基础。</p>
+<h5 id="9-3-root-behavior-definition-a3fdb40c">9.例 3：从 root 创建 behavior definition</h5>
+<p>在 ADT 中，基于 root view entity 创建 behavior definition 时，工具会把 root entity 作为行为定义的入口。一个极简 managed behavior definition 会长得像这样：</p>
+<pre><code class="language-abap">managed implementation in class zbp_i_travel unique;
+strict ( 2 );
+
+define behavior for ZI_Travel alias Travel
+  persistent table ztravel
+  lock master
+  authorization master ( instance )
+{
+  create;
+  update;
+  delete;
+}</code></pre>
+<p>本例只是为了说明依赖关系：behavior definition 依赖 root view entity。不要在 root view entity 里寻找 <code>create</code>、<code>update</code>、<code>validation</code> 这类行为语句。如果这个 BO 有 composition child，真实 <code>.bdef</code> 通常还要定义 child entity 的 behavior、composition 相关能力和必要的 mapping；只定义 root behavior 并不等于整个复合 BO 已经完整。</p>
+<h4 id="9-8-counterexample-failure-mode-aa374b62" class="semantic-heading semantic-example">9.8 Counterexample / Failure mode</h4>
+<h5 id="9-1-cds-view-root-a385c393" class="semantic-heading semantic-failure">9.误区 1：把所有 CDS view 都写成 root</h5>
+<p>如果一个项目里每个查询视图都写成 <code>define root view entity</code>，通常说明团队没有区分“查询模型”和“业务对象根”。Root 应该服务 RAP BO 建模，不是普通报表视图的默认模板。</p>
+<h5 id="9-2-root-child-association-db2a2c87" class="semantic-heading semantic-failure">9.误区 2：root 和 child 关系只用普通 association</h5>
+<p>如果 Travel 到 Booking 只是普通 association，而项目又希望它们作为一个 transactional BO 一起被创建、修改、保存，就会缺少 composition tree 的语义。普通 association 表示可导航关系；composition 表示更强的父子组成关系和生命周期依赖。</p>
+<h5 id="9-3-root-view-entity-5cad06c4" class="semantic-heading semantic-failure">9.误区 3：以为 root view entity 自动带授权</h5>
+<p>Root view entity 可以有 <code>@AccessControl.authorizationCheck</code>，也可以在 behavior definition 里进入 authorization master 的讨论，但它不等于完整权限设计。DCL、RAP instance authorization、PFCG role、service exposure 仍然要分别检查。</p>
+<h5 id="9-4-root-2f759508" class="semantic-heading semantic-failure">9.误区 4：在 root 层塞太多消费字段</h5>
+<p>如果某个字段只是某个 Fiori 列表页需要的派生显示字段，不一定应该放进 interface root。可以考虑放在 <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a> 或消费层。Root 层越靠近核心业务模型，越应该稳定、清晰、少混入 UI 偏好。</p>
+<h5 id="9-5-extension-view-root-898b629a" class="semantic-heading semantic-failure">9.误区 5：以为可以后补一个 extension 把普通 view 变成 root</h5>
+<p>Root 是 data definition 的核心语义，不是 later extension 的装饰。项目中如果已经有普通 <code>define view entity</code>，不要假设通过 <code>EXTEND VIEW ENTITY</code> 就能把它“升级”为 root。更稳妥的做法是重新确认 BO 建模入口、依赖对象、activation 顺序和影响范围。</p>
+<h4 id="9-9-f8f7d921" class="semantic-heading semantic-practice">9.9 思考问题</h4>
+<ul>
+<li>当前业务对象的 root 是什么？是 header、master data、document，还是某个明细行？</li>
+<li>子对象是否依附 root 生命周期？如果 root 删除，child 应该怎样处理？</li>
+<li>哪些关系是 composition，哪些只是 lookup association？</li>
+<li>behavior definition 应该基于哪个 root view entity 创建？</li>
+<li>projection root view 是否只是服务裁剪，还是错误地承担了核心模型职责？</li>
+<li>是否处于 Clean Core / ABAP Cloud / SAP S/4HANA Cloud 约束下？root 和关联对象是否都是 released object？</li>
+<li>如果启用 draft，draft table、root/child 结构和 behavior definition 是否一起设计？</li>
+<li>在日本项目评审中，能否用 <code>ルートビューエンティティ</code>、<code>コンポジション</code>、<code>親エンティティへのアソシエーション</code>、<code>プロジェクションビュー</code>、<code>ビヘイビア定義</code> 说明建模选择？</li>
+</ul>
+<h4 id="9-10-e06d0e22" class="semantic-heading semantic-reference">9.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_DEFINE_ROOT_VIEW_V2.html" target="_blank" rel="noopener noreferrer">SAP Help - CDS View Entity, ROOT</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_DEFINE_VIEW_ENTITY.html" target="_blank" rel="noopener noreferrer">SAP Help - CDS DDL, DEFINE VIEW ENTITY</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_COMPOSITION_V2.html" target="_blank" rel="noopener noreferrer">SAP Help - CDS View Entity, COMPOSITION</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_TO_PARENT_ASSOC_V2.html" target="_blank" rel="noopener noreferrer">SAP Help - CDS View Entity, ASSOCIATION TO PARENT</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-business-objects-and-their-behavior" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Business Objects and their Behavior</a>（accessed 2026-06-18）</li>
+<li><a href="https://github.com/SAP-samples/abap-platform-rap-opensap/blob/main/week4/unit2.md" target="_blank" rel="noopener noreferrer">SAP-samples - abap-platform-rap-opensap week4 unit2</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="9-11-connections-bb18397b">9.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li>Upstream: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Upstream: <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li>Upstream: <a class="wiki" href="section-03-008-path-expression-a44162f7.html">Path expression 路径表达式</a></li>
+<li>Downstream: <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li>Downstream: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Downstream: <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li>Related: <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a></li>
+<li>Related: <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 16 - CDS Association、Path 与 Projection</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="9-12-81462f59" class="semantic-heading semantic-practice">9.12 学习任务</h4>
+<ol>
+<li>用自己的中文解释：为什么 <code>define root view entity</code> 不是普通 <code>define view entity</code> 的同义写法？</li>
+<li>画出一个业务对象的 root / child / composition / to-parent association 图。</li>
+<li>在 ADT 或示例代码中找到一个 <code>define root view entity</code>，确认它后面是否有 behavior definition。</li>
+<li>用日语写一句 review 评论，说明某个 entity 是否应该成为 root。</li>
+<li>把本节与 <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a> 对比：哪些字段适合 root，哪些字段更适合 projection？</li>
+<li>检查一个现有 root view entity：它引用的 CDS view、association target、composition target 是否适合当前系统的 Clean Core / released API 要求？</li>
+</ol>
+<h4 id="9-13-confidence-next-action-f01cccee" class="semantic-heading semantic-status">9.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for tutorial use。本节已按 SAP Help / ABAP Keyword Documentation、SAP Learning RAP course、SAP-samples RAP Travel / Booking exercises 复核；Joule review 返回 <code>Pass with Fixes</code> 并已集成关键修正，Claude 初审 blocker 与 follow-up 均已处理。项目特定命名、VDM / namespace 规则仍需按现场约定确认。</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿结构同步；随后继续 <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-008-path-expression-a44162f7.html">Previous section</a><a href="section-03-010-projection-view-b2bacd1c.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

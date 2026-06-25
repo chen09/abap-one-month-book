@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Service definition 服务定义 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="39-service-definition-3ff25e27" class="chapter-title">39. Service definition 服务定义</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 39</li><li>self-contained study note</li></ul><h4 id="39-1-0cc651d0" class="semantic-heading semantic-concept">39.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a> 是 ABAP RESTful Application Programming Model 中定义“这个业务服务要暴露哪些 CDS/RAP entity”的 repository object。它不决定最终使用 OData V2、OData V4、UI service 还是 Web API；它先把可暴露的业务对象、projection entity、association、action/function 选出来，形成 API-facing contract surface。</p>
+<p>一句话记忆：service definition 回答“暴露什么”，<a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a> 回答“用什么协议和场景发布”。</p>
+<h4 id="39-2-634d6e4b" class="semantic-heading semantic-concept">39.2 到底学什么</h4>
+<p>前面几天已经学了 CDS root/projection、behavior definition、action、validation、save sequence。到 Day 21，问题从“BO 内部怎么工作”转成“外部消费者如何看到它”。Service definition 就是这个转折点。</p>
+<p>在 ADT 中，service definition 通常长得很短：</p>
+<pre><code class="language-abap">define service ZUI_TRAVEL {
+  expose ZC_TRAVEL as Travel;
+  expose ZC_BOOKING as Booking;
+}</code></pre>
+<p>这几行代码没有实现 SQL，也没有实现保存逻辑。它的作用是声明：这个 service 对外暴露哪些 entity，以及它们在 service 中叫什么名字。若 <code>ZC_TRAVEL</code> 是 projection view，projection behavior 中启用了 action、draft、authorization、association，那么这些能力会在服务暴露层形成可消费的 OData metadata 和操作入口。</p>
+<p>本节要学四件事。第一，service definition 是 API contract 的选择层，不是 protocol 发布层。第二，它通常暴露 projection entity，而不是直接把内部 interface/root entity 全部裸露出去。第三，暴露名称会影响 OData path、metadata、前端绑定和测试脚本。第四，service definition 只是服务交付链的一步；没有 service binding，它还不能被实际协议消费。</p>
+<h4 id="39-3-59a88a75" class="semantic-heading semantic-why">39.3 为什么重要</h4>
+<p>Service definition 重要，是因为它是 RAP 内部模型和外部 API 之间的第一道边界。内部 CDS / behavior 可以很复杂：root entity、child entity、text entity、association、projection、draft、action、authorization、validation。外部消费者不应该自动看到所有内部对象，而应该看到经过选择和命名的服务契约。</p>
+<p>如果 service definition 设计得太随意，会出现很多项目问题。比如把内部 interface view 直接暴露，导致字段、association、技术 key、内部 action 全部泄漏给前端；或者为了方便 preview 暴露太多 entity，后续改名时破坏 OData path；或者同一个业务服务里混入不相干对象，导致授权、测试和版本管理都变得混乱。</p>
+<p>对项目交付来说，service definition 是设计书和测试证据的对象。设计说明不能只写“发布 OData”。它应该说明：暴露哪些 entity；每个 entity 的别名是什么；是否暴露 child entity 和 navigation；哪些 action/function 会进入服务；哪些对象只是内部复用，不暴露；服务未来是否作为 UI service 还是 Web API 交付。</p>
+<p>对 Java/Python 背景学习者，可以把 service definition 类比成 API route/resource declaration，但 SAP 的差异是：它会生成 OData metadata，携带 entity set、navigation、action、draft、annotation、类型信息。消费者常常不是手写 HTTP 调用，而是 Fiori Elements、SAPUI5、integration tool 或测试工具读取 metadata 后消费。</p>
+<h4 id="39-4-key-mechanism-6eae1acb" class="semantic-heading semantic-mechanism">39.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 <code>define service</code>。Service definition 是一个 ABAP repository object，通常在 ADT 中创建。它用 <code>expose</code> 语句列出要暴露的 CDS entity，并可以给外部服务名设置 alias。Alias 很重要，因为它会影响 OData URL 中的 entity set 名称和消费者看到的 contract。</p>
+<p>第二层机制是暴露 projection。RAP 项目中，推荐让 service definition 面向 projection layer，而不是直接暴露底层 interface/root view。Projection layer 可以控制字段、association、UI/API 语义和 behavior projection，是 Clean Core 和 API 稳定性的缓冲层。</p>
+<p>第三层机制是 entity relationship。若暴露的 entity 带有 association/composition，并且 projection/service 层允许导航，OData metadata 中会出现 navigation property。消费者才能从 Travel 导航到 Booking，或通过 expand 读取关联数据。暴露 root entity 但漏掉必要 child/navigation，会让前端或 API 调用无法完成常见业务场景。</p>
+<p>第四层机制是 behavior surface。Service definition 暴露的不是“表”，而是 CDS/RAP entity 的服务面。若 projection behavior 中有 action、function、create/update/delete、draft action 等能力，最终 service metadata 和 runtime 能力会受到这些行为定义影响。Service definition 自己不实现 action，但它决定这些对象是否进入这个 service。</p>
+<p>第五层机制是 service binding 的接力。Service definition 创建后，还需要 service binding 选择 protocol / binding type，例如 OData V4 UI、OData V4 Web API、OData V2 等具体消费方式。Binding 才会生成可 publish、可 preview、可调用的 endpoint。把 service definition 和 binding 混在一起，是初学者常见误区。</p>
+<p>第六层机制是 transport 和版本。Service definition 是 repository object，要进入 package、transport request、DEV/QAS/PRD 路径。它的名字、alias、暴露对象一旦被前端、接口或测试脚本依赖，修改就具有兼容性影响。</p>
+<p>第七层机制是 metadata contract。Service definition 暴露的 entity 和 alias 会进入 OData metadata；consumer 看到的是 entity set、property、navigation property、action/function import 或 bound action 等服务契约元素。也就是说，service definition 不是“几行发布配置”，而是后续 UI、接口、测试、监控、文档共同依赖的名称空间。</p>
+<p>第八层机制是安全边界的分工。Service definition 决定“哪些对象可被服务看到”，但它本身不是完整的权限控制。字段和数据行能否被访问，还要结合 <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a>、DCL role、RAP authorization、business role、communication scenario / arrangement 以及具体 binding/runtime 的权限检查。设计 service definition 时不能假设“不暴露就等于安全”，也不能假设“暴露了就自动可访问”。</p>
+<p>第九层机制是 contract stability。Service definition 里的 <code>expose ... as ...</code> 看起来只是命名，但 alias 会进入 OData metadata、URL path、Fiori Elements binding、测试脚本和外部接口说明。初学阶段可以随手改名；项目阶段则要把它当作 API contract 变更处理。删除 entity、改 alias、隐藏 navigation、移除 action/function，都可能让前端页面、外部调用方、自动化测试或监控脚本失效。因此，service definition 的命名要尽早稳定，变更时要写清楚影响范围和兼容策略。</p>
+<p>一个实用的设计流程如下：</p>
+<ol>
+<li>从用例开始：这个服务是给 Fiori UI、外部 Web API、批处理接口，还是测试/运维工具使用？</li>
+<li>选择 projection layer：优先暴露面向 consumer 的 projection entity，避免把内部 interface/root view 直接作为长期契约。</li>
+<li>画出 root / child / navigation：确认消费者是否需要从 root 导航到 item、text、status、log 等对象。</li>
+<li>固定 alias：把 <code>expose ... as ...</code> 的名称当作 API contract，避免为了“看起来更短”随意改名。</li>
+<li>检查 behavior surface：确认 create/update/delete、action、function、draft action 是否通过 projection behavior 和 service 暴露给消费者。</li>
+<li>交给 service binding 验证：publish 后看 metadata、preview、HTTP 测试和 authorization，而不是只看 ADT 激活成功。</li>
+</ol>
+<p>可以用下面的表来审查一个 service definition：</p>
+<div class="table-wrap"><table><thead><tr><th>审查项</th><th>应确认什么</th><th>项目交付证据</th></tr></thead><tbody><tr><td>Exposed entity</td><td>暴露的是 projection、interface 还是 root entity</td><td>ADT source、对象命名、设计书</td></tr><tr><td>Alias</td><td><code>as</code> 后的公开名是否稳定、可读、适合 consumer</td><td>metadata、URL path、测试脚本</td></tr><tr><td>Root / child</td><td>root 与 child 是否按业务场景一起暴露</td><td>navigation property、Fiori 页面结构</td></tr><tr><td>Action / function</td><td>业务动作是否能在服务中被看到</td><td>metadata、HTTP action call、单体测试</td></tr><tr><td>Internal objects</td><td>哪些内部 view、log、配置、技术对象不暴露</td><td>设计说明、review 记录</td></tr><tr><td>Security</td><td>行级/对象级权限是否另有 DCL/RAP auth/role 支撑</td><td>DCL、behavior auth、role evidence</td></tr><tr><td>Binding target</td><td>后续作为 UI service 还是 Web API 发布</td><td>service binding、测试 URL、消费方说明</td></tr></tbody></table></div>
+<p>UI service 和 Web API 的权重也不一样。UI service 往往服务 Fiori Elements 页面，需要 annotation、draft、navigation、value help、页面行为和用户交互语义；Web API 更强调稳定路径、清晰 payload、错误码、幂等、外部系统授权和版本策略。同一个业务对象可以复用底层模型，但如果 UI 和外部 API 的 contract 明显不同，项目上应考虑拆分 projection/service definition 或至少拆分 binding 和测试证据，不要把所有消费场景塞进一个“万能服务”。</p>
+<h5 id="service-contract-change-impact-checklist-08c905f7">Service contract change impact checklist</h5>
+<p>Service definition 的变更要当作 API contract 变更处理。下面这些改动即使 ADT 能正常激活，也可能破坏消费者。</p>
+<div class="table-wrap"><table><thead><tr><th>改动</th><th>可能影响</th><th>Review 必问</th></tr></thead><tbody><tr><td>改 <code>expose ... as ...</code> alias</td><td>OData entity set、URL path、Fiori binding、测试脚本</td><td>是否需要兼容层、版本说明或消费方同步</td></tr><tr><td>删除 exposed entity</td><td>页面、navigation、外部查询、metadata consumer</td><td>是否仍有消费方依赖该 entity</td></tr><tr><td>隐藏 association/navigation</td><td><code>$expand</code>、Fiori object page、deep read</td><td>是否有替代路径或前端改造计划</td></tr><tr><td>移除 action/function</td><td>按钮、API operation、自动化测试</td><td>行为是否还在 projection behavior / metadata 中可见</td></tr><tr><td>暴露内部技术 entity</td><td>权限、字段泄漏、升级稳定性</td><td>是否应改为 projection 或单独 admin/internal service</td></tr><tr><td>UI/API 共用同一服务</td><td>版本节奏、payload 形状、错误语义</td><td>是否需要拆分 UI service 与 Web API</td></tr></tbody></table></div>
+<p>项目上可以把 service definition 变更分为三类。第一类是 additive change，例如新增一个可选 entity 或新增非破坏性字段，通常风险较低，但仍要更新 metadata 和测试。第二类是 behavioral change，例如新增 action、改变 navigation、改变 draft/authorization 暴露方式，需要 UI/API 联调。第三类是 breaking change，例如改 alias、删 entity、删 action、改 key 或隐藏必需 navigation，必须有版本策略、消费方迁移计划和回归测试。</p>
+<p>AC0567C 这类 API 场景尤其要注意公开名。<code>PriorAllocationImportsC</code> 如果已经进入本地 proxy、测试脚本、接口说明或 middleware mapping，就不应把它当成普通变量随意改名。即使内部 CDS entity 可以重构，公开 service contract 也要尽量稳定。</p>
+<h4 id="39-5-3378baa7" class="semantic-heading semantic-japan">39.5 日本项目现场说法</h4>
+<ul>
+<li><code>サービス定義</code>：service definition。</li>
+<li><code>公開対象</code>：要暴露的对象。</li>
+<li><code>公開名</code> / <code>エイリアス</code>：暴露名称 / alias。</li>
+<li><code>サービスバインディング</code>：service binding。</li>
+<li><code>メタデータ</code>：metadata。</li>
+<li><code>ナビゲーション</code>：navigation。</li>
+<li><code>UI サービス</code> / <code>Web API</code>：UI service / Web API。</li>
+</ul>
+<p>このサービス定義では、外部に公開する projection entity と公開名を明確にします。</p>
+<p>意思是：在这个 service definition 中，要明确对外暴露的 projection entity 和暴露名称。</p>
+<p>内部用の interface view を直接公開せず、projection view 経由で API 契約を安定させます。</p>
+<p>意思是：不要直接暴露内部 interface view，而是通过 projection view 稳定 API contract。</p>
+<p>サービス定義は「何を公開するか」、サービスバインディングは「どのプロトコルで公開するか」を決めます。</p>
+<p>意思是：service definition 决定暴露什么，service binding 决定用什么协议暴露。</p>
+<h4 id="39-6-english-terms-3bdb652e" class="semantic-heading semantic-terms">39.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Service definition</code></li>
+<li>Related terms: <code>define service</code>, <code>expose</code>, <code>service binding</code>, <code>OData V4</code>, <code>OData V2</code>, <code>UI service</code>, <code>Web API</code>, <code>projection view</code>, <code>metadata</code>, <code>entity set</code>, <code>navigation property</code>, <code>RAP business service</code></li>
+<li>Recommended search pattern: <code>SAP RAP service definition expose service binding OData V4</code></li>
+<li>ABAP syntax to keep in English: <code>define service</code>, <code>expose</code>, <code>as</code></li>
+</ul>
+<h4 id="39-7-example-f011f996" class="semantic-heading semantic-example">39.7 Example / 学习例子</h4>
+<p>一个最小 service definition 可以这样理解：</p>
+<pre><code class="language-abap">define service ZUI_TRAVEL {
+  expose ZC_TRAVEL as Travel;
+  expose ZC_BOOKING as Booking;
+}</code></pre>
+<p><code>ZC_TRAVEL</code> 和 <code>ZC_BOOKING</code> 是准备对外暴露的 projection entity。<code>Travel</code> 和 <code>Booking</code> 是服务中的暴露名。后续 service binding 发布 OData V4 后，消费者很可能在 metadata、URL path、Fiori binding 或测试脚本里看到这些名字。</p>
+<p>在 AC0567C POC 的永久笔记中，有类似的服务形状：</p>
+<pre><code class="language-text">define service ZRPA01_SD_AC0567C_IMPORT {
+  expose ZRPA01_I_AC0567C_IMPORT as PriorAllocationImportsC;
+}</code></pre>
+<p>这说明 service definition 把一个内部 RAP/CDS 对象暴露成 service contract 中的 <code>PriorAllocationImportsC</code>。本地 proxy 调用 <code>/PriorAllocationImportsC/validate</code>、<code>/PriorAllocationImportsC/execute</code>、<code>/PriorAllocationImportsC/status</code> 这样的路径时，背后就依赖这个暴露名称和 RAP action surface。</p>
+<p>把它放进项目交付语境里，可以这样读：</p>
+<div class="table-wrap"><table><thead><tr><th>读代码时看到的对象</th><th>对读者意味着什么</th></tr></thead><tbody><tr><td><code>ZRPA01_SD_AC0567C_IMPORT</code></td><td>这是 service definition 对象本身，属于 repository object，要进入 transport</td></tr><tr><td><code>ZRPA01_I_AC0567C_IMPORT</code></td><td>被暴露的 RAP/CDS entity，可能承载导入、校验、执行、状态查询的业务模型</td></tr><tr><td><code>PriorAllocationImportsC</code></td><td>消费者看到的服务公开名，可能进入 metadata、URL path、proxy 方法和测试脚本</td></tr><tr><td><code>validate</code> / <code>execute</code> / <code>status</code></td><td>若作为 bound action/function 暴露，调用方要验证 payload、权限、错误处理和重复调用语义</td></tr></tbody></table></div>
+<p>这也是为什么 service definition 不能只看“能不能激活”。它要回答：这个公开名是否能长期使用？这个 service 是否只服务一个清晰的 bounded context？这个 contract 是否能被测试、被说明、被 transport、被维护？</p>
+<p>读 service definition 时，可以按这个顺序检查：</p>
+<ol>
+<li>暴露的是 interface view、root view 还是 projection view？</li>
+<li>暴露名是否稳定、清楚、适合 API consumer？</li>
+<li>是否只暴露了业务需要的 entity，而不是把内部对象全丢出去？</li>
+<li>必要的 child entity、navigation、action 是否能被 consumer 看到？</li>
+<li>后续 service binding 会把它作为 UI service 还是 Web API？</li>
+</ol>
+<h4 id="39-8-counterexample-failure-mode-d1e668cf" class="semantic-heading semantic-example">39.8 Counterexample / Failure mode</h4>
+<p>反例一：把内部 interface view 直接暴露给外部。短期 preview 能打开，长期会泄漏内部字段、技术关联和不稳定命名。修正方式是通过 projection view 暴露稳定 contract。</p>
+<p>反例二：service definition 暴露太多 entity。前端只需要 Travel，却把内部日志、配置、临时状态都暴露出去。结果授权、测试、API 文档都膨胀。修正方式是按业务服务边界选择公开对象。</p>
+<p>反例三：随意改 alias。测试脚本和前端已经调用 <code>/PriorAllocationImportsC</code>，开发者把 alias 改成 <code>/Imports</code>。服务还能激活，但 consumer 全部断。修正方式是把 alias 当作 API contract 管理。</p>
+<p>反例四：把 service definition 当成 endpoint。创建了 service definition 就以为 API 已发布。实际还需要 service binding publish，并确认协议、IWSG/IWSV 或 OData V4 endpoint、authorization、preview 和 HTTP 测试。</p>
+<p>反例五：只看 service preview 成功。Preview 能打开，只证明基本发布和 metadata 可见；不代表 create/update/action、authorization、错误 payload、幂等、并发、性能都可交付。</p>
+<p>反例六：child entity 暴露不完整。服务暴露了 item，却没有稳定 root/navigation，前端页面和外部调用都需要自己拼 key、猜关系。修正方式是回到业务对象边界，确认 root-child composition 和 navigation 是否符合消费场景。</p>
+<p>反例七：action 在 behavior 中存在，但 consumer 看不到。常见原因是 projection behavior 没有投影该 action，或 service/binding/metadata 未按预期发布。修正方式是沿 <code>behavior definition -&gt; projection behavior -&gt; service definition -&gt; service binding -&gt; metadata</code> 逐层排查。</p>
+<p>反例八：把 service definition 当成 OpenAPI 文档。Service definition 能形成 OData metadata，但它不是完整的接口说明书。外部系统仍需要 payload 例子、错误处理、重试/幂等、权限、版本、SLA、测试数据和联系人等交付信息。</p>
+<p>反例九：一个 service definition 混合多个 bounded context。例如同一个服务里同时暴露销售订单、银行文件导入、主数据维护和内部监控对象。短期方便测试，长期会让权限、版本、发布节奏和接口说明全部纠缠。修正方式是按业务能力和消费方拆分服务边界。</p>
+<h4 id="39-9-78f82c86" class="semantic-heading semantic-practice">39.9 思考问题</h4>
+<ul>
+<li>这个 service definition 暴露的是 projection entity 还是内部 interface/root entity？</li>
+<li>每个 <code>expose ... as ...</code> 的 alias 是否会进入 URL、metadata、前端绑定或测试脚本？</li>
+<li>哪些 entity 不应该暴露给外部？原因是内部实现、权限、稳定性还是性能？</li>
+<li>service definition 和 service binding 的职责边界是什么？</li>
+<li>如果要作为 Web API 提供给外部系统，当前暴露对象是否足够稳定？</li>
+<li>这个 service definition 是否有明确 owner、版本策略和变更影响说明？</li>
+<li>UI service 和 Web API 是否真的可以共用同一套 contract？</li>
+<li>在日本项目设计书中，如何说明 <code>公開対象</code> 和 <code>公開名</code>？</li>
+</ul>
+<h4 id="39-10-637e3b83" class="semantic-heading semantic-reference">39.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-an-odata-ui-service" target="_blank" rel="noopener noreferrer">SAP Learning - Defining OData UI Services</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-definition" target="_blank" rel="noopener noreferrer">SAP Help - Service Definition</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-binding" target="_blank" rel="noopener noreferrer">SAP Help - Service Binding</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/using-service-binding-editor-for-odata-v4-service" target="_blank" rel="noopener noreferrer">SAP Help - Using Service Binding Editor for OData V4 Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/getting-started-with-creating-an-sap-fiori-elements-app-based-on-an-odata-v4-rap-service" target="_blank" rel="noopener noreferrer">SAP Learning - Getting Started with Creating an SAP Fiori Elements App Based on an OData V4 RAP Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://github.com/SAP-samples/abap-platform-rap100" target="_blank" rel="noopener noreferrer">SAP-samples - abap-platform-rap100</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">Service definition exposes RAP entities as an OData contract</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="39-11-connections-dd082cb3">39.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a></li>
+<li>Downstream: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Related: <a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li>Related: <a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a></li>
+<li>Related: <a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a></li>
+<li>Related: <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="39-12-b9807b5d" class="semantic-heading semantic-practice">39.12 学习任务</h4>
+<ul>
+<li>写出 service definition 和 service binding 的区别。</li>
+<li>找一个 <code>define service</code> 示例，标出 <code>expose</code> 的内部 entity 和外部 alias。</li>
+<li>补 2 个日语句子：一条说明 <code>公開対象</code>，一条说明不要直接暴露内部 view。</li>
+<li>设计一个 API contract checklist：entity、alias、navigation、action、authorization、test path。</li>
+<li>如果已经进入 Week 4，把 AC0567C POC 的 <code>PriorAllocationImportsC</code> 暴露名映射到调用路径。</li>
+</ul>
+<h4 id="39-13-confidence-next-action-4c725a7c" class="semantic-heading semantic-status">39.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-facing service-definition boundaries after official-source closure. 2026-06-18 已复核 SAP Learning <code>Defining OData UI Services</code>、SAP Help <code>Service Definition</code> / <code>Service Binding</code>、ADT OData V4 service binding editor、Fiori Elements OData V4 RAP service 课程和 SAP-samples RAP100。正文已覆盖 service definition 负责暴露 CDS/RAP entity、<code>define service</code> / <code>expose</code> / alias 语义、projection layer 优先、metadata contract、navigation/action/function surface、service definition 与 service binding 的职责边界、UI service vs Web API 取舍、contract change impact，以及 AC0567C <code>PriorAllocationImportsC</code> 公开名证据。Claude/Joule review artifacts 仍是 deferred/no usable verdict，且 2026-06-18 Claude CLI 当前 session expired；外部 review debt 保留，但本节不再停留在提纲草稿。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；下一节继续 <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a>，并在本地用 metadata / preview / HTTP 测试验证公开 entity、alias、navigation、action 和 authorization 是否符合 contract。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-038-rap-action-handler-anti-pattern-direct-insert-7325d509.html">Previous section</a><a href="section-03-040-service-binding-c23e7cdd.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

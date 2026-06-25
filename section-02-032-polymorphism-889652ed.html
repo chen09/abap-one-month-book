@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Polymorphism 多态 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="32-polymorphism-2b63f8c8" class="chapter-title">32. Polymorphism 多态</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 32</li><li>self-contained study note</li></ul><h4 id="32-1-f692c094" class="semantic-heading semantic-concept">32.1 一句话结论</h4>
+<p>Polymorphism 多态是 OO ABAP 中“同一个调用形式，根据运行时对象不同而执行不同实现”的机制。调用方可以持有 superclass reference 或 interface reference，只按父类或接口 contract 调用 method；实际执行哪个 class 的 implementation，由 runtime object 决定。</p>
+<p>初学者最重要的判断是：多态不是“写很多 IF 判断 class 名称”，而是让调用方依赖稳定 contract，把具体实现推迟到运行时对象。reference type 决定调用方能看见哪些 components；runtime object 决定真正执行哪个 method body。</p>
+<h4 id="32-2-4bba7262" class="semantic-heading semantic-concept">32.2 到底学什么</h4>
+<p>前两节分别讲了 <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a> 和 <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a>。本节把它们连起来：interface 和 inheritance 都能形成多态，但项目里最常用、最安全的业务设计往往是 interface-based polymorphism。</p>
+<p>本节要掌握七个边界：</p>
+<ul>
+<li>superclass reference 可以指向 subclass object。</li>
+<li>interface reference 可以指向任何 implementing class object。</li>
+<li>static reference type 控制可见范围：interface reference 只能访问 interface components；superclass reference 只能访问 superclass public components。</li>
+<li>dynamic type / runtime object 控制实际执行：redefined instance method 会按实际对象动态分派 dynamic dispatch。</li>
+<li>在合法对象引用中，static type 一定比 dynamic type 更泛化或相同；dynamic type 一定比 static type 更具体或相同。</li>
+<li>static method 不参与对象多态；不要把 <code>CLASS-METHODS</code> 当成可替换业务行为。</li>
+<li>upcast 通常安全，普通赋值 <code>=</code> 就可以完成；downcast 需要 <code>CAST</code>，通常先用 <code>IS INSTANCE OF</code> 防止 <code>CX_SY_MOVE_CAST_ERROR</code>。</li>
+<li>多态的项目价值在于减少条件分支、支持 test double、让实现可替换，而不是炫技。</li>
+</ul>
+<p>最小图像：</p>
+<pre><code class="language-text">TYPE REF TO lif_notifier  ----&gt;  lcl_mail_notifier object
+                            \
+                             -&gt;  lcl_log_notifier object
+                            \
+                             -&gt;  lcl_test_notifier object</code></pre>
+<p>调用方只知道 <code>lif_notifier-&gt;send( )</code>。至于是发邮件、写日志、还是测试替身记录消息，由实际对象决定。</p>
+<h4 id="32-3-e8b08825" class="semantic-heading semantic-why">32.3 为什么重要</h4>
+<p>没有多态时，业务代码经常长这样：</p>
+<pre><code class="language-abap">IF iv_channel = &#x27;MAIL&#x27;.
+  &quot; send mail
+ELSEIF iv_channel = &#x27;LOG&#x27;.
+  &quot; write log
+ELSEIF iv_channel = &#x27;TEST&#x27;.
+  &quot; collect test message
+ENDIF.</code></pre>
+<p>这种代码的问题不是 <code>IF</code> 本身，而是调用方开始知道太多实现细节。新增一个 channel，就要改调用方；测试时也要绕过真实副作用。</p>
+<p>有多态后，调用方只依赖 contract：</p>
+<pre><code class="language-abap">DATA lo_notifier TYPE REF TO lif_notifier.
+lo_notifier = NEW lcl_mail_notifier( ).
+
+lo_notifier-&gt;send( iv_text = &#x27;Order released&#x27; ).</code></pre>
+<p>以后换成 <code>lcl_log_notifier</code> 或 <code>lcl_test_notifier</code>，调用方仍然只调用 <code>send</code>。这就是 ABAP Unit、constructor injection、Clean Core dependency boundary 里反复强调 interface 的原因：多态让业务代码从“判断具体实现”转向“依赖抽象 contract”。</p>
+<p>对日本 SAP 项目来说，多态还影响 review 和测试策略。review 时常见问题不是“你有没有用 interface”，而是“调用方是否仍然直接 <code>NEW zcl_concrete</code>，导致差し替えできない”。多态用得好，单体测试、障害切り分け、影響調査都会更轻。</p>
+<h4 id="32-4-key-mechanism-bdc7edca" class="semantic-heading semantic-mechanism">32.4 Key mechanism / 核心机制</h4>
+<h5 id="32-4-1-reference-type-controls-visible-contract-8699a218">32.4.1 reference type controls visible contract</h5>
+<p>先看 interface polymorphism：</p>
+<pre><code class="language-abap">INTERFACE lif_notifier.
+  METHODS send
+    IMPORTING iv_text TYPE string.
+ENDINTERFACE.
+
+CLASS lcl_mail_notifier DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_notifier.
+ENDCLASS.
+
+CLASS lcl_mail_notifier IMPLEMENTATION.
+  METHOD lif_notifier~send.
+    &quot; production mail sending would be here
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>调用方变量写成 interface reference：</p>
+<pre><code class="language-abap">DATA lo_notifier TYPE REF TO lif_notifier.
+lo_notifier = NEW lcl_mail_notifier( ).
+
+lo_notifier-&gt;send( iv_text = &#x27;Released&#x27; ).</code></pre>
+<p>这里 <code>lo_notifier</code> 的静态类型是 <code>lif_notifier</code>，所以调用方只能看见 <code>lif_notifier</code> 上声明的 components。即使 <code>lcl_mail_notifier</code> 有其他 public method，也不能通过 <code>lo_notifier-&gt;...</code> 直接调用。这是多态的保护：调用方被限制在 contract 里。</p>
+<h5 id="32-4-2-runtime-object-controls-implementation-76ecbb91">32.4.2 runtime object controls implementation</h5>
+<p>再看两个实现：</p>
+<pre><code class="language-abap">CLASS lcl_log_notifier DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_notifier.
+ENDCLASS.
+
+CLASS lcl_log_notifier IMPLEMENTATION.
+  METHOD lif_notifier~send.
+    &quot; write application log would be here
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>同一个变量、同一个 call，可以执行不同 class 的实现：</p>
+<pre><code class="language-abap">DATA lo_notifier TYPE REF TO lif_notifier.
+
+lo_notifier = NEW lcl_mail_notifier( ).
+lo_notifier-&gt;send( iv_text = &#x27;A&#x27; ).
+
+lo_notifier = NEW lcl_log_notifier( ).
+lo_notifier-&gt;send( iv_text = &#x27;B&#x27; ).</code></pre>
+<p>第一段调用 mail implementation，第二段调用 log implementation。调用语法没有变，runtime object 变了，执行体就变了。</p>
+<h5 id="32-4-3-inheritance-polymorphism-uses-redefinition-79284a10">32.4.3 inheritance polymorphism uses redefinition</h5>
+<p>继承也能形成多态。上一节 <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a> 的例子里，superclass reference 指向 subclass object：</p>
+<pre><code class="language-abap">DATA lo_pricing TYPE REF TO lcl_base_pricing.
+lo_pricing = NEW lcl_discount_pricing( ).
+
+DATA(lv_net) = lo_pricing-&gt;calculate( iv_amount = &#x27;100.00&#x27; ).</code></pre>
+<p><code>lo_pricing</code> 的 static type 是 <code>lcl_base_pricing</code>，但 dynamic type / runtime object 是 <code>lcl_discount_pricing</code>。static type 决定调用方能写出哪些 method call；dynamic type 决定 redefined instance method 最终执行哪个 implementation。如果 <code>calculate</code> 在 subclass 里 <code>REDEFINITION</code>，调用会动态分派到 subclass implementation。这就是 dynamic dispatch。</p>
+<p>项目判断上要保守：framework extension point 常用 inheritance polymorphism；普通业务可替换实现更常用 interface polymorphism。不要为了多态而强行建父类。</p>
+<h5 id="32-4-4-table-of-interface-references-b90a77b7">32.4.4 table of interface references</h5>
+<p>多态的价值在集合处理中很明显。一个 internal table 可以保存同一 interface 的不同实现：</p>
+<pre><code class="language-abap">DATA lt_notifiers TYPE STANDARD TABLE OF REF TO lif_notifier
+                  WITH EMPTY KEY.
+DATA lo_notifier  TYPE REF TO lif_notifier.
+
+lo_notifier = NEW lcl_mail_notifier( ).
+APPEND lo_notifier TO lt_notifiers.
+
+lo_notifier = NEW lcl_log_notifier( ).
+APPEND lo_notifier TO lt_notifiers.
+
+LOOP AT lt_notifiers INTO lo_notifier.
+  lo_notifier-&gt;send( iv_text = &#x27;Batch finished&#x27; ).
+ENDLOOP.</code></pre>
+<p>loop 里没有 <code>CASE class_name</code>，也没有 <code>IF channel = ...</code>。每一行都是 <code>lif_notifier</code>，但每个 runtime object 可以不同。</p>
+<h5 id="32-4-5-upcast-and-downcast-1b0bb808">32.4.5 upcast and downcast</h5>
+<p>把 concrete object reference 放进 superclass/interface reference，通常是 upcast：</p>
+<pre><code class="language-abap">DATA lo_notifier TYPE REF TO lif_notifier.
+lo_notifier = NEW lcl_mail_notifier( ).</code></pre>
+<p>upcast 是多态的正常入口，赋值运算符 <code>=</code> 就能完成，不需要特殊 cast operator。反过来，如果想从 interface reference 拿回具体 class reference，就是 downcast：</p>
+<pre><code class="language-abap">IF lo_notifier IS INSTANCE OF lcl_mail_notifier.
+  DATA(lo_mail) = CAST lcl_mail_notifier( lo_notifier ).
+ENDIF.</code></pre>
+<p>downcast 不是禁止使用，但它是设计味道信号。如果调用方经常需要 downcast 才能继续工作，说明 interface contract 可能不完整，或者调用方不应该依赖这个抽象。</p>
+<p>downcast 还有运行时风险：如果实际对象不是目标 class，<code>CAST</code> 会失败并触发 <code>CX_SY_MOVE_CAST_ERROR</code>。所以 beginner code 应先写 <code>IS INSTANCE OF</code> guard，再 <code>CAST</code>。旧代码里可能看到 <code>?=</code> downcast operator；新写法优先用 <code>CAST</code>，ABAP Cloud / modern ABAP 场景下不要把 <code>?=</code> 当成新代码模板。</p>
+<h5 id="32-4-6-polymorphism-is-not-method-overloading-7ec3922d">32.4.6 polymorphism is not method overloading</h5>
+<p>Java 背景学习者容易把 polymorphism 和 method overloading 混在一起。本节讲的不是“同名 method 用不同参数列表区分”。ABAP Objects 不支持 Java-style method overloading：同一个 class 里不能声明两个同名 method 只靠参数列表不同来区分；method name 必须唯一，否则是 syntax error。这里的多态重点是 static reference type 与 dynamic type：同一个 contract call，根据实际对象执行不同 implementation。</p>
+<p>如果确实需要根据对象类型做少量类型分支，现代 ABAP 还可以看到 <code>CASE TYPE OF ... WHEN TYPE ...</code> 这类 type case 写法；但初学阶段不要把它当成多态的主要模式。多态的目标是减少到处散落的类型判断，而不是把 <code>IF ... IS INSTANCE OF ...</code> 换成另一种更漂亮的类型分支。</p>
+<h5 id="32-4-7-abap-unit-and-test-doubles-d8b1533c">32.4.7 ABAP Unit and test doubles</h5>
+<p>多态是 ABAP Unit 可测试性的基础。生产代码依赖 interface：</p>
+<pre><code class="language-abap">CLASS lcl_order_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING io_notifier TYPE REF TO lif_notifier.
+
+    METHODS release.
+
+  PRIVATE SECTION.
+    DATA mo_notifier TYPE REF TO lif_notifier.
+ENDCLASS.
+
+CLASS lcl_order_service IMPLEMENTATION.
+  METHOD constructor.
+    mo_notifier = io_notifier.
+  ENDMETHOD.
+
+  METHOD release.
+    mo_notifier-&gt;send( iv_text = &#x27;Order released&#x27; ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>测试时传入另一个 implementing class：</p>
+<pre><code class="language-abap">CLASS lcl_notifier_double DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_notifier.
+    METHODS was_called RETURNING VALUE(rv_called) TYPE abap_bool.
+
+  PRIVATE SECTION.
+    DATA mv_called TYPE abap_bool.
+ENDCLASS.
+
+CLASS lcl_notifier_double IMPLEMENTATION.
+  METHOD lif_notifier~send.
+    mv_called = abap_true.
+  ENDMETHOD.
+
+  METHOD was_called.
+    rv_called = mv_called.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这就是“同一个 contract，不同 runtime object”的可测试价值。生产实现可以发通知，测试实现只记录是否被调用。</p>
+<h5 id="32-4-8-polymorphism-design-checklist-ba36fd33">32.4.8 polymorphism design checklist</h5>
+<p>多态设计可以用下面的检查表快速判断。重点不是“有没有 interface 或 superclass”，而是调用方是否真的只依赖稳定 contract，具体实现是否可以在不改调用方的情况下替换。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Good polymorphism sign</th><th>Risk signal</th></tr></thead><tbody><tr><td>What contract does caller need?</td><td>调用方只需要 <code>send</code>、<code>calculate</code>、<code>validate</code> 这类小而清楚的能力。</td><td>interface 包含太多 method，调用方只用其中一两个。</td></tr><tr><td>Can implementation be replaced?</td><td>生产实现、测试替身、不同渠道实现都能通过同一 reference 调用。</td><td>调用方马上 <code>CAST</code> 回具体 class 才能继续工作。</td></tr><tr><td>Where is object creation?</td><td>具体 class 在 factory、constructor injection、framework runtime 中决定。</td><td>业务流程内部到处 <code>NEW lcl_specific_xxx( )</code>。</td></tr><tr><td>Is dynamic dispatch actually used?</td><td>instance method 通过 interface/superclass reference 调用。</td><td>使用 <code>CLASS-METHODS</code>，却期待它像对象多态一样可替换。</td></tr><tr><td>Is type checking rare?</td><td>少量 type check 只用于边界、兼容或诊断。</td><td>主流程大量 <code>IS INSTANCE OF</code> / <code>CASE TYPE OF</code> 分支。</td></tr><tr><td>Are tests simpler?</td><td>ABAP Unit 可以注入 test double，验证 contract 行为。</td><td>测试必须连接外部系统或依赖具体实现副作用。</td></tr></tbody></table></div>
+<p>在项目代码里，一个很实用的判断句是：如果新增一个实现 class 时，主业务流程不需要改，只需要在装配处选择新对象，这通常是健康的多态；如果每新增一个 class 都要去主流程里加 <code>IF type = ...</code>，那还只是“手写分派”，没有真正把变化隔离到 contract 后面。</p>
+<h4 id="32-5-4b0881d2" class="semantic-heading semantic-japan">32.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>多態性</code>、<code>ポリモーフィズム</code>、<code>動的ディスパッチ</code>、<code>実行時型</code>、<code>参照型</code>、<code>インターフェース参照</code>、<code>具象クラス</code>、<code>実装クラス</code>、<code>差し替え可能性</code>、<code>アップキャスト</code>、<code>ダウンキャスト</code>。</li>
+<li>设计说明句：呼び出し側はインターフェース参照に依存し、実行時に渡された実装クラスに応じて処理が切り替わります。</li>
+<li>Review 指摘句：呼び出し側が具象クラスを直接生成しているため、多態性を活かせず、テストダブルに差し替えにくくなっています。</li>
+<li>Downcast 指摘句：ダウンキャストが多い場合、インターフェース契約が不足している可能性があります。</li>
+<li>使用场景：constructor injection 设计、ABAP Unit、test double、framework hook、RAP handler/saver 阅读、Clean Core dependency review。</li>
+</ul>
+<p>日本项目里常说 <code>差し替え可能</code>。这不是抽象口号，而是能不能把 production class 换成 test double、mock adapter、另一种 implementation，而调用方不用改。多态就是支撑 <code>差し替え可能性</code> 的 OO 机制之一。</p>
+<h4 id="32-6-english-terms-1b5ce66d" class="semantic-heading semantic-terms">32.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>polymorphism</code>, <code>dynamic dispatch</code>, <code>runtime type</code>, <code>static reference type</code>, <code>interface reference</code>, <code>superclass reference</code></li>
+<li>Related syntax: <code>TYPE REF TO lif_xxx</code>, <code>TYPE REF TO lcl_super</code>, <code>IS INSTANCE OF</code>, <code>CAST #( ... )</code>, <code>CAST lcl_xxx( ... )</code>, <code>METHODS ... REDEFINITION</code>, <code>CASE TYPE OF</code>, legacy <code>?=</code></li>
+<li>Design terms: <code>contract</code>, <code>implementation class</code>, <code>test double</code>, <code>dependency inversion</code>, <code>constructor injection</code>, <code>upcast</code>, <code>downcast</code>, <code>replaceability</code></li>
+<li>Runtime terms: <code>static type</code>, <code>dynamic type</code>, <code>CX_SY_MOVE_CAST_ERROR</code>, <code>method overloading is not supported</code></li>
+<li>读官方资料时注意：SAP 文档可能从 object reference、interface reference、inheritance、method redefinition 等角度讲多态，不一定只用 <code>polymorphism</code> 这个标题。</li>
+</ul>
+<h4 id="32-7-example-116bf228" class="semantic-heading semantic-example">32.7 Example / 学习例子</h4>
+<h5 id="32-7-1-1-interface-polymorphism-4ce614a0">32.7.1 例 1：通知渠道的 interface polymorphism</h5>
+<pre><code class="language-abap">INTERFACE lif_notifier.
+  METHODS send
+    IMPORTING iv_text TYPE string.
+ENDINTERFACE.
+
+CLASS lcl_mail_notifier DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_notifier.
+ENDCLASS.
+
+CLASS lcl_log_notifier DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_notifier.
+ENDCLASS.</code></pre>
+<p>调用方只依赖 <code>lif_notifier</code>：</p>
+<pre><code class="language-abap">CLASS lcl_release_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING io_notifier TYPE REF TO lif_notifier.
+
+    METHODS release.
+
+  PRIVATE SECTION.
+    DATA mo_notifier TYPE REF TO lif_notifier.
+ENDCLASS.</code></pre>
+<p>这样 release service 不知道“通知是邮件还是日志”，只知道“有一个对象能 send”。这就是面向 interface 的多态。</p>
+<h5 id="32-7-2-2-3615b47a">32.7.2 例 2：错误的类型判断分支</h5>
+<pre><code class="language-abap">IF lo_notifier IS INSTANCE OF lcl_mail_notifier.
+  &quot; special mail handling
+ELSEIF lo_notifier IS INSTANCE OF lcl_log_notifier.
+  &quot; special log handling
+ENDIF.</code></pre>
+<p>如果这种代码到处出现，多态就被破坏了。调用方又开始知道所有 concrete class。</p>
+<p>修正方向：把共同需要的行为放进 <code>lif_notifier</code> contract；或者把差异封装在各自 implementation 里。</p>
+<h5 id="32-7-3-3-framework-polymorphism-c8f425a8">32.7.3 例 3：framework polymorphism</h5>
+<p>RAP、BAdI、UI framework、conversion framework 等 SAP 场景经常通过父类或 interface 定义 hook。项目代码只实现规定 method，runtime 在合适时机调用。</p>
+<p>读这类代码时，不要只看“某个 method 被谁调用”。要问：</p>
+<ul>
+<li>这个对象是通过 superclass reference 还是 interface reference 被框架持有？</li>
+<li>哪个 method 是 framework contract？</li>
+<li>当前 class 是 production implementation、test double，还是 framework subclass？</li>
+<li>这个 API / base class / interface 是否 released / allowed？</li>
+</ul>
+<h4 id="32-8-counterexample-failure-mode-8580dc7b" class="semantic-heading semantic-example">32.8 Counterexample / Failure mode</h4>
+<h5 id="32-8-1-1-new-class-e78d2f71" class="semantic-heading semantic-failure">32.8.1 误区 1：直接 new 具体 class</h5>
+<p>service 里直接 <code>NEW lcl_mail_notifier( )</code>，调用方就被 concrete implementation 绑住。</p>
+<p>修正动作：把 dependency 通过 constructor 传入，类型写成 interface reference。</p>
+<h5 id="32-8-2-2-interface-reference-downcast-6050ea6e" class="semantic-heading semantic-failure">32.8.2 误区 2：interface reference 后马上 downcast</h5>
+<p>拿到 <code>TYPE REF TO lif_xxx</code> 后立刻 <code>CAST lcl_concrete( ... )</code>，说明调用方并没有真正依赖 contract。</p>
+<p>修正动作：检查 interface 是否缺 method；或者让具体行为留在 implementation 内部。</p>
+<h5 id="32-8-3-3-static-method-4111483a" class="semantic-heading semantic-failure">32.8.3 误区 3：用 static method 期待多态</h5>
+<p><code>CLASS-METHODS</code> 绑定在 class 上，不是对象实例的动态分派点。</p>
+<p>修正动作：可替换业务行为用 instance method + interface reference。</p>
+<h5 id="32-8-4-4-contract-463cd30a" class="semantic-heading semantic-failure">32.8.4 误区 4：多态 contract 太大</h5>
+<p>interface 上塞太多 method，所有 implementation 都要被迫实现一堆不相关能力。</p>
+<p>修正动作：按 capability 拆小 interface，例如 reader、writer、notifier、calculator、validator。</p>
+<h5 id="32-8-5-5-8e212392" class="semantic-heading semantic-failure">32.8.5 误区 5：把多态当成不用读实现</h5>
+<p>多态降低调用方耦合，但不代表实现可以随便写。每个 implementation 仍要满足同一 contract 的语义。</p>
+<p>修正动作：在 interface 注释、ABAP Unit、review checklist 中明确 contract；不同实现必须通过同一组行为测试。</p>
+<h4 id="32-9-48a68563" class="semantic-heading semantic-practice">32.9 思考问题</h4>
+<ul>
+<li>当前调用方依赖的是 interface/superclass contract，还是 concrete class？</li>
+<li>reference type 让调用方能看见哪些 components？哪些被刻意隐藏？</li>
+<li>runtime object 可能有哪些 implementation？它们是否都满足同一 contract？</li>
+<li>如果新增一个 implementation，调用方是否需要改 IF/CASE？</li>
+<li>是否出现频繁 downcast？这说明 contract 缺失还是抽象用错？</li>
+<li>这里应使用 interface polymorphism，还是 inheritance polymorphism？</li>
+<li>ABAP Unit 能否用 test double 替换 production implementation？</li>
+<li>日本项目 review 时，应说 <code>多態性</code>、<code>差し替え可能性</code>、还是 <code>ダウンキャストが多い</code>？</li>
+</ul>
+<h4 id="32-10-c8476764" class="semantic-heading semantic-reference">32.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCLASSES_AND_INTERFACES.html" target="_blank" rel="noopener noreferrer">Classes and Interfaces</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENPOLYMORPHISM_GLOSRY.html" target="_blank" rel="noopener noreferrer">polymorphism glossary</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENINHERITANCE_REFERENCES.html" target="_blank" rel="noopener noreferrer">Inheritance and Polymorphism</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENINTERFACES.html" target="_blank" rel="noopener noreferrer">ABAP Objects - Interfaces</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMETHODS_REDEFINITION.html" target="_blank" rel="noopener noreferrer">METHODS, REDEFINITION</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/using-interfaces_e45af9bb-46e5-457b-88ef-d5ad6b0d38d7" target="_blank" rel="noopener noreferrer">Using Interfaces</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+</ul>
+<h4 id="32-11-connections-532786d2">32.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a></li>
+<li>Upstream: <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a></li>
+<li>Downstream: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a></li>
+<li>Related: <a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a></li>
+<li>Related: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 12 - OO ABAP 抽象、异常与单元测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="32-12-291c87e6" class="semantic-heading semantic-practice">32.12 学习任务</h4>
+<ul>
+<li>写一个 <code>lif_notifier</code> interface，并写两个 implementation classes。</li>
+<li>写一个 service class，通过 constructor 接收 <code>TYPE REF TO lif_notifier</code>。</li>
+<li>写一个 test double implementation，证明 production class 可以被替换。</li>
+<li>用 5 行中文说明 reference type 与 runtime object 的区别。</li>
+<li>找出一段 <code>IF object IS INSTANCE OF ...</code> 的代码，判断它是否在破坏多态。</li>
+<li>用日语写一句 review comment，指出直接依赖具象クラス导致差し替えできない。</li>
+<li>如果进入 RAP 章节，观察 framework 如何通过 superclass/interface contract 调用项目代码。</li>
+</ul>
+<h4 id="32-13-confidence-next-action-bffb7d30" class="semantic-heading semantic-status">32.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节核心机制已按 SAP Help / ABAP Keyword Documentation 的 polymorphism glossary、Inheritance and Polymorphism、Interfaces、<code>METHODS ... REDEFINITION</code> 页面，以及 SAP Learning 的 interface reference / cast 说明校准；旧 Joule snapshot 对本节给出 <code>Pass with fixes</code>，要求补充的 dynamic dispatch / dynamic type、static type 可见范围、static type 与 dynamic type 泛化关系、interface/superclass reference、多态只适用于 instance method、<code>CLASS-METHODS</code> 边界、upcast/downcast、<code>CAST</code> / <code>IS INSTANCE OF</code> / <code>CX_SY_MOVE_CAST_ERROR</code>、legacy <code>?=</code>、无 Java-style method overloading、<code>CASE TYPE OF</code> 边界已经集成。</li>
+<li>Next action: 已同步为书稿质量候选；Claude CLI 旧 review 因 credential loading error 没有返回 verdict，后续 Claude 恢复时可按 <code>90-Review/Claude Day12 Polymorphism Section Review Prompt 2026-06-13.md</code> 做补充可读性 review。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-032-polymorphism-889652ed.html">Polymorphism 多态</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-031-inheritance-2b2c6749.html">Previous section</a><a href="section-02-033-exception-class-85670b42.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

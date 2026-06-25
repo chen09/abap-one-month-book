@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SAP system landscape 系统环境分层 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="1-sap-system-landscape-06a60710" class="chapter-title">1. SAP system landscape 系统环境分层</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 01</li><li>self-contained study note</li></ul><h4 id="1-1-82ea6961" class="semantic-heading semantic-concept">1.1 一句话结论</h4>
+<p>SAP system landscape 系统环境分层，是把 SAP 的开发、测试、生产隔离成一组有迁移路径的系统环境。在 ABAP 项目里，开发者必须先理解 <a class="wiki" href="section-01-018-client-strategy-in-dev-qas-prd-f855e422.html">DEV / QAS / PRD 系统分层</a> 与 <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a>，才知道代码为什么不能“写完就上线”。</p>
+<h4 id="1-2-fd5f4e62" class="semantic-heading semantic-concept">1.2 到底学什么</h4>
+<p>先把 <code>system landscape</code> 理解成“一个项目里多套 SAP 系统的工作分工”，而不是单纯的服务器清单。典型 SAP 项目不会让开发者直接在生产系统里改程序。开发通常发生在 DEV，测试和验收发生在 QAS，真实业务运行发生在 PRD。这个分层的目的，是让代码、配置和数据变更先在安全环境中被创建、激活、测试、批准，再按受控路径进入生产。</p>
+<p>对 Java/Python 背景的人来说，最容易误解的一点是：SAP 的“环境分层”不等于普通 Web 项目的 <code>dev/staging/prod</code> 加 Git/CI/CD。ABAP 代码不是只存在于本地目录里，而是存在于 SAP 系统的 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a> 中；对象要放进 <a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a>，修改要进入 transport request，修改后还要 <a class="wiki" href="section-01-013-activation-ff7e1caa.html">activation</a>，然后才谈得上送到 QAS 或 PRD。这里的每一步都不是形式主义，而是在给项目留下可测试、可追踪、可审计的变更链。</p>
+<p>本节先学四个问题。第一，DEV / QAS / PRD 分别承担什么责任。第二，ABAP repository object 为什么要通过 transport request 从一个系统迁移到另一个系统。第三，activation 为什么只是“在当前系统通常可运行或可被引用”，不是“已经进入测试或生产”。第四，日本 SAP 项目里为什么会反复听到 <code>開発機</code>、<code>検証機</code>、<code>本番機</code>、<code>移送依頼</code>、<code>本番リリース</code> 这些说法。</p>
+<p>本节默认讲的是 on-premise / private cloud / 传统 ABAP 项目里常见的 CTS/TMS 思维。SAP S/4HANA Cloud Public Edition 也有自己的 two-system / three-system landscape 和传输工具差异；Day 01 先抓原则：开发、测试、生产要隔离，变更要被记录、验证、批准、迁移。</p>
+<h4 id="1-3-4f8e3d65" class="semantic-heading semantic-why">1.3 为什么重要</h4>
+<p>如果不理解 system landscape，后面的 ABAP 知识会变得像一堆孤立按钮：ADT 里为什么新建 class 要选 package，为什么非临时对象要挂 transport request，为什么代码改完还要 activation，为什么单体测试通过后还要送到 QAS 做结合测试，为什么生产障害修正不能随手在 PRD 改。这些问题的共同背景，就是 SAP 把开发、测试、生产用系统层级和 transport 机制隔开。</p>
+<p>在真实项目里，系统分层首先是风险控制。PRD 承载真实业务，不能让未测试的程序、表结构、配置或权限变更直接影响业务数据。QAS 提供接近生产的验证环境，让团队在不影响真实业务的前提下做单体测试、结合测试、用户验收、性能确认和移送前检查。DEV 则承担开发和初步验证，允许开发者创建、修改、激活对象，但这些对象要通过 transport request 才能进入后续系统。</p>
+<p>它也是交付治理。一个变更如果只在 DEV 能跑，不能说明项目可交付；它必须能被记录、被移送、被测试、被追溯，并且在失败时能被分析和修正。SAP Learning 对三系统 landscape 的说明强调：开发和 customizing 在开发系统完成，然后转移到质量保证系统检查，测试成功后再进入生产系统。这个过程正是日本项目里“設計 -&gt; 実装 -&gt; 単体テスト -&gt; 結合テスト -&gt; 移送 -&gt; 本番反映”背后的技术基础。</p>
+<h4 id="1-4-key-mechanism-ae5db823" class="semantic-heading semantic-mechanism">1.4 Key mechanism / 核心机制</h4>
+<p>可以把 system landscape 看成一条受控的变更河道：</p>
+<pre><code class="language-text">DEV 开发系统
+  -&gt; 创建/修改 repository object
+  -&gt; 分配 package 与 transport request
+  -&gt; activation 后在 DEV 通常可运行或可被引用
+  -&gt; release transport request
+
+QAS 质量保证系统
+  -&gt; import transport
+  -&gt; 单体/结合/验收/回归测试
+  -&gt; 审批或退回修正
+
+PRD 生产系统
+  -&gt; import approved transport
+  -&gt; 真实业务运行
+  -&gt; 监控、障害调查、审计追踪</code></pre>
+<p>第一层机制是系统角色。DEV 是变更起点，QAS 是验证场，PRD 是生产运行场。项目里常用 DEV、QAS、PRD 这类角色记号表示三套系统；实际 SID 也是三字符系统标识，但不一定就叫 DEV/QAS/PRD，也可能是 S4D、S4Q、S4P 或公司自定义名称。不同公司还可能有 SBX、UT、TRN、PRE、DR 等额外系统，但主线仍然是“开发不能直接污染生产”。</p>
+<p>第二层机制是 repository object 与 activation。ABAP class、program、CDS view、DDIC table、behavior definition 等对象属于 SAP repository。开发者在 DEV 修改对象后，通常要 activation，active version 才是在当前系统被其他对象引用和正常运行的基准版本。但 activation 只解决“这个对象在当前系统是否生效”，不解决“这个对象是否已经进入 QAS/PRD”。所以“已激活”和“已移送”是两件事。</p>
+<p>第三层机制是 transport request。SAP Learning 把 transport request 描述为在多系统 landscape 中转移 repository object 和 customizing setting 的机制。对开发者来说，它既是变更包，也是追踪单位：它记录哪些对象被改了、谁改了、什么时候释放、导入到哪个系统、导入日志是否成功。ABAP repository object 和 cross-client customizing 通常进入 workbench request；client-specific customizing 通常进入 customizing request。开发者可以在 ADT 的 Transport Organizer 视图，或经典事务 SE09 / SE10 中查看 request/task、释放 task、释放 request。更细的对象锁、request 类型和 release/import 细节，会在 transport 专门笔记里展开；这里先记住：新建或修改非临时 ABAP 对象时，系统通常会要求把对象放进某个 transport request。</p>
+<p>第四层机制是 TMS 与 transport route。TMS 管理 transport request 从 DEV 到 QAS、再到 PRD 的路线、队列、导入安排、日志和可选的 QA approval procedure；更底层的导出/导入会涉及 <code>tp</code> transport control program 和操作系统层面的 transport directory。Day 01 不需要配置 TMS，只要知道它是控制 transport flow 的入口，不是普通应用代码部署按钮。</p>
+<p>第五层机制是 client 边界。client 可以理解为同一个 SAP 系统中的业务/配置隔离单位，但 Workbench / repository object 本身是 cross-client 的；client-specific 的主要是业务数据和 customizing。也就是说，在同一个 DEV 系统里，一个 repository object 激活后会成为该系统共享的 repository 版本；这也是为什么不能把 client 当成完整替代 DEV/QAS/PRD 的隔离手段。更细的 client 策略会在后续专门笔记展开。</p>
+<p>第六层机制是数据差异。DEV、QAS、PRD 不只是“代码版本不同”，数据也不同。DEV 通常有开发用测试数据，QAS 尽量接近生产但仍是测试环境，PRD 才是真实业务数据。一个程序在 DEV 跑通，只能说明它在开发数据上成立；进入 QAS 后，还要确认组织结构、权限、customizing、主数据、接口连通性和批处理条件是否接近生产。初学者要记住：SAP 项目里的“测试通过”，往往不是单纯跑一段代码，而是在对应系统环境中验证业务链路。</p>
+<p>第七层机制是 retrofit / parallel landscape 风险。大型项目可能同时存在维护线和项目线：生产问题需要快速修复，新项目又在另一个 DEV/QAS 链路上开发。此时同一个对象可能在不同 transport 里被修改，后续需要合并、回灌或冲突处理。Day 01 不要求掌握这些复杂治理，但要知道 system landscape 不是死板三格图，而是项目管理、版本管理和上线窗口共同组成的交付结构。</p>
+<p>可以用下面的表快速理解三个系统：</p>
+<div class="table-wrap"><table><thead><tr><th>系统</th><th>中文理解</th><th>典型动作</th><th>不能误解为</th></tr></thead><tbody><tr><td>DEV</td><td>开发系统</td><td>创建/修改 ABAP 对象、activation、单元级验证、释放 transport</td><td>可以随便破坏公共对象的沙盒</td></tr><tr><td>QAS</td><td>质量保证/验证系统</td><td>导入 transport、结合测试、回归测试、UAT、移送前确认</td><td>只是开发者自己的测试库</td></tr><tr><td>PRD</td><td>生产系统</td><td>真实业务运行、监控、障害调查、审计</td><td>可以临时直接改代码的地方</td></tr></tbody></table></div>
+<p>这张表在后续学习里会反复出现。学 CDS 时，CDS view 在 DEV 激活，不代表 QAS 的服务已经可测试；学 RAP 时，service binding 在 DEV publish，不代表 PRD endpoint 已经对外可用；学权限时，DEV 的开发者权限不代表 QAS/PRD 的业务用户权限；学性能时，DEV 的小数据量不代表 PRD 的真实负载。</p>
+<h4 id="1-5-94f69d54" class="semantic-heading semantic-japan">1.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>開発機</code>、<code>検証機</code>、<code>品質確認機</code>、<code>品質保証機</code>、<code>本番機</code>、<code>移送</code>、<code>移送依頼</code>、<code>有効化</code>、<code>リリース</code>、<code>本番反映</code>、<code>本番リリース</code>、<code>影響調査</code>。</li>
+<li>说明句：ABAP オブジェクトは開発機で修正・有効化し、移送依頼をリリースして検証機で確認したうえで、本番機へ反映します。</li>
+<li>说明句：本番機で直接修正するのではなく、開発機から検証機、本番機へ移送する前提で変更管理します。</li>
+<li>使用场景：基本设计、详细设计、代码 review、单体测试说明、结合测试缺陷分析、移送前确认、本番リリース判定。</li>
+<li>现场提醒：如果日本项目成员问 <code>この修正はどの移送依頼に入っていますか</code>，他不是在问 Git commit，而是在问这个 SAP 变更被哪个 transport request 管理，是否能进入后续系统。<code>移送</code> 偏动作，<code>移送依頼</code> 偏对象本身；<code>品質保証機</code> 是 QA 的正式说法之一，现场也常听到更口语的 <code>検証機</code>。</li>
+</ul>
+<h4 id="1-6-english-terms-477f77c7" class="semantic-heading semantic-terms">1.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>SAP system landscape</code></li>
+<li>Related terms: <code>three-system landscape</code>, <code>Change and Transport System</code>, <code>Transport Management System</code>, <code>transport request</code>, <code>workbench request</code>, <code>customizing request</code>, <code>ABAP repository object</code>, <code>activation</code>, <code>transport route</code>, <code>import queue</code>, <code>object lock</code></li>
+<li>Recommended search pattern: <code>SAP system landscape transport request ABAP</code>, <code>three-system landscape SAP Learning</code>, <code>Transport Management System SAP system landscape</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="1-7-example-0ce406e7" class="semantic-heading semantic-example">1.7 Example / 学习例子</h4>
+<p>假设项目要给一个上传处理增加校验逻辑。Java/Python 开发者可能会想：改代码、跑测试、merge、deploy。SAP 项目里要多问几件事：这个逻辑是改 ABAP class、function module、report，还是 RAP behavior implementation？对象放在哪个 package？是不是 local object，还是必须进入 transport request？修改后有没有 activation？transport request 里是否还混入了不相关对象？QAS 导入后由谁测试？如果测试失败，是新建修正 transport，还是追加到同一个变更链？</p>
+<p>再看一个最小路径。开发者在 DEV 的 ADT 里创建一个 class，选择非临时 package。系统要求分配 workbench transport request。开发者实现代码并 activation。此时 class 在 DEV 可运行，但 QAS 和 PRD 还没有这个新版本。开发完成后，开发者释放自己的 task，负责人释放 transport request。传输管理员或流程工具把它导入 QAS。测试人员在 QAS 用接近生产的配置和数据验证。通过后，变更才被安排进入 PRD。</p>
+<p>最小练习：画一条 <code>DEV -&gt; QAS -&gt; PRD</code> 线，在 DEV 下写 <code>create/change object</code>、<code>package</code>、<code>transport request</code>、<code>activation</code>，在 QAS 下写 <code>import</code>、<code>test</code>、<code>approval</code>，在 PRD 下写 <code>production operation</code>、<code>monitoring</code>。再用中文说明：为什么“我在 DEV 激活成功”不等于“我可以交付上线”。</p>
+<p>再把它放进 AC0567C POC。假设开发者在 DEV 中完成了一个 RAP service：包含 CDS view、behavior definition、behavior implementation、service definition、service binding，以及 Application Log 或 authorization 相关对象。真正的交付链不是“本地 preview 成功”就结束，而是：</p>
+<pre><code class="language-text">DEV:
+  - ADT 中创建/修改对象
+  - 放入 package
+  - 分配 transport request
+  - activation / unit test / local service preview
+  - release task/request
+
+QAS:
+  - import transport
+  - 重新 publish 或确认 service binding 状态（按项目工具和系统设置）
+  - 用 QAS 用户、QAS 权限、QAS 数据执行 validate/execute/status
+  - 保存 API evidence、application log、错误路径证据
+
+PRD:
+  - 只导入已批准 transport
+  - 按上线窗口反映
+  - 监控接口、应用日志、权限错误、性能和重跑情况</code></pre>
+<p>这个例子能帮助读者理解：system landscape 不是 Day 01 的背景知识，而是 Week 3/4 的 RAP、OData、Application Log、Clean Core、Transport、Production Readiness 都要回到的交付骨架。</p>
+<h4 id="1-8-counterexample-failure-mode-6ea865e6" class="semantic-heading semantic-example">1.8 Counterexample / Failure mode</h4>
+<ul>
+<li>只把 SAP 看成数据库或接口平台，会低估业务流程、权限、传输和升级稳定性的约束。</li>
+<li>把 DEV client、QAS system、PRD system 混成一个概念，会误判测试边界和影响范围。</li>
+<li>以为 activation 就等于部署，会忽略 transport request、release、import、import log、QAS approval。</li>
+<li>在 PRD 直接修正程序或 customizing，即使短期“修好了”，也会破坏审计、回归测试、移送一致性和后续维护。</li>
+<li>只看 POC 代码，不知道它属于哪个 package、哪个 transport、哪个系统层级，会导致代码 review 和障害调查时无法说明变更来源。</li>
+<li>修正动作：回到 <span class="wiki unresolved">MOC SAP System Foundations</span>，再选一个 ADT 对象确认它的 package、transport request、active/inactive 状态和目标系统路径。</li>
+<li>把 QAS 当成“可随便修数据修程序”的第二个 DEV。这样会污染测试证据，让 UAT 和回归测试失去可信度。修正方式是明确 QAS 的导入、测试、缺陷修正和重测流程。</li>
+<li>只记录 Git commit，不记录 transport request。ABAP 项目可能同时使用 Git、abapGit 或外部代码管理，但 SAP 系统内的对象迁移仍然需要 transport 证据。修正方式是让设计/测试/上线记录同时能追到 transport request。</li>
+<li>忽略 emergency fix 路径。生产障害可能需要紧急修复，但紧急不等于无流程。项目要定义 emergency transport、审批、事后回归和维护线同步。</li>
+</ul>
+<h4 id="1-9-00290cac" class="semantic-heading semantic-practice">1.9 思考问题</h4>
+<ul>
+<li>为什么 SAP 项目通常不允许直接在 PRD 修改程序？</li>
+<li><code>activation</code>、<code>release transport request</code>、<code>import into QAS/PRD</code> 三者分别解决什么问题？</li>
+<li>Java/Python 的 dev/staging/prod、Git、CI/CD、deployment，分别只能类比 SAP landscape 的哪一部分？不能类比哪一部分？</li>
+<li>Workbench request 和 customizing request 的区别是什么？为什么 ABAP class 通常属于前者？</li>
+<li>如果一个 transport request 同时包含不相关对象，会给 QAS 测试和本番反映带来什么风险？</li>
+<li>为什么 QAS 测试必须使用接近生产的权限、customizing 和主数据？</li>
+<li>如果 PRD 发生紧急障害，为什么仍然要通过受控 transport 或 emergency process？</li>
+<li>AC0567C 的 service binding、authorization、application log 在 QAS/PRD 中分别要验证什么？</li>
+</ul>
+<h4 id="1-10-d051adf9" class="semantic-heading semantic-reference">1.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-i-of-sap-s-4hana-and-sap-business-suite/describing-software-logistics-for-as-abap-based-sap-systems" target="_blank" rel="noopener noreferrer">SAP Learning - Describing Software Logistics for AS ABAP based SAP systems</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-ii-of-sap-s-4hana-and-sap-business-suite/setting-up-the-transport-management-system-tms--1" target="_blank" rel="noopener noreferrer">SAP Learning - Setting Up the Transport Management System (TMS)</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/4ec223686e391014adc9fffe4e204223.html" target="_blank" rel="noopener noreferrer">SAP Help - Transport Request in ABAP Development Tools</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/SAP_NETWEAVER_750/c238d694b825421f940829321ffa326a/4ec196756e391014adc9fffe4e204223.html" target="_blank" rel="noopener noreferrer">SAP Help - Activation</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help Portal / SAP Learning search: <code>three-system landscape</code>, <code>Change and Transport System</code>, <code>Transport Management System</code>, <code>transport route</code>, <code>transport request ADT</code>.</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="1-11-connections-ef473a12">1.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li><span class="wiki unresolved">MOC ADT Workflow</span></li>
+<li>Upstream: 无</li>
+<li>Downstream: <a class="wiki" href="section-01-002-application-server-abap-b0de96bf.html">Application Server ABAP 运行时基础</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-01-013-activation-ff7e1caa.html">Activation 激活机制</a></li>
+<li>Related: <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a></li>
+<li>Related: <a class="wiki" href="section-01-018-client-strategy-in-dev-qas-prd-f855e422.html">Client strategy in DEV QAS PRD</a></li>
+<li>Related: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 01 - SAP 系统、AS ABAP、ABAP Platform</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="1-12-256edcd1" class="semantic-heading semantic-practice">1.12 学习任务</h4>
+<ul>
+<li>用自己的中文画出 <code>DEV -&gt; QAS -&gt; PRD</code> 的对象迁移路径。</li>
+<li>写 5 行说明：为什么 activation 不等于 production deployment。</li>
+<li>补 1 个日语现场句子，必须包含 <code>開発機</code>、<code>検証機</code>、<code>本番機</code> 或 <code>移送</code>。</li>
+<li>用 English Terms 找 1 个 SAP 官方链接，确认 transport request 或 TMS 的定义。</li>
+<li>如果已经进入 Week 3/4，把 AC0567C POC 中任意一个 ABAP 对象映射到 package、transport、activation、QAS test 的交付路径。</li>
+<li>写一张表：DEV / QAS / PRD 中分别验证 AC0567C 的哪些证据。</li>
+<li>用日语写一句说明：本番機で直接修正しない理由。</li>
+</ul>
+<h4 id="1-13-confidence-next-action-e6c33610" class="semantic-heading semantic-status">1.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for learning-level explanation；system landscape / transport / activation 细节仍应以当前项目 Basis/transport governance 文档为准。</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-01-002-application-server-abap-b0de96bf.html">Application Server ABAP 运行时基础</a>，把“系统分层”连接到“ABAP 程序实际运行在哪里”。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-001-sap-system-landscape-e11c9fc6.html">SAP system landscape 系统环境分层</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-002-application-server-abap-b0de96bf.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

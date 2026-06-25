@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Message class and T100 messages | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="45-message-class-and-t100-messages-5c79f6ad" class="chapter-title">45. Message class and T100 messages</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 45</li><li>self-contained study note</li></ul><h4 id="45-1-7296d961" class="semantic-heading semantic-concept">45.1 一句话结论</h4>
+<p>Message class and T100 messages 是 ABAP 里管理可复用、可翻译业务消息的基础机制。message class 提供 message ID 和 message number 对应的文本目录，T100 是这个经典消息表背后的关键词；<code>MESSAGE</code> statement 负责把这些消息按类型、占位符和运行时语境发出或格式化。初学者要学会区分三件事：消息文本从哪里来、消息类型如何影响控制流和 UI、消息如何与 exception class、BAPI/API 返回、RAP <code>reported</code> / <code>failed</code> 连接。</p>
+<p>本节不是重新讲 <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a> 或 <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a>。异常类回答“错误路径用什么对象表达”，<code>TRY...CATCH</code> 回答“异常发生后控制流如何走”；本节回答“给用户、日志、接口或上层框架看的业务消息如何标准化、翻译和传递”。</p>
+<h4 id="45-2-ce5b6141" class="semantic-heading semantic-concept">45.2 到底学什么</h4>
+<p>在 SAP 项目里，错误和提示不是随手拼一个字符串。一个可交付的系统通常需要：</p>
+<ul>
+<li>中文、日语、英语等多语言文本可以翻译。</li>
+<li>同一个业务问题在画面、batch、接口、日志中有一致的 ID / number。</li>
+<li>message text 可以带订单号、客户号、字段名等动态值。</li>
+<li>用户看到的文本和开发者排查用的 message key 能对应起来。</li>
+<li>低层业务类不要随便弹出 dialog message，避免破坏调用方的 UI、事务边界或 API contract。</li>
+</ul>
+<p>所以，本节要掌握七个问题：</p>
+<ul>
+<li>message class 是什么，和 T100 message 有什么关系。</li>
+<li><code>MESSAGE e001(zmsg) WITH ...</code> 与 <code>MESSAGE ID ... TYPE ... NUMBER ... WITH ...</code> 如何读。</li>
+<li><code>WITH</code> 的四个 message variables 如何填入 <code>&amp;1</code>、<code>&amp;2</code>、<code>&amp;3</code>、<code>&amp;4</code>。</li>
+<li><code>S</code> / <code>I</code> / <code>W</code> / <code>E</code> / <code>A</code> / <code>X</code> message type 为什么不是普通字符串级别。</li>
+<li><code>MESSAGE ... INTO lv_text</code> 何时用于“格式化文本而不直接显示”。</li>
+<li><code>sy-msgid</code>、<code>sy-msgno</code>、<code>sy-msgty</code>、<code>sy-msgv1</code> 到 <code>sy-msgv4</code> 为什么常在日志和错误返回里出现。</li>
+<li>T100 message 如何和 class-based exception、BAPIRET2、RAP message 对象衔接。</li>
+</ul>
+<p>一个最小例子：</p>
+<pre><code class="language-abap">MESSAGE e001(zorder) WITH lv_order_id.</code></pre>
+<p>这行代码可以读成：从 message class <code>ZORDER</code> 取 message number <code>001</code>，以 error message 的方式发出，并把 <code>lv_order_id</code> 作为第一个占位符值。它不是简单 <code>WRITE</code>，也不是普通字符串拼接；它有 message key、message type、placeholder、语言翻译和运行时行为。</p>
+<h4 id="45-3-2692ffb2" class="semantic-heading semantic-why">45.3 为什么重要</h4>
+<p>message class 和 T100 message 是 SAP 项目里“用户可理解反馈”和“技术可追踪证据”的交叉点。一个保存失败、校验失败、权限不足、外部系统调用失败、数据缺失、配置缺失，都可能最终需要变成一条消息。消息写得好，用户能知道要修什么，测试人员能截图或记录 message ID，开发者能按 ID / number 找到代码和文本，运维能把日志和接口返回对应起来。</p>
+<p>写得不好时，问题会很难查：</p>
+<ul>
+<li>代码里到处硬编码中文、日文或英文字符串，无法统一翻译。</li>
+<li>同一个业务错误在不同程序里用不同文本，测试无法判断是否同一问题。</li>
+<li>message type 写成 <code>E</code>、<code>A</code> 或 <code>X</code> 后，运行时中断行为超出预期。</li>
+<li>低层 reusable class 里直接 <code>MESSAGE e...</code>，调用方本来想收集错误，却被画面逻辑打断。</li>
+<li>接口只返回本地化后的 message text，外部系统无法稳定识别错误类型。</li>
+<li>RAP validation 里直接沿用传统 dialog <code>MESSAGE</code> 思维，导致消息没有正确进入 <code>reported</code> / <code>failed</code>。</li>
+</ul>
+<p>对 Java/Python 背景学习者，可以把 message class 类比成“可翻译的错误码目录 + 格式化模板”。但 SAP 的差异是：message type 会影响 ABAP runtime / SAP GUI / dynpro / list / batch / RAP 等不同语境中的行为；同一个 message number 不是普通 exception type；message text 也不应该成为程序判断条件。项目里真正稳定的判断依据是 message ID、number、type、变量和业务上下文，而不是翻译后的自然语言文本。</p>
+<h4 id="45-4-key-mechanism-6904094e" class="semantic-heading semantic-mechanism">45.4 Key mechanism / 核心机制</h4>
+<h5 id="45-4-1-message-class-e3e25b4d">45.4.1 Message class 是消息目录</h5>
+<p>message class 可以理解成一组编号消息的目录。每条消息通常由以下信息识别：</p>
+<ul>
+<li>language，例如当前登录语言。</li>
+<li>message class / message ID，例如 <code>ZORDER</code>。</li>
+<li>message number，例如 <code>001</code>。</li>
+<li>message text，例如 <code>Order &amp;1 is blocked for customer &amp;2</code>。</li>
+</ul>
+<p>这里有一个术语细节必须讲清楚：很多文档和代码里说 <code>message ID</code>，很多项目现场说 <code>message class</code>，它们在这个语境下指向同一个标识。<code>MESSAGE e001(zorder)</code> 里的 <code>zorder</code> 就是 message class 名，也是运行时 message ID。初学者不要误以为 message ID 是另一个单独对象。</p>
+<p>经典表名 <code>T100</code> 经常出现在文档、调试、接口返回和老项目说明里。T100 的 key 思维可以简单理解为：language + message class / ID + 3 位 message number。另一个技术表 <code>T100A</code> 保存 message class 定义本身；如果有人绕过工具直接维护 T100，而没有正确的 message class 定义，就可能出现 SE91 / ADT 看不到或一致性异常的问题。</p>
+<p>因此，初学者不需要、也不应该直接维护数据库表 T100。实际开发通常通过 ADT / ABAP Workbench 的 message class 工具维护消息类、消息号、短文本和长文本。message class 是 repository object，通常作为开发对象随 transport 迁移，而不是当成 client-dependent Customizing 随便在本番手改。项目里说 <code>T100メッセージ</code>，通常就是指这类可翻译的 SAP 标准消息机制，而不是让你直接操作 T100 表。</p>
+<p>命名上，customer message class 常见 <code>Z...</code> / <code>Y...</code>，也会按模块起名，例如 <code>ZSD_ORDER</code>、<code>ZMM_PURCHASE</code>。不要把所有项目错误都塞进一个 <code>ZMSG</code>，否则后期查找、翻译和责任归属都会变差。</p>
+<h5 id="45-4-2-message-type-86f62772">45.4.2 Message type 是运行时行为，不是消息目录的一部分</h5>
+<p>message class 里保存的是 message ID / number / text。message type 通常在 <code>MESSAGE</code> statement 发出消息时指定：</p>
+<pre><code class="language-abap">MESSAGE e001(zorder) WITH lv_order_id.</code></pre>
+<p>这里 <code>e</code> 表示 error message。相同 message number 在不同语境下也可能用不同 type 发出，例如某些检查在输入阶段是 warning，在保存阶段是 error。这个选择属于运行时控制和业务流程设计，不是单纯文本维护。</p>
+<p>常见 type 可以先这样理解：</p>
+<div class="table-wrap"><table><thead><tr><th>Type</th><th>常见含义</th><th>初学者注意点</th></tr></thead><tbody><tr><td><code>S</code></td><td>Success</td><td>通常表示成功或状态提示；也可能配合 <code>DISPLAY LIKE</code> 改变显示样式</td></tr><tr><td><code>I</code></td><td>Information</td><td>通常要求用户确认或阅读信息，可能打断交互流程</td></tr><tr><td><code>W</code></td><td>Warning</td><td>表示可以继续但需要注意；在不同 UI 阶段行为可能不同</td></tr><tr><td><code>E</code></td><td>Error</td><td>通常阻止当前步骤继续，常见于输入校验</td></tr><tr><td><code>A</code></td><td>Abend / termination</td><td>高风险，会终止当前处理；不要用于普通业务校验</td></tr><tr><td><code>X</code></td><td>Exit / runtime error</td><td>通常导致 short dump；普通业务错误不应该用它</td></tr></tbody></table></div>
+<p>message type 的实际效果依赖运行语境。dialog screen、selection screen、list processing、background job、update task、RAP behavior、OData/API 入口都可能不同。书写代码时不能只问“文本对不对”，还要问“这个 type 在当前上下文会不会中断不该中断的流程”。</p>
+<h5 id="45-4-3-message-1cc10272">45.4.3 两种常见 MESSAGE 写法</h5>
+<p>静态 message class / number 常写成：</p>
+<pre><code class="language-abap">MESSAGE e001(zorder) WITH lv_order_id.</code></pre>
+<p>动态指定 message ID、type、number 时常写成：</p>
+<pre><code class="language-abap">MESSAGE ID &#x27;ZORDER&#x27; TYPE &#x27;E&#x27; NUMBER &#x27;001&#x27;
+        WITH lv_order_id.</code></pre>
+<p>第一种适合 message class、type 和 number 在代码里明确固定的场景；这些信息在语法检查时就写死了。第二种允许 message ID、type、number 在运行时由变量提供，因此常见于把 <code>sy-msgid</code>、<code>sy-msgty</code>、<code>sy-msgno</code> 和 <code>sy-msgv1</code> 等字段重新格式化、转发、记录日志，或者从配置 / 返回结构中接收消息 key 的场景。</p>
+<p>例如从 BAPI return table 转发消息时，通常不能写静态 <code>MESSAGE e001(zorder)</code>，因为 ID、number、type 来自返回结构：</p>
+<pre><code class="language-abap">MESSAGE ID ls_return-id
+        TYPE ls_return-type
+        NUMBER ls_return-number
+        WITH ls_return-message_v1
+             ls_return-message_v2
+             ls_return-message_v3
+             ls_return-message_v4
+        INTO DATA(lv_message_text).</code></pre>
+<p>这就是长写法的重要价值：它能处理动态决定的消息。相应地，review 也要更严格：<code>ls_return-id</code>、<code>ls_return-number</code> 是否可信，变量是否按正确顺序传入，是否保留了原始 key，而不是只保留最终文本。</p>
+<p>不建议初学者一开始就大量动态拼 message ID / number。动态消息更灵活，也更容易隐藏错误：拼错 ID 或 number 时，问题可能到运行时才暴露，翻译和测试也更难覆盖。</p>
+<h5 id="45-4-4-with-message-variables-241c3036">45.4.4 WITH 提供 message variables</h5>
+<p>T100 message text 里常见 <code>&amp;1</code>、<code>&amp;2</code>、<code>&amp;3</code>、<code>&amp;4</code> 这样的 placeholder。<code>MESSAGE ... WITH</code> 会把最多四个值填进去：</p>
+<pre><code class="language-abap">&quot; Message 001 in ZORDER:
+&quot; Order &amp;1 is blocked for customer &amp;2.
+
+MESSAGE e001(zorder) WITH lv_order_id lv_customer_id.</code></pre>
+<p>不要用字符串拼接替代 placeholder：</p>
+<pre><code class="language-abap">&quot; Bad for translation and diagnostics
+MESSAGE |Order { lv_order_id } is blocked for customer { lv_customer_id }| TYPE &#x27;E&#x27;.</code></pre>
+<p>硬拼字符串看起来更快，但会损失 message ID / number，也让翻译、长文本、测试、接口返回和日志关联变差。正确习惯是：稳定的业务文本进入 message class，动态值用 placeholders。</p>
+<p>placeholder 顺序也很重要。英语可能写 <code>Order &amp;1 is blocked for customer &amp;2</code>，日语可能更自然地把 customer 放前面。翻译时可以调整文本顺序，但 <code>WITH</code> 传入的变量含义必须稳定。不要把 <code>&amp;1</code> 今天当订单号、明天当客户号。</p>
+<h5 id="45-4-5-sy-msg-b4202f8f">45.4.5 sy-msg* 是消息诊断线索</h5>
+<p>很多传统 ABAP 代码会在发出或捕获消息后使用这些 system fields：</p>
+<ul>
+<li><code>sy-msgid</code></li>
+<li><code>sy-msgty</code></li>
+<li><code>sy-msgno</code></li>
+<li><code>sy-msgv1</code></li>
+<li><code>sy-msgv2</code></li>
+<li><code>sy-msgv3</code></li>
+<li><code>sy-msgv4</code></li>
+</ul>
+<p>它们常用于把一条消息转成日志、BAPI return、异常文本或调试证据。例如某个 function module 失败后，调用方可能读取 <code>sy-msgid</code> / <code>sy-msgno</code> / <code>sy-msgv1</code> 到 <code>sy-msgv4</code>，再放进 <code>BAPIRET2</code> 或 application log。</p>
+<p>但不要把 <code>sy-msg*</code> 当成全局长期状态使用。它们是 system fields，容易被后续语句覆盖。和 <a class="wiki" href="section-02-043-sy-subrc-discipline-and-silent-failure-patterns-17a684f1.html">sy-subrc discipline and silent failure patterns</a> 一样，读取这类运行时结果要靠近产生它的语句，并尽快转成局部变量、日志结构或返回对象。</p>
+<h5 id="45-4-6-message-into-0bc7ab6a">45.4.6 MESSAGE ... INTO 用于格式化文本</h5>
+<p>有时你不想直接弹出消息，只想把 T100 message 格式化成一段文本，例如写日志、拼接测试断言、把消息放进接口返回：</p>
+<pre><code class="language-abap">MESSAGE ID &#x27;ZORDER&#x27; TYPE &#x27;E&#x27; NUMBER &#x27;001&#x27;
+        WITH lv_order_id lv_customer_id
+        INTO DATA(lv_message_text).</code></pre>
+<p><code>MESSAGE ... INTO</code> 的价值是复用 message class 的翻译和 placeholder 替换，同时避免直接触发 UI message 行为。它适合“需要文本，但不希望这个语句控制画面或事务”的场景。</p>
+<p>不过，<code>INTO</code> 只是格式化文本，不等于完整错误处理。日志、API return 或 exception object 仍应保留 message ID、number、type 和变量。只保存最终文本会丢失可稳定检索的错误码，也会让多语言系统里的外部判断变脆。</p>
+<h5 id="45-4-7-display-like-1de329e5">45.4.7 DISPLAY LIKE 只改变显示，不改变语义</h5>
+<p>传统 UI 代码里可能看到：</p>
+<pre><code class="language-abap">MESSAGE s001(zorder) WITH lv_order_id DISPLAY LIKE &#x27;E&#x27;.</code></pre>
+<p>这表示消息类型本身仍是 <code>S</code>，但显示样式像 error。它可能用于“处理已完成，但要用红色样式提示用户注意”的场景。初学阶段不需要滥用它，只要记住：显示样式不等于 message type 的语义；review 时要问为什么不用真正的 <code>E</code>，也要问为什么要把 <code>S</code> 显示成 error。</p>
+<h5 id="45-4-8-message-class-exception-class-cddeca0e">45.4.8 Message class 与 exception class 的关系</h5>
+<p>message class 是文本目录；exception class 是错误对象和控制流信号。两者可以连接，但不能互相替代。</p>
+<p>class-based exception 通过 <code>get_text( )</code> 提供可读文本。更进一步，exception class 可以实现 <code>IF_T100_MESSAGE</code> 或 <code>IF_T100_DYN_MSG</code>，把 exception object 连接到 T100 message。这样做的好处是：exception 保持类型和上下文，message class 提供可翻译文本。</p>
+<p>概念上可以这样理解：</p>
+<pre><code class="language-abap">RAISE EXCEPTION TYPE zcx_order_blocked
+  EXPORTING
+    textid   = zcx_order_blocked=&gt;order_blocked
+    order_id = lv_order_id.</code></pre>
+<p>这里 exception type 表达“订单被阻止”这个错误类别；<code>textid</code> 和 <code>order_id</code> 让 <code>get_text( )</code> 能生成可翻译文本。实际项目中，exception class 的 T100 key、属性名和 constructor 由 class 定义决定，不要只复制示例代码。重点是边界：异常对象负责错误路径，T100 message 负责可翻译文本。</p>
+<h5 id="45-4-9-message-raising-4e2af689">45.4.9 MESSAGE ... RAISING 是旧式连接点</h5>
+<p>你还可能在旧代码里看到 <code>MESSAGE ... RAISING ...</code>。它通常和 classic / non-class-based exception 相关，尤其是 function module 或早期过程式接口。典型含义是：function module 通过 <code>MESSAGE ... RAISING exception_name</code> 抛出 classic exception，同时填充 <code>sy-msgid</code>、<code>sy-msgty</code>、<code>sy-msgno</code> 和 <code>sy-msgv1</code> 到 <code>sy-msgv4</code>，让调用方能在 <code>CALL FUNCTION ... EXCEPTIONS</code> 后读取这些 system fields 或转成返回结构。</p>
+<p>现代新代码不应该把它当成首选错误设计；前面 <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a> 已经讲过，新开发应优先使用 class-based exceptions 或框架规定的 message return 机制。读旧代码时，要能识别它的含义：不是单纯显示消息，而是把 message 和旧式 exception path 绑在一起。迁移时要判断：应该转成 class-based exception、BAPIRET2 / return table、application log，还是 RAP <code>reported</code> / <code>failed</code> message。</p>
+<p>在 ABAP Cloud / RAP 项目里，更要把 <code>MESSAGE ... RAISING</code> 看成 legacy 识别点，而不是新设计模板。Cloud-ready helper 应优先使用清晰的 return value、class-based exception、RAP message protocol 或 released framework API；如果保留旧式 function module 调用，也要在边界层立刻把 <code>sy-msg*</code> 固定成结构化返回或日志证据。</p>
+<h5 id="45-4-10-rap-dialog-message-db1c0b21">45.4.10 RAP 中不要照搬 dialog MESSAGE 思维</h5>
+<p>RAP behavior implementation 里，业务校验反馈通常通过 <code>reported</code> 和 <code>failed</code> 返回给框架，而不是在 handler 里随手写传统 dialog <code>MESSAGE e...</code>。一个典型方向是创建 message object，并附着到具体 entity / key / field：</p>
+<pre><code class="language-abap">APPEND VALUE #(
+  %tky = ls_order-%tky
+  %msg = new_message(
+           id       = &#x27;ZORDER&#x27;
+           number   = &#x27;001&#x27;
+           severity = if_abap_behv_message=&gt;severity-error
+           v1       = ls_order-order_id ) )
+  TO reported-order.</code></pre>
+<p>这段代码的重点不是让初学者马上背 RAP 语法，而是建立边界意识：在 RAP / OData / API 世界里，消息要进入框架的 response model。用户界面、Fiori elements、OData client、test tool 都需要结构化 message，而不是一个突然弹出的 SAP GUI dialog message。</p>
+<h5 id="45-4-11-bapiret2-t100-key-233eec39">45.4.11 BAPIRET2 与接口返回也常携带 T100 key</h5>
+<p>许多传统 BAPI / function module / API 返回结构会使用类似 <code>BAPIRET2</code> 的字段：</p>
+<ul>
+<li><code>TYPE</code></li>
+<li><code>ID</code></li>
+<li><code>NUMBER</code></li>
+<li><code>MESSAGE</code></li>
+<li><code>MESSAGE_V1</code> 到 <code>MESSAGE_V4</code></li>
+</ul>
+<p>这正是 message class/T100 思维在接口返回中的体现：既给人类可读 message，也保留机器和开发者可识别的 ID / number / variables。接口设计里不要只返回最终 message text；外部系统通常需要稳定错误码来做判断、重试、映射或翻译。</p>
+<p>换句话说，T100 text 是给人看的翻译文本，不应单独承担 API contract。接口契约要保留稳定的 ID、number、type、variables，以及必要时的业务错误码；文本可以变得更自然，但机器判断不应依赖一句可能被翻译或改写的短文本。</p>
+<h5 id="45-4-12-ca4faa9e">45.4.12 它不是业务校验本身</h5>
+<p>message class 只是表达结果，不是校验逻辑。下面这些事情不能交给 T100 message 自动完成：</p>
+<ul>
+<li>权限检查。</li>
+<li>数据存在性和一致性校验。</li>
+<li>lock / enqueue。</li>
+<li>transaction boundary / commit / rollback。</li>
+<li>RAP validation / determination / save sequence。</li>
+<li>API error contract 和 HTTP status 设计。</li>
+<li>application log / audit log 的持久化策略。</li>
+</ul>
+<p>好的代码通常先做业务判断，再把判断结果转换成 message、exception、return table 或 RAP reported message。不要反过来：因为有了 message class，就把业务规则散落在各处 <code>MESSAGE e...</code> 语句里。</p>
+<h5 id="45-4-13-message-design-checklist-9ed038c0">45.4.13 message design checklist</h5>
+<p>设计一条 T100/message class 消息时，可以先用下面的表做 review。重点是让消息同时满足用户可理解、测试可记录、开发可追踪、接口可稳定处理。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Good message design</th><th>Risk signal</th></tr></thead><tbody><tr><td>Who consumes it?</td><td>明确是 dialog user、batch log、API caller、RAP/Fiori message，还是 developer trace。</td><td>同一条消息同时想服务所有场景，文本又长又模糊。</td></tr><tr><td>Is the key stable?</td><td>message class + number 可以长期追踪和测试。</td><td>只返回拼接后的文本，外部系统无法稳定判断。</td></tr><tr><td>Are placeholders meaningful?</td><td><code>&amp;1</code>-<code>&amp;4</code> 放 order id、field name、status、external id 等关键上下文。</td><td>占位符顺序混乱，或放入过长/敏感文本。</td></tr><tr><td>Is message type intentional?</td><td><code>E/W/I/S/A/X</code> 的控制流影响被调用方理解。</td><td>低层 service 直接 <code>MESSAGE e...</code> 破坏 API/RAP/事务边界。</td></tr><tr><td>Is translation possible?</td><td>固定文本在 message class 中，动态值走 <code>WITH</code>。</td><td>代码里硬编码中文/日文/英文字符串。</td></tr><tr><td>Does API need structure?</td><td>返回 ID/number/type/variables/text，必要时带 HTTP/RAP field target。</td><td>只返回最终 text，调用方无法重试、映射或定位字段。</td></tr><tr><td>Is evidence captured?</td><td>对 batch/interface，message key 可进入 Application Log 或 return table。</td><td>用户看到错误，但运维和开发找不到对应证据。</td></tr></tbody></table></div>
+<p>一个实用原则是：面向用户的 message text 要短而可行动；面向接口和日志的 message payload 要稳定而可追踪。两者可以来自同一条 T100 key，但不要把所有诊断信息都塞进用户文本里。</p>
+<h4 id="45-5-c1bb5b0c" class="semantic-heading semantic-japan">45.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>メッセージクラス</code></li>
+<li><code>メッセージID</code></li>
+<li><code>メッセージ番号</code></li>
+<li><code>T100メッセージ</code></li>
+<li><code>T100A</code></li>
+<li><code>メッセージタイプ</code></li>
+<li><code>メッセージ変数</code></li>
+<li><code>プレースホルダ</code></li>
+<li><code>長文</code></li>
+<li><code>メッセージ長文</code></li>
+<li><code>多言語対応</code></li>
+<li><code>翻訳</code></li>
+<li><code>エラーメッセージ</code></li>
+<li><code>警告メッセージ</code></li>
+<li><code>成功メッセージ</code></li>
+<li><code>業務メッセージ</code></li>
+<li><code>ハードコード文言</code></li>
+<li><code>汎用メッセージ</code></li>
+<li><code>BAPIRET2</code></li>
+<li><code>reported / failed</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li><code>ハードコード文言ではなく、メッセージクラスとメッセージ番号で管理してください。</code></li>
+<li><code>このメッセージはT100メッセージとして翻訳対象になるため、プレースホルダの意味を固定してください。</code></li>
+<li><code>メッセージIDとメッセージクラス名は同じ識別子として扱われるため、用語を混同しないでください。</code></li>
+<li><code>T100を直接更新せず、SE91またはADTのメッセージクラスとして保守してください。</code></li>
+<li><code>MESSAGE文のタイプは画面制御や処理継続に影響するため、再利用クラス内で直接発行しないでください。</code></li>
+<li><code>メッセージ本文ではなく、メッセージID・番号・変数でログと障害調査が追跡できるようにしてください。</code></li>
+<li><code>RAPのvalidationでは、ダイアログMESSAGEではなくreported/failedにメッセージを返す設計にしてください。</code></li>
+<li><code>汎用的な「エラーが発生しました」ではなく、業務担当者が次の対応を判断できる文言にしてください。</code></li>
+</ul>
+<h4 id="45-6-english-terms-2f3df5f3" class="semantic-heading semantic-terms">45.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>MESSAGE</code></li>
+<li>Official / search term: <code>ABAP messages</code></li>
+<li>Official / search term: <code>message class</code></li>
+<li>Official / search term: <code>T100</code></li>
+<li>Official / search term: <code>T100A</code></li>
+<li>Official / search term: <code>message ID</code></li>
+<li>Official / search term: <code>message number</code></li>
+<li>Official / search term: <code>message type</code></li>
+<li>Official / search term: <code>message variables</code></li>
+<li>Official / search term: <code>MESSAGE ... WITH</code></li>
+<li>Official / search term: <code>MESSAGE ... INTO</code></li>
+<li>Official / search term: <code>MESSAGE ... RAISING</code></li>
+<li>Official / search term: <code>IF_T100_MESSAGE</code></li>
+<li>Official / search term: <code>IF_T100_DYN_MSG</code></li>
+<li>Official / search term: <code>BAPIRET2</code></li>
+<li>Official / search term: <code>reported</code></li>
+<li>Official / search term: <code>failed</code></li>
+<li>Recommended search pattern: <code>ABAP MESSAGE statement SAP Help</code></li>
+<li>Recommended search pattern: <code>ABAP IF_T100_MESSAGE SAP Help</code></li>
+<li>Recommended search pattern: <code>ABAP message class T100 SAP Help</code></li>
+<li>Recommended search pattern: <code>RAP reported failed message new_message ABAP</code></li>
+</ul>
+<h4 id="45-7-example-6d3422f7" class="semantic-heading semantic-example">45.7 Example / 学习例子</h4>
+<h5 id="45-7-1-message-class-93e51b28" class="semantic-heading semantic-example">45.7.1 例子一：用 message class 表达业务校验</h5>
+<p>假设 message class <code>ZORDER</code> 里有 message number <code>001</code>：</p>
+<pre><code class="language-text">Order &amp;1 is blocked for customer &amp;2.</code></pre>
+<p>在传统 dialog 程序里可能写：</p>
+<pre><code class="language-abap">IF lv_is_blocked = abap_true.
+  MESSAGE e001(zorder) WITH lv_order_id lv_customer_id.
+ENDIF.</code></pre>
+<p>读者要能看出四件事：</p>
+<ul>
+<li><code>ZORDER</code> 是 message class / message ID。</li>
+<li><code>001</code> 是 message number。</li>
+<li><code>E</code> 是运行时 message type。</li>
+<li><code>lv_order_id</code> 和 <code>lv_customer_id</code> 分别进入 <code>&amp;1</code> 和 <code>&amp;2</code>。</li>
+</ul>
+<h5 id="45-7-2-f762e833" class="semantic-heading semantic-example">45.7.2 例子二：格式化文本但不直接显示</h5>
+<p>如果这段逻辑运行在 batch、接口或 reusable class 里，直接发 dialog message 可能不合适。可以先格式化成文本，并把 key 一起放进返回结构或日志：</p>
+<pre><code class="language-abap">MESSAGE ID &#x27;ZORDER&#x27; TYPE &#x27;E&#x27; NUMBER &#x27;001&#x27;
+        WITH lv_order_id lv_customer_id
+        INTO DATA(lv_message_text).
+
+APPEND VALUE bapiret2(
+  type       = &#x27;E&#x27;
+  id         = &#x27;ZORDER&#x27;
+  number     = &#x27;001&#x27;
+  message    = lv_message_text
+  message_v1 = lv_order_id
+  message_v2 = lv_customer_id ) TO lt_return.</code></pre>
+<p>这里 <code>lv_message_text</code> 给人读，<code>id</code> / <code>number</code> / <code>message_v1</code> / <code>message_v2</code> 给系统和开发者追踪。不要只保留 <code>message</code> 文本。</p>
+<h5 id="45-7-3-message-44e620f3" class="semantic-heading semantic-example">45.7.3 例子三：不要在低层服务类里直接 MESSAGE</h5>
+<p>不推荐：</p>
+<pre><code class="language-abap">METHOD check_order.
+  IF lv_is_blocked = abap_true.
+    MESSAGE e001(zorder) WITH iv_order_id.
+  ENDIF.
+ENDMETHOD.</code></pre>
+<p>这段代码把低层 method 和当前 UI 行为绑死了。调用者如果是 batch job、OData service、RAP validation 或 ABAP Unit，就很难控制这个错误。</p>
+<p>更好的方向是返回结构化结果、抛 class-based exception，或在 RAP 中填充 <code>reported</code> / <code>failed</code>。例如普通业务 service 可以选择：</p>
+<pre><code class="language-abap">IF lv_is_blocked = abap_true.
+  RAISE EXCEPTION TYPE zcx_order_blocked
+    EXPORTING
+      order_id = iv_order_id.
+ENDIF.</code></pre>
+<p>然后在边界层把 exception 转成 message、日志或 API response。这样 message class 仍然可以用于文本，但控制流不被低层 <code>MESSAGE</code> 偷走。</p>
+<h5 id="45-7-4-rap-validation-ed122198" class="semantic-heading semantic-example">45.7.4 例子四：RAP validation 的消息思维</h5>
+<p>RAP 中业务反馈要进入 framework message model。初学者可以先读懂这个方向：</p>
+<pre><code class="language-abap">APPEND VALUE #(
+  %tky = ls_order-%tky
+  %msg = new_message(
+           id       = &#x27;ZORDER&#x27;
+           number   = &#x27;001&#x27;
+           severity = if_abap_behv_message=&gt;severity-error
+           v1       = ls_order-order_id ) )
+  TO reported-order.
+
+APPEND VALUE #( %tky = ls_order-%tky ) TO failed-order.</code></pre>
+<p>这不是普通 <code>MESSAGE e001(zorder)</code>。它告诉 RAP：哪个 entity 失败了、失败严重度是什么、要返回哪条 message。Week 3 的 <a class="wiki" href="section-03-029-validation-44a4b013.html">RAP validation 验证</a> 会继续展开。</p>
+<h4 id="45-8-counterexample-failure-mode-b2b9ee4c" class="semantic-heading semantic-example">45.8 Counterexample / Failure mode</h4>
+<p>常见失败模式：</p>
+<ul>
+<li>在代码里硬编码 <code>MESSAGE &#x27;Order is blocked&#x27; TYPE &#x27;E&#x27;</code>，导致不可翻译、不可追踪。</li>
+<li>message text 只有“发生错误”，没有业务对象、字段、原因或下一步。</li>
+<li>把 message text 当成程序判断条件，遇到翻译就失效。</li>
+<li>低层 service / utility class 里直接 <code>MESSAGE e...</code>，破坏调用方的 UI / batch / API 边界。</li>
+<li>普通业务校验使用 <code>MESSAGE x...</code>，造成 short dump。</li>
+<li>该返回 warning 的地方发 error，导致用户无法继续；该阻止保存的地方只发 success/info，导致错误数据进入后续流程。</li>
+<li>使用 <code>MESSAGE ... INTO</code> 后只保存文本，不保存 ID / number / variables。</li>
+<li>placeholder 顺序不稳定，翻译后变量含义错位。</li>
+<li>把同一个 message class 做成垃圾桶，所有模块都往里塞泛用消息。</li>
+<li>RAP behavior 里沿用 SAP GUI dialog <code>MESSAGE</code> 思维，没有进入 <code>reported</code> / <code>failed</code>。</li>
+</ul>
+<p>一个典型反例：</p>
+<pre><code class="language-abap">IF lv_is_blocked = abap_true.
+  MESSAGE &#x27;Order is blocked&#x27; TYPE &#x27;E&#x27;.
+ENDIF.</code></pre>
+<p>它的问题不是“显示不出来”，而是太不可交付：</p>
+<ul>
+<li>没有 message ID / number。</li>
+<li>没有翻译入口。</li>
+<li>没有变量位置约定。</li>
+<li>日志和接口无法稳定识别。</li>
+<li>低层代码很可能直接控制 UI。</li>
+</ul>
+<p>更好的方向：</p>
+<pre><code class="language-abap">MESSAGE e001(zorder) WITH lv_order_id lv_customer_id.</code></pre>
+<p>或者在非 UI 边界：</p>
+<pre><code class="language-abap">MESSAGE ID &#x27;ZORDER&#x27; TYPE &#x27;E&#x27; NUMBER &#x27;001&#x27;
+        WITH lv_order_id lv_customer_id
+        INTO DATA(lv_message_text).</code></pre>
+<p>然后把 ID、number、variables 和 text 一起交给日志、返回结构或框架。</p>
+<h4 id="45-9-e3b835e1" class="semantic-heading semantic-practice">45.9 思考问题</h4>
+<ul>
+<li>这条消息是给终端用户、测试人员、运维、外部系统，还是开发者看的？</li>
+<li>message class / number 是否能稳定定位业务问题？</li>
+<li>message type 会不会中断当前流程？这个中断是需求要求的吗？</li>
+<li>变量 <code>&amp;1</code> 到 <code>&amp;4</code> 的含义是否稳定，翻译后是否仍然清楚？</li>
+<li>这段代码运行在 dialog、batch、RFC/BAPI、OData、RAP，还是 ABAP Unit？</li>
+<li>低层方法是否应该直接 <code>MESSAGE</code>，还是应该返回结构化结果或抛 exception？</li>
+<li>日志/API 返回是否保留了 ID、number、type 和 variables，而不是只有最终文本？</li>
+<li>这条消息能不能指导业务用户下一步该怎么做？</li>
+</ul>
+<h4 id="45-10-c69fe1dc" class="semantic-heading semantic-reference">45.10 参考资料入口</h4>
+<ul>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMESSAGE.html" target="_blank" rel="noopener noreferrer">MESSAGE</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_MESSAGES.html" target="_blank" rel="noopener noreferrer">Messages</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMESSAGE_INTO.html" target="_blank" rel="noopener noreferrer">MESSAGE, INTO</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMESSAGE_RAISING.html" target="_blank" rel="noopener noreferrer">MESSAGE, RAISING</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMESSAGE_SHORTREF.html" target="_blank" rel="noopener noreferrer">MESSAGE - Short Reference</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENIF_T100_MESSAGE.html" target="_blank" rel="noopener noreferrer">Messages - System Interface IF_T100_MESSAGE</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENIF_T100_DYN_MSG.html" target="_blank" rel="noopener noreferrer">Messages - System Interface IF_T100_DYN_MSG</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/SAP_NETWEAVER_750/c238d694b825421f940829321ffa326a/4ec242f66e391014adc9fffe4e204223.html?locale=en-US&amp;amp;state=PRODUCTION&amp;amp;version=7.5.15" target="_blank" rel="noopener noreferrer">Message Classes and Message Numbers</a></li>
+<li><a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li><a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li><a class="wiki" href="section-04-017-exception-vs-message-414fed45.html">Exception vs message 异常与消息</a></li>
+<li><a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="45-11-connections-44312e2c">45.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li>Related: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-04-017-exception-vs-message-414fed45.html">Exception vs message 异常与消息</a></li>
+<li>Related: <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-02-043-sy-subrc-discipline-and-silent-failure-patterns-17a684f1.html">sy-subrc discipline and silent failure patterns</a></li>
+<li>Downstream: <a class="wiki" href="section-03-046-cds-table-function-vs-cds-view-entity-048e0553.html">CDS table function vs CDS view entity</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="45-12-e519afa2" class="semantic-heading semantic-practice">45.12 学习任务</h4>
+<ul>
+<li>设计一个 message class <code>ZORDER</code> 的 3 条消息：校验错误、警告、成功提示。</li>
+<li>为每条消息写出 message number、英文文本、日语现场说明、<code>&amp;1</code> 到 <code>&amp;4</code> 的变量含义。</li>
+<li>把一段硬编码 <code>MESSAGE &#x27;...&#x27; TYPE &#x27;E&#x27;</code> 改成 <code>MESSAGE e001(zorder) WITH ...</code>。</li>
+<li>用 <code>MESSAGE ... INTO DATA(lv_text)</code> 格式化一条消息，并说明为什么还要保留 ID / number / variables。</li>
+<li>写一句日语 review 指摘，提醒低层 reusable class 不要直接发 dialog <code>MESSAGE</code>。</li>
+<li>如果已经进入 Week 3，找到一个 RAP validation message，把它和 <code>reported</code> / <code>failed</code> 对应起来。</li>
+</ul>
+<h4 id="45-13-confidence-next-action-e49ea6d4" class="semantic-heading semantic-status">45.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容基于 SAP Help / ABAP Keyword Documentation 的 <code>MESSAGE</code>、ABAP Messages、<code>MESSAGE ... INTO</code>、<code>MESSAGE ... RAISING</code>、<code>IF_T100_MESSAGE</code>、<code>IF_T100_DYN_MSG</code> 页面，以及已扩写的 exception / TRY CATCH / RAP validation 相关章节整理；Joule 返回 <code>Pass with fixes</code> 的可捕获部分已合入，并补充了 <code>MESSAGE ... RAISING</code> 的 ABAP Cloud / RAP 边界与接口契约提醒。Claude CLI 文字审校仍作为外部 review debt 记录，因为本轮 health check 超时。</li>
+<li>Next action: 后续若 Claude CLI 或 Joule 稳定恢复，再补一次文件式文字审校；当前本节可作为 <code>expanded-review</code> 书稿正文使用。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-044-corresponding-fields-and-move-corresponding-risks-209a3881.html">Previous section</a><a href="section-02-046-clean-abap-naming-955e5592.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

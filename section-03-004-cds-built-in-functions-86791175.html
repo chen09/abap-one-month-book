@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>CDS built-in functions 内置函数 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="4-cds-built-in-functions-8efe99be" class="chapter-title">4. CDS built-in functions 内置函数</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 04</li><li>self-contained study note</li></ul><h4 id="4-1-c4065a05" class="semantic-heading semantic-concept">4.1 一句话结论</h4>
+<p>CDS built-in functions 内置函数，是在 CDS DDL 中对字段值做派生、转换、格式整理和简单判断的表达工具。它让 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a> 不只是把底层表字段原样投影出来，也能在模型层表达一些稳定、可复用、读模型相关的计算结果。</p>
+<p>本节要学的不是“把所有计算都塞到数据库侧”，而是理解：哪些派生字段适合放在 CDS 中，哪些业务规则应该留给 ABAP class、RAP behavior、DCL 或服务层。初学者只要记住一句话：CDS built-in functions 可以让 read model 更有表达力，但它不是复杂业务逻辑、事务保存、授权设计或性能优化的万能容器。</p>
+<h4 id="4-2-8af53125" class="semantic-heading semantic-concept">4.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a> 讲的是“给模型补元数据”；本节讲的是“在模型里表达字段值如何被计算或转换”。在 CDS view entity 中，element 不一定只能来自底层字段，也可以来自 expression。built-in functions 就是 expression 的重要组成部分。</p>
+<p>需要掌握六个判断点。</p>
+<ul>
+<li>Function role：内置函数是 CDS DDL expression 的一部分，用来生成派生字段、规范显示值、转换类型、处理空值或做简单计算。</li>
+<li>Category awareness：常见类别包括 string、numeric、date/time、conversion、null handling、conditional expression、currency/unit conversion 等，但具体可用函数取决于 ABAP release 和当前语法环境。</li>
+<li>Model boundary：稳定、只读、可复用、贴近数据语义的派生字段适合考虑放进 CDS；复杂流程、状态变更、保存顺序和副作用不适合。</li>
+<li>Type semantics：函数结果有类型、长度、精度和 null 行为；不能只看“能激活”，还要看下游 UI/API/ABAP SQL 怎样消费。</li>
+<li>Performance and readability：函数让模型更强，但嵌套太深、在过滤或关联条件中过度使用、或隐藏昂贵转换，都会让 review 和性能分析变难。</li>
+<li>Testability：任何派生字段都要用样本数据验证边界情况，例如空值、初始值、长度截断、舍入、日期跨月、币种/单位转换和未知状态码。</li>
+</ul>
+<h4 id="4-3-b73ab4ba" class="semantic-heading semantic-why">4.3 为什么重要</h4>
+<p>没有内置函数，CDS view entity 很容易退化成“字段搬运层”：底层表有什么字段，模型就暴露什么字段。这样虽然简单，但很多消费方仍然要重复做同样的小处理，例如拼接显示文本、把状态码转成语义文本、把空值转成默认值、抽取日期的一部分、统一大小写、转换字段类型或计算两个日期之间的差异。</p>
+<p>如果每个 ABAP class、OData consumer 或 UI 都各自处理这些派生逻辑，项目会很快出现漂移：同一个状态码在一个画面叫 <code>Open</code>，另一个接口叫 <code>Released</code>；一个地方把 null 当空字符串，另一个地方直接报错；一个报表把金额四舍五入，另一个报表保留更多位数。CDS built-in functions 的价值，是把这些稳定、可复用、读模型相关的表达收敛到同一个模型里。</p>
+<p>但它也有风险。初学者看到“可以在 CDS 里计算”，很容易把 CDS 当成第二种 ABAP，把复杂业务规则、权限判断、更新流程、错误处理和性能敏感逻辑都写进表达式。这样短期看减少了 ABAP 代码，长期却让模型难读、难测、难复用，也让问题定位变成“到底是数据库、CDS、RAP、OData 还是 UI 出了问题”。本节的重点就是建立边界：用函数增强语义模型，不用函数掩盖业务设计。</p>
+<p>对 Java/Python 背景学习者来说，可以把这类函数粗略类比为 SQL expression、computed column、DTO mapping expression 或 ORM projection 中的 derived field。但 SAP 的差异在于：CDS 是 ABAP repository object，派生字段可能被 ABAP SQL、RAP、OData、Fiori Elements、analytics 或其他 CDS entity 复用。因此一行函数表达式不是局部小技巧，而可能成为对外模型契约的一部分。</p>
+<h4 id="4-4-key-mechanism-90b08552" class="semantic-heading semantic-mechanism">4.4 Key mechanism / 核心机制</h4>
+<h5 id="4-4-1-abap-f0f5bd7d">4.4.1 内置函数属于模型表达式，不是普通 ABAP 调用</h5>
+<p>CDS built-in functions 写在 CDS DDL source 中，通常出现在 select list、条件表达式、计算字段或其他允许 expression 的位置。它们不是在 ABAP 方法里调用的 function module，也不是任意 class method call。能不能使用、参数类型是否允许、结果类型如何确定，都由 ABAP CDS 语法和当前 release 决定。</p>
+<p>因此学习时不要先问“我会不会这个函数名”，而要先问：“这个派生字段是不是模型的一部分？”如果答案是 yes，再判断用 built-in function 是否清楚、稳定、可测试。如果答案是 no，比如规则依赖当前业务流程状态、用户动作、保存阶段、外部接口返回值或多步校验，那么它通常不应该被塞进 CDS 函数表达式里。</p>
+<h5 id="4-4-2-a09efddf">4.4.2 常见类别：先认类型，再查具体函数</h5>
+<p>初学阶段不需要背完整函数清单。更重要的是看到函数时知道它大概属于哪类。</p>
+<ul>
+<li>String functions：处理字符展示和规范化，例如拼接、截取、大小写、长度、去空格等。</li>
+<li>Numeric functions：处理绝对值、取整、四舍五入、除法或余数等简单数值计算。</li>
+<li>Date/time functions：处理日期、时间戳、差异、加减日期或有效性判断等。</li>
+<li>Conversion / cast：把字段转换成适合下游消费的类型、长度或精度。</li>
+<li>Null handling：处理数据库 null，例如为可能为空的字段提供默认值。</li>
+<li>Conditional expressions：用 <code>CASE</code> 等表达简单映射，例如状态码到显示文本。</li>
+<li>Currency/unit related functions：在系统支持且语义明确时处理金额/币种或数量/单位转换。</li>
+</ul>
+<p>这些类别帮助读者阅读代码，但不要把它们当成固定不变的全集。SAP Help / ABAP Keyword Documentation 和 ADT syntax check 才是当前系统中可用语法的最终依据。尤其在客户项目里，ABAP Platform 版本、ABAP Cloud language version、数据库能力和项目规范都可能影响可用写法。</p>
+<p>实际写代码时，优先在 ADT 中用 syntax check、code completion 和当前系统对应的 ABAP Keyword Documentation 确认函数名、参数和结果类型。不要从 HANA SQLScript、普通 ABAP built-in function 或网络示例里直接复制函数名到 CDS DDL；同样叫 <code>function</code>，语法位置和类型规则可能完全不同。</p>
+<h5 id="4-4-3-cds-47d3ad79">4.4.3 什么适合放进 CDS 函数</h5>
+<p>适合放进 CDS 函数的逻辑通常有四个特征。</p>
+<p>第一，结果是读模型的一部分。比如“客户显示名”“状态显示文本”“规范化后的搜索键”“参考文本默认值”这类字段，多个消费者都需要，而且不改变系统状态。</p>
+<p>第二，逻辑稳定。状态码映射、字段拼接、空值处理、简单日期差等，如果业务含义稳定，可以放在模型层；如果业务规则经常变化，或者每个消费场景不同，就要谨慎。</p>
+<p>第三，表达式短而可读。一个 reviewer 能在几秒钟内看懂它解决什么问题。如果需要三层嵌套、多个 <code>CASE</code>、复杂函数组合，通常应考虑拆层、改名、放到上层逻辑，或至少用更清楚的 view layering。</p>
+<p>第四，边界数据可测试。函数不是写完激活就结束；要准备样本数据验证 null、空字符串、超长文本、负数、零值、边界日期、未知状态码、不同币种/单位等情况。</p>
+<h5 id="4-4-4-cds-95c3d130">4.4.4 什么不应该靠 CDS 函数解决</h5>
+<p>CDS built-in functions 不应该承担这些责任。</p>
+<ul>
+<li>Transactional behavior：保存前校验、保存后派生、action、side effect、additional save、draft 行为等属于 RAP/ABAP 行为层。</li>
+<li>Authorization design：行级读过滤可能涉及 <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a> 和 <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a>；实例授权、动作授权、更新授权、技术用户和 audit 不是一个函数能解决。</li>
+<li>Locking and consistency：锁、并发控制、save sequence 和 commit/rollback 边界不属于 CDS 函数。</li>
+<li>Complex business workflow：审批流、状态机、外部接口调用、错误消息组装、长事务补偿等应该在应用层设计。</li>
+<li>Performance masking：把复杂转换藏在 view 里，不等于性能消失；只是让问题更难被看到。</li>
+</ul>
+<p>这条边界对后续 <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a> 和 <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a> 很重要。CDS 可以帮助形成“读模型”；RAP behavior 才处理“业务对象怎样改变”。</p>
+<h5 id="4-4-5-null-abap-initial-value-5f87f7b4">4.4.5 Null 和 ABAP initial value 不要混淆</h5>
+<p>这是初学者最容易踩的坑之一。数据库 null 和 ABAP 初始值不是同一个概念。ABAP 中 <code>c</code> 的初始值可能是空格，数值初始值可能是 0，日期初始值可能是 <code>00000000</code>；数据库 null 则表示“没有值”。在 CDS 中使用 null-handling 函数可以把 null 转成某个默认值，但这是一种业务选择，不是单纯的技术修补。</p>
+<p>例如，把参考文本的 null 转成空字符串，可能让 UI 更好显示；但如果“没有维护参考文本”和“维护了空文本”在业务上有差异，这样处理就会隐藏信息。金额、数量、日期也一样：把 null 金额转成 0，可能让报表看起来整齐，却可能错误表达“金额为零”。</p>
+<p>所以 review 时要问：这里把 null 转成默认值，是为了显示便利，还是业务含义真的等价？这个决定是否应该写在底层 view entity，还是更适合消费层？</p>
+<h5 id="4-4-6-type-length-precision-87742b6f">4.4.6 Type、length、precision 是模型契约</h5>
+<p>内置函数的结果会变成 CDS element。这个 element 的类型、长度、精度、scale、是否可能为 null，会影响 ABAP SQL 接收变量、OData metadata、Fiori 展示、analytics 解释和测试断言。不要只看函数表达式“语法能过”，还要看结果类型是否符合模型语义。</p>
+<p>典型风险包括：</p>
+<ul>
+<li>字符串拼接后长度不足，显示文本被截断。</li>
+<li><code>CAST</code> 改变长度或小数位，导致金额/数量精度丢失。</li>
+<li>日期/时间转换没有考虑时区、系统日期、用户时区或无效日期。</li>
+<li>数值除法、舍入、取整规则和业务期待不一致。</li>
+<li>下游 ABAP 变量类型与 CDS element 类型不匹配，出现隐式转换或前导零问题。</li>
+</ul>
+<p>这也是为什么金额、币种、数量、单位字段不能只靠一个函数“算出来就好”。后续 UI/API/analytics 消费往往依赖语义 annotation，例如 amount/currency 或 quantity/unit 的关系；函数只解决值，不能自动完成完整业务语义。</p>
+<h5 id="4-4-7-performance-d0a21920">4.4.7 Performance：能下推不等于一定更快</h5>
+<p>很多资料会说 CDS 函数可以把计算下推到数据库侧。这个方向是对的，但不能变成口号。数据库侧计算减少了 ABAP 循环处理，有时能明显改善性能；但如果函数写在过滤条件、关联条件或大量数据的计算列上，也可能影响索引使用、执行计划、排序、聚合或缓存效果。</p>
+<p>初学者不用一开始就会读完整执行计划，但要建立三条习惯。</p>
+<ul>
+<li>不在底层复用 view 里放消费场景很窄、成本不明的复杂函数。</li>
+<li>对大表、大范围查询、频繁调用的 view，使用样本数据、SQL trace、SQL Monitor 或项目指定工具验证。</li>
+<li>发现性能问题时，不只看 ABAP class，也要看 CDS view stack、association、path expression、DCL、annotation 和函数表达式。</li>
+</ul>
+<p>一句话：函数可以让模型更强，也可能让模型更重。是否值得，要靠读法、数据量和验证结果决定。</p>
+<h5 id="4-4-8-26092f87">4.4.8 一个教学示意</h5>
+<p>下面的代码只用于说明阅读思路；具体函数名、参数和类型写法要以当前系统的 ABAP Keyword Documentation / ADT syntax check 为准。</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales Order Display Model&#x27;
+define view entity ZI_SalesOrderDisplay
+  as select from zsales_order
+{
+  key zsales_order.order_id as SalesOrder,
+
+      concat_with_space(
+        zsales_order.customer_id,
+        zsales_order.customer_name,
+        1
+      ) as CustomerDisplay,
+
+      case zsales_order.status
+        when &#x27;O&#x27; then &#x27;Open&#x27;
+        when &#x27;C&#x27; then &#x27;Closed&#x27;
+        else &#x27;Unknown&#x27;
+      end as StatusText,
+
+      coalesce( zsales_order.reference_text, &#x27;&#x27; ) as ReferenceText
+}</code></pre>
+<p>读这段时，不要只说“用了函数”。要问四件事。</p>
+<ul>
+<li><code>CustomerDisplay</code> 是不是多个消费者都会需要的显示字段？如果只是某个画面临时需要，也许放在 UI/消费层更合适。</li>
+<li><code>StatusText</code> 的英文文本是不是业务契约？日本项目或多语言 UI 中，状态文本可能应该走 text table、domain fixed value、value help 或 i18n 机制，而不是硬编码英文。</li>
+<li><code>ReferenceText</code> 把 null 转成空字符串是否会隐藏业务差异？</li>
+<li>这些派生字段是否需要 annotation、测试数据和下游 API metadata 检查？</li>
+</ul>
+<p>这就是本节的核心：函数写法本身不难，难的是知道它放在模型里意味着什么。</p>
+<h5 id="4-4-9-association-projection-rap-b4d9b6a3">4.4.9 和 Association、Projection、RAP 的关系</h5>
+<p>CDS built-in functions 通常先出现在基础 view entity 或 interface view 中，但不代表所有层都应该重复计算。常见做法是：底层模型负责稳定语义字段；projection view 决定对外暴露哪些字段；metadata extension 或 UI annotation 决定画面如何消费；RAP behavior 负责事务行为。</p>
+<p>如果派生字段是核心业务语义，例如一个标准化后的业务 key，它可能应该靠近底层模型。如果派生字段只服务某个 OData projection 或 Fiori 列表，它可能更适合放在 projection 或消费层。后续学习 <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a>、<a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a> 和 <a class="wiki" href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">CDS metadata extension and UI annotations</a> 时，要继续用这个 layering 判断。</p>
+<h5 id="4-4-10-derived-field-decision-checklist-53228b97">4.4.10 Derived field decision checklist</h5>
+<p>给 CDS 增加 built-in function 或派生字段前，可以先用下面的表判断放置位置是否合理。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Put in CDS when...</th><th>Prefer another layer when...</th></tr></thead><tbody><tr><td>Is it stable read semantics?</td><td>多个 consumer 都需要同样的派生字段，例如标准化 key、格式化但稳定的技术值。</td><td>只服务某个画面、报表或临时接口。</td></tr><tr><td>Does it need business process state?</td><td>不依赖当前 action/save phase/user decision。</td><td>依赖 release/cancel/save sequence、外部接口结果或事务状态。</td></tr><tr><td>Is type/null behavior explicit?</td><td>结果类型、长度、precision、null/default 语义都可说明。</td><td>null 和 ABAP initial value 混在一起会隐藏数据差异。</td></tr><tr><td>Is localization/text handling involved?</td><td>只是技术 code 或稳定字段组合。</td><td>文本需要多语言、text table、domain/value help 或 i18n 机制。</td></tr><tr><td>Is performance reviewable?</td><td>表达式简单，可通过 SQL trace/plan 理解。</td><td>函数嵌套、过滤条件、association 条件让数据库执行难以判断。</td></tr><tr><td>Is it part of API contract?</td><td>字段会被 OData/RAP/ABAP SQL 稳定消费，并有测试数据。</td><td>还在探索阶段，频繁改名/改类型/改语义。</td></tr><tr><td>Is behavior required?</td><td>只是 read model 的 derived value。</td><td>需要 validation、determination、action、side effect 或 application log。</td></tr></tbody></table></div>
+<p>一个项目上的保守规则是：CDS 函数适合表达“数据怎么被读懂”，不适合隐藏“业务流程怎么运转”。如果派生字段的正确性必须靠保存时机、用户授权、外部调用或副作用来解释，它通常不该只靠 CDS built-in function 承担。</p>
+<h4 id="4-5-89647ce4" class="semantic-heading semantic-japan">4.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>組み込み関数</code>：built-in function / 内置函数。</li>
+<li><code>CDS式</code>、<code>式項目</code>：CDS expression / expression element 的现场说法。</li>
+<li><code>派生項目</code>、<code>計算項目</code>：派生字段、计算字段。</li>
+<li><code>文字列関数</code>、<code>数値関数</code>、<code>日付/時刻関数</code>：string / numeric / date-time functions。</li>
+<li><code>型変換</code>、<code>CAST</code>、<code>桁数</code>、<code>小数点以下桁数</code>：类型转换、长度、小数位。</li>
+<li><code>NULL値</code>、<code>初期値</code>：null value 与 ABAP initial value。</li>
+<li><code>可読性</code>、<code>保守性</code>、<code>性能影響</code>：可读性、维护性、性能影响。</li>
+</ul>
+<p>项目说明句：</p>
+<ul>
+<li><code>CDS の組み込み関数は、読取モデル上の派生項目を表現するためのものであり、複雑な業務ロジックを隠す場所ではありません。</code></li>
+<li><code>NULL値とABAPの初期値を混同しないよう、サンプルデータで結果を確認してください。</code></li>
+<li><code>WHERE 条件や関連条件で関数を多用する場合は、性能影響を確認してください。</code></li>
+<li><code>状態テキストをCDS内でハードコードするのではなく、多言語対応や値ヘルプの要件を確認してください。</code></li>
+</ul>
+<p>Review 中常见问法：</p>
+<ul>
+<li>この計算項目は複数の利用箇所で共通化すべき項目ですか。</li>
+<li>この <code>CAST</code> によって桁落ちや丸め誤差は発生しませんか。</li>
+<li>NULL値を空文字または0に変換しても、業務上問題ありませんか。</li>
+<li>この式はCDSに置くべきですか、それともABAP/RAP側に置くべきですか。</li>
+</ul>
+<h4 id="4-6-english-terms-77b56639" class="semantic-heading semantic-terms">4.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>ABAP CDS built-in functions</code>, <code>CDS DDL expressions</code>, <code>CDS view entity calculated field</code>, <code>CDS string functions</code>, <code>CDS numeric functions</code>, <code>CDS date time functions</code>, <code>CAST</code>, <code>COALESCE</code>, <code>CASE expression</code>, <code>currency conversion</code>, <code>unit conversion</code>.</li>
+<li>Related syntax / concepts: <code>define view entity</code>, <code>select list</code>, <code>expression</code>, <code>element</code>, <code>built-in function</code>, <code>result type</code>, <code>null value</code>, <code>initial value</code>, <code>type conversion</code>, <code>semantic model</code>.</li>
+<li>Architecture terms: <code>read model</code>, <code>projection</code>, <code>consumer</code>, <code>RAP behavior</code>, <code>authorization</code>, <code>performance trace</code>.</li>
+</ul>
+<p>读官方资料时要注意：ABAP CDS、ABAP SQL、SQLScript 和数据库原生 SQL 都可能有“function”这个词，但可用函数、语法位置、类型规则和执行语义不完全相同。不要把 HANA SQLScript 函数、ABAP built-in function 和 CDS DDL built-in function 混为一谈。</p>
+<h4 id="4-7-example-73b627ef" class="semantic-heading semantic-example">4.7 Example / 学习例子</h4>
+<p>学习时可以找一个简单的销售订单或项目表，先写一个不带函数的 view entity，再逐步加入派生字段。</p>
+<p>最小练习：</p>
+<ol>
+<li>选择 3-5 个底层字段，例如订单号、客户号、客户名、状态、参考文本。</li>
+<li>用一个 string function 生成 <code>CustomerDisplay</code>。</li>
+<li>用 <code>CASE</code> 把 2-3 个状态码映射成显示文本。</li>
+<li>用 null-handling 函数处理一个可能为空的文本字段。</li>
+<li>在 ADT Data Preview 或测试查询中准备正常值、空值、未知状态码、超长文本四类样本。</li>
+<li>写下每个派生字段“为什么放在 CDS，而不是放在 ABAP class 或 UI”。</li>
+</ol>
+<p>进阶练习：</p>
+<ul>
+<li>找一个金额/币种或数量/单位字段，确认它的语义 annotation 是否完整。</li>
+<li>找一个日期相关字段，确认日期计算是否需要考虑时区、用户时区或业务日历。</li>
+<li>对一个大数据量 view，比较“在 CDS 派生字段”和“在 ABAP 消费方派生”的可读性、复用性和性能验证方式。</li>
+<li>如果项目有 AC0567C POC，优先在 POC 中找 CDS view entity、projection view、service definition 或 RAP BO 的实际例子，不要只写孤立 demo。</li>
+</ul>
+<h4 id="4-8-counterexample-failure-mode-bcfd32ee" class="semantic-heading semantic-example">4.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下。</p>
+<ul>
+<li>把所有业务规则写成嵌套 <code>CASE</code>：结果是 view 难读，业务规则难测试，多语言和定制化需求也难处理。</li>
+<li>用函数硬编码显示文本：短期能显示，长期在多语言、日本客户现场、value help 或 domain text 场景中会出问题。</li>
+<li>把 null 全部转成 0 或空字符串：报表变整齐了，但业务含义可能被抹掉。</li>
+<li>用 <code>CAST</code> 强行让类型匹配：语法过了，但长度、精度、前导零或小数位可能错。</li>
+<li>在底层通用 view 里堆 UI 专用计算：一个画面的方便变成所有消费者的负担。</li>
+<li>认为“下推到数据库”就一定快：没有看数据量、where 条件、association、DCL 和执行计划。</li>
+<li>把 CDS 函数当授权：它不能替代 DCL、authorization object、RAP authorization 或应用层检查。</li>
+</ul>
+<p>修正动作：</p>
+<ul>
+<li>先写清楚派生字段的业务意义。</li>
+<li>确认下游消费者和复用范围。</li>
+<li>检查结果类型、null 行为和语义 annotation。</li>
+<li>为边界数据补测试样本。</li>
+<li>对复杂表达式考虑 view layering、helper CDS、ABAP/RAP 层或项目规范要求。</li>
+</ul>
+<h4 id="4-9-df9624f5" class="semantic-heading semantic-practice">4.9 思考问题</h4>
+<ul>
+<li>当前派生字段是核心业务语义，还是某个 UI/接口的临时显示需求？</li>
+<li>如果把这个函数从 CDS 移到 ABAP class，会损失什么？如果留在 CDS，会增加什么维护成本？</li>
+<li>函数结果的类型、长度、小数位、null 行为是否被明确验证？</li>
+<li>这里的 null、空字符串、0、初始日期在业务上是否等价？</li>
+<li>这个表达式是否会影响 WHERE、JOIN、association 或 DCL 的性能？</li>
+<li>状态文本、类别文本是否需要多语言、domain text、text association 或 value help？</li>
+<li>在日本项目 review 中，应使用 <code>組み込み関数</code>、<code>派生項目</code>、<code>型変換</code>、<code>NULL値</code> 还是 <code>性能影響</code> 来说明问题？</li>
+</ul>
+<h4 id="4-10-4cc834b9" class="semantic-heading semantic-reference">4.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Core Data Services (ABAP CDS)</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_VIEW_ENTITY.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS - CDS Entities</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_FUNCTIONS.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS - FDL for Function Definitions</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Keyword Documentation index</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="4-11-connections-0cf69b9c">4.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li>Upstream: <a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a></li>
+<li>Related: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Related: <a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a></li>
+<li>Related: <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></li>
+<li>Related: <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a></li>
+<li>Related: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Related: <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a></li>
+<li>Related: <a class="wiki" href="section-03-046-cds-table-function-vs-cds-view-entity-048e0553.html">CDS table function vs CDS view entity</a></li>
+<li>Downstream: <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li>Downstream: <a class="wiki" href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">CDS metadata extension and UI annotations</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 15 - CDS 入门与 View Entity</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="4-12-5e00a2ef" class="semantic-heading semantic-practice">4.12 学习任务</h4>
+<ul>
+<li>用自己的中文解释：为什么 CDS built-in functions 是 read model 表达工具，而不是复杂业务逻辑容器。</li>
+<li>找一个现有 CDS view entity，标出其中所有 expression / function / <code>CASE</code> / <code>CAST</code> / null-handling 位置。</li>
+<li>为一个派生字段写 4 条测试数据：正常值、空值或 null、边界长度、未知状态码或异常日期。</li>
+<li>用日语写一句 review コメント，指出某个函数表达式的可读性、类型转换或 null 处理风险。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，补充到 <code>## 10) 参考资料入口</code>，并记录它对应哪类函数或表达式。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中的 CDS / RAP / OData 对象链路。</li>
+</ul>
+<h4 id="4-13-confidence-next-action-2e7ea26e" class="semantic-heading semantic-status">4.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High for read-model boundary, function-category framing, null/type/performance cautions, and RAP/DCL separation based on SAP Help / ABAP Keyword Documentation latest pages checked on 2026-06-18. Detailed per-function syntax must still be verified in the learner&#x27;s target ABAP release and ADT syntax check.</li>
+<li>Joule review: attempted on 2026-06-13; Joule returned the UI error recorded in <code>90-Review/Joule Day15 CDS Built-in Functions Section Review 2026-06-13.md</code> and related snapshots. No callable Joule control tool was available in the current Codex session, so this section is official-source closed, not Joule-passed.</li>
+<li>Claude review: old file-based review failed with <code>API Error: Could not load credentials from any providers</code>; current Claude health checks have been timing out. Treat Claude review as external debt rather than a blocking reason for this official-source closure.</li>
+<li>Next action: Continue to <a class="wiki" href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">CDS metadata extension and UI annotations</a>, then return for Joule/Claude batch review when the external tools are stable.</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-004-cds-built-in-functions-86791175.html">CDS built-in functions 内置函数</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-003-cds-annotation-0061bb02.html">Previous section</a><a href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

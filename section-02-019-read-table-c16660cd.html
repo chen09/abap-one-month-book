@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>READ TABLE 读取内部表 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="19-read-table-9328c34e" class="chapter-title">19. READ TABLE 读取内部表</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 19</li><li>self-contained study note</li></ul><h4 id="19-1-dce0f7fb" class="semantic-heading semantic-concept">19.1 一句话结论</h4>
+<p><code>READ TABLE</code> 是 ABAP 读取 internal table 内部表单行的经典语句：可以按 index、primary key、secondary key 或 free key 读取，并通过 <code>INTO</code>、<code>ASSIGNING</code>、<code>REFERENCE INTO</code>、<code>TRANSPORTING NO FIELDS</code> 决定读取结果；真正要学的是“用哪个 key 读、是否只读一行、如何处理 <code>sy-subrc</code> / <code>sy-tabix</code>、何时改用 table expression 或 <code>LOOP AT</code>”。</p>
+<h4 id="19-2-430cec21" class="semantic-heading semantic-concept">19.2 到底学什么</h4>
+<p><code>READ TABLE</code> 读取的是 ABAP 程序内存中的 internal table，不是数据库表。数据库读取用 ABAP SQL <code>SELECT</code>；内存表读取才用 <code>READ TABLE</code>、table expression 或 <code>LOOP AT</code>。</p>
+<p>最小例子：</p>
+<pre><code class="language-abap">READ TABLE lt_material INTO DATA(ls_material)
+  WITH TABLE KEY matnr = lv_matnr.
+
+IF sy-subrc = 0.
+  &quot; found
+ENDIF.</code></pre>
+<p>这段代码包含四个需要理解的问题：</p>
+<pre><code class="language-text">lt_material 是什么 table category？
+  standard / sorted / hashed？
+
+使用了哪个 key？
+  primary key / secondary key / free key？
+
+读取结果放到哪里？
+  INTO copy / ASSIGNING field symbol / REFERENCE INTO reference / TRANSPORTING NO FIELDS？
+
+未找到怎么处理？
+  sy-subrc / exception / OPTIONAL / line_exists？</code></pre>
+<p>初学者不要只背 <code>READ TABLE ... WITH KEY ...</code>。这句在小 standard table 上可能没问题，但在大表、循环、secondary key、hashed table、sorted table 中，差异很大。<code>READ TABLE</code> 是把前面几节 <a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a>、<a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a>、<a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a>、<a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a> 串起来的实际操作语句。</p>
+<h4 id="19-3-d0f34c76" class="semantic-heading semantic-why">19.3 为什么重要</h4>
+<p>项目里大量缺陷都藏在 <code>READ TABLE</code> 周围：</p>
+<ul>
+<li>没检查 <code>sy-subrc</code>，未找到时继续使用旧 work area。</li>
+<li>在循环里对 standard table 反复 <code>READ TABLE ... WITH KEY</code>，形成性能瓶颈。</li>
+<li>有 secondary key 却没有显式 <code>WITH TABLE KEY keyname COMPONENTS ...</code>。</li>
+<li>table expression 未找到时抛异常，却以为会像 <code>READ TABLE</code> 一样设置 <code>sy-subrc</code>。</li>
+<li>non-unique key 只读到第一行，却误以为读到了所有匹配行。</li>
+<li>hashed table 读取后依赖 <code>sy-tabix</code>，把 0 当成业务位置。</li>
+<li><code>BINARY SEARCH</code> 用在没有正确排序的 standard table 上，结果不可靠。</li>
+</ul>
+<p>对 Java/Python 背景学习者来说，<code>READ TABLE</code> 类似“从 list/map 中取一个元素”，但 ABAP 的关键在于 table category 和 key。你不能只看语句形式，必须看 <code>lt_...</code> 的声明。</p>
+<h4 id="19-4-key-mechanism-b5f57c20" class="semantic-heading semantic-mechanism">19.4 Key mechanism / 核心机制</h4>
+<h5 id="19-4-1-read-table-index-78bf7a67">19.4.1 <code>READ TABLE ... INDEX</code></h5>
+<p>按 index 读取适合 index table：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item) INDEX 1.</code></pre>
+<p>standard table 和 sorted table 是 index table；hashed table 不应当被当作 index/position container 使用。按 index 读的语义很直接：我要第 N 行。但第 N 行通常不是业务 key，只是当前 internal table 状态下的位置。只要 <code>SORT</code>、<code>DELETE</code>、<code>INSERT</code>，行号就可能变化。</p>
+<p>适用场景：</p>
+<ul>
+<li>读取第一行、最后一行、当前 <code>sy-tabix</code> 附近的行。</li>
+<li>已经明确知道 table 的顺序就是业务处理顺序。</li>
+<li>对 ALV / list / sequential buffer 做位置处理。</li>
+</ul>
+<p>不适用场景：</p>
+<ul>
+<li>按业务 ID 找数据。</li>
+<li>hashed table。</li>
+<li>表顺序不稳定却依赖 index。</li>
+</ul>
+<h5 id="19-4-2-read-table-with-table-key-16816667">19.4.2 <code>READ TABLE ... WITH TABLE KEY</code></h5>
+<p>按 table key 读取是项目里更重要的模式：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY order_id = lv_order_id
+                 item_no  = lv_item_no.</code></pre>
+<p>如果有 named secondary key，建议显式写 key name：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY by_guid COMPONENTS item_guid = lv_guid.</code></pre>
+<p>这样 reviewer 能一眼看出你想使用哪个 access path。特别是 table 声明中有 secondary keys 时，不要写得含糊。</p>
+<h5 id="19-4-3-read-table-with-key-ec05a196">19.4.3 <code>READ TABLE ... WITH KEY</code></h5>
+<p><code>WITH KEY</code> 是 free key 风格，常见于旧代码或简单读取：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY order_id = lv_order_id.</code></pre>
+<p>它并不自动等于“最优 key”。ABAP 会根据语法和可用 key 判断，但初学者在性能敏感代码中更应该显式使用 <code>WITH TABLE KEY keyname COMPONENTS ...</code>。如果系统或 syntax check 提示有合适 secondary key 没用，应优先修正代码而不是忽略 warning。</p>
+<h5 id="19-4-4-result-into-assigning-reference-into-e68b3b2e">19.4.4 result：<code>INTO</code>、<code>ASSIGNING</code>、<code>REFERENCE INTO</code></h5>
+<p><code>INTO</code> 把行复制到 work area：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY item_id = lv_item_id.</code></pre>
+<p>适合只读值，或者后续修改不希望影响原 internal table。</p>
+<p><code>ASSIGNING</code> 把 field symbol 指向表内实际行：</p>
+<pre><code class="language-abap">READ TABLE lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)
+  WITH TABLE KEY item_id = lv_item_id.
+
+IF sy-subrc = 0.
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+ENDIF.</code></pre>
+<p>适合要直接修改表内行，避免 copy。但要注意 sorted/hashed table 的 key 字段不能随便原地修改。</p>
+<p><code>REFERENCE INTO</code> 取得行引用：</p>
+<pre><code class="language-abap">READ TABLE lt_items REFERENCE INTO DATA(lr_item)
+  WITH TABLE KEY item_id = lv_item_id.</code></pre>
+<p>适合需要把行引用传给其他逻辑，但要小心生命周期和可变性。</p>
+<h5 id="19-4-5-transporting-no-fields-723882b8">19.4.5 <code>TRANSPORTING NO FIELDS</code></h5>
+<p>如果只想判断存在，不需要复制行：</p>
+<pre><code class="language-abap">READ TABLE lt_items TRANSPORTING NO FIELDS
+  WITH TABLE KEY item_id = lv_item_id.
+
+IF sy-subrc = 0.
+  &quot; exists
+ENDIF.</code></pre>
+<p>这比读入 work area 更表达意图。现代 ABAP 里也常用：</p>
+<pre><code class="language-abap">IF line_exists( lt_items[ item_id = lv_item_id ] ).
+  &quot; exists
+ENDIF.</code></pre>
+<p><code>line_exists</code> 可以看作 existence check 的现代写法；<code>READ TABLE ... TRANSPORTING NO FIELDS</code> 在需要 <code>sy-tabix</code> 或兼容旧代码时仍然常见。</p>
+<h5 id="19-4-6-sy-subrc-a619e6e6">19.4.6 <code>sy-subrc</code></h5>
+<p><code>READ TABLE</code> 会设置 <code>sy-subrc</code>。常用值：</p>
+<pre><code class="language-text">0  找到行
+2  找到行，但 COMPARING 的比较结果不同
+4  未找到
+8  未找到，并且在某些 binary search 场景中表示搜索到表尾之后</code></pre>
+<p>日常项目最常用的是 0 和 4。读取后必须立即处理 <code>sy-subrc</code>，不要在中间插入其他会改变系统字段的语句。</p>
+<p>错误写法：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id.
+
+&quot; 中间做了别的语句
+IF sy-subrc = 0.
+  ...
+ENDIF.</code></pre>
+<p>更清楚：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id.
+
+IF sy-subrc &lt;&gt; 0.
+  RETURN.
+ENDIF.</code></pre>
+<h5 id="19-4-7-sy-tabix-80fec572">19.4.7 <code>sy-tabix</code></h5>
+<p><code>sy-tabix</code> 的含义取决于读取方式：</p>
+<ul>
+<li>对 standard/sorted primary index 或 sorted secondary key，找到行时通常是相应 table index 中的行号。</li>
+<li>对 hash key，<code>sy-tabix</code> 可能是 0，不应作为业务位置。</li>
+<li>binary search 未找到时，<code>sy-tabix</code> 可能表示插入位置或表尾之后的位置。</li>
+<li>普通未找到时，<code>sy-tabix</code> 可能未定义。</li>
+</ul>
+<p>因此：<code>sy-tabix</code> 可以用于紧接着的位置处理，但不要把它当成业务 key，也不要跨很多语句长期保存当作稳定标识。</p>
+<h5 id="19-4-8-binary-search-2a297fd6">19.4.8 <code>BINARY SEARCH</code></h5>
+<p>旧代码常见：</p>
+<pre><code class="language-abap">SORT lt_items BY item_id.
+
+READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id
+  BINARY SEARCH.</code></pre>
+<p><code>BINARY SEARCH</code> 的前提是 standard table 已经按相同 key 正确排序。如果排序字段、升降序、读取 key 不一致，结果就不可靠。现代 ABAP 更推荐：</p>
+<pre><code class="language-text">需要按 key 有序读取
+  -&gt; sorted table
+
+standard table 还要保留顺序，但需要额外 key 读取
+  -&gt; secondary sorted key
+
+完整唯一 key 精确读取
+  -&gt; hashed table / secondary hashed key</code></pre>
+<p>所以，不是说 <code>BINARY SEARCH</code> 永远不能用，而是初学者不要把它当成性能魔法。先设计 table category 和 key。</p>
+<h5 id="19-4-9-non-unique-key-fb243537">19.4.9 non-unique key 只读第一行</h5>
+<p>如果 key 不唯一：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY order_id = lv_order_id.</code></pre>
+<p><code>READ TABLE</code> 读取的是第一条合适的行，不是所有行。要处理全部匹配项，应使用：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item)
+  WHERE order_id = lv_order_id.
+ENDLOOP.</code></pre>
+<p>如果有 sorted key，可以配合 <code>USING KEY</code>：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item)
+  USING KEY by_order
+  WHERE order_id = lv_order_id.
+ENDLOOP.</code></pre>
+<h5 id="19-4-10-table-expression-read-table-30a6c035">19.4.10 table expression 与 <code>READ TABLE</code></h5>
+<p>现代 ABAP 常用 table expression：</p>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[ item_id = lv_item_id ].</code></pre>
+<p>它更短，但语义不同：table expression 不像 <code>READ TABLE</code> 那样设置 <code>sy-subrc</code>；找不到时通常会抛出 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>，除非使用 <code>OPTIONAL</code>、<code>DEFAULT</code>、<code>line_exists</code> 或其他安全写法。</p>
+<p>因此：</p>
+<pre><code class="language-text">想要经典 sy-subrc 分支
+  -&gt; READ TABLE
+
+想要表达式风格，且已处理 not-found
+  -&gt; table expression
+
+只判断是否存在
+  -&gt; line_exists(...) 或 READ TABLE ... TRANSPORTING NO FIELDS
+
+要读取多行
+  -&gt; LOOP AT ... WHERE</code></pre>
+<h4 id="19-5-a0363ca5" class="semantic-heading semantic-japan">19.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>READ TABLE</code></li>
+<li><code>内部テーブル読込</code></li>
+<li><code>キー読込</code></li>
+<li><code>インデックス読込</code></li>
+<li><code>二次キー指定</code></li>
+<li><code>存在チェック</code></li>
+<li><code>TRANSPORTING NO FIELDS</code></li>
+<li><code>sy-subrc チェック</code></li>
+<li><code>sy-tabix</code></li>
+<li><code>線形検索</code></li>
+<li><code>二分探索</code></li>
+<li><code>ハッシュキー</code></li>
+<li><code>テーブル式</code></li>
+<li><code>未検出時の例外</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li>この <code>READ TABLE</code> は二次キーを明示していないため、想定したアクセスパスを使用しているか確認が必要です。</li>
+<li>存在チェックだけであれば、<code>TRANSPORTING NO FIELDS</code> または <code>line_exists</code> を使用します。</li>
+<li>非一意キーの場合、<code>READ TABLE</code> では最初の1件のみ取得されるため、複数件処理なら <code>LOOP AT ... WHERE</code> を使用します。</li>
+<li>ハッシュキーで読み取る場合、<code>sy-tabix</code> を業務上の位置として扱わないでください。</li>
+<li><code>BINARY SEARCH</code> を使う場合は、事前のソート順と検索キーが一致していることを確認してください。</li>
+</ul>
+<p>review 里常见问法：</p>
+<ul>
+<li><code>sy-subrc</code> は直後にチェックされていますか。</li>
+<li>この <code>WITH KEY</code> は標準テーブルの線形検索になっていませんか。</li>
+<li>二次キーを定義しているのに、<code>WITH TABLE KEY</code> で指定していない理由はありますか。</li>
+<li>複数件取得が必要なのに <code>READ TABLE</code> で1件だけ読んでいませんか。</li>
+</ul>
+<h4 id="19-6-english-terms-a8030ee5" class="semantic-heading semantic-terms">19.6 English Terms</h4>
+<ul>
+<li><code>READ TABLE</code></li>
+<li><code>internal table</code></li>
+<li><code>index access</code></li>
+<li><code>key access</code></li>
+<li><code>table key</code></li>
+<li><code>free key</code></li>
+<li><code>primary table key</code></li>
+<li><code>secondary table key</code></li>
+<li><code>WITH TABLE KEY</code></li>
+<li><code>WITH KEY</code></li>
+<li><code>COMPONENTS</code></li>
+<li><code>USING KEY</code></li>
+<li><code>BINARY SEARCH</code></li>
+<li><code>TRANSPORTING NO FIELDS</code></li>
+<li><code>INTO</code></li>
+<li><code>ASSIGNING</code></li>
+<li><code>REFERENCE INTO</code></li>
+<li><code>field symbol</code></li>
+<li><code>data reference</code></li>
+<li><code>sy-subrc</code></li>
+<li><code>sy-tabix</code></li>
+<li><code>table expression</code></li>
+<li><code>line_exists</code></li>
+<li><code>OPTIONAL</code></li>
+<li><code>CX_SY_ITAB_LINE_NOT_FOUND</code></li>
+<li><code>standard table</code></li>
+<li><code>sorted table</code></li>
+<li><code>hashed table</code></li>
+</ul>
+<p>Recommended search patterns:</p>
+<ul>
+<li><code>ABAP READ TABLE sy-subrc sy-tabix</code></li>
+<li><code>ABAP READ TABLE WITH TABLE KEY secondary key</code></li>
+<li><code>ABAP READ TABLE TRANSPORTING NO FIELDS</code></li>
+<li><code>ABAP READ TABLE BINARY SEARCH sorted key</code></li>
+<li><code>ABAP table expression line_exists OPTIONAL</code></li>
+</ul>
+<h4 id="19-7-example-9790ada4" class="semantic-heading semantic-example">19.7 Example / 学习例子</h4>
+<h5 id="19-7-1-1-primary-key-38f2358b">19.7.1 例 1：按 primary key 读一行</h5>
+<pre><code class="language-abap">READ TABLE lt_material INTO DATA(ls_material)
+  WITH TABLE KEY matnr = lv_matnr.
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; not found
+  RETURN.
+ENDIF.</code></pre>
+<p>这是经典读取模式。关键是：读完立刻判断 <code>sy-subrc</code>。</p>
+<h5 id="19-7-2-2-76b8e8ee">19.7.2 例 2：只检查存在</h5>
+<pre><code class="language-abap">READ TABLE lt_material TRANSPORTING NO FIELDS
+  WITH TABLE KEY matnr = lv_matnr.
+
+IF sy-subrc = 0.
+  &quot; material exists in the internal table
+ENDIF.</code></pre>
+<p>如果不需要行内容，不要无意义复制到 work area。</p>
+<h5 id="19-7-3-3-60357f9d">19.7.3 例 3：直接修改找到的行</h5>
+<pre><code class="language-abap">READ TABLE lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)
+  WITH TABLE KEY item_id = lv_item_id.
+
+IF sy-subrc = 0.
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+ENDIF.</code></pre>
+<p><code>ASSIGNING</code> 会指向表内实际行，适合修改非 key 字段。对 sorted/hashed table 的 key 字段要特别小心。</p>
+<h5 id="19-7-4-4-secondary-key-6c9c7ad8">19.7.4 例 4：显式使用 secondary key</h5>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY by_guid COMPONENTS item_guid = lv_guid.</code></pre>
+<p>如果 table type 声明了 <code>by_guid</code>，读代码时就能看出作者明确使用这个 access path。</p>
+<h5 id="19-7-5-5-non-unique-key-loop-fab98b4c">19.7.5 例 5：non-unique key 要用 loop 读多行</h5>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item)
+  USING KEY by_order
+  WHERE order_id = lv_order_id.
+  &quot; process all matching items
+ENDLOOP.</code></pre>
+<p><code>READ TABLE</code> 只读一行；一对多明细处理通常要 <code>LOOP AT ... WHERE</code>。</p>
+<h5 id="19-7-6-6-table-expression-5089a699">19.7.6 例 6：table expression 的安全写法</h5>
+<pre><code class="language-abap">IF line_exists( lt_material[ matnr = lv_matnr ] ).
+  DATA(ls_material) = lt_material[ matnr = lv_matnr ].
+ENDIF.</code></pre>
+<p>或者：</p>
+<pre><code class="language-abap">DATA(ls_material) = VALUE ty_material(
+  lt_material[ matnr = lv_matnr ] OPTIONAL ).</code></pre>
+<p>table expression 简洁，但不要误以为它会设置 <code>sy-subrc</code>。</p>
+<h4 id="19-8-counterexample-failure-mode-661058d8" class="semantic-heading semantic-example">19.8 Counterexample / Failure mode</h4>
+<h5 id="19-8-1-1-11b8c6a6" class="semantic-heading semantic-failure">19.8.1 误区 1：未找到后继续使用旧值</h5>
+<pre><code class="language-abap">READ TABLE lt_items INTO ls_item WITH KEY item_id = lv_item_id.
+&quot; 没检查 sy-subrc
+lv_status = ls_item-status.</code></pre>
+<p>如果未找到，<code>ls_item</code> 可能保留旧值或初始值，导致非常隐蔽的 bug。读取后要立即处理 not found。</p>
+<h5 id="19-8-2-2-standard-table-91a81a42" class="semantic-heading semantic-failure">19.8.2 误区 2：在大循环中线性搜索 standard table</h5>
+<pre><code class="language-abap">LOOP AT lt_a INTO DATA(ls_a).
+  READ TABLE lt_b INTO DATA(ls_b)
+    WITH KEY id = ls_a-id.
+ENDLOOP.</code></pre>
+<p>如果 <code>lt_b</code> 是大 standard table，这可能很慢。应考虑 sorted/hashed table 或 secondary key。</p>
+<h5 id="19-8-3-3-read-table-126970fd" class="semantic-heading semantic-failure">19.8.3 误区 3：需要多行却用 <code>READ TABLE</code></h5>
+<p><code>READ TABLE</code> 是单行读取。non-unique key 下它只拿第一条合适行。要所有匹配行，用 <code>LOOP AT ... WHERE</code> 或过滤/分组逻辑。</p>
+<h5 id="19-8-4-4-binary-search-f6da3e65" class="semantic-heading semantic-failure">19.8.4 误区 4：滥用 <code>BINARY SEARCH</code></h5>
+<p><code>BINARY SEARCH</code> 必须建立在正确排序上。只要排序字段和读取 key 不一致，结果就可能错。现代代码优先考虑 sorted table 或 secondary sorted key。</p>
+<h5 id="19-8-5-5-table-expression-sy-subrc-263c9ff2" class="semantic-heading semantic-failure">19.8.5 误区 5：table expression 后检查 <code>sy-subrc</code></h5>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[ item_id = lv_item_id ].
+IF sy-subrc = 0.
+  ...
+ENDIF.</code></pre>
+<p>这是错误心智模型。table expression 不按 <code>READ TABLE</code> 的方式设置 <code>sy-subrc</code>；要处理 not found，请用 <code>line_exists</code>、<code>OPTIONAL</code>、<code>DEFAULT</code> 或异常处理。</p>
+<h4 id="19-9-1a837d09" class="semantic-heading semantic-practice">19.9 思考问题</h4>
+<ul>
+<li>当前读取是按 index，还是按 business key？</li>
+<li>这张 internal table 是 standard、sorted、hashed，还是带 secondary key？</li>
+<li>这个 <code>READ TABLE</code> 是否在循环中大量执行？</li>
+<li>是否显式使用了正确的 key name？</li>
+<li>读取后是否立即检查 <code>sy-subrc</code>？</li>
+<li>如果 key 不唯一，是否只需要第一行？</li>
+<li>是否只是 existence check？能否使用 <code>TRANSPORTING NO FIELDS</code> 或 <code>line_exists</code>？</li>
+<li><code>sy-tabix</code> 是否真的可靠？hash key 读取时它有什么意义？</li>
+<li>这个场景是否更适合 table expression？</li>
+<li>用日语 review 时，如何说明 <code>二次キー指定</code> 和 <code>sy-subrc チェック</code>？</li>
+</ul>
+<h4 id="19-10-786a995f" class="semantic-heading semantic-reference">19.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapread_table.html" target="_blank" rel="noopener noreferrer">READ TABLE itab</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPREAD_TABLE_OUTDESC.html" target="_blank" rel="noopener noreferrer">READ TABLE, result</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPREAD_TABLE_KEY.html" target="_blank" rel="noopener noreferrer">READ TABLE, table_key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPREAD_TABLE_FREE.html" target="_blank" rel="noopener noreferrer">READ TABLE, free_key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPREAD_TABLE_WHERE.html" target="_blank" rel="noopener noreferrer">READ TABLE, where_cond</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPREAD_TABLE_TRANSPORT_OPTIONS.html" target="_blank" rel="noopener noreferrer">READ TABLE, transport_options</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPREAD_TABLE_ITAB_SHORTREF.html" target="_blank" rel="noopener noreferrer">READ TABLE Short Reference</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenline_exists_function.html" target="_blank" rel="noopener noreferrer">line_exists</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENLINE_INDEX_FUNCTION.html" target="_blank" rel="noopener noreferrer">line_index</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet</a></li>
+<li>SAP Samples Raw: <a href="https://raw.githubusercontent.com/SAP-samples/abap-cheat-sheets/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet Raw Markdown</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="19-11-connections-350cc782">19.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li><a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li><a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></li>
+<li><a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a></li>
+<li><a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li><a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a></li>
+<li><a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Upstream: <a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a></li>
+<li>Downstream: <a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 10 - 内部表类型与读取方式</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="19-12-1024425c" class="semantic-heading semantic-practice">19.12 学习任务</h4>
+<ul>
+<li>写 4 个读取例子：<code>INDEX</code>、<code>WITH TABLE KEY</code>、<code>WITH TABLE KEY keyname COMPONENTS</code>、<code>TRANSPORTING NO FIELDS</code>。</li>
+<li>找一段 <code>READ TABLE ... WITH KEY</code>，判断它是否会在线性搜索 standard table。</li>
+<li>把一个 existence check 改写成 <code>line_exists</code>，并说明 table expression 不设置 <code>sy-subrc</code>。</li>
+<li>写一句日语 review comment：读取后必须立即检查 <code>sy-subrc</code>。</li>
+<li>预习 <a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a>，比较它和 <code>READ TABLE</code> 的 not-found 处理差异。</li>
+</ul>
+<h4 id="19-13-confidence-next-action-c75635a7" class="semantic-heading semantic-status">19.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容已用 SAP Samples <code>01_Internal_Tables.md</code> 与 SAP Help / ABAP Keyword Documentation 的 <code>READ TABLE itab</code>、result/target area、table key、free key、WHERE condition、transport options、short reference、<code>line_exists</code> 与 <code>line_index</code> 资料校准；旧 Joule 尝试返回通用 UI error，旧 Claude / 当前 Claude health check 超时，因此已创建 2026-06-18 Claude follow-up prompt 作为外部 review debt。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a>，重点比较 <code>READ TABLE</code> 的 <code>sy-subrc</code> 模式与 table expression 的 exception / <code>OPTIONAL</code> / <code>line_exists</code> 模式。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-018-secondary-table-key-63fc7651.html">Previous section</a><a href="section-02-020-table-expression-15adfaac.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

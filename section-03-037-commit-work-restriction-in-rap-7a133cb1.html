@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>COMMIT WORK restriction in RAP | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="37-commit-work-restriction-in-rap-528138c5" class="chapter-title">37. COMMIT WORK restriction in RAP</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 37</li><li>self-contained study note</li></ul><h4 id="37-1-9ae1a002" class="semantic-heading semantic-concept">37.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a> 指的是：在 RAP behavior implementation 的 handler、validation、determination、saver 等受控生命周期中，项目代码不能把 <code>COMMIT WORK</code> / <code>ROLLBACK WORK</code> 当成普通保存按钮来使用。RAP runtime 才是事务边界的 owner；外部 RAP BO consumer 应通过 <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a> 的 <code>COMMIT ENTITIES</code>，或通过 OData/Fiori 保存语义触发 <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a>。</p>
+<p>一句话记忆：RAP 中的“保存”不是谁写到数据库谁就提交，而是由 RAP runtime 收集 transactional buffer、执行保存序列、统一提交或回滚。</p>
+<h4 id="37-2-4f7dca9d" class="semantic-heading semantic-concept">37.2 到底学什么</h4>
+<p>本节要解决一个很实际的问题：为什么传统 ABAP 里常见的 <code>CALL FUNCTION ...</code>、<code>UPDATE ztable</code>、<code>COMMIT WORK</code>，到了 RAP 中会变成高风险写法？</p>
+<p>在经典 ABAP report、dialog program 或 batch program 中，程序往往自己决定何时结束 SAP LUW。调用 BAPI 后写 <code>BAPI_TRANSACTION_COMMIT</code>，或更新若干表后执行 <code>COMMIT WORK</code>，是很多旧系统代码的常见形态。但 RAP 的目标不是让每个方法各自提交，而是让一个 business object 的 create / update / delete / action 在同一套事务模型里完成：先进入 transactional buffer，再由 validation、determination、authorization、lock、numbering、save sequence、message response 共同决定是否能保存。</p>
+<p>因此，本节要学三件事。第一，区分 <code>COMMIT ENTITIES</code> 和 <code>COMMIT WORK</code>：前者是 RAP EML consumer 提交 RAP BO 修改的语义，后者是经典 ABAP SAP LUW 提交语句，不能在 RAP behavior implementation 里随意使用。第二，理解哪些位置容易误用提交：action handler、validation、determination、<code>save_modified</code>、legacy API wrapper、additional save。第三，学会在 code review 中识别“内部 commit”风险，尤其是旧 BAPI、function module、update task、外部接口和日志写入。</p>
+<p>初学者不需要一开始背完所有底层限制，但必须形成一个判断习惯：只要代码处在 RAP BO 生命周期内，就先问“这次事务是谁拥有的”。如果答案是 RAP runtime，就不要自己抢着提交。</p>
+<h4 id="37-3-2b0306f3" class="semantic-heading semantic-why">37.3 为什么重要</h4>
+<p><code>COMMIT WORK</code> 限制之所以重要，是因为它关系到“这次业务操作能不能作为一个整体成功或失败”。RAP BO 不是一组孤立 SQL。一个保存请求可能包含 header、item、draft、late numbering、authorization、validation message、action result、additional save 和 cleanup。只要中间某个方法提前提交，后面的失败就无法完整回滚，用户看到的消息也可能和数据库状态不一致。</p>
+<p>典型事故包括：</p>
+<ul>
+<li>action handler 已经 <code>INSERT</code> 主表并 <code>COMMIT WORK</code>，后续 on-save validation 失败，画面显示保存失败但数据库已经有脏数据。</li>
+<li><code>save_modified</code> 调用旧 function module，旧 function module 内部 commit，RAP 主保存失败后旧接口数据却已经提交。</li>
+<li>additional save 提前写审计日志，主数据回滚后日志仍显示成功。</li>
+<li>用户重复点击保存时，外部系统被调用两次，而 RAP 只返回一次失败消息。</li>
+</ul>
+<p>对项目交付来说，这不是“代码风格问题”，而是上线风险。日本 SAP 项目在 review 中会非常关注 <code>コミット制御</code>、<code>トランザクション境界</code>、<code>内部コミット</code>。如果说明书只写“保存処理を実装する”，但没有说明谁负责 commit、失败时如何 rollback、旧 API 是否 no-commit，就很难通过设计评审。</p>
+<p>对 Java/Python 背景学习者，可以把 RAP runtime 类比成 framework-managed unit of work。不同点在于：RAP 的 unit of work 和 BDEF、EML、OData、draft、SAP LUW、ABAP Cloud restricted syntax、save sequence 方法强绑定。开发者不是在任意 service method 里开关事务，而是在 RAP 允许的生命周期点提供逻辑。</p>
+<h4 id="37-4-key-mechanism-cd3d1268" class="semantic-heading semantic-mechanism">37.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 transactional buffer。<code>MODIFY ENTITIES</code>、OData PATCH、Fiori action button 触发的修改，通常先进入 RAP transactional buffer。此时 handler 可以读写 BO 状态，validation 可以返回 <code>failed</code> / <code>reported</code>，determination 可以派生字段，但这不等于数据库已经提交。</p>
+<p>第二层机制是 RAP LUW。外部 ABAP consumer 使用 <code>COMMIT ENTITIES</code> 结束 RAP LUW，触发 save sequence。Fiori Elements / OData consumer 则通过协议层的保存请求触发相同方向的保存语义。项目代码不应该在 behavior implementation 内部用 <code>COMMIT WORK</code> 直接结束 SAP LUW，因为那会绕过 RAP runtime 对 BO 生命周期的控制。</p>
+<p>第三层机制是 save sequence。保存触发后，RAP runtime 负责进入保存序列：保存前检查、late numbering、managed save、unmanaged save、additional save、cleanup 等步骤按框架语义执行。即使代码已经进入 <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a>，也不代表项目可以自己提交。Saver 是保存阶段的项目扩展点，不是 transaction owner。</p>
+<p>第四层机制是 illegal statement 风险。不同 ABAP release、strict mode、ABAP Cloud 语境和 RAP 方法位置对语句限制会有差异，但原则很稳定：在 RAP behavior implementation 的受控方法中使用 <code>COMMIT WORK</code> / <code>ROLLBACK WORK</code> / commit-coupled legacy construct，通常会导致语法、激活、运行时或事务一致性问题。遇到系统实际报错时，应以当前系统的 ABAP Keyword Documentation 和 ADT 检查结果为准。</p>
+<p>第五层机制是 legacy API。很多旧 BAPI 或 function module 有两种风险：一种是调用者需要显式 commit；另一种是 API 内部自己 commit。RAP 项目最怕第二种。内部 commit 会让 RAP runtime 无法回滚。迁移时应优先寻找 no-commit API、拆分保存逻辑、改造 wrapper、使用 outbox / business event，或重新评估是否适合放进 RAP save sequence。</p>
+<p>第六层机制是副作用边界。发邮件、HTTP 调用、文件输出、外部系统通知、不可回滚日志都不是普通数据库 update。即使它们没有写 <code>COMMIT WORK</code>，也可能在业务回滚后留下外部副作用。RAP 中应优先把这类动作设计成保存成功后的事件、outbox、异步处理或可幂等重试机制。</p>
+<p>一个简化流程如下：</p>
+<pre><code class="language-text">Consumer request
+  -&gt; RAP handler / validation / determination
+  -&gt; RAP transactional buffer
+  -&gt; COMMIT ENTITIES / OData Save
+  -&gt; RAP save sequence
+  -&gt; framework-controlled database commit or rollback</code></pre>
+<p>错误流程如下：</p>
+<pre><code class="language-text">Action handler
+  -&gt; direct INSERT / legacy API
+  -&gt; COMMIT WORK
+  -&gt; later validation fails
+  -&gt; RAP reports error, but database or external side effect already exists</code></pre>
+<h5 id="internal-commit-review-checklist-941695e6">Internal commit review checklist</h5>
+<p>把旧逻辑迁移到 RAP 时，最危险的不是明面上写了 <code>COMMIT WORK</code>，而是“看起来只是调用一个保存 API，里面其实已经 commit”。评审旧 function module、BAPI、class method 或 Z wrapper 时，可以按下面顺序查。</p>
+<p>第一，全文搜索显式提交语句：<code>COMMIT WORK</code>、<code>ROLLBACK WORK</code>、<code>BAPI_TRANSACTION_COMMIT</code>、<code>BAPI_TRANSACTION_ROLLBACK</code>。如果出现在 behavior implementation 或被其同步调用的保存路径上，就要停下来确认事务边界。</p>
+<p>第二，检查 API 文档和命名。很多旧 BAPI 设计为“调用 BAPI 后由 caller commit”，这种还可以通过外层控制；更危险的是 wrapper 名称叫 <code>save_and_commit</code>、<code>post_document</code>、<code>execute_final</code>，内部可能已经提交。不要只看方法名好听，要读实现或官方说明。</p>
+<p>第三，检查 update task / background task / tRFC / qRFC。即使没有直接 <code>COMMIT WORK</code>，<code>CALL FUNCTION ... IN UPDATE TASK</code>、<code>IN BACKGROUND TASK</code>、外部队列写入、文件输出、HTTP 调用也可能把效果推到 RAP rollback 无法自然撤销的位置。它们需要单独设计 outbox、event、重试和补偿。</p>
+<p>第四，确认失败路径。假设旧 API 成功写了一部分，随后 RAP validation 或 additional save 失败，旧 API 的结果能否一起回滚？如果不能，就不应直接放在 handler、validation、determination 或 <code>save_modified</code> 中同步调用。</p>
+<p>第五，给出替代方案。优先找 no-commit API；没有时，考虑拆分旧 API、把外部副作用改成保存成功后的 business event/outbox、使用异步 job 加 idempotency，或重新评估这个 legacy save 是否适合 RAP BO。评审结论不能只写“内部 commit 有风险”，还要写清下一步可执行路径。</p>
+<div class="table-wrap"><table><thead><tr><th>风险信号</th><th>应问的问题</th><th>常见处理</th></tr></thead><tbody><tr><td><code>BAPI_TRANSACTION_COMMIT</code></td><td>是否在 RAP behavior implementation 内部调用？</td><td>移到外部 consumer，或改成 RAP <code>COMMIT ENTITIES</code> 语义</td></tr><tr><td>旧 FM 内部 <code>COMMIT WORK</code></td><td>是否有 no-commit 版本？</td><td>替换 API / 重构 wrapper</td></tr><tr><td>同步 HTTP / 邮件</td><td>SAP rollback 后外部能否撤销？</td><td>outbox / event / async job</td></tr><tr><td><code>IN UPDATE TASK</code></td><td>谁触发最终提交？</td><td>避免在 RAP 内混用，或重新设计保存边界</td></tr><tr><td>直接写日志表</td><td>主保存失败后日志是否仍存在？</td><td>additional save / application log 策略 / 幂等设计</td></tr></tbody></table></div>
+<h4 id="37-5-97570abc" class="semantic-heading semantic-japan">37.5 日本项目现场说法</h4>
+<ul>
+<li><code>コミット制御</code>: commit control。</li>
+<li><code>トランザクション境界</code>: transaction boundary。</li>
+<li><code>内部コミット</code>: internal commit。</li>
+<li><code>COMMIT WORK 禁止</code>: 禁止在该上下文使用 <code>COMMIT WORK</code>。</li>
+<li><code>RAP LUW</code>: RAP logical unit of work。</li>
+<li><code>保存シーケンス</code>: save sequence。</li>
+<li><code>部分コミット</code>: partial commit。</li>
+<li><code>ロールバック不可</code>: cannot be rolled back。</li>
+</ul>
+<p>この処理は RAP のトランザクション境界内なので、handler や saver の中で <code>COMMIT WORK</code> を実行しないでください。</p>
+<p>意思是：这段处理处在 RAP 的事务边界内，所以不要在 handler 或 saver 中执行 <code>COMMIT WORK</code>。</p>
+<p>この汎用モジュールは内部で commit していないか確認が必要です。内部コミットがある場合、RAP のロールバックと整合しません。</p>
+<p>意思是：需要确认这个 function module 内部是否 commit。如果有内部 commit，就不能和 RAP rollback 保持一致。</p>
+<p>外部連携は保存成功後のイベントまたは outbox 方式で設計し、RAP 保存失敗時に部分実行が残らないようにしてください。</p>
+<p>意思是：外部集成应设计为保存成功后的事件或 outbox 方式，避免 RAP 保存失败时留下部分执行结果。</p>
+<h4 id="37-6-english-terms-f3458f1c" class="semantic-heading semantic-terms">37.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>COMMIT WORK restriction in RAP</code></li>
+<li>Related terms: <code>COMMIT ENTITIES</code>, <code>RAP LUW</code>, <code>transactional buffer</code>, <code>save sequence</code>, <code>RAP behavior implementation</code>, <code>illegal statement</code>, <code>internal commit</code>, <code>ROLLBACK WORK</code>, <code>with unmanaged save</code>, <code>with additional save</code>, <code>outbox pattern</code></li>
+<li>Recommended search pattern: <code>SAP RAP COMMIT WORK COMMIT ENTITIES behavior implementation</code></li>
+<li>ABAP keywords to keep in English: <code>COMMIT WORK</code>, <code>ROLLBACK WORK</code>, <code>COMMIT ENTITIES</code>, <code>MODIFY ENTITIES</code>, <code>IN LOCAL MODE</code>, <code>failed</code>, <code>reported</code>, <code>mapped</code></li>
+</ul>
+<h4 id="37-7-example-1cc04e25" class="semantic-heading semantic-example">37.7 Example / 学习例子</h4>
+<p>例子一：普通 ABAP consumer 调用 RAP BO。</p>
+<pre><code class="language-abap">MODIFY ENTITIES OF zi_travel
+  ENTITY Travel
+  CREATE FROM lt_create
+  MAPPED   DATA(mapped)
+  FAILED   DATA(failed)
+  REPORTED DATA(reported).
+
+IF failed IS INITIAL.
+  COMMIT ENTITIES
+    RESPONSE OF zi_travel
+    FAILED   DATA(commit_failed)
+    REPORTED DATA(commit_reported).
+ENDIF.</code></pre>
+<p>这里的重点不是语法细节，而是提交语义。<code>MODIFY ENTITIES</code> 把创建请求交给 RAP BO；<code>COMMIT ENTITIES</code> 触发 RAP 保存。不要把它改成 <code>COMMIT WORK</code>，也不要在 BO 的 handler 方法内部自己提交。</p>
+<p>例子二：action handler 改状态。</p>
+<p>用户点击 Approve。正确思路是：action handler 检查当前状态，必要时用 local EML 修改 transactional buffer，把结果和 message 返回给 RAP runtime。真正落库等到保存触发后由 save sequence 处理。错误思路是：action handler 直接 <code>UPDATE ztravel SET status = &#x27;A&#x27;</code>，然后 <code>COMMIT WORK</code>。这样后续 validation 失败、draft activate 失败或其他 entity 保存失败时，状态已经提交。</p>
+<p>例子三：<code>save_modified</code> 调旧 API。</p>
+<p>某项目在 <code>with unmanaged save</code> 中使用 <code>save_modified</code> 调用旧保存 class。review 时必须确认旧 class 没有内部 <code>COMMIT WORK</code>。如果旧 API 只能“保存并提交”，它就不适合直接放进 RAP save sequence。更安全的方向是拆出 no-commit 保存方法，或让 RAP 保存主数据后写 outbox，由异步 job 调用外部系统。</p>
+<p>例子四：AC0567C POC 的迁移思考。</p>
+<p>如果未来把批量上传 POC 改造成 RAP BO，上传行的解析、字段检查、状态派生属于 interaction / validation 思维；最终写入、上传日志、事件通知属于保存或保存后语义。不能为了“按钮点完立刻有数据”就在 action handler 里批量插表并 commit。</p>
+<h4 id="37-8-counterexample-failure-mode-c6e72c2a" class="semantic-heading semantic-example">37.8 Counterexample / Failure mode</h4>
+<p>反例一：handler 中直接 <code>COMMIT WORK</code>。开发者以为 action 已经完成，所以立即提交。后续 save sequence validation 失败，RAP 返回错误，但数据库状态已经变化。修正方式是：handler 只改变 BO buffer，由 RAP runtime 统一保存。</p>
+<p>反例二：用 <code>COMMIT WORK</code> 修复“<code>MODIFY ENTITIES</code> 后数据库查不到数据”。这是典型误解。<code>MODIFY ENTITIES</code> 后没有持久化，通常是因为还没有 <code>COMMIT ENTITIES</code>，不是因为需要经典 commit。修正方式是：外部 EML consumer 使用 <code>COMMIT ENTITIES</code>，behavior implementation 内部不要自提交。</p>
+<p>反例三：旧 BAPI 内部 commit。某 function module 在成功时自己 <code>COMMIT WORK</code>。RAP 后续失败时，该 BAPI 的结果已经提交。修正方式是寻找 no-commit 版本、改造 legacy API、或用 outbox / event 进行事务后处理。</p>
+<p>反例四：additional save 写外部系统。保存审计日志可以是数据库附加保存，但同步调用外部 HTTP API、发邮件、发文件并不自动受 SAP rollback 控制。修正方式是使用可重试、可去重、可补偿的设计。</p>
+<p>反例五：saver class 中认为“已经是保存阶段，所以可以 commit”。即使进入 saver，RAP runtime 仍然掌握 transaction boundary。修正方式是把 saver 看成保存序列中的项目实现点，而不是独立事务程序。</p>
+<p>反例六：把 RAP 和经典程序混在一个提交模型里。普通 report 里调用 BAPI 后可能需要 <code>BAPI_TRANSACTION_COMMIT</code>，但 RAP behavior implementation 里不能照搬。修正方式是先判断当前代码是 RAP BO consumer、behavior implementation，还是传统程序。</p>
+<h4 id="37-9-f0d5ecd7" class="semantic-heading semantic-practice">37.9 思考问题</h4>
+<ul>
+<li>当前代码是在 RAP consumer 侧，还是 behavior implementation 内部？</li>
+<li>这段逻辑是否只修改 transactional buffer，还是直接修改数据库？</li>
+<li>如果后续 validation 失败，这段处理能否自动 rollback？</li>
+<li>调用的旧 function module、BAPI、class method 内部是否 commit？</li>
+<li>是否存在 <code>COMMIT WORK</code>、<code>ROLLBACK WORK</code>、update task、外部 HTTP、发邮件、文件输出等不可回滚副作用？</li>
+<li>外部 consumer 是否应该用 <code>COMMIT ENTITIES</code>？</li>
+<li>在日本项目设计书中，应如何说明 <code>コミット制御</code> 和 <code>トランザクション境界</code>？</li>
+</ul>
+<h4 id="37-10-fe8575f7" class="semantic-heading semantic-reference">37.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT_ENTITIES.html" target="_blank" rel="noopener noreferrer">COMMIT ENTITIES</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT.html" target="_blank" rel="noopener noreferrer">COMMIT WORK</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/abensap_luw.htm" target="_blank" rel="noopener noreferrer">SAP LUW</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCONTROLLING_SAP_LUW.html" target="_blank" rel="noopener noreferrer">Controlled SAP LUW</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">Entity Manipulation Language (EML)</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/save-options" target="_blank" rel="noopener noreferrer">Save Options</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_SAVING.html" target="_blank" rel="noopener noreferrer">RAP - SavingOptions</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABP_SAVER_CLASS.html" target="_blank" rel="noopener noreferrer">RAP Saver Class and Methods</a> (accessed 2026-06-18)</li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/17_SAP_LUW.md" target="_blank" rel="noopener noreferrer">SAP LUW Cheat Sheet</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="37-11-connections-29b19399">37.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Downstream: <a class="wiki" href="section-03-038-rap-action-handler-anti-pattern-direct-insert-7325d509.html">RAP Action Handler Anti-Pattern: Direct INSERT</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 20 - Action、Validation、Determination、Save Sequence</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="37-12-3a284310" class="semantic-heading semantic-practice">37.12 学习任务</h4>
+<ul>
+<li>用自己的话区分 <code>COMMIT ENTITIES</code> 和 <code>COMMIT WORK</code>。</li>
+<li>找一段 behavior implementation，确认是否存在 <code>COMMIT WORK</code> / <code>ROLLBACK WORK</code> / 内部 commit API。</li>
+<li>写 3 句日语 review comment：一句说明禁止内部 commit，一句说明 transaction boundary，一句说明外部连携应考虑 outbox。</li>
+<li>设计一个测试：validation 失败时，handler 中的状态变更不应直接落库，外部副作用不应发生。</li>
+<li>如果已经进入 Week 4，把 AC0567C POC 的保存流程重画成 <code>buffer -&gt; validation -&gt; save -&gt; event/outbox</code> 的检查表。</li>
+</ul>
+<h4 id="37-13-confidence-next-action-8a7b6ced" class="semantic-heading semantic-status">37.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the core distinction between <code>COMMIT ENTITIES</code>, RAP save sequence, and classic <code>COMMIT WORK</code> after official-source closure. 2026-06-18 已复核 ABAP Keyword Documentation <code>COMMIT ENTITIES</code>、<code>COMMIT WORK</code>、SAP LUW、Controlled SAP LUW、RAP saving options / saver methods、SAP Help EML / Save Options，以及 SAP-samples SAP LUW cheat sheet。正文已覆盖 RAP runtime transaction owner、behavior implementation 内部 commit 风险、legacy API internal commit、<code>BAPI_TRANSACTION_COMMIT</code> / <code>ROLLBACK WORK</code> / update task / external side effect 检查、additional save 副作用边界、outbox/event 替代方向和日本项目 <code>コミット制御</code> / <code>トランザクション境界</code> 说法。Claude/Joule review artifacts 仍是 deferred/no usable verdict，且 2026-06-18 Claude CLI 当前 session expired；外部 review debt 保留，但本节不再停留在提纲草稿。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；本地验证时，在实际 behavior implementation 中搜索 <code>COMMIT WORK</code> / <code>ROLLBACK WORK</code> / internal commit API，并按 RAP transaction boundary、legacy API internal commit、additional save 副作用边界重新归类。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-036-rap-save-modified-implementation-84f70d3a.html">Previous section</a><a href="section-03-038-rap-action-handler-anti-pattern-direct-insert-7325d509.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Search help 搜索帮助 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="39-search-help-0f5d4365" class="chapter-title">39. Search help 搜索帮助</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 39</li><li>self-contained study note</li></ul><h4 id="39-1-0cc651d0" class="semantic-heading semantic-concept">39.1 一句话结论</h4>
+<p>Search help 搜索帮助，是 ABAP Dictionary 中用于提供 input help / F4 help 的经典元数据对象。它帮助用户在输入字段时选择合法或有意义的值，尤其适合那些实际存储值是 formal key、但用户需要看描述文本才能判断的字段。</p>
+<p>本节要学的是：读懂 elementary search help、collective search help、selection method、import/export parameters、hit list 和 search help exit 的基本机制，同时分清现代边界。Classic DDIC search help 主要属于 Dynpro / Web Dynpro / 传统 ABAP UI 的世界，不是 ABAP Cloud / RAP / Fiori 新开发的主路径；在 RAP/Fiori/OData 服务中，value help 通常应通过 CDS value help provider、<code>@Consumption.valueHelpDefinition</code>、association-based value help 和 additional binding 来表达。</p>
+<h4 id="39-2-634d6e4b" class="semantic-heading semantic-concept">39.2 到底学什么</h4>
+<p>先从用户动作理解。SAP GUI 或经典屏幕上有一个输入字段，例如 <code>carrier_id</code>、<code>customer_id</code>、<code>company_code</code>、<code>currency_code</code>。用户不一定记得完整 key，也不一定知道每个 key 的含义。按 F4 或点击输入帮助按钮时，系统弹出一个选择界面，展示候选值、描述文本和筛选条件。用户选中一行后，系统把选中的 key 返回到输入字段，必要时也可以把其他字段返回到同一屏幕上的相关字段。这个“从字段到可选值列表，再把选中值带回字段”的机制，就是 search help / input help 要解决的问题。</p>
+<p>ABAP Dictionary search help 是一个 repository object。SAP Help 对它的经典定义很直接：search help 用来给 screen field 分配 input help，也就是 F4 help。这里的重点有三个。第一，它是 Dictionary 元数据，不是业务程序里随便写的一段搜索 SQL。第二，它面向输入字段，让用户更容易选择值。第三，它通常要被分配到 data element、table field、structure field 或 screen field 等消费位置；只创建 search help 对象本身，并不等于所有字段都会自动出现 F4 帮助。</p>
+<p>一个最小场景可以这样想：</p>
+<pre><code class="language-text">输入字段: Booking-CarrierId
+用户动作: 按 F4
+候选列表: CarrierId, CarrierName, Country
+筛选条件: Country, CarrierName
+返回值: CarrierId 返回到 Booking-CarrierId</code></pre>
+<p>如果把这个场景写成 classic DDIC search help，通常要回答四个问题：</p>
+<pre><code class="language-text">这个 search help 从哪里读候选数据？
+哪些字段可以作为筛选条件？
+哪些字段显示在 hit list？
+用户选择后，哪个值返回到哪个 screen field？</code></pre>
+<p>第一个问题对应 selection method。Selection method 通常是 table 或 view，说明 hit list 的数据从哪里来。比如航空公司 value help 可以从 carrier 主数据表或相关 help view 读取；物料、工厂、公司代码等标准对象也通常有对应主数据表或视图。</p>
+<p>第二、三、四个问题对应 search help parameters 和 interface。Search help parameter 可以是 import parameter，也可以是 export parameter，也可以同时是 import/export，甚至可以两者都不是。Import parameter 从当前屏幕上下文带入过滤条件，例如当前 country 已经填了，就用 country 缩小机场列表；export parameter 在用户选中一行后把值返回到输入字段或其他字段。Hit list 显示什么、选择条件区显示什么、是否只是显示字段，则由参数的显示位置和对话属性决定。</p>
+<p>Classic search help 分两种主类型。Elementary search help 表示一条 search path：它定义 selection method、search help interface，以及用户看到的 dialog / online behavior。Collective search help 则把多个 elementary search helps 组合起来，提供多个可选 search paths。比如同一个客户字段，用户可能按客户编号找，也可能按名称、城市或税号找；这些不同查找路径可以被组织成 collective search help。</p>
+<p>还要认识 search help exit。Search help exit 是 function module 形式的扩展点，用来在标准 input help 流程的特定时点介入，例如修改候选集合、跳过某个对话步骤、补充 hit list 字段或按上下文过滤可用 search paths。它是例外场景，不是初学者的默认方案。能用 selection method、参数 mapping、foreign key、CDS value help 或标准过滤解决的问题，不应该一开始就写 search help exit；在 ABAP Cloud / RAP 新开发里，更不应把 function module-based exit 当作 value help 的常规扩展方式。</p>
+<p>最后要把 classic 和 modern 分开。Classic DDIC search help 适合读旧系统、维护 Dynpro/Web Dynpro、分析既有 data element 和 screen field 的 F4 行为。新 RAP/Fiori 应用的 value help，不应简单地说“给字段挂一个 DDIC search help”。SAP Learning 的 RAP 课程把现代路线讲得很清楚：先准备 value help provider CDS view，再在消费字段上用 <code>@Consumption.valueHelpDefinition</code> 指向 provider 的 element；必要时用 additional binding 把当前字段值作为过滤条件，或把 value help 选择结果额外返回到其他字段。</p>
+<h4 id="39-3-59a88a75" class="semantic-heading semantic-why">39.3 为什么重要</h4>
+<p>Search help 重要，是因为很多 SAP 字段的真实可用值不是靠用户记忆输入的，而是靠主数据、配置表、组织结构、状态表或文本表来辅助选择。用户看到的是“选择供应商”“选择公司代码”“选择货币”“选择工厂”；系统里保存的却可能是 <code>LIFNR</code>、<code>BUKRS</code>、<code>WAERS</code>、<code>WERKS</code> 这样的 key。如果没有 input help，用户只能靠记忆或手工查表输入 key，效率低，也容易造成错误。</p>
+<p>对 ABAP 开发者来说，search help 是从 DDIC 元数据理解 UI 行为的重要入口。一个 table field 的类型可能来自 <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a>，取值边界可能来自 <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a> 或 <a class="wiki" href="section-01-038-foreign-key-d4b87c24.html">Foreign key 外键关系</a>，输入帮助可能来自 search help，保存校验可能来自 RAP validation 或业务代码。初学者如果只看字段类型，会以为 <code>customer_id</code> 只是一个字符字段；懂 search help 后，才会继续追踪它的 F4 候选值从哪里来、描述文本从哪里来、用户选择后哪些字段被回填。</p>
+<p>对 Java/Python 背景学习者，可以把 classic search help 粗略类比成“后端 metadata + UI autocomplete / lookup dialog 配置”。但这个类比有明显差异。普通 Web 应用常由前端组件调用 REST API 返回下拉列表；SAP 传统系统里，input help 可以由 ABAP Dictionary 的元数据驱动，跟 data element、foreign key、screen field、help processor、transport 和 activation 一起工作。它不是一个前端小组件，而是 repository 世界中的可复用对象。</p>
+<p>在日本 SAP 项目里，search help 经常出现在三类工作中。第一类是障害调查：用户说某字段 F4 出不来、候选值不对、选完没有回填。第二类是改修影响分析：修改 data element、foreign key、help view 或 search help 后，要确认哪些画面、报表、Web Dynpro、接口或旧程序受影响。第三类是现代化改造：旧 Dynpro 里的 <code>検索ヘルプ</code> 要迁移到 Fiori/RAP 的 <code>値ヘルプ</code>，此时不能机械搬运对象名，而要重新设计 CDS provider、annotation、service metadata 和权限过滤。</p>
+<h4 id="39-4-key-mechanism-6eae1acb" class="semantic-heading semantic-mechanism">39.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是标准 input help 流程。用户触发 F4 后，系统根据字段类型、data element、search help assignment、foreign key 或其他元数据尝试确定可用 input help。随后可能显示筛选条件对话框，执行选择，显示 hit list，最后把用户选中的值返回到屏幕字段。这一整套过程的目标不是“模糊搜索所有数据库”，而是为当前输入字段提供有上下文的候选值。</p>
+<p>第二层机制是 elementary search help。Elementary search help 描述一条具体 search path。它至少要说明：</p>
+<pre><code class="language-text">Selection method: 候选值来自哪张表或哪个 view
+Interface: 哪些 search help parameters 和 screen fields 交换值
+Import parameters: 从屏幕带入过滤条件
+Export parameters: 把选中值返回屏幕
+Dialog behavior: 哪些字段出现在筛选条件区，哪些字段出现在 hit list</code></pre>
+<p>如果 selection method 是 carrier 主数据，参数可以包含 <code>carrier_id</code>、<code>carrier_name</code>、<code>country_code</code>。<code>country_code</code> 可以作为 import parameter，帮助缩小 hit list；<code>carrier_id</code> 通常是 export parameter，用户选中后返回输入字段；<code>carrier_name</code> 可能只显示在 hit list，让用户知道 key 的含义。</p>
+<p>第三层机制是 collective search help。Collective search help 本身也有 import/export interface，它不只是“多个 elementary search helps 的列表”，还是 screen field 与这些 elementary search helps 之间的接口。它像一个“搜索路径入口”，把同一个 screen field 的多种查找方式集中起来。用户可以按编号找，也可以按名称、地址、组织单位或其他业务属性找。读旧系统时，如果一个 F4 弹窗里有多个 tab 或多个搜索变式，背后可能就是 collective search help 或类似组织方式。</p>
+<p>第四层机制是 assignment。Search help 对象不是孤立生效。它需要被分配给 data element、table field、structure field、check table 或 screen field 等位置，消费端才能使用它。SAP Help 在创建 elementary search help 的步骤里也提醒：不要忘了把 search help 连接到 screen field；search help attachment 不是 search help definition 本身的一部分。项目调查时要问两件事：这个 search help 定义了什么？它被哪些对象实际使用？这时要结合 <a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a>。</p>
+<p>第五层机制是 classic 与 RAP/Fiori 的分界。在 RAP/Fiori 中，用户仍然会按 F4 或点击 value help 按钮，但实现机制通常不是 classic DDIC search help。SAP Learning 给出的现代模式是：</p>
+<pre><code class="language-abap">@Consumption.valueHelpDefinition: [ {
+  entity.name:    &#x27;Z_I_CarrierVH&#x27;,
+  entity.element: &#x27;CarrierId&#x27;
+} ]
+CarrierId;</code></pre>
+<p>这里 <code>Z_I_CarrierVH</code> 是 value help provider CDS view，<code>CarrierId</code> 是返回到消费字段的 element。Provider view 的字段和 metadata 决定 Fiori value help dialog 里能过滤什么、显示什么。SAP Learning 还说明，value help provider view 会随源 view 的 OData 服务自动暴露，不需要单独列在 service definition 里。</p>
+<p>第六层机制是 additional binding。简单 value help 只把一个选中值返回到一个字段；真实业务经常需要更复杂的输入/输出绑定。例如先输入 company code，再按 company code 过滤 cost center；或者选择 currency 时，同时把 currency code 和 currency description 带回界面。<code>@Consumption.valueHelpDefinition</code> 的 <code>additionalBinding</code> / <code>additionalBindings</code> 能表达这些额外绑定，usage 可分为 <code>#FILTER</code>、<code>#RESULT</code>、<code>#FILTER_AND_RESULT</code>。初学阶段不必背完整语法，但要知道它解决的是“value help 不是孤立字段，而是和当前行其他字段联动”的问题。</p>
+<p>第七层机制是边界。Search help / value help 不是 authorization、不是 database constraint、也不是 save validation。它可以帮助用户选值，但不能替代权限过滤、业务规则校验和保存时一致性检查。Classic search help exit 里可以过滤 hit list，但这不等于完整授权设计；RAP/Fiori value help provider 也必须考虑 CDS DCL、service exposure、RAP authorization、validation 和数据可见性。用户能看见的候选值本身就是数据暴露面。</p>
+<h4 id="39-5-3378baa7" class="semantic-heading semantic-japan">39.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>検索ヘルプ</code>、<code>F4ヘルプ</code>、<code>入力ヘルプ</code>、<code>値ヘルプ</code>、<code>基本検索ヘルプ</code>、<code>集合検索ヘルプ</code>、<code>追加検索ヘルプ</code>、<code>検索ヘルプ出口</code>、<code>選択メソッド</code>、<code>インポートパラメータ</code>、<code>エクスポートパラメータ</code>、<code>ヒットリスト</code>、<code>値ヘルププロバイダ</code>、<code>追加バインディング</code>。</li>
+<li>Classic 场景说明句：この項目の F4 ヘルプは DDIC の検索ヘルプで定義されています。候補値の取得元、検索条件、戻り値のマッピングを確認してください。</li>
+<li>RAP/Fiori 场景说明句：Fiori の値ヘルプは、従来の検索ヘルプではなく CDS の <code>@Consumption.valueHelpDefinition</code> と値ヘルププロバイダで設計します。</li>
+<li>影响分析说法：検索ヘルプを変更する前に、データエレメント、画面項目、使用箇所、影響範囲を確認してください。</li>
+<li>障害调查说法：F4 ヘルプで値を選択しても項目に戻らない場合、エクスポートパラメータと項目マッピングを確認してください。</li>
+<li>边界说法：検索ヘルプは入力補助であり、権限チェックや保存時バリデーションの代替ではありません。</li>
+</ul>
+<h4 id="39-6-english-terms-3bdb652e" class="semantic-heading semantic-terms">39.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>search help</code></li>
+<li>Official / search term: <code>input help</code></li>
+<li>Official / search term: <code>F4 help</code></li>
+<li>Official / search term: <code>elementary search help</code></li>
+<li>Official / search term: <code>collective search help</code></li>
+<li>Official / search term: <code>selection method</code></li>
+<li>Official / search term: <code>search help parameter</code></li>
+<li>Official / search term: <code>import parameter</code></li>
+<li>Official / search term: <code>export parameter</code></li>
+<li>Official / search term: <code>hit list</code></li>
+<li>Official / search term: <code>search help exit</code></li>
+<li>Official / search term: <code>value help</code></li>
+<li>Official / search term: <code>value help provider</code></li>
+<li>Official / search term: <code>@Consumption.valueHelpDefinition</code></li>
+<li>Official / search term: <code>additionalBinding</code></li>
+<li>Recommended search pattern: <code>ABAP Dictionary search help elementary collective SAP Help</code></li>
+<li>Recommended search pattern: <code>RAP value help @Consumption.valueHelpDefinition SAP Learning</code></li>
+<li>读官方资料时优先保留英文对象名、annotation 名称和 SAP UI 术语；不要把 <code>search help</code>、<code>value help</code>、<code>input help</code> 在所有语境里强行译成同一个词。</li>
+</ul>
+<h4 id="39-7-example-f011f996" class="semantic-heading semantic-example">39.7 Example / 学习例子</h4>
+<p>先看 classic DDIC 的读法。假设旧系统有一个 booking 画面，字段是 carrier。用户按 F4 后，可以按航空公司编号或名称搜索，列表显示 carrier id、名称、国家。读这个对象时，可以按下面的清单记录：</p>
+<pre><code class="language-text">Screen field:
+Data element:
+Assigned search help:
+Search help type: elementary / collective
+Selection method:
+Import parameters:
+Export parameters:
+Hit list fields:
+Search conditions:
+Search help exit:
+Where-used objects:
+Cloud / RAP replacement:</code></pre>
+<p>如果 search help 是 elementary，可能长这样：</p>
+<pre><code class="language-text">Search help: ZSH_CARRIER
+Type: Elementary search help
+Selection method: ZI_CARRIER_HELP or legacy help view
+Parameters:
+  CARRIER_ID    EXP, displayed in hit list
+  CARRIER_NAME  displayed in hit list and search dialog
+  COUNTRY_CODE  IMP, displayed in search dialog
+Return behavior:
+  CARRIER_ID -&gt; screen field Booking-CarrierId</code></pre>
+<p>如果它是 collective，可能长这样：</p>
+<pre><code class="language-text">Search help: ZSH_CARRIER_ALL
+Type: Collective search help
+Included elementary search helps:
+  ZSH_CARRIER_BY_ID
+  ZSH_CARRIER_BY_NAME
+  ZSH_CARRIER_BY_COUNTRY
+Interface:
+  CARRIER_ID, CARRIER_NAME, COUNTRY_CODE</code></pre>
+<p>对读者来说，重点不是立刻创建对象，而是能解释出：用户按 F4 时，系统为什么知道去哪里读候选值，为什么能把选中的 key 带回字段，为什么某些字段能作为筛选条件，为什么某些字段只显示不返回。</p>
+<p>再看 RAP/Fiori 的现代写法。假设消费 CDS view 里有字段 <code>CurrencyCode</code>，要给它提供 currency value help，可以使用 value help provider：</p>
+<pre><code class="language-abap">@Consumption.valueHelpDefinition: [ {
+  entity.name:    &#x27;I_CurrencyStdVH&#x27;,
+  entity.element: &#x27;Currency&#x27;
+} ]
+CurrencyCode;</code></pre>
+<p>在这个模型里，<code>I_CurrencyStdVH</code> 或自定义 <code>Z_I_CurrencyVH</code> 是 value help provider；<code>Currency</code> 是被选中后返回到消费字段的 element。Fiori elements 根据 OData metadata 显示 value help 按钮或支持 F4，用户选择后把值带回字段。这个过程和 classic search help 在用户体验上相似，但底层对象、metadata、service exposure、Cloud readiness 和测试入口不同。</p>
+<p>最后做一个边界练习。假设业务要求“只能选择当前用户有权限的 company code”。不要把答案写成“给字段加 search help 就可以”。更稳妥的设计应拆成三层：</p>
+<pre><code class="language-text">Value help: 只显示候选 company code，提升输入体验
+Authorization: 用 CDS DCL / RAP authorization / classic AUTHORITY-CHECK 控制可见和可操作数据
+Validation: 保存时再次检查 company code 是否允许，避免绕过 UI 的请求写入非法值</code></pre>
+<p>这就是 search help 章节和后面 <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS access control DCL 访问控制</a>、<a class="wiki" href="section-03-029-validation-44a4b013.html">RAP validation 校验</a>、<a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 权限检查</a> 会重新连接的地方。</p>
+<h4 id="39-8-counterexample-failure-mode-d1e668cf" class="semantic-heading semantic-example">39.8 Counterexample / Failure mode</h4>
+<ul>
+<li>把 search help 当成数据库约束：F4 列表能选值，不代表数据库层会拒绝其他值，也不代表 RAP save sequence 会自动校验。</li>
+<li>把 search help 当成授权：候选列表过滤不等于完整权限控制；保存、读取、服务暴露仍要设计 authorization。</li>
+<li>把 classic <code>検索ヘルプ</code> 和 Fiori <code>値ヘルプ</code> 混用：会导致新 RAP/Fiori 项目误走旧 DDIC search help 路径，或在设计书里产生歧义；ABAP Cloud / RAP 新开发应优先使用 CDS-based value help。</li>
+<li>只创建 search help，不做 assignment：对象本身存在，但 screen field / data element / table field 没有正确连接，用户按 F4 仍然没有预期结果。</li>
+<li>Export parameter mapping 错误：用户选中一行后，值没有返回输入字段，或返回到错误字段。</li>
+<li>Import parameter 设计不足：没有从当前上下文带入过滤条件，导致 hit list 太大、不可用，甚至暴露不该看的候选数据。</li>
+<li>过早使用 search help exit：用 function module 写复杂逻辑，增加维护成本，也可能引入 Dynpro-specific API 和 ABAP Cloud readiness 问题；现代 value help 的自定义过滤应优先回到 CDS provider、CDS filter/parameter、additional binding 或 RAP/service-layer 设计。</li>
+<li>把 help view / old DDIC view 当成新开发推荐对象：在旧系统里可以识别，在新 RAP/Fiori 模型里应优先考虑 CDS view entity 和 value help provider。</li>
+<li>忽略 additional binding：多字段联动 value help 只返回主字段，导致依赖字段不回填或过滤条件失效。</li>
+<li>忽略 where-used：修改一个被多个画面、data element、Web Dynpro 或 legacy report 使用的 search help，可能引发大范围 UI 行为变化。</li>
+</ul>
+<h4 id="39-9-78f82c86" class="semantic-heading semantic-practice">39.9 思考问题</h4>
+<ul>
+<li>Search help 解决的是“输入体验”“候选值发现”“业务 key 可理解性”中的哪几类问题？</li>
+<li>Elementary search help 和 collective search help 的职责差异是什么？</li>
+<li>Selection method、import parameter、export parameter、hit list 分别回答什么问题？</li>
+<li>为什么 search help exit 不应该作为初学者默认方案？</li>
+<li>为什么 search help 不能替代 authorization 和 save validation？</li>
+<li>在 RAP/Fiori 中，为什么通常要使用 <code>@Consumption.valueHelpDefinition</code> 和 value help provider CDS view？</li>
+<li>Foreign key 或 CDS association 为什么可以帮助寻找 value help provider，但不是 RAP/Fiori value help 的前提条件？</li>
+<li>如果用户说“F4 选择后字段没有回填”，应该先检查哪些 mapping？</li>
+<li>如果 value help 候选值太多，应该优先检查 import parameter / additional binding / provider view filter，还是直接写 exit？</li>
+<li>在日本项目文档中，什么时候写 <code>検索ヘルプ</code>，什么时候写 <code>値ヘルプ</code> 更自然？</li>
+</ul>
+<h4 id="39-10-637e3b83" class="semantic-heading semantic-reference">39.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/docs/SAP_NETWEAVER_731_BW_ABAP/ec1c9c8191b74de98feb94001a95dd76/cf21ee2b446011d189700000e8322d00.html" target="_blank" rel="noopener noreferrer">SAP Help - Search Helps</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/ec1c9c8191b74de98feb94001a95dd76/cf21ee38446011d189700000e8322d00.html" target="_blank" rel="noopener noreferrer">SAP Help - Elementary Search Help</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/ec1c9c8191b74de98feb94001a95dd76/cf21ee45446011d189700000e8322d00.html" target="_blank" rel="noopener noreferrer">SAP Help - Collective Search Help</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_DYNPROS_VALUE_HELP_AUTO.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Input Helps in the ABAP Dictionary</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/saphelp_SNC700_ehp01/helpdata/en/cf/21ee52446011d189700000e8322d00/content.htm" target="_blank" rel="noopener noreferrer">SAP Help - Search Help Exit</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-static-field-control-and-value-helps" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Static Field Control and Value Helps</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_ANNOTATIONS_FRMWRK_TABLES.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Framework-Specific Annotation Syntax</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/26_ABAP_Dictionary.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP Dictionary Cheat Sheet</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="39-11-connections-dd082cb3">39.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-01-038-foreign-key-d4b87c24.html">Foreign key 外键关系</a></li>
+<li>Downstream: <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a></li>
+<li>Related: <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a></li>
+<li>Related: <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a></li>
+<li>Related: <a class="wiki" href="section-01-037-ddic-view-5437a298.html">DDIC view 传统视图</a></li>
+<li>Related: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Related: <a class="wiki" href="section-03-029-validation-44a4b013.html">RAP validation 校验</a></li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS access control DCL 访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 权限检查</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 06 - 外键、搜索帮助与锁对象</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="39-12-b9807b5d" class="semantic-heading semantic-practice">39.12 学习任务</h4>
+<ul>
+<li>找一个标准字段或练习字段，说明用户按 F4 时应该看到哪些候选列、哪些筛选条件，以及选中后哪个值被回填。</li>
+<li>用 6-8 行中文说明 elementary search help 和 collective search help 的差异。</li>
+<li>写一段日语说明：<code>検索ヘルプは入力補助であり、権限チェックや保存時バリデーションの代替ではありません。</code></li>
+<li>在 SAP Learning RAP value help 课程中找到 <code>@Consumption.valueHelpDefinition</code> 的例子，说明 <code>entity.name</code> 和 <code>entity.element</code> 分别表示什么。</li>
+<li>设计一个两字段联动 value help 场景，例如 company code 过滤 cost center，说明 additional binding 的作用。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span>，观察 POC 中是否有 value help、CDS annotation、foreign key 或 service metadata 证据。</li>
+</ul>
+<h4 id="39-13-confidence-next-action-4c725a7c" class="semantic-heading semantic-status">39.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for classic DDIC search help basics and RAP/Fiori value-help boundary; Medium for release-specific UI behavior because exact support depends on ABAP platform release, UI technology, service type, and project coding standards. 已结合 SAP Help、SAP Learning、ABAP Keyword Documentation、SAP Samples 和 Joule SAP review；Claude follow-up 因当前 CLI session expired 暂缓。</li>
+<li>Next action: 同步到离线书稿；后续如果 Claude CLI 恢复，再对本节做补充复核。如有 SAP 系统环境，可在 ADT 或 SE11/SE80 中找 1 个 search help，验证 selection method、parameters、assignment 和 where-used。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-039-search-help-5766da52.html">Search help 搜索帮助</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-038-foreign-key-d4b87c24.html">Previous section</a><a href="section-01-040-lock-object-c9c0e29f.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

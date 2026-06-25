@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Host variables 宿主变量 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="3-host-variables-fb064102" class="chapter-title">3. Host variables 宿主变量</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 03</li><li>self-contained study note</li></ul><h4 id="3-1-23c07a04" class="semantic-heading semantic-concept">3.1 一句话结论</h4>
+<p>Host variables 是 ABAP SQL 里连接“ABAP 程序变量”和“SQL 语句”的桥。现代 ABAP SQL 用官方称为 escape character 的 <code>@</code> 前缀标出 ABAP data object，让读者和编译器都能看清：<code>customer_id = @lv_customer_id</code> 左边是数据库字段，右边是 ABAP 程序中的变量；<code>INTO TABLE @DATA(lt_orders)</code> 则表示数据库查询结果回到 ABAP 内表。学会 host variables，不是记一个符号，而是学会区分 SQL 世界、ABAP 内存世界、类型转换、动态 SQL 风险和代码 review 的边界。</p>
+<h4 id="3-2-0d21e1ed" class="semantic-heading semantic-concept">3.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a> 讲了一条 <code>SELECT</code> 的骨架。本节只盯住一个小而关键的点：SQL 语句里的值从哪里来，又回到哪里去。</p>
+<p>先看一条常见读取语句：</p>
+<pre><code class="language-abap">DATA lv_customer_id TYPE zsales_order-customer_id VALUE &#x27;1000001&#x27;.
+CONSTANTS lc_status_open TYPE zsales_order-status VALUE &#x27;O&#x27;.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE customer_id = @lv_customer_id
+         AND status      = @lc_status_open
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这段代码里有三类容易混淆的东西。</p>
+<p>第一类是 SQL 标识符，例如 <code>zsales_order</code>、<code>sales_order_id</code>、<code>customer_id</code>、<code>status</code>。它们属于 ABAP SQL 能识别的数据源和字段名。</p>
+<p>第二类是 ABAP 程序里的数据对象，例如 <code>lv_customer_id</code> 和 <code>lc_status_open</code>。当它们出现在 ABAP SQL 的 operand position 时，要用 <code>@</code> 前缀写成 host variables。这里的 <code>@</code> 是语法上的 escape character，用来告诉 ABAP SQL parser “这是 ABAP data object，不是数据库字段名”。它不是字符串插值，也不是 SQL 注入意义上的 escape。</p>
+<p>第三类是结果接收目标，例如 <code>@DATA(lt_orders)</code>。查询结果不是留在数据库里给 ABAP 自动读取，而是被放入 ABAP data object。多行结果进入 internal table，单行结果进入结构、工作区或 inline declaration。后面 <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a> 会专讲这条线。</p>
+<p>初学者要形成一个简单读法：看到 <code>@</code>，先问“这是 ABAP 程序里的哪个值？它的类型从哪里来？这个值进入 SQL 条件、SQL 表达式，还是作为结果目标？”这个问题问清楚，<code>SELECT</code> 才会从一串符号变成可解释的业务读取。</p>
+<h4 id="3-3-a0c10a31" class="semantic-heading semantic-why">3.3 为什么重要</h4>
+<p>Host variables 重要，是因为 ABAP 项目里的 SQL 条件很少是死的。真实程序通常会根据用户输入、Fiori service 参数、BAPI 参数、配置表、前一步读取结果或业务常量来查询数据。没有 host variables，ABAP 程序无法清楚、安全、可检查地把这些运行时值交给 ABAP SQL。</p>
+<p>它的第一层价值是可读性。<code>WHERE customer_id = @lv_customer_id</code> 很明确：数据库字段 <code>customer_id</code> 要等于 ABAP 变量 <code>lv_customer_id</code>。如果忘记 <code>@</code>，读者会疑惑右边到底是字段、SQL 名称，还是程序变量；在现代 strict syntax、尤其 ABAP for Cloud Development 语境里，这通常不是风格问题，而是语法检查会拦下来的问题。</p>
+<p>第二层价值是类型和维护。<code>lv_customer_id TYPE zsales_order-customer_id</code> 比 <code>lv_customer_id TYPE string</code> 更有交付意义，因为它继承了业务字段的长度、技术类型和转换规则。项目里很多细小 bug 来自“看起来都是客户号，实际长度、前导零、大小写、conversion exit、domain fixed value 都不一致”。host variable 让 ABAP 类型系统参与 SQL 访问，但前提是变量本身要有合适的类型。</p>
+<p>第三层价值是安全边界。静态 ABAP SQL 配合 host variables，通常比手工拼接动态 SQL 更清楚、更容易检查，也避免把用户输入直接拼成 SQL 片段。但是动态 token 是另一套机制：<code>WHERE (lv_where)</code> 里的 <code>lv_where</code> 不属于 host variable，不能通过在前面加 <code>@</code> 变安全。只要外部输入进入动态条件、动态字段列表或动态排序 token，就必须按动态 SQL 的安全规则验证、白名单限制或转义；在 ABAP Cloud / Clean Core 审查中，还要确认该动态用法是否允许。</p>
+<p>第四层价值是 review。日本 SAP 项目 review 经常会问：<code>ホスト変数の型はDB項目と合っていますか</code>、<code>この値は外部入力ですか</code>、<code>動的SQLになっていませんか</code>、<code>リテラルではなく定数化した方がよいですか</code>。能回答这些问题，才算真正掌握 host variables。</p>
+<h4 id="3-4-key-mechanism-31b23fbd" class="semantic-heading semantic-mechanism">3.4 Key mechanism / 核心机制</h4>
+<p>Host variable 的核心机制可以拆成五件事。</p>
+<p>第一，host variable 是 ABAP 程序中已经声明的数据对象。它可以是局部变量、全局变量、常量、字段符号指向的对象等；初学阶段先掌握普通 <code>DATA</code> 和 <code>CONSTANTS</code> 就够了。写进 ABAP SQL 时，用 escape character <code>@</code> 作为前缀。这里的 escape character 是“给 ABAP SQL parser 区分名字空间的语法前缀”，不是“把危险字符串转义为安全 SQL”的安全动作。</p>
+<pre><code class="language-abap">DATA lv_sales_order_id TYPE zsales_order-sales_order_id.
+
+SELECT SINGLE FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE sales_order_id = @lv_sales_order_id
+       INTO @DATA(ls_order).</code></pre>
+<p>这里 <code>sales_order_id</code> 出现了两次：<code>FIELDS sales_order_id</code> 是读取数据库列；<code>@lv_sales_order_id</code> 是把 ABAP 变量的值传入 <code>WHERE</code>。<code>@</code> 的存在让两者不会混在一起。</p>
+<p>第二，host variable 既可以用于输入，也可以用于输出目标。<code>WHERE status = @lc_status_open</code> 是把 ABAP 值传给数据库查询；<code>INTO @DATA(ls_order)</code> 或 <code>INTO TABLE @DATA(lt_orders)</code> 是把数据库结果接收到 ABAP 对象。方向不同，但都属于 ABAP SQL 和 ABAP data object 之间的连接点。</p>
+<p>第三，host expression 是比 host variable 更进一步的写法，用 <code>@( ... )</code> 把一个 ABAP 表达式的结果传入 SQL。官方文档说明 host expressions 会从左到右求值，结果像 host variables 的内容一样传给数据库。它适合简单、清楚的计算，不适合把复杂业务逻辑塞进 SQL 行里。使用 host expressions 时也会进入更严格的语法检查语境；面向 ABAP Cloud 或 Clean Core 的代码，要按目标 ABAP language version 验证。</p>
+<pre><code class="language-abap">DATA lv_min_amount TYPE zsales_order-net_amount VALUE &#x27;1000&#x27;.
+DATA lv_tolerance  TYPE zsales_order-net_amount VALUE &#x27;50&#x27;.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              net_amount
+       WHERE net_amount &gt;= @( lv_min_amount + lv_tolerance )
+       INTO TABLE @DATA(lt_large_orders).</code></pre>
+<p>这段代码的意思是：先在 ABAP 侧计算 <code>lv_min_amount + lv_tolerance</code>，再把结果作为 SQL 条件值。不是所有 host variable 位置都能无条件换成 host expression；动态 token 等位置还有额外限制。项目代码里，如果表达式开始影响可读性，就应先算成有名字的变量，再作为 <code>@lv_threshold</code> 传入。</p>
+<p>第四，literal 不带 <code>@</code>。<code>WHERE status = &#x27;O&#x27;</code> 中的 <code>&#x27;O&#x27;</code> 是 ABAP SQL literal，不是 ABAP 变量，所以不写 <code>@</code>。不过项目代码通常更推荐把有业务含义的值做成常量或 domain/fixed value 的清晰表达：</p>
+<pre><code class="language-abap">CONSTANTS lc_status_open TYPE zsales_order-status VALUE &#x27;O&#x27;.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              status
+       WHERE status = @lc_status_open
+       INTO TABLE @DATA(lt_open_orders).</code></pre>
+<p>这样 review 时能讨论 <code>lc_status_open</code> 的业务语义，而不是猜 <code>&#x27;O&#x27;</code> 到底代表 open、old、ok，还是某个项目自定义状态。</p>
+<p>第五，ABAP SQL 的 <code>@</code> 和 Native SQL 的 <code>:</code> 不要混淆。ABAP SQL 现代写法使用 <code>@</code> 标记 host variables；Native SQL / embedded SQL 语境里常见冒号 <code>:</code>。本教程的主线是 ABAP SQL，不建议初学者把 Native SQL 当默认访问方式。</p>
+<h4 id="3-5-a2a6bc14" class="semantic-heading semantic-japan">3.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>ホスト変数</code></li>
+<li><code>ホスト式</code></li>
+<li><code>エスケープ文字</code></li>
+<li><code>バインド変数</code></li>
+<li><code>インライン宣言</code></li>
+<li><code>検索条件</code></li>
+<li><code>条件値</code></li>
+<li><code>パラメータ値</code></li>
+<li><code>型変換</code></li>
+<li><code>リテラル</code></li>
+<li><code>定数化</code></li>
+<li><code>動的SQL</code></li>
+<li><code>SQLインジェクション</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li><code>@lv_customer_id</code> は ABAP 側のホスト変数で、DB項目名ではありません。</li>
+<li>ここでの <code>エスケープ文字</code> は、SQLインジェクション対策ではなく、ABAP SQL パーサーにホスト変数を示すための接頭辞です。</li>
+<li>ホスト変数の型は、比較対象のDB項目と互換性があるか確認してください。</li>
+<li>この値は業務上の意味があるため、リテラルではなく定数化します。</li>
+<li>動的トークンには <code>@</code> は使用できず、開発者が内容を検証する責任を負います。</li>
+<li>動的SQLに外部入力を入れる場合は、入力チェック、ホワイトリスト化、エスケープ、Cloud での利用可否を確認します。</li>
+<li><code>INTO TABLE @DATA(lt_orders)</code> は検索結果を ABAP の内部テーブルに受け取る指定です。</li>
+</ul>
+<p>日本项目里，<code>バインド変数</code> 这个说法也会出现，尤其是有 Java、Oracle、HANA SQL 背景的人在讨论参数绑定时。但在 ABAP 官方资料和 ABAP SQL 语境中，本节优先使用 <code>host variable</code> / <code>ホスト変数</code>。</p>
+<h4 id="3-6-english-terms-6f9275dd" class="semantic-heading semantic-terms">3.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>host variable</code></li>
+<li>Official / search term: <code>host expression</code></li>
+<li>Related term: <code>escape character @</code></li>
+<li>Related term: <code>ABAP SQL operand position</code></li>
+<li>Related term: <code>ABAP SQL literal</code></li>
+<li>Related term: <code>INTO target</code></li>
+<li>Related term: <code>inline declaration</code></li>
+<li>Related term: <code>dynamic token</code></li>
+<li>Related term: <code>SQL injection</code></li>
+<li>Related term: <code>Native SQL host variable</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL host variables SAP Help</code></li>
+<li><code>ABAP SQL @dobj SAP Help</code></li>
+<li><code>ABAP SQL host expressions @( expr )</code></li>
+<li><code>ABAP SQL literals host variables</code></li>
+<li><code>ABAP SQL dynamic tokens SQL injection</code></li>
+</ul>
+<h4 id="3-7-example-cf61cbc5" class="semantic-heading semantic-example">3.7 Example / 学习例子</h4>
+<h5 id="3-7-1-sql-8c07a0fb">3.7.1 条件值进入 SQL</h5>
+<pre><code class="language-abap">DATA lv_customer_id TYPE zsales_order-customer_id VALUE &#x27;1000001&#x27;.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       ORDER BY created_at DESCENDING,
+                sales_order_id
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这类写法最常见。用户、接口或前一步逻辑给出 <code>lv_customer_id</code>，ABAP SQL 用它过滤数据库记录。review 时要看三点：变量类型是否接近数据库字段，值是否已经过输入校验，条件是否足够限制数据量。</p>
+<h5 id="3-7-2-4199dcc6">3.7.2 常量表达业务含义</h5>
+<pre><code class="language-abap">CONSTANTS lc_status_released TYPE zsales_order-status VALUE &#x27;R&#x27;.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              status
+       WHERE status = @lc_status_released
+       INTO TABLE @DATA(lt_released_orders).</code></pre>
+<p>这里直接写 <code>status = &#x27;R&#x27;</code> 也可能能跑，但可读性差。常量名能告诉读者 <code>&#x27;R&#x27;</code> 的业务含义，并且后续如果状态值由配置或 domain fixed values 管理，也更容易定位影响范围。</p>
+<h5 id="3-7-3-abap-29cd4a61">3.7.3 结果接收目标也是 ABAP 对象</h5>
+<pre><code class="language-abap">SELECT SINGLE FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE sales_order_id = @lv_sales_order_id
+       INTO @DATA(ls_order).
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; The requested order does not exist.
+  RETURN.
+ENDIF.</code></pre>
+<p><code>@DATA(ls_order)</code> 是 inline declaration，表示在这里声明并接收一个 ABAP data object。它让 demo 和小范围逻辑更简洁；大型逻辑里，如果类型、生命周期或后续处理复杂，也可以先显式声明结构。</p>
+<h5 id="3-7-4-host-expression-7df00117">3.7.4 Host expression 适合简单计算</h5>
+<pre><code class="language-abap">DATA lv_min_amount TYPE zsales_order-net_amount VALUE &#x27;1000&#x27;.
+DATA lv_tolerance  TYPE zsales_order-net_amount VALUE &#x27;50&#x27;.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              net_amount
+       WHERE net_amount &gt;= @( lv_min_amount + lv_tolerance )
+       INTO TABLE @DATA(lt_large_orders).</code></pre>
+<p>这段代码适合展示 host expression，但项目里要控制复杂度。如果计算本身有业务含义，更推荐先写成有名字的变量：</p>
+<pre><code class="language-abap">DATA lv_minimum_required_amount TYPE zsales_order-net_amount.
+lv_minimum_required_amount = lv_min_amount + lv_tolerance.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              net_amount
+       WHERE net_amount &gt;= @lv_minimum_required_amount
+       INTO TABLE @DATA(lt_large_orders).</code></pre>
+<p>后一种写法多一行，但 review 更容易说清楚。</p>
+<h4 id="3-8-counterexample-failure-mode-5e79d0b6" class="semantic-heading semantic-example">3.8 Counterexample / Failure mode</h4>
+<p>失败模式一：忘记 <code>@</code>，把 ABAP 变量写成 SQL 名称。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id
+       WHERE customer_id = lv_customer_id
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>在现代 ABAP SQL 语法下，这种写法很容易触发语法问题，或者让读者误解 <code>lv_customer_id</code> 是 SQL 侧标识符。新代码要坚持 <code>@lv_customer_id</code>。</p>
+<p>失败模式二：变量类型随便用 <code>string</code>。</p>
+<pre><code class="language-abap">DATA lv_customer_id TYPE string.</code></pre>
+<p>客户号、物料号、公司代码、销售组织、状态值通常都有明确 DDIC 类型和 domain 语义。随便用 <code>string</code> 可能带来前导零、长度、大小写、转换例程和比较行为问题。更稳的写法是参考表字段、data element 或接口参数类型。</p>
+<p>失败模式三：把 <code>@</code> 当成动态 SQL 安全保证。</p>
+<pre><code class="language-abap">DATA lv_where TYPE string.
+&quot; lv_where is built from external input.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id
+       WHERE (lv_where)
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这里风险不在普通 host variable，而在动态 SQL token。<code>WHERE (lv_where)</code> 这种括号里的动态条件不属于 host variable，也不能写成 <code>WHERE (@lv_where)</code> 来解决。外部输入一旦进入动态条件、动态字段列表、动态排序或动态表名，就必须按 SAP 官方动态 SQL 安全规则检查、白名单限制或转义；在 ABAP Cloud / Clean Core 场景，还要先确认该动态模式是否被允许。<code>@</code> 在这里不是“不够安全”，而是“不适用”。</p>
+<p>失败模式四：过度使用 host expression。</p>
+<pre><code class="language-abap">WHERE net_amount &gt;= @( get_base_amount( ) + get_risk_buffer( ) - get_discount( ) )</code></pre>
+<p>如果表达式里混入方法调用、隐式副作用或复杂业务公式，SQL 行会变得难审查。初学者应该优先写清楚的中间变量，让业务含义在 ABAP 代码里显性化。</p>
+<p>失败模式五：把 literal 写满代码。</p>
+<pre><code class="language-abap">WHERE status = &#x27;R&#x27;</code></pre>
+<p>孤立看这行没有语法问题，但业务含义隐藏了。项目里更推荐常量、枚举式建模、domain fixed values、CDS/RAP 语义或配置表，让状态值的来源可追踪。</p>
+<h4 id="3-9-d7c636cc" class="semantic-heading semantic-practice">3.9 思考问题</h4>
+<ul>
+<li>这条 SQL 里的每个 <code>@...</code> 分别是输入值、输出目标，还是 inline declaration？</li>
+<li>host variable 的 ABAP 类型是否来自相同 data element、相同表字段，或至少和数据库字段兼容？</li>
+<li>如果变量来自 UI、接口或文件上传，输入校验在哪里发生？</li>
+<li>这里该用 literal、常量、配置值，还是 domain fixed value？</li>
+<li>如果用了 <code>@( ... )</code>，表达式是否简单到 review 时一眼能看懂？</li>
+<li>有没有动态 SQL token？如果有，它不属于 host variable，是否做了白名单、转义或 <code>CL_ABAP_DYN_PRG</code> 类检查？在 ABAP Cloud / Clean Core 中是否允许？</li>
+<li><code>@DATA(...)</code> 声明的结果对象生命周期是否合适？后续是否需要明确表类型或 key？</li>
+<li>如果迁移到 ABAP Cloud / Clean Core 场景，这个数据源和访问方式是否允许？</li>
+</ul>
+<h4 id="3-10-45252a2a" class="semantic-heading semantic-reference">3.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_HOST_VARIABLES.html" target="_blank" rel="noopener noreferrer">ABAP SQL - @dobj / Host Variables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenabap_sql_host_expressions.html" target="_blank" rel="noopener noreferrer">ABAP SQL - @( expr ) / Host Expressions</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_LITERALS.html" target="_blank" rel="noopener noreferrer">ABAP SQL - literal</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSELECT_INTO_TARGET.html" target="_blank" rel="noopener noreferrer">SELECT, INTO target</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENWHERE_LOGEXP_DYNAMIC.html" target="_blank" rel="noopener noreferrer">sql_cond - dynamic logical expressions</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSQL_INJ_DYN_TOKENS_SCRTY.html" target="_blank" rel="noopener noreferrer">SQL Injections Using Dynamic Tokens in ABAP SQL</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABALA_GLOSSARY.html" target="_blank" rel="noopener noreferrer">ABAP Language Glossary</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENNEWS-740_SP05-ABAP_SQL.html" target="_blank" rel="noopener noreferrer">ABAP SQL in ABAP Release 7.40, SP05</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="3-11-connections-04dc4e41">3.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a></li>
+<li>Upstream: <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></li>
+<li>Downstream: <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></li>
+<li>Downstream: <a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a></li>
+<li>Downstream: <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a></li>
+<li>Related: <a class="wiki" href="section-01-020-abap-data-object-e568a611.html">ABAP data object 数据对象</a></li>
+<li>Related: <a class="wiki" href="section-01-022-type-vs-like-5da66ea5.html">TYPE vs LIKE 类型声明方式</a></li>
+<li>Related: <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a></li>
+<li>Security line: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>, <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a>, <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 08 - ABAP SQL 读取基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="3-12-67a18a8b" class="semantic-heading semantic-practice">3.12 学习任务</h4>
+<ul>
+<li>找出一条已有 <code>SELECT</code>，圈出所有 <code>@...</code>，并写明它们是输入值还是输出目标。</li>
+<li>把一个硬编码 literal 改成有业务含义的 <code>CONSTANTS</code>，再说明为什么更适合 review。</li>
+<li>写一句日语 review 说明：<code>ホスト変数の型がDB項目と互換性があるか確認してください。</code></li>
+<li>找一个动态 SQL 例子，说明为什么 host variable 和动态 token 是两件事。</li>
+<li>在 ADT 里用 F1 或官方链接确认 <code>@DATA(...)</code> 在 <code>INTO</code> 目标中的写法。</li>
+</ul>
+<h4 id="3-13-confidence-next-action-750d686d" class="semantic-heading semantic-status">3.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 复核 <code>@dobj</code> host variables、<code>@( expr )</code> host expressions、ABAP SQL literals、<code>SELECT ... INTO</code> target、dynamic logical expressions 与 dynamic-token SQL injection 边界；既有 Joule 超短复核意见也已吸收，重点修正了 <code>@</code> 是 ABAP SQL escape character / parser prefix、不是 SQL injection escaping，且 <code>WHERE (lv_where)</code> 这类 dynamic token 不能通过加 <code>@</code> 变成 host variable。Claude 文件审阅 prompt 已准备；当前 Claude health check 在 180 秒内未返回，后续可补做读者体验复核。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a>，继续沿 Chapter 02 的 ABAP SQL 读取链路做同样的官方资料复核、同步和外部 review 记录。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-002-select-statement-70a372d3.html">Previous section</a><a href="section-02-004-into-vs-into-table-78b8c171.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Table field 字段定义 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="33-table-field-d03f9d92" class="chapter-title">33. Table field 字段定义</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 33</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Table field 字段定义，是 ABAP Dictionary database table 的列级定义。它不只是“字段名 + 数据类型”，而是同时决定字段是否属于 key、直接使用 built-in dictionary type 还是引用 data element、是否需要 <code>not null</code>、是否带 currency / quantity reference、会如何影响 ABAP SQL、Data Preview、RAP/CDS、测试数据和日本项目设计审查。</p>
+<p><strong>学习要点</strong></p>
+<p>上一节已经把 <a class="wiki" href="section-01-032-ddic-database-table-e05a6263.html">DDIC database table 字典表</a> 看成一个 repository object。本节把镜头拉近到 field list。Database table 的 field list 是花括号 <code>{ ... }</code> 里的字段清单；每一个 field definition 通常由 field name、冒号、field type、可选的 <code>key</code> / <code>not null</code> / annotation，以及结尾分号组成。SAP Developers 教程里先让读者理解 table fields，再添加 built-in type 字段、existing data element 字段和 new data element 字段，这个顺序很适合初学者。</p>
+<p>先看最小形状：</p>
+<pre><code class="language-abap">define table zxx_order_i {
+  key client   : abap.clnt not null;
+  key order_id : zxx_order_id not null;
+  key item_no  : abap.numc(6) not null;
+  product_id   : zxx_product_id;
+  created_by   : abap.char(12);
+  created_at   : abap.utclong;
+}</code></pre>
+<p>这里每一行都是 table field。<code>client</code>、<code>order_id</code>、<code>item_no</code> 前面有 <code>key</code>，所以它们组成 primary key。<code>client</code> 的 type 是 <code>abap.clnt</code>，表示 client 字段；<code>item_no</code> 和 <code>created_by</code> 直接使用 built-in dictionary type；<code>order_id</code> 和 <code>product_id</code> 使用自定义 data element，因此可以复用字段 label、documentation、可能的 search help 和背后的 domain 技术属性。<code>created_at</code> 使用 <code>abap.utclong</code>，表示这是 UTC timestamp 字段。</p>
+<p>对 Java/Python 背景学习者来说，最重要的是不要把 field 看成 ORM class 的一个普通属性。ABAP Dictionary field 位于 repository 世界中，它的定义会被 ABAP SQL syntax check、Data Preview、CDS/RAP、UI metadata、foreign key / search help、currency / quantity 语义和 transport/activation 一起使用。字段定义一旦被多个程序、CDS view、OData 服务、RAP BO 或报表依赖，修改字段长度、类型、key 或 reference 关系就不是本地小改，而是项目影响分析。</p>
+<p>字段类型有两条主路径。第一条是直接使用 built-in dictionary type，例如 <code>abap.char(12)</code>、<code>abap.numc(6)</code>、<code>abap.int4</code>、<code>abap.utclong</code>。这适合教学、技术字段或语义很局部的字段，但字段 label、documentation、复用语义较弱。第二条是使用 data element，例如 <code>zxx_order_id</code>、<code>/dmo/customer_id</code>。Data element 是更推荐的业务字段入口，因为它把技术属性、字段标签、说明和背后的 <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a> 复用起来。上一节已经确认：domain 不能直接写成 database table field list 里的 field type；正确路径是 field -&gt; data element -&gt; domain。如果输入了一个不存在的 data element，ADT 通常会给出 quick fix，常见做法是在错误位置用 <code>Ctrl+1</code> 创建新的 data element，而不是把 domain 名硬塞进字段类型位置。</p>
+<p><code>key</code> 和 <code>not null</code> 要一起读，但不要混成业务必填。<code>key</code> 表示该字段属于 primary key，key fields 要放在 field list 开头，并共同唯一标识一行。<code>not null</code> 在 key field 上是 Dictionary DDL 的语法/工具层要求，ADT 可能在 activation 时自动补齐；它不应被讲成运行时业务必填校验，也不要手工加到 <code>abap.string</code>、<code>abap.rawstring</code> 这类没有普通初始值语义的字段上，否则编辑器会直接报语法错误。比如“用户必须输入有效产品号”“金额不能为负数”不是靠 <code>not null</code> 完成，而应通过输入检查、RAP validation、domain fixed values、foreign key、application logic 或 UI/service 校验完成。</p>
+<p>金额和数量字段要特别小心。SAP Learning 明确说明，<code>CURR</code> amount field 需要 reference 到 <code>CUKY</code> currency code field，<code>QUAN</code> quantity field 需要 reference 到 <code>UNIT</code> unit field。在 Dictionary DDL 中常用 <code>@Semantics.amount.currencyCode</code> 和 <code>@Semantics.quantity.unitOfMeasure</code> 表达这种关系，并且 annotation 要放在对应 amount / quantity 字段的前一行，argument 通常写成 <code>tablename.fieldname</code>。初学时至少要形成条件反射：看到 amount / quantity，不要只问 length 和 decimals，还要问 currency/unit 在哪里。</p>
+<p>下面的片段只用于读懂 field-level semantic reference，不要求立刻照抄到项目里；真实 table 还需要表头 annotation 等完整定义才能激活：</p>
+<pre><code class="language-abap">define table zxx_order_i {
+  key client        : abap.clnt not null;
+  key order_id      : zxx_order_id not null;
+  key item_no       : abap.numc(6) not null;
+  currency_code     : abap.cuky;
+  @Semantics.amount.currencyCode : &#x27;zxx_order_i.currency_code&#x27;
+  net_amount        : abap.curr(15,2);
+}</code></pre>
+<p>这段代码里，<code>net_amount</code> 本身只是金额数值，必须通过 <code>currency_code</code> 才知道是 JPY、USD 还是 EUR。没有这个 reference，系统和读者都缺少业务语义。数量字段同理，需要 unit-of-measure field。后面学习 <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a>、<a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a>、CDS annotation 和 RAP validation 时，还会继续回到这个“技术类型 + 业务语义”的分工。</p>
+<p>Field definition 还要分清“能 activation”和“设计合理”。一个字段直接用 <code>abap.char(80)</code> 可能可以激活，但如果它其实是客户编号、物料编号、状态、币种、单位、语言、日期或金额，就应该优先找已有 SAP data element 或项目标准 data element。一个字段长度从 20 改成 10 可能在语法上只是改一行，但会影响已有数据、接口截断、selection condition、CDS projection、OData payload、ALV 显示、测试数据和报表 layout。字段设计是数据库、程序和交付文档的共同契约。</p>
+<p>Key field 还会带来 primary index 的阅读方式。Primary key 会形成 primary index；查询如果能按 key 的前导字段组合筛选，通常更容易得到稳定的 key access。反过来，只用复合 key 的后半段字段做条件，往往会成为性能 review 的关注点。Day 05 不要求马上学 SQL optimizer，但要知道 key order 不是随便排版，它会影响后续 <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a>、锁设计和 RAP key 讨论。</p>
+<p>本节的最小心智模型是：table field 是 DDIC table 的列级契约。读字段时至少看六件事：字段名、是否 key、直接 type 或 data element、背后 domain、currency/quantity/reference、是否受 client/key/activation/transport 影响。能按这个顺序读表，后面学 data element、domain、foreign key、search help、lock object 才不会散。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li>ABAP SQL、CDS、RAP、OData、报表、接口和测试数据都直接依赖 table field 的名称、类型、长度和语义。</li>
+<li>Field type 选错会造成截断、转换错误、排序/比较错误、金额小数位错误、日期时间误解和 UI label 混乱。</li>
+<li>Key field 设计会影响唯一性、查询路径、锁对象、RAP BO key、Data Preview 和数据迁移。</li>
+<li>Currency / quantity field 若缺少 reference，金额和数量会失去业务单位，后续 UI、报表、接口和审查都会出问题。</li>
+<li>Java/Python 背景学习者容易只看数据库列；SAP 项目必须同时看 data element、domain、field label、fixed values、foreign key、search help 和 transport/activation。</li>
+<li>日本项目里，字段定义经常出现在基本设计、详细设计、テーブル定義書、レビュー指摘、移送前确认和障害調査中。</li>
+</ul>
+<p><strong>Key mechanism / 核心机制</strong></p>
+<ul>
+<li>Field list：<code>define table</code> 花括号中的字段清单，每个字段用分号结束。</li>
+<li>Field name：字段名是程序、SQL、CDS、接口和文档共同引用的稳定标识，修改成本高。</li>
+<li>Built-in dictionary type：例如 <code>abap.char(12)</code>、<code>abap.numc(6)</code>、<code>abap.int4</code>、<code>abap.utclong</code>，可直接用于 DDIC table field。</li>
+<li>Data element：推荐的业务字段类型入口，承载字段语义、label、documentation，并可间接复用 domain。</li>
+<li>Domain：只能通过 data element 等间接路径影响 database table field，不要直接写成 table field type。</li>
+<li>Key field：用 <code>key</code> 标记，组成 primary key；key fields 应连续位于 field list 开头。</li>
+<li>Primary index awareness：primary key 会形成 primary index，key order 会影响后续查询和性能审查。</li>
+<li>Client field：client-dependent table 通常把 <code>abap.clnt</code> 字段放在第一个 key field。</li>
+<li><code>not null</code>：key field 的语法/工具层要求，不能替代业务必填、值域检查或 RAP validation，也不要随意加到 string/rawstring 等字段，否则会触发语法错误。</li>
+<li>Currency reference：<code>CURR</code> amount field 需要 currency code field，常用 <code>@Semantics.amount.currencyCode</code> 表达。</li>
+<li>Quantity reference：<code>QUAN</code> quantity field 需要 unit field，常用 <code>@Semantics.quantity.unitOfMeasure</code> 表达。</li>
+<li>Technical vs semantic：length、decimals、data type 是技术形状；字段 label、业务含义、单位、值域和使用场景是语义。</li>
+<li>Activation impact：字段变更可能触发数据库表调整、依赖对象语法检查、数据转换、transport 和测试影响分析。</li>
+</ul>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>テーブル項目</code>、<code>項目定義</code>、<code>項目名</code>、<code>データ型</code>、<code>桁数</code>、<code>小数桁</code>、<code>キー項目</code>、<code>主キー項目</code>。</li>
+<li>类型/语义：<code>組込み型</code>、<code>データエレメント指定</code>、<code>ドメイン参照</code>、<code>項目ラベル</code>、<code>固定値</code>、<code>値域</code>。</li>
+<li>金额/数量：<code>通貨コード項目</code>、<code>金額項目</code>、<code>数量項目</code>、<code>単位項目</code>、<code>参照項目</code>、<code>参照テーブル</code>。</li>
+<li>审查/错误：<code>NOT NULL</code>、<code>有効化エラー</code>、<code>項目追加</code>、<code>項目変更</code>、<code>影響調査</code>、<code>データ移行影響</code>。</li>
+<li>说明句：この項目はデータエレメントを指定しており、項目ラベルと技術属性は DDIC 側で再利用されます。</li>
+<li>Review 句：金額項目の場合は、通貨コード項目との参照関係を確認してください。</li>
+<li>Review 句：キー項目の追加・変更は、既存データ、検索条件、ロック設計、RAP BO キーへの影響を確認してください。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>table field</code></li>
+<li>Official / search term: <code>field list</code></li>
+<li>Official / search term: <code>field definition</code></li>
+<li>Official / search term: <code>built-in dictionary type</code></li>
+<li>Official / search term: <code>data element</code></li>
+<li>Official / search term: <code>domain</code></li>
+<li>Official / search term: <code>key field</code></li>
+<li>Official / search term: <code>client field</code></li>
+<li>Official / search term: <code>not null</code></li>
+<li>Official / search term: <code>currency code field</code></li>
+<li>Official / search term: <code>amount field</code></li>
+<li>Official / search term: <code>quantity field</code></li>
+<li>Official / search term: <code>unit field</code></li>
+<li>Official / search term: <code>@Semantics.amount.currencyCode</code></li>
+<li>Official / search term: <code>@Semantics.quantity.unitOfMeasure</code></li>
+<li>Recommended search pattern: <code>ABAP Dictionary table field data element built-in dictionary type SAP Learning</code></li>
+<li>读官方资料时优先保留英文对象名、annotation 名称、transaction code 和 DDL 关键字。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>观察一张 table 的字段时，可以逐行填这个表：</p>
+<pre><code class="language-text">Field name:
+Key field: yes / no
+Client field: yes / no
+Direct type or data element:
+Built-in dictionary type:
+Data element:
+Domain behind data element:
+Length / decimals:
+Currency or quantity reference:
+Field label / documentation:
+Project risk if changed:</code></pre>
+<p>以一个订单行项目表为例：</p>
+<pre><code class="language-abap">key item_no   : abap.numc(6) not null;
+product_id    : zxx_product_id;
+created_by    : abap.char(12);
+currency_code : abap.cuky;
+@Semantics.amount.currencyCode : &#x27;zxx_order_i.currency_code&#x27;
+net_amount    : abap.curr(15,2);</code></pre>
+<p>读法如下：</p>
+<ul>
+<li><code>item_no</code> 是 key field，直接使用 <code>abap.numc(6)</code>，要检查排序、补零、唯一性和接口显示规则。</li>
+<li><code>product_id</code> 使用 data element，应该继续追踪到 data element 和 domain，看 label、长度、值域、search help 或 foreign key。</li>
+<li><code>created_by</code> 只是技术记录字段，直接用 <code>abap.char(12)</code> 可以作为教学例子，但真实项目可能更适合复用用户相关 data element。</li>
+<li><code>net_amount</code> 是 amount field，必须结合 <code>currency_code</code> 解读；没有 currency，就不能可靠解释金额。</li>
+</ul>
+<p>练习时不要只看字段名。请在 ADT 或 SAP Developers tutorial 里找一张练习表，至少追踪三个字段：一个 key field、一个 data element field、一个 amount 或 quantity field。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>只看字段名，不看 data element/domain：会漏掉 field label、长度、decimals、fixed values、documentation 和 search help。</li>
+<li>把 domain 直接写成 table field type：会混淆 DDIC 分层并导致难懂的 activation error；字段应直接使用 built-in dictionary type 或 data element。</li>
+<li>用 <code>abap.char(40)</code> 存所有业务 ID：短期容易，长期会丢失语义、label、值域、搜索帮助和复用能力。</li>
+<li>把 <code>not null</code> 当成业务必填校验：它不能替代输入检查、RAP validation、domain fixed values 或应用逻辑。</li>
+<li>把 annotation 放错位置：<code>@Semantics.amount.currencyCode</code> / <code>@Semantics.quantity.unitOfMeasure</code> 要放在对应 amount / quantity 字段前面，不能随便放在表头或字段后面。</li>
+<li>金额字段没有 currency reference：后续报表、UI、接口和测试都无法确定金额单位。</li>
+<li>数量字段没有 unit reference：后续换算、显示和业务解释都会出错。</li>
+<li>随意修改 key field：可能影响已有数据、唯一性、锁对象、RAP key、migration 和所有 SELECT 条件。</li>
+<li>改短字段长度或改变 decimals 前不做 where-used：可能造成数据截断、转换错误和接口不兼容。</li>
+<li>在生产障害调查时只说“字段不对”：应该指出 table、field、data element/domain、当前值、期望值、发生 client 和影响对象。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>Table field 和 data element / domain 的职责边界是什么？</li>
+<li>什么时候可以直接使用 built-in dictionary type？什么时候更应该使用 data element？</li>
+<li>为什么 domain 不能直接写成 table field type？</li>
+<li>Key field 的变更为什么比普通非 key 字段变更风险更高？</li>
+<li><code>not null</code> 为什么不能代替业务必填校验？</li>
+<li>Amount field 为什么必须知道 currency code？Quantity field 为什么必须知道 unit？</li>
+<li><code>@Semantics.amount.currencyCode</code> 为什么要贴在 amount field 前面，而不是写在任意位置？</li>
+<li>复合 key 的字段顺序为什么会影响后续 SELECT 和性能审查？</li>
+<li>在日本项目里如何说明 <code>項目定義</code>、<code>キー項目</code>、<code>通貨コード項目</code> 和 <code>参照項目</code>？</li>
+</ul>
+<p><strong>参考资料入口</strong></p>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/creating-database-tables_ebc1477d-96ed-414b-82d4-4171da43f4a6" target="_blank" rel="noopener noreferrer">SAP Learning - Creating Database Tables</a> (accessed 2026-06-13)</li>
+<li><a href="https://developers.sap.com/tutorials/abap-dev-create-table..html" target="_blank" rel="noopener noreferrer">SAP Developers - Create an ABAP Database Table and Relevant ABAP Dictionary Objects</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDICDDL_DEFINE_TABLE_COMPS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC DDL DEFINE TABLE, field</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDIC_DATABASE_TABLES_KEY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Key Fields of Database Tables</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/defining-domains-and-data-elements_b65b511a-4ad1-4437-80f5-5ad689cab833" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Domains and Data Elements</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/26_ABAP_Dictionary.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP Dictionary Cheat Sheet</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-01-032-ddic-database-table-e05a6263.html">DDIC database table 字典表</a></li>
+<li>Downstream: <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a></li>
+<li>Related: <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a></li>
+<li>Related: <a class="wiki" href="section-01-021-elementary-data-types-70039e9a.html">Elementary data types 基础技术类型</a></li>
+<li>Related: <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 05 - ABAP Dictionary 核心对象</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>学习任务</strong></p>
+<ul>
+<li>找一张练习表，列出 5 个字段，并标记 key / non-key。</li>
+<li>任选 3 个字段，判断它们是直接 built-in dictionary type 还是 data element。</li>
+<li>对一个 data element 字段继续追踪到 domain，记录 length、decimals、fixed values 或 value table。</li>
+<li>写一个 amount field / currency code field 的读法说明，解释为什么不能只看金额数值。</li>
+<li>写 1 个日本项目 review 句子，必须包含 <code>項目定義</code>、<code>キー項目</code>、<code>通貨コード項目</code> 或 <code>参照項目</code>。</li>
+<li>找 1 个 SAP 官方页面，说明 table field、field list、data element、currency/quantity reference 或 key field 中任意一个边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-033-table-field-953fa24a.html">Table field 字段定义</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-032-ddic-database-table-e05a6263.html">Previous section</a><a href="section-01-034-data-element-d9e0093a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

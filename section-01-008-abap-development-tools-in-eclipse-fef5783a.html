@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP Development Tools in Eclipse | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="8-abap-development-tools-in-eclipse-c4f6faac" class="chapter-title">8. ABAP Development Tools in Eclipse</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 08</li><li>self-contained study note</li></ul><p><strong>1) 一句话结论</strong></p>
+<p>ABAP Development Tools in Eclipse，通常简称 ADT，是现代 ABAP 开发的主要 pro-code IDE；本节要学的是：ADT 不是 SAP GUI / SE80，也不是普通本地 Eclipse Java 项目，而是通过一个 ABAP project 连接远端 ABAP back-end，在系统里的 ABAP repository object 上开发、检查、激活、测试和交付。</p>
+<p><strong>2) 到底学什么</strong></p>
+<p>前面 Day 01 已经讲过 <a class="wiki" href="section-01-001-sap-system-landscape-e11c9fc6.html">system landscape</a>、<a class="wiki" href="section-01-002-application-server-abap-b0de96bf.html">AS ABAP</a>、<a class="wiki" href="section-01-003-abap-platform-fe67ad23.html">ABAP Platform</a>、<a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud</a> 和 <a class="wiki" href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Clean Core levels</a>。从 Day 02 开始，学习者要真正进入开发视角。ADT 就是这个入口：它让开发者在 Eclipse 里连接 SAP 系统，浏览 package，打开 class、CDS、behavior definition、service definition、DDIC object 等 repository objects，然后进行 syntax check、activation、debugging、ABAP Unit、ATC、where-used 和 transport 相关操作。</p>
+<p>最重要的边界是：ADT 的 ABAP project 代表一个 SAP 系统连接，而不是一份本地源码仓库。SAP Learning 对这个模型的描述很直接：ADT 开发仍然是 server-based，开发对象保存在 back end；客户端只保留少量只读 cache 来提升性能。也就是说，开发者在 Eclipse 里看到的 source，并不是像 Java/Python 项目那样默认来自 <code>src/</code> 目录和 Git working tree，而是来自远端 ABAP repository。保存、语法检查、where-used search 等动作也主要由后端系统完成。</p>
+<p>这并不意味着 ABAP 世界没有 Git。<a class="wiki" href="section-01-014-abapgit-gcts-d16f46ae.html">abapGit 和 gCTS</a> 可以在特定项目中引入 Git-backed workflow，但它们是远端 ABAP repository 模型之上的可选层，不是 Day 02 学 ADT 时的默认存储模型。初学者先把“ADT = 连接系统并操作 ABAP repository object”想清楚，再去理解 transport、gCTS、abapGit、CI/CD，顺序会更稳。</p>
+<p>本节还要建立另一个现实边界：ADT 是现代 ABAP 的主入口，但 SAP GUI / SE80 在 on-premise 和 Private Edition 的 brownfield 项目中仍会出现。有些 classic 对象、管理工具或旧维护流程仍可能通过 SAP GUI 工具打开；ADT 甚至也提供从 Eclipse 里打开 SAP GUI 工具的入口。正确理解不是“ADT 消灭 SE80”，而是“现代开发优先 ADT，经典维护和历史系统会与 SAP GUI / SE80 共存”。</p>
+<p>最后，本节只讲 ADT 的开发心智模型，不做安装手册。安装 Eclipse、安装 ADT plugin、配置后端 ICF service、分配开发权限、连接 SAP BTP ABAP Environment 或 SAP S/4HANA Cloud Public Edition 的具体差异，都可以在 SAP 官方安装和后台配置文档里查。Day 02 的目标是：看到 ADT 界面时知道自己在操作什么、为什么要 activation、为什么 object 属于 package 和 transport、为什么现代 CDS/RAP/OData 开发离不开 ADT。</p>
+<p><strong>3) 为什么重要</strong></p>
+<p>对 Java/Python 背景学习者来说，ADT 最容易造成误判。熟悉 IntelliJ、VS Code 或 PyCharm 的人，会自然假设“项目 = 本地目录 + Git 仓库 + build/test 命令”。ABAP 的起点不同：系统是活的，repository object 住在 ABAP back-end，package 影响对象组织和 transport，activation 决定运行时是否使用最新版本，where-used 和 syntax check 很多时候依赖后端 repository 语义。把 ADT 当成普通 Eclipse workspace，会看不到这些 SAP 特有约束。</p>
+<p>这个差异直接影响交付。日本 SAP 项目里，经常会问：对象在哪个 package？是否已经有効化？是否挂在正确的移送依頼？ATC 有没有指摘？修改影响哪些参照先/参照元？是否能在 QAS 重现？这些问题不只是写代码的人关心，设计、测试、移送、障害調査都会用到。ADT 是开发者把“代码文本”连接到“SAP 系统交付流程”的主要工具。</p>
+<p>ADT 对现代 ABAP 更关键。CDS view entity、RAP behavior definition / behavior implementation、service definition / service binding、ABAP Cloud language version、released object / API state、ABAP Unit、ATC、debugger、profiling 等，都以 ADT 为主要工作台。特别是 ABAP Cloud developer extensibility，SAP Learning 明确说明它通过 ABAP Development Tools for Eclipse 进行，并由 compiler、runtime、ATC 等机制检查 ABAP Cloud compatibility。要注意范围：这句话针对 developer extensibility；Public Edition 的 key user extensibility 还会使用浏览器里的 key user 工具，不应误说成“所有 ABAP Cloud 场景都必须装 ADT”。</p>
+<p><strong>4) Key mechanism / 核心机制</strong></p>
+<p>第一层机制是 ABAP project。创建或打开一个 ABAP project，本质上是在 Eclipse 里建立到某个 ABAP back-end 的登录连接，通常包含 system、client、user、language 等登录上下文。项目里可以配置 Favorite Packages，便于从庞大的 repository 中只关注当前开发范围。BTP ABAP Environment 和部分 cloud 场景会出现 ABAP Cloud Project；on-premise / Private Edition 常见 classic ABAP Project。名字不同，核心都是“连接系统并操作系统里的开发对象”。</p>
+<p>第二层机制是 Project Explorer 和 repository object。Project Explorer 不是单纯的文件树，而是开发者进入 ABAP repository 的导航入口。package 下面可以看到 ABAP class、interface、program、CDS data definition、metadata extension、behavior definition、behavior implementation、service definition、service binding、DDIC object 等。很多现代对象本来就是为 ADT 工作流设计的，后续学习 CDS、RAP、service binding、ABAP Cloud language version、released object / API state 时，都要回到这里观察对象链路。后续笔记会单独讲 <a class="wiki" href="section-01-009-abap-project-in-adt-1e9a4e00.html">ABAP project in ADT</a>、<a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a> 和 <a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a>。</p>
+<p>第三层机制是保存、syntax check 和 <a class="wiki" href="section-01-013-activation-ff7e1caa.html">activation</a>。在 ABAP 开发中，保存后可能只是产生 inactive version；activation 成功后，active version 才成为系统运行时使用的版本。这个模型和 Java/Python 的“保存文件后本地解释器/编译器直接读文件”不同。开发者必须习惯在 ADT 中看 Problems view、运行 syntax check、处理错误、再执行 activation。没有激活成功，就不能假设运行时已经使用了新代码。</p>
+<p>第四层机制是对象锁与后端服务。编辑 repository object 时，系统会设置对象锁，避免多人同时改同一个对象造成冲突。search、where-used、syntax check 等功能也依赖后端 repository 和语义信息。SAP Learning 明确说，没有客户端 ABAP runtime environment，也不支持离线开发；这一层只补充“为什么不能离线改 ABAP 对象”，不再重复前面 server-based repository 的完整说明。</p>
+<p>第五层机制是 transport awareness。ADT 中可以看到 Transport Organizer / transport assignment 等入口，transport request 会记录对 ABAP repository object 的变更。初学者不用在本节掌握完整 TMS，但要理解：非临时对象通常不能只在本地保存，它们会和 package、software component、transport request、DEV/QAS/PRD 路径发生关系。在 SAP BTP ABAP Environment 中，software component 往往比单个 package 更接近传输、依赖和 Git 集成的组织边界。这里会自然连接到 <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a> 和 <a class="wiki" href="section-01-001-sap-system-landscape-e11c9fc6.html">SAP system landscape 系统环境分层</a>。</p>
+<p>第六层机制是质量、测试和调查入口。ADT 提供 Problems view、ABAP Unit、ATC、debugger、breakpoint、where-used search、outline、properties、profiler 等能力。Day 02 只建立入口意识：发现语法错误看 Problems，查影响看 where-used，查质量看 ATC，查运行问题用 debugger，查对象属性看 Properties / API State；profiler 等性能工具放到后续专题，不在这里展开。</p>
+<p><strong>5) 日本项目现场说法</strong></p>
+<ul>
+<li>常见日语：<code>ADT</code>、<code>ABAP Development Tools</code>、<code>Eclipse</code>、<code>ABAPプロジェクト</code>、<code>ABAP Cloud Project</code>、<code>Project Explorer</code>、<code>パッケージ</code>、<code>リポジトリオブジェクト</code>、<code>有効化</code>、<code>アクティベート</code>、<code>構文チェック</code>、<code>ATCチェック</code>、<code>デバッグ</code>、<code>ブレークポイント</code>、<code>使用箇所検索</code>、<code>参照先/参照元</code>、<code>移送依頼</code>、<code>移送依頼番号</code>、<code>SAP GUI</code>、<code>SE80</code>。</li>
+<li>说明句：ADT 上の ABAPプロジェクトは、ローカルのソース管理プロジェクトではなく、ABAP バックエンドシステムへの接続として理解してください。</li>
+<li>说明句：修正後は構文チェックだけでなく、有効化、ATCチェック、使用箇所検索、移送依頼番号まで確認します。</li>
+<li>说明句：新規の RAP / CDS 開発は ADT を前提に進めますが、既存保守では SE80 や SAP GUI ツールを併用する場合があります。</li>
+<li>使用场景：开发环境说明、初回セットアップ、単体テスト说明、コードレビュー、移送前確認、ATC 指摘対応、障害調査、既存改修影响调查。</li>
+</ul>
+<p><strong>6) English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>ABAP Development Tools for Eclipse</code>, <code>ABAP Development Tools</code>, <code>ADT</code>, <code>ABAP project</code>, <code>ABAP Cloud Project</code></li>
+<li>Related terms: <code>Project Explorer</code>, <code>ABAP repository object</code>, <code>ABAP Repository</code>, <code>ABAP back-end system</code>, <code>Favorite Packages</code>, <code>Transport Organizer</code>, <code>Problems view</code>, <code>Properties view</code>, <code>Outline view</code>, <code>syntax check</code>, <code>activation</code>, <code>where-used list</code>, <code>ABAP Unit</code>, <code>ABAP Test Cockpit</code>, <code>ATC</code>, <code>ABAP Debugger</code>, <code>ABAP Profiling</code>, <code>ABAP Cloud development</code></li>
+<li>Recommended search pattern: <code>ABAP Development Tools for Eclipse SAP Help</code>, <code>ABAP project server based repository SAP Learning</code>, <code>Project Explorer ABAP repository object SAP Help</code>, <code>ABAP Cloud development ADT SAP Learning</code></li>
+<li>读官方资料时要区分 <code>ABAP project</code>、<code>ABAP Cloud Project</code>、<code>Eclipse workspace</code>、<code>ABAP repository</code> 和 <code>Git repository</code>，不要把它们混成一个词。</li>
+</ul>
+<p><strong>7) Example / 学习例子</strong></p>
+<p>假设已经有一个可用的 SAP 系统连接。进入 ADT 后，第一步不是写代码，而是确认自己连接到哪个 system/client/user/language。然后在 Project Explorer 里展开 ABAP project，把当天使用的 package 加到 Favorite Packages。接着打开一个 ABAP class 或 CDS view entity，观察它的 package、source editor、outline、properties、active/inactive 状态，以及是否关联 transport request。</p>
+<p>第二步做一个最小闭环：修改一行无害的注释或在练习对象里完成一个小 change，先保存，再运行 syntax check。如果 Problems view 出现错误，先修正；没有错误后执行 activation。activation 成功后，再运行 class、unit test、service preview 或对应的测试入口。这个过程让学习者感受到：ABAP 的开发闭环不是“保存文件就完了”，而是“保存、检查、激活、测试、确认影响”。</p>
+<p>第三步做影响观察。对一个 class、method、CDS view 或 data definition 执行 where-used search，看看哪些对象引用它。再查看 Properties / API State / Released Objects 相关信息，理解为什么 <a class="wiki" href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Clean Core</a> 会要求确认对象是否 released。最后看一下 Transport Organizer 或对象属性中的 transport 信息，确认变更如何进入移送流程。</p>
+<p>这个例子不要求学会所有 ADT 菜单。目标只有一个：把 ADT 看成“ABAP repository object 的工作台”，而不是“一个能打开 ABAP 文本的编辑器”。</p>
+<p><strong>8) Counterexample / Failure mode</strong></p>
+<ul>
+<li>误区 1：把 ADT 当成普通 Eclipse Java project。修正：ABAP project 首先是远端 ABAP back-end 连接，source object 保存在系统 repository。</li>
+<li>误区 2：以为保存文件就等于生效。修正：ABAP 有 inactive/active version，activation 成功后运行时才使用 active version。</li>
+<li>误区 3：完全忽视 package 和 transport。修正：项目交付时要说明对象所属 package、移送依頼、移送依頼番号和 import 路径。</li>
+<li>误区 4：以为现代 ABAP 只靠 SAP GUI / SE80。修正：CDS、RAP、service definition/binding、ABAP Cloud developer extensibility 等现代开发以 ADT 为主。</li>
+<li>误区 5：以为 ADT 出现后 SE80 就不需要认识。修正：日本 brownfield 项目仍可能遇到 SE80、classic objects、SAP GUI 工具和旧维护流程。</li>
+<li>误区 6：过早纠结安装。修正：安装和后台配置重要，但 Day 02 先建立开发心智模型；具体配置放到 setup appendix 或项目环境准备清单。</li>
+</ul>
+<p><strong>9) 思考问题</strong></p>
+<ul>
+<li>为什么说 ABAP project 不是普通本地项目？它和 Java/Python 的 Git working tree 最大差异是什么？</li>
+<li>activation 与 syntax check、save、transport 之间分别是什么关系？</li>
+<li>如果一个对象能在 ADT 打开但没有挂到正确 transport request，会造成什么项目风险？</li>
+<li>为什么 ABAP Cloud developer extensibility 要以 ADT 为主，但 key user extensibility 不应被说成“必须装 ADT”？</li>
+<li>在日本项目里，如何用一句日语说明“请确认对象已经激活，并把移送依頼番号发给我”？</li>
+<li>如果 Week 3/4 看到 RAP service binding 或 CDS DCL，应该如何回到 ADT 中确认它们的 package、activation、where-used 和 ATC 状态？</li>
+</ul>
+<p><strong>10) 参考资料入口</strong></p>
+<ul>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/technical-implementation-and-operation-i-of-sap-s-4hana-and-sap-business-suite/accessing-and-editing-abap-repository-objects" target="_blank" rel="noopener noreferrer">Accessing and Editing ABAP Repository Objects</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/getting-started" target="_blank" rel="noopener noreferrer">ABAP Development Tools for Eclipse - Getting Started</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/4b190c90ceba4d02a99e0a2286b89358.html" target="_blank" rel="noopener noreferrer">ABAP Development Tools for Eclipse</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/browsing-development-objects-in-project-explorer" target="_blank" rel="noopener noreferrer">Browsing Development Objects in the Project Explorer</a>（accessed 2026-06-13）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/exploring-the-abap-cloud-development-model_cd64db9d-409e-4f09-8ffa-3597a3cf3960" target="_blank" rel="noopener noreferrer">Exploring ABAP Cloud</a>（accessed 2026-06-13）</li>
+<li>SAP Development Tools: <a href="https://tools.hana.ondemand.com/" target="_blank" rel="noopener noreferrer">ABAP Development Tools</a>（accessed 2026-06-13）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>11) Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li><span class="wiki unresolved">MOC ADT Workflow</span></li>
+<li>Upstream: <a class="wiki" href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Clean Core Extensibility Levels and Released API Dependency</a></li>
+<li>Downstream: <a class="wiki" href="section-01-009-abap-project-in-adt-1e9a4e00.html">ABAP project in ADT</a></li>
+<li>Related: <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a></li>
+<li>Related: <a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a></li>
+<li>Related: <a class="wiki" href="section-01-013-activation-ff7e1caa.html">Activation 激活机制</a></li>
+<li>Related: <a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a></li>
+<li>Related: <a class="wiki" href="section-01-016-abap-debugger-05add8e6.html">ABAP debugger 调试器入口</a></li>
+<li>Related: <a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC quality check 代码质量检查</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-01-014-abapgit-gcts-d16f46ae.html">abapGit and gCTS awareness</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 02 - ADT 与 Repository Object 生命周期</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>12) 学习任务</strong></p>
+<ul>
+<li>用 5-8 行中文解释：为什么 ADT 的 ABAP project 不是普通本地 Eclipse 项目。</li>
+<li>在一个练习系统中找到任意 class 或 CDS object，记录它的 package、active/inactive 状态、where-used 入口和 transport 信息。</li>
+<li>写 1 句日语现场表达，要求同事确认 <code>有効化</code>、<code>ATCチェック</code> 和 <code>移送依頼番号</code>。</li>
+<li>用 English Terms 找 1 个 SAP 官方 ADT 页面，补充到自己的学习记录里。</li>
+<li>如果已经进入 Week 3/4，把一个 RAP / CDS / service binding 对象映射回 ADT 中的 package、activation、where-used 和 ATC 入口。</li>
+</ul>
+<p><strong>13) Confidence &amp; Next Action</strong></p>
+<ul>
+<li>Confidence: High for beginner mental model and SAP official boundary; exact menu labels can vary by ADT/Eclipse version, SAP release, deployment option, language pack, and project authorization.</li>
+<li>Next action: 进入 <a class="wiki" href="section-01-009-abap-project-in-adt-1e9a4e00.html">ABAP project in ADT</a>，把“ADT 是开发入口”进一步拆成“如何理解一个 ABAP project、system/client/user/language 和 favorite packages”。</li>
+</ul>
+<blockquote>Atomic note: <a class="wiki" href="section-01-008-abap-development-tools-in-eclipse-fef5783a.html">ABAP Development Tools in Eclipse</a></blockquote><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Previous section</a><a href="section-01-009-abap-project-in-adt-1e9a4e00.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

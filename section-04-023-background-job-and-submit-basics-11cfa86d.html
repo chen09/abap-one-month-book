@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Background job and SUBMIT basics | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="23-background-job-and-submit-basics-388b5d34" class="chapter-title">23. Background job and SUBMIT basics</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 23</li><li>self-contained study note</li></ul><h4 id="23-1-d933524b" class="semantic-heading semantic-concept">23.1 一句话结论</h4>
+<p>Background job and SUBMIT basics 是理解 SAP 后台批处理运行、排障和证据链的基础；在本教程里要学的是：一个 ABAP 报表或处理程序如何在后台按计划运行，失败时从 job log、spool、variant、<a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 和输入条件追到原因。</p>
+<p>SAP 项目里很多处理不是用户前台点按钮完成的，而是在夜间、月末、接口批次或大量数据处理时由 background job 执行。比如批量同步主数据、导入外部文件、生成结算数据、定期清理临时表、发送接口结果、跑对账报表。这些处理如果只在前台可运行，不能说明它已经可生产运营。</p>
+<p>后台作业的关键不是“把程序放到后台跑”这么简单，而是要明确：谁排程、什么时候跑、用什么 variant/input、跑多久、成功或失败怎么看、输出在哪里、业务错误在哪里、是否可以重跑、重跑会不会重复处理。<code>SUBMIT ... VIA JOB</code> 是经典 ABAP 中把报表提交到后台作业的一种方式，但本节更重要的是理解后台作业作为交付和运维对象的整体语境。</p>
+<h4 id="23-2-33eaf01e" class="semantic-heading semantic-concept">23.2 到底学什么</h4>
+<p>第一，要学 background job 的组成。一个后台作业通常包含 job name、job step、执行用户、启动条件、程序/报表、variant、运行状态、job log、spool 输出。开发者不一定负责所有调度配置，但必须知道这些信息如何影响程序行为和障碍调查。</p>
+<p>第二，要学 job log、spool 和 application log 的边界。Job log 说明作业是否启动、哪一步失败、系统层有什么消息；spool 保存报表式输出；Application Log 保存业务处理明细。一个批处理失败时，不能只说“job failed”，要能追到业务批次、输入条件、失败对象、错误消息和重跑建议。</p>
+<p>第三，要学 <code>SUBMIT</code> 的基本位置。<code>SUBMIT</code> 可以从一个 ABAP 程序调用另一个 executable program；<code>SUBMIT ... VIA JOB</code> 可以把程序作为后台 job 执行。它适合复用既有报表或批处理入口，但不应滥用来绕过清晰的服务接口、事务边界或错误处理。</p>
+<p>第四，要学后台运行和前台运行的差异。后台没有前台交互，不能依赖用户点击弹窗、不能等待屏幕输入、不能把关键结果只输出到屏幕。所有必要输入要来自 variant、参数表、文件、接口或配置；所有重要结果要写入业务状态、application log、job log 或 spool。</p>
+<p>第五，要学执行用户和权限边界。后台 job 通常不是由开发者自己的对话用户运行，而是由指定用户、批处理用户或技术用户运行。这个用户是否有读取数据、更新对象、写 application log、访问文件路径、调用 RFC/BAPI/OData、发送邮件或生成 spool 的权限，都会影响结果。前台用户能跑通，不代表后台用户能跑通。</p>
+<p>第六，要学重跑设计。后台作业失败后，现场一定会问：可以重跑吗？从哪一步重跑？会不会重复创建、重复过账、重复发送、重复调用外部系统？因此 background job 章节必须和 <a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a>、<a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a>、<a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 一起看。</p>
+<h4 id="23-3-b1d8906e" class="semantic-heading semantic-why">23.3 为什么重要</h4>
+<p>Background job 是生产运营的入口。很多 ABAP 程序在开发机前台能跑，但一到后台就暴露问题：没有维护 variant、权限用户不同、文件路径不可用、spool 太大、执行时间过长、锁等待失败、错误只显示在屏幕、没有应用日志、重复执行造成重复数据。</p>
+<p>对项目交付来说，后台作业必须可说明、可监控、可重跑。运维人员要知道失败后先看哪里；测试人员要有正常/异常/重跑场景证据；开发者要把错误消息和业务日志设计好；客户要知道作业日程和业务影响。没有这些，批处理上线后会成为黑盒。</p>
+<p>对 Java/Python 背景学习者来说，可以把 background job 类比为 cron、batch job、scheduled task 或队列 worker，但 SAP 里还要考虑执行用户、client、variant、spool、job log、SAP LUW、enqueue、transport、authorization 和业务应用日志。</p>
+<p>后台作业也是“上线后谁来接住系统”的问题。一个 API 失败，开发者可能能从 request/response 看出原因；一个夜间 job 失败，第二天早上看到的可能只有红色 job status。若 job 没有清楚命名、variant、spool、application log、业务 key 和重跑规则，运维和业务会被迫找开发者逐行 debug。优秀的 ABAP 教程应该让读者从一开始就把后台处理当成生产运营对象，而不只是一个语法技巧。</p>
+<h4 id="23-4-key-mechanism-3ba4d95b" class="semantic-heading semantic-mechanism">23.4 Key mechanism / 核心机制</h4>
+<p>后台作业的生命周期可以分成五步：定义作业、指定步骤、设置启动条件、运行处理、查看结果。定义作业时要确定 job name 和执行用户；步骤中指定 ABAP program、variant 或外部命令；启动条件可以是立即执行、指定时间、周期运行或依赖事件；运行中系统记录状态；结束后通过 job log、spool 和应用日志排查。</p>
+<p><code>variant</code> 很关键。后台作业没有用户现场输入，报表选择屏幕的参数通常要通过 variant 固定。Variant 不是随便保存一份输入，而是生产运行契约的一部分：公司代码、日期范围、测试/正式模式、文件路径、批次大小、是否重跑等都可能影响结果。</p>
+<p><code>spool</code> 是报表输出证据，但不要把它当成唯一业务日志。Spool 适合保存列表、报表、统计输出；如果需要逐行错误、业务键、request id、重跑建议，应写入 <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 或业务状态表。Job log + spool + application log 三者合起来，才是比较完整的调查入口。</p>
+<p><code>SUBMIT</code> 适合调用 executable report，但要谨慎处理参数传递、返回结果、异常和提交边界。被 SUBMIT 的程序如果只面向前台交互设计，后台运行会很脆弱。更现代的设计通常把核心逻辑放在 service class 中，前台报表、后台 job、API 都调用同一套可测试服务逻辑。</p>
+<p><code>SUBMIT</code> 的设计判断可以这样做：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>是否适合直接 SUBMIT</th><th>更稳妥的设计</th></tr></thead><tbody><tr><td>复用成熟报表，输出 spool</td><td>可以考虑</td><td>固定 variant，保存 spool/job evidence</td></tr><tr><td>复用旧 report 的核心业务逻辑</td><td>谨慎</td><td>抽出 service class，report/job/API 共用</td></tr><tr><td>需要返回结构化结果给调用方</td><td>通常不适合</td><td>使用 class method、function module、BAPI、service</td></tr><tr><td>前台 report 有弹窗/屏幕交互</td><td>不适合后台直接跑</td><td>改造成无交互参数化处理</td></tr><tr><td>需要事务控制和重跑保护</td><td>谨慎</td><td>明确 commit、log、idempotency、status</td></tr></tbody></table></div>
+<p>后台 job 的证据包可以固定成：</p>
+<pre><code class="language-text">Background job evidence packet
+  - job name
+  - job id / run id
+  - system / client
+  - execution user
+  - start/end timestamp and timezone
+  - program and variant
+  - input business range
+  - job status and job log
+  - spool number / output
+  - application log object/subobject/log number
+  - processed count / success count / error count
+  - rerun decision and reason</code></pre>
+<p>如果 job 涉及外部系统或财务/库存/主数据更新，还要记录 request id、external response、business document key、commit point 和是否已产生副作用。这样失败后才知道是“可以安全重跑”“只能从失败项重跑”还是“必须人工确认后补偿”。</p>
+<h4 id="23-5-60bf9c32" class="semantic-heading semantic-japan">23.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>バックグラウンドジョブ</code>、<code>ジョブ</code>、<code>ジョブログ</code>、<code>スプール</code>、<code>バリアント</code>、<code>定期実行</code>、<code>即時実行</code>、<code>再実行</code>、<code>異常終了</code>、<code>正常終了</code>、<code>バッチ処理</code>、<code>障害調査</code>。</p>
+<p>设计说明中可以这样说：</p>
+<ul>
+<li>本処理はバックグラウンドジョブとして日次実行し、入力条件はバリアントで管理します。</li>
+<li>ジョブログには技術的な実行結果を、アプリケーションログには業務明細とエラー内容を出力します。</li>
+<li>異常終了時は、ジョブ名、実行日時、バリアント、スプール番号、アプリケーションログ番号を確認します。</li>
+</ul>
+<p>障碍调查时可以这样问：</p>
+<ul>
+<li>該当ジョブの実行日時とジョブステータスは何ですか。</li>
+<li>使用されたバリアントと入力条件を確認できますか。</li>
+<li>スプールとアプリケーションログにエラー明細は出ていますか。</li>
+<li>実行ユーザの権限と対象クライアントを確認できますか。</li>
+<li>再実行しても二重登録や二重送信が発生しない設計になっていますか。</li>
+<li>ジョブ異常終了時の復旧手順と担当者は明確ですか。</li>
+</ul>
+<h4 id="23-6-english-terms-bea8f07c" class="semantic-heading semantic-terms">23.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>background job</code>, <code>job log</code>, <code>spool</code>, <code>SUBMIT VIA JOB</code>, <code>selection variant</code>.</li>
+<li>Related terms: <code>job step</code>, <code>scheduled job</code>, <code>batch processing</code>, <code>periodic job</code>, <code>job status</code>, <code>variant</code>, <code>application log</code>.</li>
+<li>SAP transaction/search terms in many on-premise contexts: <code>SM36</code>, <code>SM37</code>, <code>SP01</code>. Availability and recommended tools depend on release and deployment model.</li>
+<li>Recommended search pattern: <code>SAP ABAP background job SUBMIT VIA JOB</code>, <code>SAP job log spool variant</code>, <code>SAP background processing ABAP</code>.</li>
+</ul>
+<h4 id="23-7-example-997e3698" class="semantic-heading semantic-example">23.7 Example / 学习例子</h4>
+<p>假设 AC0567C 有一个夜间批处理，把当天外部上传的 batch 重新汇总并生成状态报告。一个可交付设计应说明：</p>
+<ul>
+<li>Job name: <code>ZAC0567C_DAILY_STATUS</code></li>
+<li>Program: <code>ZAC0567C_STATUS_REPORT</code></li>
+<li>Variant: <code>PRD_DAILY_2300</code></li>
+<li>Schedule: 每天 23:00</li>
+<li>Execution user: 生产批处理技术用户</li>
+<li>Output: spool 中保存汇总报表</li>
+<li>Application Log: 保存每个 batch 的处理状态和错误明细</li>
+<li>Rerun rule: 同一日期可重跑，但不重复创建业务结果</li>
+</ul>
+<p>如果作业失败，调查顺序可以是：</p>
+<pre><code class="language-text">1. 查看 job status 和 job log，确认是否启动、哪一步失败。
+2. 查看 variant，确认输入日期、公司代码、模式是否正确。
+3. 查看 spool，确认报表输出或错误列表。
+4. 查看 Application Log，定位具体 batch / line / business key。
+5. 判断是否可以重跑，以及重跑是否会造成重复处理。</code></pre>
+<p>这比“后台报错了”清楚得多，也能让开发、运维、测试和业务使用同一套证据沟通。</p>
+<p>再把这个例子写成缺陷票：</p>
+<pre><code class="language-text">Symptom:
+  Daily status job ended with error at 23:15 JST.
+
+Evidence:
+  Job name: ZAC0567C_DAILY_STATUS
+  Job id: 12345600
+  System/client: QAS/100
+  Execution user: BATCH_AC0567C
+  Program/variant: ZAC0567C_STATUS_REPORT / QAS_DAILY_2300
+  Job log: step 1 ended with application error
+  Spool: 789012
+  Application log: object ZAC0567C, subobject STATUS, log 4711
+  Processed: 950 success, 50 error
+
+Initial classification:
+  Job scheduling and program start succeeded.
+  Business errors exist for 50 batches.
+  Need to check whether failed batches can be rerun by status.
+
+Rerun decision:
+  Rerun only failed batch ids after correcting input mapping.
+  Do not rerun all 1,000 items because 950 already produced status records.</code></pre>
+<p>这个缺陷票发生在 QAS，所以使用 <code>QAS_DAILY_2300</code> variant；生产设计中的 variant 则会有对应的 PRD 版本。注意：job 是否显示“异常终了”取决于程序如何结束，例如 runtime error、未捕获异常、<code>MESSAGE</code> type A/E/X 或程序主动以错误状态终止，而不是因为业务明细里有失败行就自动变红。本例假设程序在检测到失败批次后以错误消息结束，所以 job status 才显示 error；如果程序正常返回、只是把 50 条业务失败写入 application log，job 通常仍显示“正常终了”，此时必须靠 application log 才能发现业务失败。</p>
+<p>这个模板把 job 失败拆成三层：技术调度是否成功、业务处理哪里失败、重跑是否安全。开发者、运维和业务都能接着处理。</p>
+<p>关于 <code>SUBMIT ... VIA JOB</code>，初学者可以先用一个简化认知：它是“把 executable report 作为后台步骤提交”的经典机制，而不是通用的异步框架。实际实现通常还要围绕 <code>JOB_OPEN</code>、<code>SUBMIT ... VIA JOB ... AND RETURN</code> 和 <code>JOB_CLOSE</code> 管理 job 生命周期。它不能自动解决参数契约、业务日志、错误返回、重跑、权限、commit 或锁。若核心逻辑已经被抽成服务类，后台 job 只是其中一个入口，系统会更容易测试和维护。</p>
+<h4 id="23-8-counterexample-failure-mode-6d19a7e2" class="semantic-heading semantic-example">23.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有以下几类。</p>
+<p>第一，程序只适合前台。后台运行时还弹确认框、等待用户输入、把关键结果只写到屏幕，导致 job 卡住或结果不可追踪。</p>
+<p>第二，没有固定 variant。生产作业靠人工临时输入条件，无法复现、无法审计，也容易跑错范围。</p>
+<p>第三，只看 job log 不看业务日志。Job log 可能只显示作业失败，但不知道哪条业务数据失败。业务明细应进入 Application Log 或状态表。</p>
+<p>第四，重跑不可控且没有策略。作业失败后不知道能不能重跑，直接整批重跑可能重复创建业务结果、重复发送接口、重复写文件或重复通知客户。</p>
+<p>第五，权限和环境差异。前台开发用户能跑，后台技术用户没有权限；开发机路径可用，生产机路径不可用；这些都必须在测试和上线准备中确认。</p>
+<p>第六，把 spool 当业务日志。Spool 适合报表输出，不适合承载每条业务数据的错误原因和可重跑状态。</p>
+<p>第七，job 名和 variant 命名不可读。<code>JOB1</code>、<code>TESTVAR</code> 这类名字在生产运维中几乎没有说明力。</p>
+<p>第八，忽略时区和业务日期。夜间作业跨日运行时，<code>sy-datum</code>、系统时区、业务日期、会计期间和外部文件日期可能不一致。</p>
+<p>第九，把 <code>SUBMIT</code> 当作偷懒复用。为了快速调用旧 report 而 SUBMIT，结果无法拿到结构化返回、无法单元测试、无法清楚控制事务边界。</p>
+<h4 id="23-9-13555774" class="semantic-heading semantic-practice">23.9 思考问题</h4>
+<ul>
+<li>一个批处理作业失败时，job log、spool、Application Log 分别能提供什么证据？</li>
+<li>为什么后台程序不能依赖前台弹窗和用户交互？</li>
+<li>Variant 在生产作业里为什么是运行契约的一部分？</li>
+<li>如果一个后台作业失败后需要重跑，应该先确认哪些幂等和事务条件？</li>
+<li>AC0567C POC 中哪些处理适合设计成后台 job？哪些更适合 API/status 查询？</li>
+<li>后台执行用户和前台测试用户的权限、client、variant 是否一致？</li>
+<li>作业输出应放在 spool、job log、Application Log，还是业务状态表？</li>
+<li>如果作业跨日运行，业务日期和系统日期如何确定？</li>
+</ul>
+<h4 id="23-10-1a4aea3c" class="semantic-heading semantic-reference">23.10 参考资料入口</h4>
+<p><strong>书稿补强：后台作业的读法与重跑边界</strong></p>
+<p>初学者容易把 background job 理解成“把一个 report 放到晚上自动执行”。这个理解只对了一半。SAP 项目里的后台作业是一份可交付的运行契约：它规定由哪个执行用户、在哪个 client、用哪个 program / variant、在什么时间和频率运行，运行后把哪些证据写入 job log、spool 和 <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a>，失败时由谁判断能不能重跑。也就是说，background job 不是单纯的技术调度，而是生产运维、权限、事务一致性和业务补偿的交界处。</p>
+<p><code>SUBMIT</code> 也要放在这个边界里理解。它可以让一个 ABAP 程序调用另一个 executable program，<code>SUBMIT ... VIA JOB</code> 则常用于把 report 安排成后台步骤执行。但这不等于鼓励把所有逻辑都藏在 report 里再互相 <code>SUBMIT</code>。更好的设计是把核心业务逻辑放在 service class 或明确的 function/API 中，让前台 report、后台 job、测试代码和接口入口共享同一套业务逻辑；report / job 负责输入、variant、调度、日志和运行证据。这样出了问题时，团队可以单独测试业务逻辑，也可以单独排查调度和运行环境。</p>
+<p>后台作业最重要的设计问题是“失败以后如何判断”。如果作业处理 1,000 条数据，第 850 条失败，不能只写一句 <code>job cancelled</code>。书稿读者应该学会追问：前 849 条是否已经提交？第 850 条失败前是否调用过外部系统？application log 是否记录了 business key、request id、成功/失败计数？spool 是报表输出还是错误证据？重跑时应该重跑全部、只重跑失败 key，还是先人工补偿外部副作用？这些问题要和 <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a>、<a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a>、<a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a> 一起看。</p>
+<p>日本项目现场可以把这节落实为一个简短检查句：このジョブは、実行ユーザ、バリアント、ジョブログ、スプール、アプリケーションログ、再実行条件が説明できる状態になっていますか。也就是说，一个后台作业如果不能说明“用什么条件跑、跑了什么、失败在哪里、能否安全重跑”，就还没有达到生产可交付质量。</p>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSUBMIT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - SUBMIT</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSUBMIT_VIA_JOB.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - SUBMIT, job_options</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20SUBMIT%20VIA%20JOB" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP SUBMIT VIA JOB</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20background%20job%20job%20log%20spool" target="_blank" rel="noopener noreferrer">SAP Help search - SAP background job job log spool</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20selection%20variant" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP selection variant</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20application%20log%20background%20job" target="_blank" rel="noopener noreferrer">SAP Help search - SAP application log background job</a></li>
+</ul>
+<h4 id="23-11-connections-928a321b">23.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-022-authority-check-test-helper-e8ca4248.html">Authority Check Test Helper</a></li>
+<li>Downstream: <a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a></li>
+<li>Related: <a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 25 - 测试替身与服务逻辑测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="23-12-28b7682a" class="semantic-heading semantic-practice">23.12 学习任务</h4>
+<ul>
+<li>为一个每日批处理设计 job name、program、variant、schedule、输出和 application log。</li>
+<li>写出后台 job 失败时的 5 步调查顺序。</li>
+<li>判断一个 ABAP report 是否适合后台运行：它是否依赖弹窗、屏幕输出、当前用户、文件路径？</li>
+<li>写 2 句日语现场表达：一句询问 job log/spool，另一句询问是否可以重跑。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 <code>SUBMIT VIA JOB</code>、background processing 或 spool 的官方说法。</li>
+</ul>
+<h4 id="23-13-confidence-next-action-1e9a4431" class="semantic-heading semantic-status">23.13 Confidence &amp; Next Action</h4>
+<p>Confidence: Medium-High。后台作业、spool、variant、job log 的项目边界稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已修正失败模式计数、job status 与业务错误的层次区别、QAS/PRD variant 语境、<code>Execution user</code> 术语一致性，以及 <code>JOB_OPEN</code> / <code>SUBMIT ... VIA JOB ... AND RETURN</code> / <code>JOB_CLOSE</code> 生命周期提示。具体事务入口、云/本地可用性和调度工具会随系统版本与部署模式变化，需要结合项目系统确认，Joule scoped review 仍保留为 deferred 证据。</p>
+<p>Next action: 继续学习 <a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a>，理解后台/批处理场景中调用标准 BAPI 和提交事务时的边界。</p>
+<p>原子笔记入口：<a class="wiki" href="section-04-023-background-job-and-submit-basics-11cfa86d.html">Background job and SUBMIT basics</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-022-authority-check-test-helper-e8ca4248.html">Previous section</a><a href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

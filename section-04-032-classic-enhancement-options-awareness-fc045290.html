@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Classic enhancement options awareness | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="32-classic-enhancement-options-awareness-38f9e97f" class="chapter-title">32. Classic enhancement options awareness</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 32</li><li>self-contained study note</li></ul><h4 id="32-1-f692c094" class="semantic-heading semantic-concept">32.1 一句话结论</h4>
+<p>Classic enhancement options awareness 是「棕地 SAP 项目识别能力」中的补充知识点；在本教程里要学的是：能识别 BAdI、Enhancement Framework、user exit、customer exit 等经典扩展点，并知道它们与 Clean Core、released API、ABAP Cloud 的边界。</p>
+<p>这一节的重点不是教初学者马上去新增 classic exit，而是让读者进入日本 SAP 棕地项目时不会“看不懂现场语言”。很多 S/4HANA on-premise、ECC conversion、长期运维和改修项目里，仍然会遇到既有 BAdI 实现、customer exit、user exit、implicit/explicit enhancement、enhancement spot。它们可能是客户多年业务差异化的入口，也可能是升级风险和技术债的来源。</p>
+<p>因此，正确姿势是：能识别、能读懂、能做影响调查，能判断它是否应保留、替换、重构或作为例外管理；同时把新增开发优先引回 <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a>、<a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a>、RAP extensibility 和官方 released extension point。</p>
+<h4 id="32-2-4bba7262" class="semantic-heading semantic-concept">32.2 到底学什么</h4>
+<p>第一，要学概念边界。本节是 awareness，不是完整 classic enhancement 实作教程。读者需要知道这些词代表什么、在哪里可能看到、对项目有什么风险，而不是在一个月入门阶段深入掌握每种增强的实现细节。</p>
+<p>第二，要学识别入口。经典项目中常见入口包括 SE18/SE19 的 BAdI definition/implementation，Enhancement Framework 的 enhancement spot / enhancement implementation，旧式 customer exit / function module exit，user exit，include 中的 exit form，或标准流程里预留的 callback 点。SE18/SE19 更接近 classic/on-premise 语境下的事务入口；现代 ADT 或 ABAP Cloud 语境下，应按目标系统提供的 ADT tooling、released extension point 和官方 extensibility model 来确认，而不是假设所有系统都有同样的事务码入口。不同系统版本和模块会有不同历史包袱。</p>
+<p>第三，要学风险判断。一个既有增强点要看：影响哪个业务流程？是否在核心交易中执行？是否更新数据？是否依赖未释放对象？是否有测试证据？是否会被升级覆盖或行为改变？是否有更现代、更 clean 的替代方式？</p>
+<p>第四，要学沟通语言。在日本项目里，设计书、影響調査、改修方針、移行影響、障害調査中经常会出现 <code>BAdI実装</code>、<code>Exit対応</code>、<code>拡張ポイント</code>、<code>アドオン影響</code> 等说法。初学者需要能听懂并提出正确问题。</p>
+<h4 id="32-3-e8b08825" class="semantic-heading semantic-why">32.3 为什么重要</h4>
+<p>只学 RAP、OData、ABAP Cloud 和 Clean Core，会让学习路径更现代，但真实项目不一定从干净的新系统开始。很多客户系统已经运行多年，业务差异化散落在 Z 程序、BAdI、exit、enhancement、copy 标准程序、旧接口和运维手顺中。读不懂这些资产，就做不好影响调查。</p>
+<p>经典增强的存在本身不等于错误。SAP 曾经提供这些扩展机制，就是为了让客户在标准流程中插入自定义逻辑。问题在于：哪些增强仍然是受支持的合理扩展？哪些已经成为升级风险？哪些可以用 released API、key user extension、RAP extension、side-by-side extension 替代？哪些必须暂时保留但要纳入例外管理？</p>
+<p>对 Java/Python 背景学习者来说，可以把 BAdI/exit 类比为 framework hook、plugin point、callback 或 interceptor。但 SAP 的特殊点在于，它常常挂在核心业务事务中，和标准流程、授权、锁、commit、transport、升级和客户历史需求绑定。改动一个小 exit，可能影响销售订单保存、采购过账、发票校验或批处理。</p>
+<p>从读书角度看，本节必须把“为什么还要学旧东西”讲清楚。一个现代 ABAP 学习者当然应该优先掌握 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a>、<a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a>、OData V4、ABAP Cloud 和 Clean Core；但进入真实项目后，第一周常常不是从新建 RAP 对象开始，而是先读既有系统。客户会问“这个改修会不会影响现有受注保存？”“旧 BAdI 里有没有相同逻辑？”“升级后这个 exit 还会不会触发？”如果听不懂这些问题，就算语法学得不错，也很难承担影响调查。</p>
+<p>因此，本节的学习目标是把 classic enhancement 从“神秘老技术”转成“可调查的项目资产”。读者不需要马上背出每一种 enhancement 的实现步骤，但要知道如何追问：它在哪里定义？哪里实现？什么时候被调用？是否在更新逻辑里？是否依赖标准内部表？是否有测试数据？是否有替代路线？这种追问能力，就是从初学者进入项目现场的分界线。</p>
+<h4 id="32-4-key-mechanism-bdc7edca" class="semantic-heading semantic-mechanism">32.4 Key mechanism / 核心机制</h4>
+<p>常见 classic enhancement 可以粗略分为四类。</p>
+<p>第一类是 BAdI。BAdI 通常由 SAP 标准提供 definition，客户创建 implementation，把自定义逻辑注入到标准流程的特定扩展点。现代 BAdI 有不同技术形态，可能支持 filter、多实现、单实现等。读代码时要确认 definition、implementation class、filter value、执行时机和业务流程。</p>
+<p>第二类是 Enhancement Framework。这里会遇到 enhancement spot、enhancement point、enhancement section、implicit enhancement、explicit enhancement 等。它们允许在特定位置插入或替换逻辑。风险判断要看插入点是否稳定、是否影响标准升级、是否容易被后续维护者发现。</p>
+<p>第三类是 customer exit。很多旧项目通过 function module exit、screen exit、menu exit 等方式扩展标准功能。它们常见于 ECC 和长期运维系统，通常和项目历史、模块顾问设计、用户出口文档一起出现。</p>
+<p>第四类是 user exit。它常常是更传统、更模块化历史更强的扩展方式，可能表现为特定 include、form routine 或标准程序中的预留点。不同模块语境差异很大，不能只凭名字判断风险。</p>
+<p>还要补一个容易混淆的边界：classic enhancement awareness 不是“任何旧增强都可以继续新增”。在 SAP S/4HANA Cloud Public Edition 中，扩展模型高度受控，客户扩展应使用 key user extensibility、developer extensibility、released APIs、released business events 和允许的 released extension point；classic exit、customer exit、implicit enhancement、标准对象 modification 这类经典方案基本不可用，也不应被当成 Public Edition 的设计选项。在 private cloud 和 on-premise 中，历史增强更常见，但 Clean Core 仍要求先确认是否有受支持的现代替代方案。也就是说，deployment model 会改变“可用技术”和“推荐技术”的边界。</p>
+<p>这里还要把 BAdI 讲得更精确一点。项目现场说 <code>BAdI</code> 时，可能指历史上的 classic BAdI，也可能指集成到 Enhancement Framework 的 newer/kernel-based BAdI。二者都属于扩展点语言，但 Clean Core 风险、技术形态、可用范围和迁移考虑不同。初学者不需要马上掌握每个事务细节，但不能把所有 BAdI 混成一个东西；影响调查时至少要确认 definition 类型、implementation 类型、single-use/multiple-use、filter、调用时机和是否有官方 release / Clean Core 分类依据。</p>
+<p>Clean Core review 中还常会出现 Level A/B/C/D 之类的分类语言。具体分类必须以客户系统、SAP Note、SAP 文档和项目版本为准，不能靠记忆；但学习者可以先记住风险方向：</p>
+<div class="table-wrap"><table><thead><tr><th>风险层级感</th><th>典型含义</th><th>学习者动作</th></tr></thead><tbody><tr><td>更接近 Clean Core</td><td>受支持、升级稳定、可用于目标扩展模型的 released API / extension point</td><td>优先使用，并保存官方证据</td></tr><tr><td>可保留但要调查</td><td>历史 customer exit、classic BAdI、受支持但不适合 Public Cloud 的扩展</td><td>做影响调查、测试和升级评估</td></tr><tr><td>高风险例外</td><td>implicit/explicit enhancement、modification、copy 标准对象、未释放对象依赖</td><td>需要正式例外审批、替代路线和升级风险记录</td></tr></tbody></table></div>
+<p>不要把这张表当成官方等级表本身。它只是读者入门时的风险方向图。正式项目应查最新 SAP Note、Clean Core guidance、ATC/Custom Code Migration App 结果和系统 release 状态。</p>
+<p>做影响调查时，可以把 classic enhancement 当成三张表来读：</p>
+<div class="table-wrap"><table><thead><tr><th>视角</th><th>要确认的问题</th><th>证据入口</th></tr></thead><tbody><tr><td>技术入口</td><td>是 kernel-based BAdI、classic BAdI、enhancement spot、customer exit 还是 user exit？</td><td>SE18/SE19、ADT、SE80、where-used、package、transport</td></tr><tr><td>业务入口</td><td>它属于哪个流程、哪个步骤、哪个异常分支？</td><td>业务设计书、测试脚本、缺陷票、用户操作路径</td></tr><tr><td>治理入口</td><td>是否符合 Clean Core、是否依赖未释放对象、是否可升级？</td><td>ATC、Custom Code Migration App、released API 检查、升级影响调查、SPDD/SPAU/SPAU_ENH、例外审批</td></tr></tbody></table></div>
+<p>分析一个 classic enhancement 时，可以按这个顺序做：</p>
+<pre><code class="language-text">1. Identify:
+   它是什么类型：BAdI / enhancement / customer exit / user exit？
+
+2. Locate:
+   definition、implementation、class/include、transport、package 在哪里？
+
+3. Understand:
+   什么时候执行？输入输出是什么？影响哪个业务流程和数据对象？
+
+4. Assess:
+   是否使用未释放对象？是否修改标准行为？是否有性能/授权/事务风险？
+
+5. Decide:
+   保留、修正、重构、替换为 released API/extension point，还是作为例外管理？</code></pre>
+<p>这一套动作和 <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a>、<a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a>、<a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a> 是连在一起的。classic enhancement 不是孤立技术点，而是项目影响调查和上线风险的一部分。</p>
+<p>一个更实用的判断矩阵如下：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>推荐姿势</th><th>不推荐姿势</th></tr></thead><tbody><tr><td>既有 BAdI 已经承载客户规则</td><td>先读懂并补测试证据，再决定保留/修正/替换</td><td>不调查就另写一套相似逻辑</td></tr><tr><td>新需求有标准配置可满足</td><td>优先使用配置或标准流程</td><td>为了“快”直接找 exit</td></tr><tr><td>新需求需要扩展字段或轻量 UI</td><td>优先评估 key user / in-app extensibility</td><td>直接修改标准 UI 或复制标准程序</td></tr><tr><td>新需求需要稳定 API 或服务</td><td>优先 released API、released CDS、RAP/OData</td><td>直接 SELECT 未释放标准表</td></tr><tr><td>旧增强必须暂时保留</td><td>建立例外说明、测试范围、升级检查点</td><td>只写“既存踏襲”，没有证据</td></tr></tbody></table></div>
+<p>读代码时还要特别注意事务边界。很多 classic enhancement 运行在标准事务内部，可能处于检查阶段、保存前、保存后、update task 前后或输出处理阶段。这里不能随便 <code>COMMIT WORK</code>，也不能绕过标准 lock、authorization、message handling。即使本节不展开实作，也要在 review 中把这些词连到 <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a>、<a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a>、<a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">Authorization check 权限检查</a> 和 <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a>。</p>
+<p>另一个容易被初学者忽略的风险是 single-use extension 冲突。有些 customer exit 或 single-use BAdI 在同一系统、同一扩展点上只能有一个有效实现。如果客户自开发、第三方 add-on、历史项目实现同时抢同一个点，可能发生实现覆盖、短 dump、行为冲突或上线后才暴露的缺陷。日本项目里如果有多个会社、多个 SI、多个アドオン供应商，这个风险尤其要在影响调查里写出来。</p>
+<p>升级项目还要把 SPDD、SPAU、SPAU_ENH 作为关键词记住。它们不是本节要深入操作的事务教程，但代表了 brownfield conversion / upgrade 中对 dictionary、repository、enhancement adjustment 的调整工作。一个 enhancement 是否会进入这些调整活动，是否需要手工确认，是否影响改修工数，是 Clean Core 讨论的一部分。</p>
+<h4 id="32-5-4b0881d2" class="semantic-heading semantic-japan">32.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>BAdI</code>、<code>BAdI実装</code>、<code>拡張ポイント</code>、<code>拡張実装</code>、<code>ユーザExit</code>、<code>カスタマExit</code>、<code>エンハンスメント</code>、<code>影響調査</code>、<code>改修方針</code>、<code>既存アドオン</code>、<code>アップグレード影響</code>。</p>
+<p>影响调查中可以这样说：</p>
+<ul>
+<li>既存のBAdI実装が対象業務フローに影響するため、実行タイミングと影響範囲を確認します。</li>
+<li>このExit対応は既存資産として残すのか、Clean Core方針に沿って代替手段を検討するのかを整理します。</li>
+<li>未リリースオブジェクトを参照している場合は、リリース済みAPIまたは公式拡張ポイントへの置き換え可否を確認します。</li>
+</ul>
+<p>review 时可以这样问：</p>
+<ul>
+<li>このBAdI実装はどの標準処理の前後で呼ばれますか。</li>
+<li>既存Exitを修正する場合、回帰テスト範囲はどこまで必要ですか。</li>
+<li>新規要件に対してclassic enhancementを使う理由は設計書に残っていますか。</li>
+</ul>
+<h4 id="32-6-english-terms-1b5ce66d" class="semantic-heading semantic-terms">32.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>BAdI</code>, <code>Business Add-In</code>, <code>Enhancement Framework</code>, <code>enhancement spot</code>, <code>enhancement implementation</code>, <code>customer exit</code>, <code>user exit</code>.</li>
+<li>Related terms: <code>implicit enhancement</code>, <code>explicit enhancement</code>, <code>enhancement point</code>, <code>enhancement section</code>, <code>filter-dependent BAdI</code>, <code>classic BAdI</code>, <code>new BAdI</code>, <code>Clean Core</code>, <code>released APIs</code>.</li>
+<li>Recommended search pattern: <code>SAP BAdI Enhancement Framework ABAP</code>, <code>SAP customer exit user exit ABAP</code>, <code>SAP Clean Core classic enhancement</code>.</li>
+<li>读官方资料时要保留英文对象名和事务码，但设计说明中要用中文/日语讲清它影响的业务流程。</li>
+</ul>
+<h4 id="32-7-example-116bf228" class="semantic-heading semantic-example">32.7 Example / 学习例子</h4>
+<p>假设在一个销售订单改修项目中，影响调查发现已有 BAdI implementation 会在订单保存前校验客户信用等级。一个初学者如果只看新需求，可能会直接在新代码里再写一套校验；但在棕地系统里，必须先确认既有增强。</p>
+<p>可以记录成这样：</p>
+<pre><code class="language-text">Enhancement type:
+  BAdI implementation
+
+Business process:
+  Sales order save
+
+Execution timing:
+  Before save / validation phase
+
+Current logic:
+  Check customer risk level and block specific combinations
+
+Dependencies:
+  Custom table ZRISK_RULE
+  Possible standard customer data access
+
+Risk:
+  Changing logic may affect existing sales order process
+  Need regression test for normal order, blocked order, exception approval
+
+Clean Core question:
+  Is there a released API / standard configuration / official extension point
+  that should be used for the new requirement?</code></pre>
+<p>这个例子说明：识别 classic enhancement 不是为了鼓励“以后都用 exit”，而是为了避免在不知道历史逻辑的情况下重复实现、冲突实现或破坏现有流程。</p>
+<p>再看一个更贴近项目现场的 mini case。客户提出：“在采购订单保存时，如果供应商属于高风险分类，需要追加审批标记，并把结果写入自定义日志表。”初学者可能会问“有没有保存时的 user exit？”但更稳的调查顺序应该是：</p>
+<pre><code class="language-text">Business requirement:
+  Purchase order save-time validation and audit trail
+
+First checks:
+  1. Is there standard release strategy / flexible workflow / configuration?
+  2. Is there a released extension point or BAdI documented for this process?
+  3. Is the target system Public Cloud, Private Cloud, or on-premise?
+
+Existing-system checks:
+  4. Are there existing BAdI implementations or exits in the same process?
+  5. Do they already read vendor risk or approval flags?
+  6. Which transports introduced them and which test cases cover them?
+
+Clean Core checks:
+  7. Are accessed objects released or custom-owned?
+  8. Can the audit requirement use Application Log or a released API?
+  9. If an exception is needed, who approves the upgrade risk?</code></pre>
+<p>这个 mini case 的关键不是答案一定是某个 BAdI，而是“调查顺序不能反”。先确认标准和受支持扩展，再读既有增强，最后才讨论是否新增或修改 classic enhancement。这样写出来的设计书，也更容易通过日本项目里的基本设计 review 和影响调查 review。</p>
+<p>一张可以直接用于学习的影响调查表如下：</p>
+<div class="table-wrap"><table><thead><tr><th>项目</th><th>示例填写</th></tr></thead><tbody><tr><td>Enhancement type</td><td>BAdI implementation</td></tr><tr><td>Business process</td><td>Purchase order save</td></tr><tr><td>Execution timing</td><td>Before save validation</td></tr><tr><td>Data touched</td><td>Supplier risk category, custom audit table</td></tr><tr><td>Transaction risk</td><td>Must not commit independently inside the standard save</td></tr><tr><td>Authorization/log risk</td><td>Need authority concept and application log / audit evidence</td></tr><tr><td>Clean Core status</td><td>Check released extension point and released APIs first</td></tr><tr><td>Regression scope</td><td>Normal PO, high-risk supplier, changed supplier, mass upload, workflow approval</td></tr></tbody></table></div>
+<p>如果这是 S/4HANA conversion 项目，还要追加一组 brownfield 检查：</p>
+<pre><code class="language-text">Upgrade / conversion checks:
+  - Does ATC or Custom Code Migration App report findings for this object?
+  - Is there an SPDD / SPAU / SPAU_ENH adjustment item?
+  - Is the implementation still used, or obsolete / unused / replaceable?
+  - Is it single-use and therefore at risk of add-on/customer implementation conflict?
+  - Can it be moved to a released BAdI, released API, key user extension, or side-by-side integration?</code></pre>
+<p>这组检查能帮助读者理解：Clean Core 并不是只讨论新开发。很多时候，它是通过升级影响调查，把旧增强分成“可保留、可替换、可删除、必须例外管理”。</p>
+<h4 id="32-8-counterexample-failure-mode-8580dc7b" class="semantic-heading semantic-example">32.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十二类。</p>
+<p>第一，一看到需求就找 exit。现代项目应该先看标准配置、released API、官方扩展点、RAP/key user/side-by-side 方案，再决定是否使用 classic enhancement。</p>
+<p>第二，只看实现，不看调用时机。增强逻辑在保存前、保存后、检查阶段、更新任务、UI 阶段或后台流程中执行，风险完全不同。</p>
+<p>第三，修改旧增强前不做影响调查。where-used、业务流程、测试范围、transport 历史、关联 Z 表和用户操作都要看。</p>
+<p>第四，把 BAdI/exit 当成万能入口。它可能解决一个点，却绕过标准事务、授权、日志或性能设计。</p>
+<p>第五，把所有 BAdI 都看成同等 Clean Core。不同技术形态、release 状态、适用 deployment 和官方支持范围不同。</p>
+<p>第六，在升级项目中只迁移代码，不评估替代方案。ECC 到 S/4HANA、on-premise 到 cloud-ready 的过程中，部分 classic enhancement 应被重构或替换。</p>
+<p>第七，文档只写“用了 exit”。没有写业务流程、调用时机、输入输出、依赖、测试范围和风险，后续维护非常困难。</p>
+<p>第八，把 classic enhancement 的存在当成设计正当性。既有系统里有一个 exit，不代表新需求也应该继续塞进去；可能只是历史原因、版本限制或当时没有更好工具。新增开发要重新比较标准配置、released API、RAP extension、side-by-side 和例外方案。</p>
+<p>第九，在 Public Cloud、Private Cloud、on-premise 之间混用经验。某个 on-premise 项目里可用的 exit 做法，不代表在 SAP S/4HANA Cloud Public Edition 可用；某个 Public Cloud 受控扩展限制，也不代表 on-premise brownfield 里完全看不到 legacy enhancement。学习时要把 deployment 写清楚。</p>
+<p>第十，只做技术 where-used，不问业务 owner。classic enhancement 很多时候承载的是客户多年形成的业务规则；只从代码层面删除或改写，可能破坏现场默认流程。影响调查至少要连到业务流程、测试脚本、缺陷历史和运维 owner。</p>
+<p>第十一，忽略 single-use 冲突。customer exit 或 single-use BAdI 如果已经被某个 add-on 或历史实现占用，新实现可能不是“再加一个”这么简单，而是会和现有实现发生冲突。</p>
+<p>第十二，不认识 SPDD/SPAU/SPAU_ENH。升级项目里只说“这个 enhancement 能编译”不够，还要确认它是否触发 adjustment、是否需要手工处理、是否影响升级窗口和回归测试。</p>
+<h4 id="32-9-48a68563" class="semantic-heading semantic-practice">32.9 思考问题</h4>
+<ul>
+<li>当前讨论的是新增扩展，还是既有增强影响调查？</li>
+<li>这个 BAdI/exit 在哪个业务流程、哪个时机执行？</li>
+<li>它读取或修改了哪些数据？是否涉及 commit、lock、authorization 或日志？</li>
+<li>它依赖的对象是否 released？是否能通过 ATC 或 Clean Core 检查？</li>
+<li>有没有更合适的 released API、标准配置、RAP extension 或 side-by-side 方案？</li>
+</ul>
+<h4 id="32-10-c8476764" class="semantic-heading semantic-reference">32.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>SAP Help Portal: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation</a></li>
+<li>SAP Help Portal: <a href="https://help.sap.com/docs/SAP_S4HANA_CLOUD" target="_blank" rel="noopener noreferrer">SAP S/4HANA Cloud Extensibility</a></li>
+<li>SAP Help Portal: <a href="https://help.sap.com/docs/abap-cloud" target="_blank" rel="noopener noreferrer">ABAP Cloud</a></li>
+<li>SAP Learning search: <a href="https://learning.sap.com/search?query=Reviewing%20Legacy%20Modifications%20Copies%20Enhancements" target="_blank" rel="noopener noreferrer">Reviewing Legacy Modifications, Copies, and Enhancements</a></li>
+<li>SAP Support / SAP Notes: search <code>SAP Clean Core extensibility classification</code>, <code>Clean Core Level</code>, <code>SPAU_ENH</code>, <code>Custom Code Migration App</code>.</li>
+<li>SAP Community / SAP Learning official materials: search <code>Clean Core extensibility</code>, <code>Business Add-In BAdI</code>, <code>Enhancement Framework</code>, <code>released APIs</code>.</li>
+<li>SAP Help Portal / ABAP Keyword Documentation: search <code>BAdI</code>, <code>Enhancement Framework</code>, <code>enhancement spot</code>, <code>customer exit</code>, <code>user exit</code>.</li>
+<li>SAP Learning / SAP Help: search <code>Clean Core</code>, <code>released APIs</code>, <code>ABAP Cloud extensibility</code> before choosing new classic enhancement.</li>
+</ul>
+<h4 id="32-11-connections-532786d2">32.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li>Upstream: <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>Downstream: <a class="wiki" href="section-04-033-classic-integration-interfaces-awareness-a838d9eb.html">Classic integration interfaces awareness</a></li>
+<li>Related: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Related: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Related: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 27 - Clean Core 与上线前加固</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+</ul>
+<h4 id="32-12-291c87e6" class="semantic-heading semantic-practice">32.12 学习任务</h4>
+<ul>
+<li>用中文区分 BAdI、Enhancement Framework、customer exit、user exit，并说明它们为什么属于 brownfield awareness。</li>
+<li>写一张 5 行影响调查表：增强类型、业务流程、执行时机、依赖对象、测试范围。</li>
+<li>用日语写 2 句：一句说明既有 BAdI 影响调查，一句说明新增需求要先确认 Clean Core 替代方案。</li>
+<li>找 1 个 SAP 官方资料入口补到参考资料区。</li>
+<li>在 AC0567C 或任何本地 POC 中说明：如果未来接入客户既有 S/4HANA 系统，应如何识别已有增强点。</li>
+<li>追加练习：为一个“采购订单保存时追加校验”的需求，写出 standard-first、released extension point、既有 enhancement 影响调查、例外审批四步判断。</li>
+<li>追加练习：用日语写一段 review コメント，说明“既存Exitを修正する前に、呼出タイミング、未リリースオブジェクト依存、回帰テスト範囲を確認する”。</li>
+</ul>
+<h4 id="32-13-confidence-next-action-bffb7d30" class="semantic-heading semantic-status">32.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High，classic enhancement 的识别框架、风险意识和 Clean Core 边界稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已移除未验证的具体 SAP Note 号，收紧 Public Cloud 中 classic exit / customer exit / implicit enhancement / 标准对象 modification 基本不可用的边界，补充 SE18/SE19 与 classic/on-premise 的入口语境，并集成 Joule 对 classic BAdI / newer BAdI、single-use 冲突、SPDD/SPAU/SPAU_ENH、ATC / Custom Code Migration App 和例外治理的高优先级意见。具体 BAdI/exit 类型、事务入口和支持范围需要按模块、release、deployment 和 SAP 官方资料确认。</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-033-classic-integration-interfaces-awareness-a838d9eb.html">Classic integration interfaces awareness</a>，继续补 brownfield 识别能力：RFC、BAPI、IDoc、file interface、PI/PO/CPI 等经典集成方式与现代 API/OData/RAP 的边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-032-classic-enhancement-options-awareness-fc045290.html">Classic enhancement options awareness</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-031-production-hardening-checklist-6ba1110a.html">Previous section</a><a href="section-04-033-classic-integration-interfaces-awareness-a838d9eb.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

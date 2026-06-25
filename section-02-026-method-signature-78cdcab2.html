@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Method signature 方法签名 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="26-method-signature-0369c8e3" class="chapter-title">26. Method signature 方法签名</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 26</li><li>self-contained study note</li></ul><h4 id="26-1-d2c4af4d" class="semantic-heading semantic-concept">26.1 一句话结论</h4>
+<p>Method signature 方法签名是一个 method 对外表达“你可以怎样调用我、要给我什么、我会还给你什么、我可能抛出什么错误”的契约。在 OO ABAP 里，它主要写在 <code>METHODS</code> 或 <code>CLASS-METHODS</code> 声明中，由 method name、parameter interface、parameter typing、<code>OPTIONAL</code> / <code>DEFAULT</code>、<code>RETURNING</code>、<code>RAISING</code> 等部分组成。</p>
+<p>初学者不要把 method signature 理解成“方法里面的代码”。方法体在 <code>METHOD ... ENDMETHOD</code> 里；signature 在 class definition 的可见性区段里。读 signature 时，应先判断这个 method 是查询、计算、修改状态，还是调用外部动作，再看它是否把输入、输出和异常说清楚。一个好的 signature 可以让 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a>、<a class="wiki" href="section-02-025-local-class-4c6dbe23.html">Local class 局部类</a>、<a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a> 和 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a> 都更容易读、更容易测。</p>
+<h4 id="26-2-3687636a" class="semantic-heading semantic-concept">26.2 到底学什么</h4>
+<p>上一节讲 <a class="wiki" href="section-02-025-local-class-4c6dbe23.html">Local class 局部类</a> 时，已经看到 local helper 可以把一段逻辑收进小对象。现在要进一步看：这个对象暴露出来的 method 到底应该长什么样。</p>
+<p>本节要掌握六件事：</p>
+<ul>
+<li><code>METHODS</code> 与 <code>CLASS-METHODS</code> 如何声明 instance method 和 static method。</li>
+<li><code>IMPORTING</code>、<code>EXPORTING</code>、<code>CHANGING</code>、<code>RETURNING</code> 分别代表什么调用契约。</li>
+<li><code>VALUE(...)</code>、<code>REFERENCE(...)</code>、省略写法对 pass by value / pass by reference 的影响。</li>
+<li><code>OPTIONAL</code>、<code>DEFAULT</code>、<code>PREFERRED PARAMETER</code> 如何影响调用者。</li>
+<li><code>RAISING</code> 与旧式 <code>EXCEPTIONS</code> 的区别，以及为什么新开发优先 class-based exceptions。</li>
+<li>如何用小而清楚的 method signature 支撑 <a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a>、测试和日本项目 review。</li>
+</ul>
+<p>例如下面这段声明已经能告诉读者很多信息：</p>
+<pre><code class="language-abap">METHODS get_status_text
+  IMPORTING iv_status      TYPE string
+            iv_language    TYPE sylangu DEFAULT &#x27;E&#x27;
+  RETURNING VALUE(rv_text) TYPE string
+  RAISING   cx_sy_conversion_error.</code></pre>
+<p>这段 signature 表示：调用者必须提供一个 status；language 可不传，默认按英文处理；method 返回一个文本；如果转换失败，可能向外传播 class-based exception。读者即使还没看到实现，也能大致理解它的用途和风险。</p>
+<h4 id="26-3-74845953" class="semantic-heading semantic-why">26.3 为什么重要</h4>
+<p>在 Java/Python 背景里，method signature 常被理解为“函数名、参数、返回类型”。ABAP 的差异在于：signature 不只是类型说明，还强烈影响调用语法、异常处理、数据是否被原地改写，以及这个 method 能不能作为 functional method 写在表达式位置。</p>
+<p>项目里最常见的问题不是“不知道怎么写 method”，而是 signature 暗示了错误的责任边界：</p>
+<ul>
+<li>一个 method 有五六个 <code>EXPORTING</code> 参数，调用者不知道哪个才是主结果。</li>
+<li>一个 method 用 <code>CHANGING</code> 改了调用者的数据，但名字看起来像只读查询。</li>
+<li>一个本来应该明确失败的业务检查，只用 <code>abap_bool</code> 悄悄返回 false，调用方漏判也不会明显报错。</li>
+<li>一个本来只需要一个结果的计算，却不用 <code>RETURNING</code>，导致无法写成表达式，也不方便在 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a> 中断言。</li>
+<li>一个 helper 的参数全是 <code>string</code>，没有 DDIC type、domain、枚举语义，后续 review 很难判断合法值。</li>
+</ul>
+<p>所以 method signature 是“设计质量”最早暴露出来的地方。代码实现再漂亮，如果 signature 已经把副作用、异常和数据边界说乱了，后面的测试、复用、接口封装都会变重。</p>
+<h4 id="26-4-key-mechanism-6eb4be28" class="semantic-heading semantic-mechanism">26.4 Key mechanism / 核心机制</h4>
+<h5 id="26-4-1-signature-lives-in-method-declaration-dcc2c0b7">26.4.1 signature lives in method declaration</h5>
+<p>在 ABAP class 中，signature 写在 class definition 里：</p>
+<pre><code class="language-abap">CLASS lcl_status_text DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS lcl_status_text IMPLEMENTATION.
+  METHOD get_text.
+    CASE iv_status.
+      WHEN &#x27;O&#x27;.
+        rv_text = &#x27;Open&#x27;.
+      WHEN &#x27;C&#x27;.
+        rv_text = &#x27;Closed&#x27;.
+      WHEN OTHERS.
+        rv_text = &#x27;Unknown&#x27;.
+    ENDCASE.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>CLASS-METHODS get_text ...</code> 是 signature；<code>METHOD get_text. ... ENDMETHOD.</code> 是 implementation。review 时先看 signature，因为它决定调用者看到的 contract。implementation 当然重要，但它是“如何实现”；signature 是“对外承诺”。</p>
+<p>这里也顺便连接上一节：<code>CLASS-METHODS</code> 声明 static method，<code>METHODS</code> 声明 instance method。static / instance 的细节会在 <a class="wiki" href="section-02-028-static-vs-instance-e9b8f033.html">Static vs instance 静态与实例</a> 展开；本节先把注意力放在 parameter interface。</p>
+<h5 id="26-4-2-four-parameter-directions-ec4e3050">26.4.2 four parameter directions</h5>
+<p>ABAP method declaration 中最常见的方向有四类：</p>
+<div class="table-wrap"><table><thead><tr><th>方向</th><th>中文理解</th><th>典型用途</th><th>设计提醒</th></tr></thead><tbody><tr><td><code>IMPORTING</code></td><td>调用者输入给 method</td><td>查询条件、计算输入、上下文参数</td><td>非 optional 的 input 调用时必须提供</td></tr><tr><td><code>EXPORTING</code></td><td>method 输出给调用者</td><td>多个输出值、旧式 API 风格</td><td>输出太多时考虑返回结构</td></tr><tr><td><code>CHANGING</code></td><td>调用者传入，method 修改后带回</td><td>明确的原地规范化、累积、转换</td><td>副作用很强，名字必须表达“会修改”</td></tr><tr><td><code>RETURNING</code></td><td>method 的主返回值</td><td>单一结果、可表达式化的计算</td><td>只能有一个 return value，声明为 <code>VALUE(...)</code></td></tr></tbody></table></div>
+<p>如果 method 的主语义是“给一个输入，算一个结果”，优先考虑 <code>RETURNING</code>：</p>
+<pre><code class="language-abap">CLASS-METHODS is_quantity_valid
+  IMPORTING iv_quantity     TYPE i
+  RETURNING VALUE(rv_valid) TYPE abap_bool.</code></pre>
+<p>这样调用很直观：</p>
+<pre><code class="language-abap">IF lcl_quantity_rule=&gt;is_quantity_valid( 10 ) = abap_true.
+  &quot; ...
+ENDIF.</code></pre>
+<p>如果 method 的主语义是“把调用者传进来的值规范化”，<code>CHANGING</code> 可以成立，但名字要明确：</p>
+<pre><code class="language-abap">CLASS-METHODS normalize_status
+  CHANGING cv_status TYPE string.</code></pre>
+<p>调用者看到 <code>CHANGING</code> 就应当知道：<code>cv_status</code> 对应的实际变量会被改掉。</p>
+<p><code>RETURNING</code> 并不等于“这个 method 永远不能有其他形式参数”。SAP Help 的 <code>METHODS</code> / <code>CLASS-METHODS</code> 语法允许 method 在 <code>RETURNING VALUE(r)</code> 之外仍声明 <code>IMPORTING</code>、<code>EXPORTING</code>、<code>CHANGING</code> 等 formal parameters，所以这里讲的是设计准则，不是语法禁令。对初学者和项目 helper 来说，最容易读、最容易测的设计通常是 <code>IMPORTING</code> + <code>RETURNING</code>：输入从 <code>IMPORTING</code> 来，主结果从 <code>RETURNING</code> 回去。若一个 method 既有 <code>RETURNING</code> 又有多个 <code>EXPORTING</code> 或 <code>CHANGING</code>，虽然可能遇到合法场景，但 review 时应特别确认它是否把多个责任塞进了一个 method。</p>
+<h5 id="26-4-3-declaration-direction-and-call-site-direction-are-easy-to-confuse-ccabc2d9">26.4.3 declaration direction and call-site direction are easy to confuse</h5>
+<p>ABAP 初学者很容易被调用语法绕住。声明端和调用端是镜像关系：method 声明为 <code>IMPORTING</code> 的参数，调用者在 call site 用 <code>EXPORTING</code> 传进去；method 声明为 <code>EXPORTING</code> 的参数，调用者在 call site 用 <code>IMPORTING</code> 接出来。换句话说，declaration 是 method 的视角，call site 是 caller 的视角。</p>
+<p>声明端的 <code>IMPORTING</code>，在调用端通常写在 <code>EXPORTING</code> 下面，因为调用者是在“export 参数给 method”：</p>
+<pre><code class="language-abap">DATA lv_text TYPE string.
+
+lcl_status_text=&gt;get_text(
+  EXPORTING iv_status = &#x27;O&#x27;
+  RECEIVING rv_text   = lv_text ).</code></pre>
+<p>同一个 method 也可以写成 functional method 调用：</p>
+<pre><code class="language-abap">DATA(lv_text) = lcl_status_text=&gt;get_text( iv_status = &#x27;O&#x27; ).</code></pre>
+<p>记忆方式是：declaration 看 method 自己的视角；call site 看调用语句的视角。method 的 <code>RETURNING</code> 参数在 standalone call 里可以用 <code>RECEIVING</code> 接住；在表达式调用里直接成为表达式结果。</p>
+<p>再看一个有 <code>EXPORTING</code> 参数的旧式或工具类 API 风格：</p>
+<pre><code class="language-abap">lcl_reader=&gt;read_status(
+  EXPORTING iv_id      = lv_id
+  IMPORTING ev_status  = lv_status
+            ev_message = lv_message ).</code></pre>
+<p>这里 <code>ev_status</code> 和 <code>ev_message</code> 在 method declaration 里是 <code>EXPORTING</code>，但调用者接收它们时写在 <code>IMPORTING</code> 下。这个镜像关系是 ABAP method call 最容易让 Java/Python 背景学习者困惑的地方。</p>
+<h5 id="26-4-4-pass-by-value-and-pass-by-reference-baafeb7d">26.4.4 pass by value and pass by reference</h5>
+<p>SAP Help 对 method parameters 的规则很明确：除 <code>RETURNING</code> 参数外，method 参数可以按值传递，也可以按引用传递；如果只写参数名，默认是 pass by reference。显式写 <code>VALUE(p)</code> 表示 pass by value；显式写 <code>REFERENCE(p)</code> 表示 pass by reference。<code>RETURNING</code> 参数只能按值传递。</p>
+<p>在初学阶段可以先这样理解：</p>
+<pre><code class="language-abap">METHODS calculate_text
+  IMPORTING VALUE(iv_status) TYPE string
+  RETURNING VALUE(rv_text)   TYPE string.</code></pre>
+<p><code>VALUE(iv_status)</code> 表示 method 收到的是输入值的副本。对 elementary input 来说，这常常让 signature 更清楚：method 只是使用这个输入，不依赖调用者变量本身。</p>
+<p>如果写成：</p>
+<pre><code class="language-abap">METHODS calculate_text
+  IMPORTING iv_status      TYPE string
+  RETURNING VALUE(rv_text) TYPE string.</code></pre>
+<p><code>iv_status</code> 默认按引用传递，但因为它是 <code>IMPORTING</code> 参数，method 内不能修改这个 importing parameter；试图修改会被语法检查挡住。<code>CHANGING</code> 参数即使按引用传递，也正是为了让 method 修改并带回值而设计。也就是说，“按引用传递”和“可以修改调用者变量”不是一回事；是否能修改还要看 <code>IMPORTING</code>、<code>EXPORTING</code>、<code>CHANGING</code> 的方向。</p>
+<p><code>EXPORTING</code> 或 <code>CHANGING</code> 按值传递时，还有一个项目上容易忽略的点：如果 method 因异常没有正常结束，按值传递的输出通常不会写回实际参数。设计失败路径时，不要让调用者依赖半写回的输出值。</p>
+<h5 id="26-4-5-optional-and-default-are-not-decoration-f2698a54">26.4.5 OPTIONAL and DEFAULT are not decoration</h5>
+<p><code>OPTIONAL</code> 和 <code>DEFAULT</code> 可以让 input parameter 或 input/output parameter 在调用时不必传：</p>
+<pre><code class="language-abap">CLASS-METHODS get_text
+  IMPORTING iv_status      TYPE string
+            iv_language    TYPE sylangu DEFAULT &#x27;E&#x27;
+            iv_fallback    TYPE string OPTIONAL
+  RETURNING VALUE(rv_text) TYPE string.</code></pre>
+<p>区别是：</p>
+<ul>
+<li><code>OPTIONAL</code>：没有传时，formal parameter 按类型得到 initial value。</li>
+<li><code>DEFAULT</code>：没有传时，formal parameter 使用指定的 replacement value。</li>
+</ul>
+<p>这不是“少写参数”的装饰语法，而是 contract 的一部分。<code>iv_language DEFAULT &#x27;E&#x27;</code> 表示默认语言就是设计决定；<code>iv_fallback OPTIONAL</code> 表示 fallback 是可选行为。不要把业务必需字段做成 optional，否则调用者漏传也不会在 signature 层暴露。</p>
+<p><code>PREFERRED PARAMETER</code> 允许在所有 input / input-output 参数都 optional 的情况下指定一个首选参数，使 <code>meth( a )</code> 这样的短写能映射到该参数。初学阶段知道有这个语法即可，不要为了追求短写牺牲可读性。项目代码里，清楚写出 <code>iv_status = ...</code> 往往比短写更容易 review。</p>
+<h5 id="26-4-6-exceptions-are-also-part-of-the-signature-cbccf638">26.4.6 exceptions are also part of the signature</h5>
+<p>method signature 还可以声明异常。现代 OO ABAP 优先使用 class-based exceptions：</p>
+<pre><code class="language-abap">CLASS-METHODS divide
+  IMPORTING iv_numerator     TYPE decfloat34
+            iv_denominator   TYPE decfloat34
+  RETURNING VALUE(rv_result) TYPE decfloat34
+  RAISING   cx_sy_arithmetic_error.</code></pre>
+<p>实现里如果发生除零等算术错误，可以向调用者传播 <code>cx_sy_arithmetic_error</code> 或其子类。调用者就必须考虑：</p>
+<pre><code class="language-abap">TRY.
+    DATA(lv_result) = lcl_math=&gt;divide(
+      iv_numerator   = 1
+      iv_denominator = 0 ).
+  CATCH cx_sy_arithmetic_error INTO DATA(lx_error).
+    &quot; error handling
+ENDTRY.</code></pre>
+<p>旧式 <code>EXCEPTIONS</code> 是 non-class-based exceptions，会让调用者通过 <code>sy-subrc</code> 判断结果，也会限制 functional method 的使用。SAP Help 对新开发给出的方向是：推荐使用独立于单个 method 的 class-based exceptions。对本教程来说，除非在读旧代码或旧 API wrapper，否则不要把 <code>EXCEPTIONS</code> 当成新代码首选。并且在 ABAP for Cloud Development / ABAP Cloud 语境中，legacy <code>EXCEPTIONS</code> 不是“风格上不推荐”这么简单，而是应视为不可用于新开发的硬限制；应使用 class-based exceptions 或框架规定的错误返回方式。</p>
+<h5 id="26-4-7-signature-review-checklist-098f1bba">26.4.7 signature review checklist</h5>
+<p>在日本项目 code review 中，看 method signature 时可以按六个问题快速判断。第一，这个 method 的主动作能不能从名字看出来？<code>get_*</code>、<code>calculate_*</code>、<code>check_*</code>、<code>normalize_*</code>、<code>save_*</code> 暗示的副作用不同。第二，主输入是否都在 <code>IMPORTING</code>，而且类型足够具体？如果所有参数都是 <code>string</code>，reviewer 很难判断合法值。第三，主结果是否清楚？一个单一结果优先 <code>RETURNING</code>；多个结果应考虑返回 structure，而不是堆很多 <code>EXPORTING</code>。第四，是否有隐藏副作用？只读名字却有 <code>CHANGING</code>、数据库更新、message 输出或 commit 边界，通常需要拆分或改名。第五，失败路径是否在 signature 中可见？业务错误、技术错误、not-found、invalid-input 不应只靠注释或调用方猜测。第六，能否写 ABAP Unit？如果测试必须准备真实 DB、当前用户、外部接口和系统时间，signature 可能已经把依赖藏得太深。</p>
+<p>可以把这张表放进 review 记录：</p>
+<div class="table-wrap"><table><thead><tr><th>Review question</th><th>Good signal</th><th>Risk signal</th></tr></thead><tbody><tr><td>What is the main intent?</td><td>method name + signature 能说明一件事</td><td>名字很泛，例如 <code>process_data</code>、<code>do_check</code></td></tr><tr><td>Where is the input?</td><td>少量 <code>IMPORTING</code>，类型具体</td><td>过多 optional、全部 <code>string</code>、依赖全局变量</td></tr><tr><td>Where is the result?</td><td>单一 <code>RETURNING</code> 或清楚 result structure</td><td>多个 <code>EXPORTING</code>，调用者不知道主结果</td></tr><tr><td>Where is the side effect?</td><td><code>CHANGING</code> / save / update 在名字中可见</td><td>查询式名字却修改传入对象或系统状态</td></tr><tr><td>How can it fail?</td><td><code>RAISING</code> 或框架错误返回明确</td><td><code>abap_bool</code> 悄悄 false，调用者容易漏判</td></tr><tr><td>Can it be tested?</td><td><code>IMPORTING</code> + <code>RETURNING</code>，依赖可替换</td><td>直接碰 DB、权限、系统日期、外部接口</td></tr></tbody></table></div>
+<p>这张表不是额外格式要求，而是帮助初学者把 SAP Help 的语法规则转成项目判断。语法允许的 signature 不一定是好 signature；好 signature 应该让调用者、测试者和 reviewer 都能快速理解 contract。</p>
+<h5 id="26-4-8-rap-and-abap-cloud-caveat-587349a6">26.4.8 RAP and ABAP Cloud caveat</h5>
+<p>在 RAP / ABAP Cloud 风格代码里，很多 framework method 的 signature 由 RAP behavior、接口或父类规定，开发者不能随意改。例如 handler、saver、authorization、validation、determination 等方法通常要遵守框架定义的参数形状。自定义 helper method 仍然要保持小而清楚：输入来自 RAP context，输出是明确结果、result object、reported/failed 等框架规定结构，或 class-based exception；不要用宽泛 <code>CHANGING</code> 去隐藏副作用。</p>
+<p>Clean Core 角度看，method signature 也应避免泄露不稳定内部实现。对外可复用的 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a> 或 <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a>，参数类型应尽量稳定、可解释，优先使用明确的 DDIC type、released API 暴露的 type 或项目内稳定 type，而不是把临时结构和任意 <code>string</code> 当成长期 contract。</p>
+<h4 id="26-5-820ba46a" class="semantic-heading semantic-japan">26.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>メソッドシグネチャ</code></li>
+<li><code>引数</code></li>
+<li><code>戻り値</code></li>
+<li><code>IMPORTINGパラメータ</code></li>
+<li><code>EXPORTINGパラメータ</code></li>
+<li><code>CHANGINGパラメータ</code></li>
+<li><code>RETURNINGパラメータ</code></li>
+<li><code>任意パラメータ</code></li>
+<li><code>デフォルト値</code></li>
+<li><code>例外クラス</code></li>
+<li><code>副作用</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>このメソッドは <code>RETURNING</code> で単一の結果を返す形にして、テストしやすいシグネチャにしています。</li>
+<li>この <code>CHANGING</code> パラメータは呼び出し元の値を更新するため、副作用がレビューで分かる名前にしています。</li>
+<li>必須項目なので <code>OPTIONAL</code> にはせず、呼び出し側で明示的に渡す設計にしています。</li>
+<li>旧式の <code>EXCEPTIONS</code> ではなく、例外クラスを <code>RAISING</code> に定義する方針です。</li>
+<li>ABAP Cloud では旧式の <code>EXCEPTIONS</code> は新規実装の選択肢ではなく、例外クラスまたはフレームワークで定義されたエラー返却方式を使用します。</li>
+<li>RAP 側のシグネチャはフレームワークで決まっているため、補助メソッド側で責務を小さく分けています。</li>
+</ul>
+<p>日本项目 review 里，<code>引数が多すぎます</code>、<code>副作用が分かりにくいです</code>、<code>戻り値で返せませんか</code> 这类评论很常见。它们不是“代码风格洁癖”，而是在问：这个 method 的 contract 是否足够清楚。</p>
+<h4 id="26-6-english-terms-8c4449a0" class="semantic-heading semantic-terms">26.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>METHODS</code></li>
+<li>Official / search term: <code>CLASS-METHODS</code></li>
+<li>Official / search term: <code>method parameter interface</code></li>
+<li>Official / search term: <code>IMPORTING parameters</code></li>
+<li>Official / search term: <code>EXPORTING parameters</code></li>
+<li>Official / search term: <code>CHANGING parameters</code></li>
+<li>Official / search term: <code>RETURNING VALUE</code></li>
+<li>Official / search term: <code>pass by value</code></li>
+<li>Official / search term: <code>pass by reference</code></li>
+<li>Official / search term: <code>OPTIONAL</code></li>
+<li>Official / search term: <code>DEFAULT</code></li>
+<li>Official / search term: <code>PREFERRED PARAMETER</code></li>
+<li>Official / search term: <code>RAISING</code></li>
+<li>Legacy / reading term: <code>EXCEPTIONS</code></li>
+<li>Call-site term: <code>RECEIVING</code></li>
+</ul>
+<p>读官方资料时，注意 ABAP 的命名视角：method declaration 里是 <code>IMPORTING</code> / <code>EXPORTING</code> / <code>CHANGING</code> / <code>RETURNING</code>；method call 里给 method 的 input 参数传值时写 <code>EXPORTING</code>，接 method 的 output 参数时写 <code>IMPORTING</code>，接 return value 时可写 <code>RECEIVING</code>。</p>
+<h4 id="26-7-example-5c6eae76" class="semantic-heading semantic-example">26.7 Example / 学习例子</h4>
+<h5 id="26-7-1-1-returning-structure-85c5b413">26.7.1 例 1：把多个输出收成一个 returning structure</h5>
+<p>初学者常写成这样：</p>
+<pre><code class="language-abap">CLASS-METHODS validate_quantity
+  IMPORTING iv_quantity TYPE i
+  EXPORTING ev_valid    TYPE abap_bool
+            ev_message  TYPE string.</code></pre>
+<p>这能工作，但调用者要准备两个输出变量，且主结果不够集中。更适合教学和业务规则封装的写法，是定义一个小结果类型：</p>
+<pre><code class="language-abap">TYPES:
+  BEGIN OF ty_validation_result,
+    is_valid TYPE abap_bool,
+    message  TYPE string,
+  END OF ty_validation_result.
+
+CLASS-METHODS validate_quantity
+  IMPORTING iv_quantity      TYPE i
+  RETURNING VALUE(rs_result) TYPE ty_validation_result.</code></pre>
+<p>调用者就可以直接断言：</p>
+<pre><code class="language-abap">DATA(ls_result) = lcl_quantity_rule=&gt;validate_quantity( 10 ).
+
+cl_abap_unit_assert=&gt;assert_equals(
+  act = ls_result-is_valid
+  exp = abap_true ).</code></pre>
+<p>这类 signature 与 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a> 配合很好：输入清楚、输出集中、没有隐藏副作用。</p>
+<h5 id="26-7-2-2-changing-3cf89ef9">26.7.2 例 2：只有明确要原地修改时才用 CHANGING</h5>
+<p>如果 method 只是把 status 字符串规范化，<code>CHANGING</code> 可以接受：</p>
+<pre><code class="language-abap">CLASS-METHODS normalize_status
+  CHANGING cv_status TYPE string.
+
+METHOD normalize_status.
+  CONDENSE cv_status.
+  cv_status = to_upper( cv_status ).
+ENDMETHOD.</code></pre>
+<p>调用者会看到变量被原地改写：</p>
+<pre><code class="language-abap">DATA(lv_status) = ` open `.
+
+lcl_status_helper=&gt;normalize_status(
+  CHANGING cv_status = lv_status ).</code></pre>
+<p>但如果 method 名叫 <code>get_status_text</code>，里面却用 <code>CHANGING</code> 改调用者传入的 status，就会造成副作用误导。名字、方向和行为要一致。</p>
+<h5 id="26-7-3-3-contract-1afb80d2">26.7.3 例 3：异常属于 contract</h5>
+<p>一个除法 helper 可以用 <code>RAISING</code> 明确失败路径：</p>
+<pre><code class="language-abap">CLASS-METHODS divide
+  IMPORTING iv_numerator     TYPE decfloat34
+            iv_denominator   TYPE decfloat34
+  RETURNING VALUE(rv_result) TYPE decfloat34
+  RAISING   cx_sy_arithmetic_error.</code></pre>
+<p>调用者看到 signature 后就知道这不是单纯返回 <code>0</code> 或 <code>abap_false</code> 的方法，而是可能需要 <code>TRY...CATCH</code>：</p>
+<pre><code class="language-abap">TRY.
+    DATA(lv_result) = lcl_math=&gt;divide(
+      iv_numerator   = 1
+      iv_denominator = 0 ).
+  CATCH cx_sy_arithmetic_error INTO DATA(lx_error).
+    DATA(lv_message) = lx_error-&gt;get_text( ).
+ENDTRY.</code></pre>
+<p>后续学习 <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a> 和 <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a> 时，会继续展开异常类设计。</p>
+<h4 id="26-8-counterexample-failure-mode-699f6131" class="semantic-heading semantic-example">26.8 Counterexample / Failure mode</h4>
+<h5 id="26-8-1-1-b1279fd4" class="semantic-heading semantic-failure">26.8.1 误区 1：参数越多越“通用”</h5>
+<pre><code class="language-abap">CLASS-METHODS process_order
+  IMPORTING iv_mode       TYPE string
+            iv_status     TYPE string
+            iv_user       TYPE string
+            iv_date       TYPE d
+            iv_flag       TYPE abap_bool
+  EXPORTING ev_message    TYPE string
+            ev_code       TYPE string
+  CHANGING  cs_order      TYPE zorder.</code></pre>
+<p>这类 signature 看起来“什么都能处理”，实际很难测试，也很难 review。<code>iv_mode</code>、<code>iv_flag</code> 这种参数经常暗示 method 里藏了多个分支责任。修正方向是按业务动作拆分 method，必要时把相关输入收成结构，把主结果设计成返回结构。</p>
+<h5 id="26-8-2-2-changing-1facee0a" class="semantic-heading semantic-failure">26.8.2 误区 2：用 CHANGING 隐藏业务更新</h5>
+<p>如果 method 名称像查询，signature 却使用 <code>CHANGING</code> 修改调用者数据，日本项目 review 很容易被指出副作用不清楚。</p>
+<p>修正方向：</p>
+<ul>
+<li>只读查询：使用 <code>IMPORTING</code> + <code>RETURNING</code>。</li>
+<li>明确更新：method name 写成 <code>normalize_...</code>、<code>fill_...</code>、<code>apply_...</code>，并在 signature 中保留 <code>CHANGING</code>。</li>
+<li>复杂业务更新：考虑让 method 返回结果对象或变更记录，不要让调用者猜测哪些字段被改。</li>
+</ul>
+<h5 id="26-8-3-3-optional-404f189a" class="semantic-heading semantic-failure">26.8.3 误区 3：把 OPTIONAL 当成“以后再说”</h5>
+<p>业务必需参数不应该因为“调用方便”就写成 <code>OPTIONAL</code>。例如订单号、公司代码、语言、日期范围等参数，如果缺失会改变业务含义，应当在 signature 或专门校验逻辑中明确。</p>
+<p>修正方向：只有真实可缺省的参数才用 <code>OPTIONAL</code> 或 <code>DEFAULT</code>。默认值要能被项目解释，例如默认语言、默认显示格式、默认 simulation flag。</p>
+<h5 id="26-8-4-4-classic-exceptions-65bc68d8" class="semantic-heading semantic-failure">26.8.4 误区 4：新代码继续设计 classic EXCEPTIONS</h5>
+<p>旧式 <code>EXCEPTIONS</code> 通过 <code>sy-subrc</code> 处理，读旧 SAP API 时会遇到；但新 OO ABAP helper 优先 class-based exceptions。否则 method 很难作为表达式调用，也容易让错误处理退回“忘记检查 <code>sy-subrc</code>”。在 ABAP Cloud 语境中，还要把它看成平台限制问题，而不只是 Clean ABAP 风格问题。</p>
+<p>修正方向：新开发用 <code>RAISING zcx_...</code> 或合适的 SAP exception class；读旧 API 时，把 <code>EXCEPTIONS</code> 转换为明确的异常类或结果对象边界。</p>
+<h4 id="26-9-3f10387d" class="semantic-heading semantic-practice">26.9 思考问题</h4>
+<ul>
+<li>这个 method 的主结果应该是 <code>RETURNING</code>，还是确实需要多个 <code>EXPORTING</code> 参数？</li>
+<li><code>CHANGING</code> 是否真的必要？调用者是否能从 method name 看出它会修改数据？</li>
+<li>哪些参数是业务必需，哪些才适合 <code>OPTIONAL</code> 或 <code>DEFAULT</code>？</li>
+<li>这个 signature 是否暴露了不稳定的内部结构，导致以后难以重构？</li>
+<li>如果这个 method 失败，应该返回 result object、抛出 class-based exception，还是交给 RAP framework 处理？</li>
+<li>用 ABAP Unit 写测试时，是否能用一两行准备输入，并用一个清楚的返回值断言？</li>
+<li>在日本项目 review 中，如果被问 <code>引数が多すぎませんか</code>，应该怎样解释或拆分？</li>
+</ul>
+<h4 id="26-10-6ab518c6" class="semantic-heading semantic-reference">26.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMETHODS.html" target="_blank" rel="noopener noreferrer">METHODS</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMETHODS_GENERAL.html" target="_blank" rel="noopener noreferrer">METHODS, IMPORTING, EXPORTING, CHANGING, RAISING</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMETHODS_PARAMETERS.html" target="_blank" rel="noopener noreferrer">METHODS, parameters</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENMETHOD_PARAMETERS.html" target="_blank" rel="noopener noreferrer">ABAP Objects - Interface Parameters in Methods</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCALL_METHOD_PARAMETERS.html" target="_blank" rel="noopener noreferrer">meth( ... ), Parameter Passing</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCLASS-METHODS.html" target="_blank" rel="noopener noreferrer">CLASS-METHODS</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPRAISE_EXCEPTION_CLASS.html" target="_blank" rel="noopener noreferrer">RAISE EXCEPTION</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+</ul>
+<h4 id="26-11-connections-22075d19">26.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-025-local-class-4c6dbe23.html">Local class 局部类</a></li>
+<li>Downstream: <a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a></li>
+<li>Related: <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a></li>
+<li>Related: <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a></li>
+<li>Related: <a class="wiki" href="section-02-028-static-vs-instance-e9b8f033.html">Static vs instance 静态与实例</a></li>
+<li>Related: <a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a></li>
+<li>Related: <a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a></li>
+<li>Related: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 11 - OO ABAP 类与方法基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="26-12-837c4bd7" class="semantic-heading semantic-practice">26.12 学习任务</h4>
+<ul>
+<li>找一个已经扩写过的 local/global class 例子，圈出其中一个 method signature，并标注 method name、input、output、return、exception。</li>
+<li>把一个有两个 <code>EXPORTING</code> 参数的设计改写成 <code>RETURNING VALUE(rs_result)</code> 的结构返回版本。</li>
+<li>写一个只使用 <code>IMPORTING</code> + <code>RETURNING</code> 的 pure helper，并为它准备一个 ABAP Unit assertion。</li>
+<li>写一个使用 <code>CHANGING</code> 的 helper，并在中文说明里解释为什么这里允许副作用。</li>
+<li>用日语写一句 review comment，指出某个 method 的 <code>CHANGING</code> 或 <code>OPTIONAL</code> 设计不清楚。</li>
+<li>打开 SAP Help 的 <code>METHODS, parameters</code> 页面，确认 <code>VALUE(...)</code>、<code>REFERENCE(...)</code>、<code>OPTIONAL</code>、<code>DEFAULT</code> 的官方说法。</li>
+</ul>
+<h4 id="26-13-confidence-next-action-65679cea" class="semantic-heading semantic-status">26.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容已用 SAP Help / ABAP Keyword Documentation 的 <code>METHODS</code>、<code>CLASS-METHODS</code>、method parameters、parameter passing、class-based exception 页面校准；<code>RETURNING</code> 与 <code>EXPORTING</code> / <code>CHANGING</code> 的 nuance 已按官方语法短引用改成“设计准则，不是语法禁令”。</li>
+<li>Next action: 已完成官方资料闭环并同步到 Chapter 02 与离线书稿；Claude follow-up 在 2026-06-18 仍因 credentials provider 错误失败，旧 Joule snapshot 未作为 Method signature 通过证据使用，后续 Claude/Joule 恢复后可做补充复核。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-025-local-class-4c6dbe23.html">Previous section</a><a href="section-02-027-method-visibility-944fe011.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

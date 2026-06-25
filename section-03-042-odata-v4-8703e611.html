@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>OData V4 基础差异 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="42-odata-v4-012a1126" class="chapter-title">42. OData V4 基础差异</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 42</li><li>self-contained study note</li></ul><h4 id="42-1-9cb44372" class="semantic-heading semantic-concept">42.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a> 是现代 RAP 服务暴露中最重要的协议方向之一。和 <a class="wiki" href="section-03-041-odata-v2-9ff5a688.html">OData V2 基础差异</a> 相比，V4 更适合新的 RAP business service、Fiori Elements UI、Web API、action/function、metadata-driven consumption 和事务型 BO 暴露；但它不是“更高版本所以所有旧服务都自动替换”，仍要看消费者、系统版本、binding type 和项目兼容性。</p>
+<p>一句话记忆：OData V4 是新 RAP 服务的优先理解对象，OData V2 是旧生态和兼容现实。</p>
+<h4 id="42-2-8016acc6" class="semantic-heading semantic-concept">42.2 到底学什么</h4>
+<p>本节要把 OData V4 放在 RAP 学习路径里理解，而不是单独背协议。前面已经学过 service definition 和 service binding：当 binding type 选择 OData V4 UI 或 OData V4 Web API 后，RAP BO 就会通过 OData V4 形态被消费。消费者可能是 Fiori Elements，也可能是外部系统或测试工具。</p>
+<p>OData V4 不是 ABAP 语法，也不是 CDS 本身。它是服务协议和 metadata contract。RAP 内部的 behavior definition、projection behavior、authorization、validation、action、draft、save sequence，会通过 service binding 暴露成可调用的 entity set、navigation、bound action/function、错误响应和事务语义。</p>
+<p>初学者要学会三层判断。第一，这个服务是 V4 UI 还是 V4 Web API？第二，metadata 中是否包含预期 entity、navigation、action/function 和 annotation？第三，请求/响应能否证明业务语义可交付，而不仅是 preview 页面能打开。</p>
+<p>还要补一层项目判断：V4 服务上线后由谁消费、谁维护、谁承担兼容责任。Fiori Elements 消费的 V4 UI service，通常由前端/功能团队和 ABAP/RAP 团队一起调整；外部系统消费的 V4 Web API，一旦进入接口契约，就不能随意改 entity name、字段类型、action 名称、key 结构或错误格式。对初学者来说，OData V4 的难点不是“URL 长什么样”，而是“服务模型一旦被消费者依赖，就变成了交付承诺”。</p>
+<h4 id="42-3-c9b81a42" class="semantic-heading semantic-why">42.3 为什么重要</h4>
+<p>OData V4 重要，是因为它和现代 RAP 的学习目标高度重合。RAP 不是只生成一个 CRUD 接口，而是把业务对象的行为、权限、消息、draft、action、validation、事务边界通过 service contract 暴露出去。OData V4 能更自然地承载这些服务语义。</p>
+<p>对 Fiori Elements 来说，V4 UI service 依赖 metadata 和 annotation 来生成页面、字段、action button、navigation、draft 行为和消息显示。一个 action 是否出现在 UI、错误消息是否定位到字段、draft 是否能 activate，往往都要回到 metadata、binding type 和 behavior/projection 设计中分析。</p>
+<p>对外部 API 来说，V4 Web API 更关注稳定的 service contract。外部系统需要知道 entity set、key、payload、action/function、error format、authorization、ETag/concurrency、重复请求行为。只给一张 service preview 截图，不足以证明 API 可交付。</p>
+<p>对 Java/Python 背景学习者，OData V4 可以类比成强 metadata 的 REST-like API，但它比普通 REST 更“模型驱动”。消费者会读取 <code>$metadata</code>，理解类型、导航和操作；RAP runtime 则把请求接到 BO lifecycle，而不是简单映射到 controller method。</p>
+<h4 id="42-4-key-mechanism-269613bb" class="semantic-heading semantic-mechanism">42.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 OData V4 service binding。Service definition 选定暴露对象后，binding type 决定是否以 OData V4 UI / OData V4 Web API 等方式发布。Binding type 不只是标签；它影响消费场景、preview、metadata、UI 生成和交付检查。</p>
+<p>第二层机制是 <code>$metadata</code>。V4 metadata 是服务契约的核心证据。它描述 entity type、entity set、navigation property、action/function、annotation、类型信息。测试时不能只调用一个 URL 成功，还要确认 metadata 是否符合前端/外部系统预期。</p>
+<p>第三层机制是 bound action / function。RAP action 在服务暴露后可能成为绑定到 entity 的 operation。比如对某个 Travel 调用 <code>accept</code> 或 <code>validate</code>，不是普通表更新，而是进入 RAP BO action handler 和事务生命周期。要测试 action，就要记录 URL、method、payload、response、failed/reported/error 行为。</p>
+<p>第四层机制是 navigation 和 <code>$expand</code>。V4 服务可以通过 association/composition 暴露导航关系。Travel 到 Booking 的 navigation 是否可见，<code>$expand</code> 是否可用，取决于 CDS/projection/service 暴露和 authorization 等因素。前端列表-明细、对象页、子表通常依赖这些关系。</p>
+<p>第五层机制是 concurrency / ETag。事务型服务常需要处理并发修改。V4 API 测试不能只测单用户 happy path；要考虑 ETag、If-Match、重复提交、并发保存和错误响应。具体支持程度取决于 BO 设计和 binding/runtime。</p>
+<p>第六层机制是 UI service vs Web API。UI service 面向 Fiori Elements，关注 annotation、draft、side effect、value help、message mapping；Web API 面向外部系统，关注 contract 稳定、payload、HTTP status、authentication、versioning。两者都可能是 V4，但测试重点不同。</p>
+<p>第七层机制是与 V2 的差异。V4 不是简单“V2 URL 换个版本”。metadata 格式、operation 建模、UI framework 支持、binding 类型、错误处理和客户端库都可能不同。迁移 V2 到 V4 应作为接口重设计评估，而不是机械改 URL。</p>
+<p>第八层机制是服务发布链路。一个可消费的 V4 服务通常不是单个对象，而是一条链：CDS root/projection entity 决定数据模型，behavior definition / projection behavior 决定行为，service definition 决定暴露哪些对象，service binding 决定 OData V4 UI 或 OData V4 Web API 的发布方式，publish/activation 决定 runtime 入口是否可用，authorization / DCL / behavior authorization 决定谁能访问。排查问题时要按这条链往回走，而不是只盯着 HTTP 404 或 preview 页面。</p>
+<p>第九层机制是请求证据。OData V4 的学习不能只停在 <code>$metadata</code>。一个可交付的服务至少要保存四类证据：metadata 证据、happy path 请求证据、negative path 请求证据、authorization/concurrency 证据。特别是 action、PATCH、draft activate、validation failure、authorization failure、ETag conflict 这些路径，才真正证明 RAP 行为和服务协议连接起来了。</p>
+<p>可以把 V4 UI service 和 V4 Web API 的测试重心分开：</p>
+<div class="table-wrap"><table><thead><tr><th>检查点</th><th>V4 UI service</th><th>V4 Web API</th></tr></thead><tbody><tr><td>主要消费者</td><td>Fiori Elements / SAPUI5</td><td>外部系统、middleware、batch、technical client</td></tr><tr><td>重点证据</td><td>preview、metadata、UI annotation、draft、side effect、value help、message display</td><td>metadata、HTTP request/response、payload contract、status code、authentication、versioning、error payload</td></tr><tr><td>变更风险</td><td>页面字段/action 消失、draft/side effect 不工作、value help 异常</td><td>外部系统解析失败、字段兼容性破坏、错误处理不稳定</td></tr><tr><td>常见验收</td><td>业务用户能完成页面操作</td><td>consumer 能自动调用并处理成功/失败</td></tr><tr><td>典型下一步</td><td>Fiori Elements 页面验证</td><td>API collection / contract test / monitoring runbook</td></tr></tbody></table></div>
+<p>这个表不是说 UI service 不需要 API 测试，或 Web API 不需要 metadata；而是提醒读者：同样叫 OData V4，交付标准会随着消费者不同而变化。</p>
+<h5 id="v4-contract-test-matrix-4682b925">V4 contract test matrix</h5>
+<p>OData V4 服务进入项目交付时，最容易漏掉的是“能打开”和“可作为契约使用”之间的差距。Preview、一次 GET 成功、一次 action 成功，都只能证明局部路径；真正的 contract test 要覆盖 metadata、读写、行为、错误、权限和并发。</p>
+<div class="table-wrap"><table><thead><tr><th>Contract area</th><th>What to verify</th><th>Why it matters</th><th>Evidence</th></tr></thead><tbody><tr><td>Metadata surface</td><td>entity set、key、field type、navigation、bound action/function 是否按设计出现</td><td>消费者通常先依赖 <code>$metadata</code> 生成模型或校验 payload</td><td><code>$metadata</code> snapshot、差异记录</td></tr><tr><td>Read path</td><td><code>$select</code>、<code>$filter</code>、<code>$expand</code>、pagination 是否返回正确业务数据</td><td>V4 服务不是直接 SQL，查询语义需要经过 CDS/RAP/authorization</td><td>request/response、样本数据、权限说明</td></tr><tr><td>Modify path</td><td><code>PATCH</code> / action / draft activate 是否触发正确 validation、determination、save sequence</td><td>证明 HTTP 请求真正进入 RAP BO lifecycle</td><td>payload、status、RAP message、DB/application log evidence</td></tr><tr><td>Bound operation</td><td>action/function 的 target、参数、返回结构和失败行为是否稳定</td><td>外部系统会把 operation 当接口调用点</td><td>operation URL、payload、positive/negative response</td></tr><tr><td>Draft behavior</td><td>draft create/edit/activate/discard 是否符合业务流程</td><td>Fiori Elements UI service 常依赖 draft 语义</td><td>UI flow、draft table/evidence、activation result</td></tr><tr><td>Authorization</td><td>business role、DCL、RAP global/instance authorization 是否分别验证</td><td>403、空结果和业务拒绝代表不同问题</td><td>allowed/denied user test、role/catalog/DCL note</td></tr><tr><td>Concurrency</td><td>ETag / <code>If-Match</code> / repeat update / simultaneous update 是否处理</td><td>防止覆盖、重复处理和状态错乱</td><td>conflict test、HTTP status、message</td></tr><tr><td>Error contract</td><td>validation error、authorization error、technical error 是否可诊断</td><td>API consumer 需要稳定错误结构，UI 需要可理解消息</td><td>error payload、message id、correlation/application log id</td></tr><tr><td>Transport target</td><td>QAS 中 binding、publish、role、communication setup 是否与 DEV 一致</td><td>DEV 成功不代表移送后可用</td><td>QAS smoke test、endpoint、metadata、user evidence</td></tr></tbody></table></div>
+<p>这张表适合放进设计 review 或测试说明。对初学者来说，它能把“我会用 OData V4”转成“我知道这个 V4 service 的契约如何被证明”。特别是外部 Web API 场景，<code>$metadata</code>、error payload、authorization 和 concurrency 不是附加项，而是接口是否可靠的核心证据。</p>
+<h4 id="42-5-82263ae6" class="semantic-heading semantic-japan">42.5 日本项目现场说法</h4>
+<ul>
+<li><code>OData V4</code>：OData version 4。</li>
+<li><code>V4 UI サービス</code>：V4 UI service。</li>
+<li><code>V4 Web API</code>：V4 Web API。</li>
+<li><code>メタデータ</code>：metadata。</li>
+<li><code>バウンドアクション</code>：bound action。</li>
+<li><code>ナビゲーションプロパティ</code>：navigation property。</li>
+<li><code>ETag</code> / <code>楽観ロック</code>：ETag / optimistic locking。</li>
+<li><code>エラー応答</code>：error response。</li>
+</ul>
+<p>新規 RAP サービスでは、まず OData V4 UI または OData V4 Web API のどちらで公開するかを確認します。</p>
+<p>意思是：新 RAP 服务首先要确认用 OData V4 UI 还是 OData V4 Web API 发布。</p>
+<p>メタデータに entity set、navigation、action が期待通り出ているかを確認してください。</p>
+<p>意思是：请确认 metadata 中 entity set、navigation、action 是否按预期出现。</p>
+<p>V2 から V4 への移行は URL の置き換えではなく、API 契約とクライアント影響の再確認が必要です。</p>
+<p>意思是：从 V2 迁移到 V4 不是替换 URL，而是需要重新确认 API contract 和客户端影响。</p>
+<p>外部連携向けの Web API として公開する場合は、HTTP ステータス、エラー形式、認証方式、互換性方針を設計書に明記します。</p>
+<p>意思是：作为外部集成 Web API 发布时，要在设计书中明确 HTTP status、错误格式、认证方式和兼容性策略。</p>
+<h4 id="42-6-english-terms-1d911675" class="semantic-heading semantic-terms">42.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>OData V4</code></li>
+<li>Related terms: <code>OData V4 UI</code>, <code>OData V4 Web API</code>, <code>$metadata</code>, <code>entity set</code>, <code>navigation property</code>, <code>bound action</code>, <code>bound function</code>, <code>ETag</code>, <code>If-Match</code>, <code>draft</code>, <code>side effects</code>, <code>value help</code>, <code>error payload</code>, <code>service binding</code></li>
+<li>Recommended search pattern: <code>SAP RAP OData V4 service binding metadata bound action</code></li>
+<li>HTTP/OData terms to keep in English: <code>GET</code>, <code>POST</code>, <code>PATCH</code>, <code>DELETE</code>, <code>$select</code>, <code>$filter</code>, <code>$expand</code>, <code>$orderby</code>, <code>$top</code>, <code>$skip</code>, <code>ETag</code>, <code>If-Match</code></li>
+</ul>
+<h4 id="42-7-example-18b39f30" class="semantic-heading semantic-example">42.7 Example / 学习例子</h4>
+<p>假设有一个 RAP Travel service，通过 OData V4 UI binding 发布。最小检查不是“页面能打开”一句话，而是：</p>
+<pre><code class="language-text">1. Service binding: OData V4 UI
+2. Published: yes
+3. Metadata: Travel entity set exists
+4. Navigation: Travel -&gt; Booking appears if expected
+5. Action: AcceptTravel appears as bound action if exposed
+6. Draft: draft-related operations appear if BO is draft-enabled
+7. Error: validation failure returns understandable error payload
+8. Authorization: unauthorized user gets expected denial</code></pre>
+<p>如果是 Web API，需要换成接口视角：</p>
+<pre><code class="language-text">GET    /Travel?$top=10
+GET    /Travel(&#x27;&lt;key&gt;&#x27;)
+PATCH  /Travel(&#x27;&lt;key&gt;&#x27;)
+POST   /Travel(&#x27;&lt;key&gt;&#x27;)/&lt;bound-action&gt;
+GET    /$metadata</code></pre>
+<p>每个请求都应保存 method、URL、headers、payload、status code、response body 和业务解释。对 action 或 update，还要验证 RAP behavior 中的 validation、authorization、save sequence 是否按预期运行。</p>
+<p>和 V2 对比：V2 章节强调既有 Gateway、CSRF、batch、metadata cache；V4 章节强调 RAP service binding、metadata contract、bound operation、UI/Web API 选择和现代 BO 事务语义。</p>
+<p>再看一个 AC0567C 风格的接口例子。假设要把一个“上传批次 validate / execute / status”的服务暴露给外部自动化程序。这个服务更像 V4 Web API，而不是 V4 UI service。读者应该写出这样的证据表：</p>
+<pre><code class="language-text">Service purpose:
+  Validate uploaded allocation data, execute posting, query status.
+
+Consumer:
+  External automation / middleware / technical client.
+
+Service type:
+  OData V4 Web API candidate.
+
+Contract evidence:
+  - $metadata contains Batch entity or action target.
+  - validate action is visible as a bound/unbound operation as designed.
+  - execute action requires authorization and returns stable business status.
+  - status read can be repeated safely.
+
+Negative tests:
+  - invalid payload returns business validation message.
+  - unauthorized user cannot execute.
+  - duplicate request returns existing status or duplicate warning.
+  - concurrent execute does not create duplicate postings.
+
+Operation evidence:
+  - request id / batch id / application log id can connect API response to SAP log.</code></pre>
+<p>如果同一个业务对象未来还要做 Fiori correction screen，可以另外建立 V4 UI service 或单独的 projection/binding，让 UI annotation、draft、side effect 不污染外部 Web API contract。这也是 <a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a> 后续要重点展开的原因。</p>
+<p>最后看一个迁移例子。一个老系统已有 OData V2 Gateway service，被多个外部系统调用。项目计划迁移到 RAP OData V4 时，不能只说“V4 更现代”。需要逐项确认：</p>
+<pre><code class="language-text">Consumer inventory:
+  谁在调用 V2？UI5 app、middleware、外部 vendor、batch script？
+
+Contract delta:
+  entity/key/path 是否变化？
+  action/function import 调用方式是否变化？
+  error payload 是否变化？
+  batch/CSRF/ETag 行为是否变化？
+
+Transition plan:
+  是否并行保留 V2？
+  是否提供 mapping document？
+  是否有 consumer regression test？
+  是否有 cutover 和 rollback 方案？</code></pre>
+<p>这段例子要训练的不是协议细节，而是项目判断：V4 是新 RAP 服务的重要方向，但已有 V2 consumer 的迁移是接口治理，不是语法升级。</p>
+<h4 id="42-8-counterexample-failure-mode-23b60c55" class="semantic-heading semantic-example">42.8 Counterexample / Failure mode</h4>
+<p>反例一：把 V4 当 V2 的 URL 新版本。结果客户端库、metadata、operation、batch/error 处理都没评估。修正方式是把 V4 当 API contract 重新验证。</p>
+<p>反例二：UI service 当外部 Web API。UI service 的 annotation、draft、side effect 适合 Fiori，但外部系统需要稳定 payload 和版本策略。修正方式是明确 UI service / Web API 分工。</p>
+<p>反例三：只测 list page。列表能打开，但 action、navigation、draft activate、validation failure 都没测。修正方式是按 metadata 和 BO 行为列测试矩阵。</p>
+<p>反例四：忽略 ETag / 并发。两个用户同时修改，后保存者覆盖前保存者。修正方式是确认 BO 的 concurrency 设计和 HTTP conditional request 行为。</p>
+<p>反例五：metadata 中暴露了不该暴露的字段或 action。前端/外部系统开始依赖内部字段。修正方式是通过 projection 和 service definition 控制公开面。</p>
+<p>反例六：迁移 V2 到 V4 只改 endpoint。外部系统解析错误 payload、batch 格式或 action 调用方式失败。修正方式是做消费者影响分析和并行测试。</p>
+<p>反例七：把 metadata 当内部文档，随意改 entity alias、字段名或 action 名称。外部系统已经依赖这些名字后，改名就等于 breaking change。修正方式是把 <code>$metadata</code> 当 contract 管理，必要时做版本策略或新 service。</p>
+<p>反例八：只在开发者自己的用户下测试。开发者有宽权限，preview 和 API 都成功；QAS 的 communication user 却没有业务权限、DCL 权限或 catalog/role。修正方式是用目标用户、目标 role、目标系统执行 API testing。</p>
+<p>反例九：错误响应只给人看，不给系统处理。外部系统收到自然语言错误，却没有稳定 error code、business key 或 correlation id。修正方式是设计 API error payload 和 application log 关联方式。</p>
+<h4 id="42-9-334b1f69" class="semantic-heading semantic-practice">42.9 思考问题</h4>
+<ul>
+<li>当前 V4 binding 是 UI service 还是 Web API？</li>
+<li><code>$metadata</code> 中哪些 entity set、navigation、action/function 是 API contract 的一部分？</li>
+<li>如果 action 没出现在 metadata，应该检查 service definition、projection behavior、behavior definition 还是 binding？</li>
+<li>是否测试了 validation failure、authorization failure、并发冲突、重复请求？</li>
+<li>V4 服务是否需要 ETag / optimistic locking？</li>
+<li>从 V2 迁移到 V4 时，哪些客户端代码会受影响？</li>
+<li>在日本项目设计书中，如何说明 <code>V4 UI サービス</code> 和 <code>V4 Web API</code> 的区别？</li>
+</ul>
+<h4 id="42-10-129a5e58" class="semantic-heading semantic-reference">42.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://docs.oasis-open.org/odata/odata/v4.01/odata-v4.01-part1-protocol.html" target="_blank" rel="noopener noreferrer">OASIS OData V4.01 - Protocol</a></li>
+<li><a href="https://docs.oasis-open.org/odata/odata/v4.01/odata-v4.01-part2-url-conventions.html" target="_blank" rel="noopener noreferrer">OASIS OData V4.01 - URL Conventions</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-binding" target="_blank" rel="noopener noreferrer">SAP Help - Service Binding</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-definition" target="_blank" rel="noopener noreferrer">SAP Help - Service Definition</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/using-service-binding-editor-for-odata-v4-service" target="_blank" rel="noopener noreferrer">SAP Help - Using Service Binding Editor for OData V4 Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-an-odata-ui-service" target="_blank" rel="noopener noreferrer">SAP Learning - Defining OData UI Services</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/getting-started-with-creating-an-sap-fiori-elements-app-based-on-an-odata-v4-rap-service" target="_blank" rel="noopener noreferrer">SAP Learning - Getting Started with Creating an SAP Fiori Elements App Based on an OData V4 RAP Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://github.com/SAP-samples/abap-platform-rap100" target="_blank" rel="noopener noreferrer">SAP-samples - abap-platform-rap100</a> (accessed 2026-06-18)</li>
+<li><a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li><a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="42-11-connections-07041294">42.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-03-041-odata-v2-9ff5a688.html">OData V2 基础差异</a></li>
+<li>Downstream: <a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="42-12-b29fc828" class="semantic-heading semantic-practice">42.12 学习任务</h4>
+<ul>
+<li>找一个 OData V4 service binding，确认它是 UI service 还是 Web API。</li>
+<li>打开 <code>$metadata</code>，记录 1 个 entity set、1 个 navigation property、1 个 action/function。</li>
+<li>设计 4 个测试：读取、修改/action、validation failure、authorization failure。</li>
+<li>写 2 个日语句子：一条说明 V4 UI/Web API 区别，一条说明 metadata contract。</li>
+<li>对比上一节 V2，列出项目中选择 V4 的 3 个理由和仍需考虑 V2 的 2 个理由。</li>
+</ul>
+<h4 id="42-13-confidence-next-action-19f964c5" class="semantic-heading semantic-status">42.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-facing OData V4 / RAP service positioning after official-source closure。2026-06-18 已复核 OASIS OData V4.01 protocol / URL conventions、SAP Help <code>Service Binding</code> / <code>Service Definition</code>、ADT <code>Using Service Binding Editor for OData V4 Service</code>、SAP Learning <code>Defining OData UI Services</code>、Fiori Elements OData V4 RAP service 课程和 SAP-samples RAP100。正文已覆盖 OData V4 UI / Web API binding、<code>$metadata</code> contract、entity set / navigation / bound action / function、<code>$expand</code>、ETag / optimistic locking、draft / action exposure、UI service vs Web API 测试重心、V2 -&gt; V4 migration impact、contract test matrix 和 AC0567C Web API 证据视角。具体 endpoint、ETag、batch、draft/action 暴露细节仍要按目标 release、binding type 和 BO 设计验证。</li>
+<li>Review status: prior Joule / Claude review artifacts for this section are deferred or timed out and explicitly state that no usable verdict was obtained；2026-06-18 Claude CLI 当前 session expired，外部 review debt 保留。由于本节已经用官方资料完成协议和 RAP binding 方向闭环，不再停留在提纲草稿状态。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；下一节继续 <a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a>，并用 <code>$metadata</code> snapshot、positive/negative HTTP request-response、authorization negative test 和 concurrency/idempotency evidence 验证 V4 contract。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-041-odata-v2-9ff5a688.html">Previous section</a><a href="section-03-043-ui-service-vs-web-api-eae9e36c.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

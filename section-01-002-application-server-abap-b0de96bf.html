@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Application Server ABAP 运行时基础 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="2-application-server-abap-ecb15e38" class="chapter-title">2. Application Server ABAP 运行时基础</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 02</li><li>self-contained study note</li></ul><h4 id="2-1-a3ea43e5" class="semantic-heading semantic-concept">2.1 一句话结论</h4>
+<p>Application Server ABAP（AS ABAP）是 ABAP 程序真正被调度、执行、访问数据库、返回结果的应用层运行环境。理解它，才能把前一节的 <a class="wiki" href="section-01-001-sap-system-landscape-e11c9fc6.html">SAP system landscape 系统环境分层</a> 连接到“ABAP 代码到底在哪里跑、为什么会有 work process、short dump、background job 和性能分析”。</p>
+<h4 id="2-2-c3ac3d85" class="semantic-heading semantic-concept">2.2 到底学什么</h4>
+<p>先把 <code>Application Server ABAP</code> 理解成 SAP 系统中的“ABAP 应用运行层”，不是某一台物理服务器，也不是 ADT 或 SAP GUI。SAP Learning 明确提醒：硬件厂商说 application server 时可能指机器，SAP 语境里更常指一个软件上的 SAP instance / application server。它有自己的 instance profile、自己的内存 buffer，一组一起启动和停止的进程，并运行在某个 host 上；一个 SAP system 可以有一个或多个 application server。旧项目资料里还可能看到 central instance / dialog instance，新术语里通常对应 Primary Application Server（PAS）和 Additional Application Server（AAS），Day 01 先做到能识别即可。</p>
+<p>对 ABAP 开发者来说，AS ABAP 解决的是“请求进来之后谁来处理”的问题。用户可能从 SAP GUI 操作事务，也可能从浏览器访问 SAP Fiori / Web 应用，外部系统也可能通过 RFC 或 HTTP 调用接口。请求不会直接跳进某个 ABAP class；它先进入 SAP 运行时，再由 dispatcher、work process、ICM、Gateway、Message Server 等组件配合处理。Day 01 不要求掌握 Basis 配置，但要知道这些词不是装饰，它们解释了为什么同一段代码在不同负载、不同系统、不同调用入口下表现不同。</p>
+<p>本节先抓四个问题。第一，AS ABAP 在 presentation layer、application layer、database layer 之间处在哪一层。第二，dispatcher 和 work process 为什么是理解 ABAP 运行时的核心。第三，database interface 为什么让 ABAP SQL（7.52 之前常称 Open SQL）能相对独立于具体数据库，同时又要意识到 SAP S/4HANA 以 SAP HANA 为数据库。第四，开发者能在哪里观察运行时现象，例如 System Status、SM51、SM50/SM66、ST22、SM37，而不是只在代码编辑器里看源码。</p>
+<h4 id="2-3-2a4013b3" class="semantic-heading semantic-why">2.3 为什么重要</h4>
+<p>如果只把 SAP 当成数据库或接口平台，就会误解很多 ABAP 项目问题。一个程序在 DEV 已经 activation，只说明对象在当前系统有 active version；真正运行时，还要看请求进入哪个 application server、由哪个 work process 处理、是否访问数据库、是否触发 update task、是否进入 background job、是否发生 runtime error。也就是说，<a class="wiki" href="section-01-013-activation-ff7e1caa.html">activation</a> 解释“对象版本是否生效”，AS ABAP 解释“对象如何被执行”。</p>
+<p>对 Java/Python 背景的人来说，可以把 AS ABAP 类比成应用服务器运行时，但不能完全等同于 Spring Boot、Django、Flask 或 Node.js 进程。普通 Web 项目常常是某个服务进程加载本地代码文件，对外暴露 HTTP API；ABAP 项目里，代码主要以 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a> 形式存在于 SAP repository 中，运行时由 SAP 系统管理。开发者通常不直接启动一个自己的 ABAP 进程，而是把对象激活到系统里，再由 SAP dispatcher 和 work process 根据请求来执行；这个调度过程会在下方核心机制里展开。</p>
+<p>这也是交付排查的基础。性能慢，可能要看 SQL、buffer、work process、background job；短 dump，要看 ST22 和调用栈；接口不通，可能涉及 ICM、Gateway、RFC、OData 服务；用户说“我这里卡住了”，可能要知道他连到哪个 application server、是否有负载均衡、是否只有某个实例异常。初学者不需要成为 Basis 管理员，但必须知道 ABAP 代码不是在真空里运行。</p>
+<h4 id="2-4-key-mechanism-ab339ff8" class="semantic-heading semantic-mechanism">2.4 Key mechanism / 核心机制</h4>
+<p>可以把一次典型请求想成下面这条路径：</p>
+<pre><code class="language-text">SAP GUI / Browser / RFC caller
+  -&gt; dispatcher / ICM / Gateway
+  -&gt; request queue
+  -&gt; available work process
+  -&gt; ABAP interpreter + database interface
+  -&gt; database / buffer / update / spool / background handling
+  -&gt; result returned to caller</code></pre>
+<p>第一层机制是 dispatcher。SAP Learning 把 ABAP dispatcher 描述为 AS ABAP 的中心进程：它把请求先放入 request queue，再分发给可用 work process。重点不是背定义，而是理解“用户和 work process 没有固定一对一绑定”。一个用户的不同 dialog step 可能由不同 work process 处理，所以 SAP 运行时需要 user context 的 roll-in / roll-out 机制。</p>
+<p>第二层机制是 work process。真正执行应用程序逻辑的是 work process。当前项目里最该先认识的 dispatcher-managed work process 类型，是 dialog、background、update 和 spool：dialog 处理交互请求，background 处理后台任务，update 处理延迟提交的更新逻辑，spool 处理打印/输出队列。逻辑锁由 Central Enqueue Service / enqueue server 负责，在当前 S/4HANA 语境下不要把它简单当成普通 work process 类型来教。数量、参数、实例分布属于 Basis 细节，后续遇到性能或生产问题时再深入。</p>
+<p>第三层机制是 ABAP interpreter、task handler 与 database interface。经典 Dynpro 场景里会出现 screen / dynpro processor；work process 内部的 task handler 协调这些处理器之间的动作，实际 ABAP 处理逻辑由 ABAP interpreter（有些资料也会泛称 ABAP processor）执行；访问数据库时，每个 work process 通过 database interface 把 ABAP SQL（旧称 Open SQL）转成目标数据库能理解的 SQL。这里要加一个现实 caveat：database interface 提供了相对数据库独立的编程模型，但 SAP S/4HANA 只支持 SAP HANA，实际项目会越来越多地结合 HANA 能力、CDS 或数据库过程思考性能；所以它不是“以后不用理解数据库”的理由。</p>
+<p>第四层机制是通信组件。ICM 处理 HTTP/HTTPS/SMTP 等 web 协议入口，Gateway 支持 RFC 通信，Message Server 为多个 application server 的 dispatcher 提供中央消息服务，并在登录负载均衡中帮助选择合适的实例；用户登录并连接到某个实例后，SAP GUI 通常和该实例的 dispatcher 通信，而不是每个业务请求都先由 Message Server 路由。这里先记住名字和责任边界：Fiori/OData/API 问题经常会碰到 ICM，RFC/BAPI 集成会碰到 Gateway，多实例登录和可用性会碰到 Message Server。</p>
+<p>第五层机制是运行时观察入口。开发者不需要一开始就会 Basis 管理，但要知道问题发生时去哪看。<code>ST22</code> 看 short dump，<code>SM37</code> 看 background job，<code>SM50</code> 看当前实例 work process，<code>SM66</code> 看全系统 work process，<code>SM51</code> 看 application server 列表，系统状态里能看到当前 system/client/user/application server。把这些入口记住，后续看到“程序慢”“接口超时”“后台失败”时，就不会只盯着源码。</p>
+<p>第六层机制是开发者与 Basis 的分工。ABAP 开发者负责理解业务逻辑、SQL、异常、权限、日志和可复现证据；Basis/运维更关注实例、work process 数量、profile parameter、ICM/Gateway 配置、系统日志、负载和可用性。好的项目沟通不是“你帮我看一下 SAP”，而是能说清楚：哪个系统、哪个 client、哪个用户、哪个时间、哪个 application server、哪个程序/API、发生了什么错误、已有哪类证据。</p>
+<div class="table-wrap"><table><thead><tr><th>运行时对象</th><th>初学者理解</th><th>常见排查入口</th></tr></thead><tbody><tr><td>Dispatcher</td><td>请求排队和分发中心</td><td>SM50/SM66 观察 work process 状态</td></tr><tr><td>Dialog work process</td><td>处理交互式 dialog step</td><td>前台卡顿、事务响应慢</td></tr><tr><td>Background work process</td><td>处理后台 job</td><td>SM37、job log、application log</td></tr><tr><td>Update work process</td><td>处理 update task</td><td>更新失败、事务提交后错误</td></tr><tr><td>Spool work process</td><td>处理打印/输出</td><td>打印、表单、spool queue</td></tr><tr><td>ICM</td><td>HTTP/HTTPS 等 web 入口</td><td>Fiori/OData/HTTP API 连通</td></tr><tr><td>Gateway</td><td>RFC 通信入口</td><td>RFC/BAPI/远程调用</td></tr><tr><td>Message Server</td><td>多实例消息和登录负载均衡</td><td>多 application server 登录/路由</td></tr></tbody></table></div>
+<p>把 AC0567C POC 放进这个视角，可以这样读运行路径：</p>
+<pre><code class="language-text">External caller / Browser
+  -&gt; HTTP/OData entry through ICM
+  -&gt; OData/RAP runtime and service binding
+  -&gt; ABAP handler / behavior implementation in a work process
+  -&gt; local EML / database interface / application log
+  -&gt; response and backend evidence returned</code></pre>
+<h4 id="2-5-a69f2d9b" class="semantic-heading semantic-japan">2.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ABAPアプリケーションサーバ</code>、<code>ABAPランタイム</code>、<code>ディスパッチャ</code>、<code>ワークプロセス</code>、<code>ダイアログ処理</code>、<code>バックグラウンド処理</code>、<code>更新処理</code>、<code>スプール</code>、<code>エンキューサービス</code>、<code>中央エンキューサービス</code>、<code>ショートダンプ</code>、<code>障害調査</code>、<code>性能調査</code>。</li>
+<li>说明句：ABAP プログラムは、アプリケーションサーバ上のワークプロセスで実行されます。</li>
+<li>说明句：この障害はコードだけでなく、ワークプロセス、バックグラウンドジョブ、ICM / Gateway も含めて確認する必要があります。</li>
+<li>使用场景：基本设计、详细设计、性能问题说明、障害调查、后台 job 调查、接口疏通、Basis 团队协作。</li>
+<li>现场提醒：日本项目里如果别人说 <code>アプリサーバ側を確認してください</code>，未必是在让你登录某台 Windows/Linux 机器；很多时候是在让你确认 SAP application server / instance / work process / log / ICM / Gateway 这一层的状态。</li>
+</ul>
+<h4 id="2-6-english-terms-cbeeb31f" class="semantic-heading semantic-terms">2.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Application Server ABAP</code></li>
+<li>Related terms: <code>AS ABAP</code>, <code>SAP instance</code>, <code>application server</code>, <code>Primary Application Server</code>, <code>Additional Application Server</code>, <code>ABAP Central Services</code>, <code>dispatcher</code>, <code>work process</code>, <code>dialog work process</code>, <code>background work process</code>, <code>update work process</code>, <code>spool work process</code>, <code>enqueue server</code>, <code>Internet Communication Manager</code>, <code>RFC Gateway</code>, <code>Message Server</code>, <code>task handler</code>, <code>database interface</code>, <code>ABAP interpreter</code>, <code>ABAP SQL</code>, <code>Open SQL</code>, <code>SM51</code>, <code>SM50</code>, <code>SM66</code>, <code>ST22</code>, <code>SM37</code></li>
+<li>Recommended search pattern: <code>Application Server ABAP dispatcher work process SAP Learning</code>, <code>AS ABAP architecture work processes</code>, <code>SAP Help work processes Application Server ABAP</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="2-7-example-cc14c85d" class="semantic-heading semantic-example">2.7 Example / 学习例子</h4>
+<p>假设用户在 SAP GUI 里执行一个自定义事务，点击保存后系统很慢。初学者可能只盯着 ABAP 代码看，但 AS ABAP 视角会多问几层：这个请求是 dialog 处理还是触发了 update task？是否有慢 SQL？有没有等待锁？有没有 background job 在处理后续任务？是否只有某个 application server 慢？如果发生 runtime error，ST22 的 short dump 记录了哪个程序、哪一行、哪个用户、哪个 application server、哪个时间点。</p>
+<p>再看一个接口例子。外部系统调用一个 SAP API，如果是 HTTP/OData 入口，问题可能涉及 ICM、service binding、authorization、OData runtime 和 ABAP handler；如果是 RFC/BAPI 入口，问题可能涉及 Gateway、RFC destination、BAPI 调用模式和 commit 处理。代码本身当然重要，但运行时入口决定了你从哪里查日志、和谁协作、用什么事务或工具定位。</p>
+<p>最小练习：在可用 SAP 系统中打开 <code>System -&gt; Status</code>，记录当前 SAP system、client、user、application server；再由有权限的人演示或截图 SM51 / SM50，观察 application server 和 work process 列表。没有系统权限时，至少画出“用户请求 -&gt; dispatcher -&gt; work process -&gt; database interface -&gt; database”的路径。</p>
+<p>再做一个生产问题复盘例子。用户报告：“昨天晚上 AC0567C 上传 job 失败了。”一个只看代码的回答可能是“我本地没复现”。AS ABAP 视角下，应该先收集：</p>
+<pre><code class="language-text">System / Client: QAS or PRD?
+Time: when did the job fail?
+User: dialog user or technical user?
+Entry: background job, OData API, RFC, or manual transaction?
+Runtime evidence: SM37 job log, ST22 dump, application log, work process/runtime info
+Business evidence: request id, batch id, processed count, failed row</code></pre>
+<p>这份清单不要求初学者马上会操作所有事务，但能建立正确排查姿势：先定位运行环境，再定位代码。</p>
+<h4 id="2-8-counterexample-failure-mode-42905632" class="semantic-heading semantic-example">2.8 Counterexample / Failure mode</h4>
+<ul>
+<li>把 AS ABAP 当成“装 SAP 的机器”，会漏掉 instance、dispatcher、work process、buffer、ICM、Gateway 这些真正解释运行行为的概念。</li>
+<li>把 ADT 当成运行时，会误以为代码在本地 Eclipse 里执行；实际上 ADT 是编辑和开发入口，代码运行在 SAP 系统的 AS ABAP 中。</li>
+<li>把数据库当成一切，会忽略 ABAP interpreter、database interface、authorization、lock、update task、background job 对行为的影响。</li>
+<li>只会说“程序慢”，却不知道区分 SQL 慢、锁等待、后台 job、dialog work process、ICM/Gateway、short dump，会导致障害调查无法推进。</li>
+<li>修正动作：回到 <span class="wiki unresolved">MOC SAP System Foundations</span>，把 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a>、activation、transport、AS ABAP runtime 和 database 画在同一张图上。</li>
+<li>把所有运行问题都推给 Basis。很多性能、dump、权限、日志问题需要 ABAP 开发先提供程序名、时间、用户、输入、SQL 或日志证据；没有这些证据，Basis 只能看系统层症状。</li>
+<li>只在 DEV 观察运行时。QAS/PRD 的实例、负载、权限、数据量和接口配置可能完全不同。修正方式是在对应系统收集证据，并遵守生产访问和审计规则。</li>
+<li>混淆 ICM 和 Gateway。HTTP/OData 问题优先想到 ICM / HTTP runtime / OData/RAP；RFC/BAPI 远程调用优先想到 Gateway / RFC destination / commit pattern。</li>
+</ul>
+<h4 id="2-9-0169d316" class="semantic-heading semantic-practice">2.9 思考问题</h4>
+<ul>
+<li>为什么说 AS ABAP 是应用层运行时，而不是物理服务器或 ADT？</li>
+<li>dispatcher 和 work process 分别解决什么问题？</li>
+<li>Java/Python 的 Web server / application server / worker process，分别能类比 AS ABAP 的哪一部分？不能类比哪一部分？</li>
+<li>如果用户报告“保存很慢”或“接口超时”，你会从哪些运行时入口开始排查？</li>
+<li>为什么 ABAP SQL 不是简单等同于直接写数据库 SQL？</li>
+<li>AC0567C 的 OData API 进入 AS ABAP 后，大致经过哪些运行时组件？</li>
+<li>哪些问题应由 ABAP 开发先收集证据，哪些需要 Basis/运维一起看？</li>
+<li>为什么同一段代码在 DEV 快，在 QAS/PRD 慢？</li>
+</ul>
+<h4 id="2-10-89eeda0f" class="semantic-heading semantic-reference">2.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-i-of-sap-s-4hana-and-sap-business-suite/describing-as-abap" target="_blank" rel="noopener noreferrer">SAP Learning - Describing AS ABAP</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-i-of-sap-s-4hana-and-sap-business-suite/explaining-the-basic-architecture-of-as-abap-and-as-java" target="_blank" rel="noopener noreferrer">SAP Learning - Explaining the Basic Architecture of AS ABAP and AS Java</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/e067931e0b0a4b2089f4db327879cd55/089453deb78e4412a5c9ab0d0dcf809e.html" target="_blank" rel="noopener noreferrer">SAP Help - Administration of Application Server ABAP</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/e067931e0b0a4b2089f4db327879cd55/22d85d37ab534b86a5098ded38c06c0f.html" target="_blank" rel="noopener noreferrer">SAP Help - Work Processes in Application Server ABAP</a> (accessed 2026-06-13)</li>
+<li>SAP Help Portal / SAP Learning search: <code>ABAP dispatcher work process</code>, <code>Internet Communication Manager AS ABAP</code>, <code>RFC Gateway AS ABAP</code>, <code>Message Server ABAP</code>.</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="2-11-connections-5f070711">2.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li><span class="wiki unresolved">MOC ADT Workflow</span></li>
+<li><span class="wiki unresolved">AS ABAP runs repository objects and business applications</span></li>
+<li>Upstream: <a class="wiki" href="section-01-001-sap-system-landscape-e11c9fc6.html">SAP system landscape 系统环境分层</a></li>
+<li>Downstream: <a class="wiki" href="section-01-003-abap-platform-fe67ad23.html">ABAP Platform 平台概念</a></li>
+<li>Related: <a class="wiki" href="section-01-031-runtime-error-and-short-dump-b6d3f032.html">Runtime error and short dump 运行时错误</a></li>
+<li>Related: <a class="wiki" href="section-04-023-background-job-and-submit-basics-11cfa86d.html">Background job and SUBMIT basics</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Related: <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 01 - SAP 系统、AS ABAP、ABAP Platform</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="2-12-b6214de9" class="semantic-heading semantic-practice">2.12 学习任务</h4>
+<ul>
+<li>画出 <code>SAP GUI / Browser / RFC -&gt; dispatcher / ICM / Gateway -&gt; work process -&gt; database interface -&gt; database</code> 的运行路径。</li>
+<li>用自己的中文说明：activation 与 AS ABAP runtime 分别解决什么问题。</li>
+<li>补 1 个日语现场句子，必须包含 <code>ワークプロセス</code>、<code>障害調査</code> 或 <code>バックグラウンド処理</code>。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 dispatcher 或 work process 的定义。</li>
+<li>如果已经进入 Week 3/4，把 AC0567C POC 中任意一个服务/API 映射到 HTTP/OData 或 RFC 入口、handler、work process、database access 的运行路径。</li>
+<li>写一张障害调查信息清单：system、client、user、time、application server、program/API、job/log/dump。</li>
+<li>用日语写一句向 Basis 说明问题的句子，包含 <code>実行時刻</code>、<code>アプリケーションサーバ</code>、<code>ワークプロセス</code>。</li>
+</ul>
+<h4 id="2-13-confidence-next-action-d97d8471" class="semantic-heading semantic-status">2.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level AS ABAP runtime model；work process 数量、profile parameter、instance layout、ASCS/PAS/AAS 高可用配置仍应以项目 Basis 文档和 SAP Help 为准。</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-01-003-abap-platform-fe67ad23.html">ABAP Platform 平台概念</a>，把“运行时环境”连接到“SAP 提供的 ABAP 技术平台和产品边界”。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-002-application-server-abap-b0de96bf.html">Application Server ABAP 运行时基础</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-001-sap-system-landscape-e11c9fc6.html">Previous section</a><a href="section-01-003-abap-platform-fe67ad23.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

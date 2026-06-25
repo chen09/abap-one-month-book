@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP extensibility | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="49-rap-extensibility-1577ac8b" class="chapter-title">49. RAP extensibility</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 49</li><li>self-contained study note</li></ul><h4 id="49-1-7407d20c" class="semantic-heading semantic-concept">49.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-049-rap-extensibility-a515afa6.html">RAP extensibility</a> 是指在不破坏标准对象和 Clean Core 的前提下，对 RAP business object、CDS projection、behavior、UI/API 暴露和字段语义进行受控扩展。它的核心不是“想改哪里就改哪里”，而是先确认 SAP 是否提供 released API、extension include、metadata extension、behavior extension、custom field、BAdI 或 side-by-side 扩展点，再决定如何实现。</p>
+<p>一句话记忆：RAP extensibility 是“沿着 SAP 允许的扩展面增强业务”，不是“复制标准对象然后硬改”。</p>
+<p>把它放在 Chapter 03 的最后，是因为前面所有 RAP/OData 知识最终都会遇到一个现实问题：标准功能不够用时怎么办。初学者最容易以为“会写 CDS、会写 behavior、会 publish service”就可以改任何对象；项目现场真正难的是判断哪些地方可以扩展，哪些地方只能配置，哪些地方必须用 SAP released API，哪些地方应该 side-by-side，而哪些地方根本不该改。</p>
+<p>RAP extensibility 的重点不是“多写代码”，而是“少破坏”。一个扩展设计如果能保留标准升级路径、保留授权和事务语义、保留 API contract、通过 ATC / Cloud readiness 检查，并且能被测试证据解释，才是可交付扩展。否则它可能只是一个短期能跑、长期难维护的 fork。</p>
+<h4 id="49-2-c51b2413" class="semantic-heading semantic-concept">49.2 到底学什么</h4>
+<p>本节是 Chapter 03 的收束。前面学了 CDS、RAP、OData、save sequence、events、API 测试。现在要问一个真实项目问题：如果标准业务对象不满足客户需求，如何扩展？是加字段？加 UI annotation？加 validation？扩展 action？新建 side-by-side service？还是完全不该改？</p>
+<p>RAP extensibility 不是一个单一语法点，而是一组设计选择。扩展可能发生在数据模型层，例如 custom field、extension include、CDS extension；可能发生在 UI 层，例如 metadata extension；可能发生在行为层，例如 behavior extension、validation、determination、action；也可能发生在集成层，例如 business event、outbox、side-by-side API。</p>
+<p>本节要学的是判断顺序：先查标准对象是否 released；再查官方扩展点；再确认 Clean Core 影响；再决定 in-app、developer extensibility、side-by-side 或自建 Z 对象；最后用测试证明扩展没有破坏权限、事务、升级稳定性和 API contract。</p>
+<p>可以把本节看成一张“扩展路线图”。当需求说“加字段”时，不要立刻创建 Z 表；先问这个字段属于标准业务对象的业务上下文吗，是否可以用 custom fields，是否需要出现在 CDS、UI、OData、analytics、authorization 和 print/output 中。当需求说“加校验”时，不要立刻在 handler 里写任何副作用；先判断是 validation、determination、precheck、feature control、authorization 还是 BAdI。需求说“通知外部系统”时，也不要直接在保存逻辑里同步 HTTP；先看 business event、outbox、integration flow 或 side-by-side 消费。</p>
+<p>本节还要建立一个很重要的边界：RAP extensibility 不等于对 SAP 标准对象做 modification。Modification 是直接改标准对象或依赖未发布内部实现，升级和支持风险都高。Extensibility 是使用 SAP 明确提供或允许的扩展面，把客户差异放在稳定位置。两者在短期效果上可能都能满足需求，但维护成本完全不同。</p>
+<h4 id="49-3-f16a5d29" class="semantic-heading semantic-why">49.3 为什么重要</h4>
+<p>RAP extensibility 重要，是因为 SAP 项目几乎一定会遇到客户差异。客户想加字段、加校验、加审批动作、加接口、加日志、改页面。真正的项目能力不是“能不能写代码”，而是“能不能在不破坏标准升级路径的前提下扩展”。</p>
+<p>Clean Core 的核心思想之一，就是尽量使用 SAP 提供的 released APIs 和稳定扩展点，减少对标准对象、底表、未发布接口和隐式假设的依赖。RAP extensibility 正是 Clean Core 的技术落点之一：通过明确的 BO、projection、service、event、BAdI、custom field 等扩展面，把客户差异放在可维护的位置。</p>
+<p>如果扩展做错，短期能满足需求，长期会变成升级风险。典型问题包括：复制标准 CDS 后自己改，后续 SAP 升级不再同步；直接读写标准底表，绕过 authorization/save sequence；把 UI 专用字段暴露成外部 API contract；在 extension 中调用未 released API；把同步接口硬塞进 handler。</p>
+<p>对 Java/Python 背景学习者，可以把它类比成“插件/扩展点/公开 API vs fork 源码”。Fork 标准代码最快，但维护成本最高；使用公开扩展点慢一点，但长期稳定。</p>
+<p>在日本项目里，这个主题常常不是纯技术讨论，而是设计审查和风险管理。客户说“標準に少し項目を追加したいだけです”，开发者要能说明：这个“少し”会不会影响 OData metadata、UI layout、authorization、transport、testing、upgrade、external API consumer。一个优秀的 ABAP 开发者，不只是回答“できます”，还要补一句“Clean Core の観点では、この拡張面で実装するのが安全です”。</p>
+<p>RAP extensibility 也帮助读者把 Week 3 和 Week 4 接起来。Week 3 的 RAP/OData 让服务能暴露；Week 4 的 authorization、logging、testing、performance、Clean Core 让扩展能上线。只会扩展字段而不测权限，只会发事件而不考虑幂等，只会新增 action 而不考虑 save sequence，都还不是项目可交付状态。</p>
+<p>项目里建议为每个重要扩展写一条简短 decision record，而不是只在设计书里写“追加字段”。最小记录可以包括：业务需求、目标标准对象或自建对象、是否 released、可用扩展点、选择的扩展方式、为何不用 modification、影响范围、测试证据、回退方式、升级风险。这样后续 review、ATC、Cloud readiness、移送和障害調査都有可追溯依据。</p>
+<h4 id="49-4-key-mechanism-183c4c85" class="semantic-heading semantic-mechanism">49.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 released object。扩展前先确认目标对象是否 released for use，尤其在 ABAP Cloud / SAP S/4HANA Cloud 语境中。未 released 对象即使技术上能访问，也可能违反 Clean Core。</p>
+<p>第二层机制是数据扩展。常见方式包括 custom field、extension include、CDS extension 或相应业务上下文中的字段扩展。关键问题是：字段是否进入持久层、CDS、projection、UI、OData metadata、授权和测试。</p>
+<p>第三层机制是 UI/metadata extension。很多需求只是页面显示、字段标签、列表列、对象页布局、value help，不应为了 UI 展示去改底层 BO 逻辑。Metadata extension 是 UI 语义扩展的重要工具。</p>
+<p>第四层机制是 behavior extension。若需求涉及业务行为，例如新增校验、派生、action、feature control、authorization，就要看 RAP behavior extension 或标准提供的行为扩展点。这里要注意一个边界：RAP extensibility 支持的是 modification-free 的增强，通常是增加字段、增加 determinations / validations / actions / additional save logic、增加 composition node 或 service 暴露，不是删除或覆盖原对象既有行为。不能直接绕过 BO 写表。</p>
+<p>第五层机制是 integration extension。若需求是通知外部系统或扩展流程，应考虑 business event、outbox、BTP side-by-side、released API，而不是在标准 handler 里直接 HTTP 调用。</p>
+<p>第六层机制是 extension choice。常见判断是：in-app extensibility 适合轻量字段/UI 扩展；developer extensibility 适合受控 ABAP 扩展；side-by-side extensibility 适合外部流程、集成和独立服务；modification/fork standard object 通常应避免。SAP Learning 还把 RAP extensibility 分成两个角色：原始对象的开发者负责 extensibility enablement，定义可扩展范围；客户或 partner 的开发者负责 extensibility provisioning，在被允许的扩展点上实现增强。</p>
+<p>第七层机制是验证。扩展不只测试“字段显示了”。还要验证 authorization、DCL/RAP auth、save sequence、API metadata、UI behavior、transport、upgrade impact、performance、ATC/Clean Core 检查。</p>
+<p>扩展决策可以按下面的漏斗来做：</p>
+<pre><code class="language-text">1. Can the requirement be solved by configuration or standard app settings?
+2. Is there an in-app extensibility option such as custom fields or UI adaptation?
+3. Is there a released extension point, released/cloud-enabled BAdI, RAP behavior extension, or metadata extension?
+4. Is there a released API / business object / event for developer extensibility?
+5. Should the requirement be implemented side-by-side on BTP or another integration layer?
+6. Is a custom Z business object safer than extending the standard object?
+7. If none applies, is the requirement a modification request with explicit upgrade risk?</code></pre>
+<p>不同扩展类型的判断重点也不同：</p>
+<div class="table-wrap"><table><thead><tr><th>扩展类型</th><th>适用场景</th><th>主要风险</th></tr></thead><tbody><tr><td>Custom field / in-app extensibility</td><td>标准业务上下文支持字段扩展</td><td>字段未同步到 UI/OData/analytics 或 transport 漏项</td></tr><tr><td>Metadata extension</td><td>UI 展示、label、line item、field group、value help 语义</td><td>把 UI 变化误当成业务逻辑变化</td></tr><tr><td>CDS extension / projection extension</td><td>受控暴露字段或消费模型调整</td><td>依赖未 released CDS 或破坏 API contract</td></tr><tr><td>Behavior extension</td><td>新增/增强 validation、determination、action、feature</td><td>破坏 save sequence、authorization 或事务边界</td></tr><tr><td>Released/cloud-enabled BAdI / extension point</td><td>SAP 明确提供且当前开发模型允许的业务扩展点</td><td>把 classic non-released BAdI 当成 ABAP Cloud 可用入口，或在实现中调用未 released API</td></tr><tr><td>Business event / outbox</td><td>通知外部系统、异步集成、side effect 解耦</td><td>事件重复消费、顺序、幂等和监控不足</td></tr><tr><td>Side-by-side service</td><td>外部流程、跨系统编排、独立生命周期</td><td>数据一致性、权限传播、API contract 和监控复杂</td></tr><tr><td>Custom Z BO</td><td>标准对象不适合承载客户差异</td><td>与标准流程割裂、主数据/权限/集成重复建设</td></tr></tbody></table></div>
+<p>一个实用的检查模板：</p>
+<pre><code class="language-text">RAP Extensibility Decision Record
+
+Requirement:
+  Business need:
+  Standard object / BO / API involved:
+
+Allowed extension surface:
+  Released API:
+  Custom field / extension include:
+  Metadata extension:
+  Behavior extension / released BAdI:
+  Business event / side-by-side:
+
+Clean Core check:
+  Unreleased object dependency:
+  Direct table access:
+  Modification/fork risk:
+  ATC / Cloud readiness result:
+
+Impact:
+  CDS/interface view:
+  Projection/service:
+  UI:
+  OData metadata/API contract:
+  Authorization/DCL/RAP auth:
+  Save sequence/transaction:
+  Logging/events/integration:
+
+Testing evidence:
+  Happy path:
+  Negative path:
+  Authorization:
+  Transport/QAS:
+  Regression/upgrade risk:</code></pre>
+<p>判断时还要区分“扩展面”和“消费面”。例如一个字段可以通过 custom field 出现在标准 app，但不一定应该进入外部 Web API；一个 UI annotation 可以改善 Fiori 页面，但不代表它是稳定的 integration contract；一个 business event 可以通知外部系统，但外部系统仍然需要幂等消费和错误恢复。RAP extensibility 的书稿价值，就在于让读者看到这些边界。</p>
+<h5 id="extension-impact-checklist-2f7e65d5">Extension impact checklist</h5>
+<p>任何扩展都不应只回答“能不能做”。更好的问题是：做完以后影响哪些层、谁来测试、谁来维护、升级时如何证明仍然安全。</p>
+<div class="table-wrap"><table><thead><tr><th>Impact area</th><th>要确认什么</th><th>常见遗漏</th></tr></thead><tbody><tr><td>Business meaning</td><td>字段、action、validation 是否属于目标业务对象的语义</td><td>把临时 UI 字段当成核心业务字段</td></tr><tr><td>Persistence</td><td>是否需要持久化，是否有允许的扩展字段/表位置</td><td>为了一个显示字段创建不必要的 Z 表</td></tr><tr><td>CDS / projection</td><td>interface/projection/service 是否需要暴露</td><td>字段在 DB 有了，但 metadata 没有</td></tr><tr><td>UI service</td><td>是否需要 label、line item、field group、value help、side effects</td><td>只加字段不补 UI metadata</td></tr><tr><td>Web API</td><td>是否进入稳定 external contract，是否需要版本策略</td><td>UI 字段无意中暴露给外部系统</td></tr><tr><td>Authorization</td><td>DCL、RAP authorization、business role 是否受影响</td><td>开发者能看，业务用户看不到或越权</td></tr><tr><td>Save sequence</td><td>validation、determination、action、additional save 是否改变事务语义</td><td>在扩展中绕过 BO 直接写表</td></tr><tr><td>Integration</td><td>是否需要 event、outbox、API、side-by-side service</td><td>把外部 HTTP 调用塞进 handler</td></tr><tr><td>Transport</td><td>扩展对象、配置、角色、metadata 是否一起移送</td><td>DEV 正常，QAS 缺字段/权限/publish</td></tr><tr><td>Upgrade / Clean Core</td><td>是否依赖未 released 对象，是否通过 ATC/Cloud readiness</td><td>技术可访问但升级后不可维护</td></tr><tr><td>Test evidence</td><td>happy path、negative path、authorization、QAS、regression 是否覆盖</td><td>只证明“字段显示了”</td></tr></tbody></table></div>
+<p>把这张表用于 review，可以防止“很小的追加”变成隐性大改。尤其在日本 SAP 项目中，<code>影響範囲</code> 往往比实现语法更重要：字段追加是否影响帳票、API、権限、移送、テスト、障害調査，都要能说清楚。</p>
+<h4 id="49-5-71b058bb" class="semantic-heading semantic-japan">49.5 日本项目现场说法</h4>
+<ul>
+<li><code>拡張性</code>：extensibility。</li>
+<li><code>標準拡張</code>：standard extension。</li>
+<li><code>Clean Core</code>：Clean Core。</li>
+<li><code>リリース済み API</code>：released API。</li>
+<li><code>カスタム項目</code>：custom field。</li>
+<li><code>メタデータ拡張</code>：metadata extension。</li>
+<li><code>サイドバイサイド拡張</code>：side-by-side extensibility。</li>
+<li><code>標準改修</code>：modification of standard object。</li>
+</ul>
+<p>この要件は標準改修ではなく、リリース済み API または拡張ポイントで実現できるか確認してください。</p>
+<p>意思是：请确认这个需求能否通过 released API 或扩展点实现，而不是修改标准。</p>
+<p>Clean Core の観点で、未リリースのテーブルや API へ直接依存しない設計にします。</p>
+<p>意思是：从 Clean Core 角度，要设计成不直接依赖未 released 表或 API。</p>
+<p>このカスタム項目は CDS、UI、OData、権限、テスト証跡まで影響範囲を確認してください。</p>
+<p>意思是：这个自定义字段要确认对 CDS、UI、OData、权限和测试证据的影响范围。</p>
+<p>设计审查常用表达：</p>
+<pre><code class="language-text">この拡張は in-app extensibility で対応可能か、developer extensibility が必要かを切り分けます。</code></pre>
+<p>含义：先区分这个扩展能否用 in-app extensibility，还是需要 developer extensibility。</p>
+<pre><code class="language-text">標準オブジェクトのコピーや未リリース API 依存は、アップグレードリスクとして扱います。</code></pre>
+<p>含义：复制标准对象或依赖未 released API，要作为升级风险处理。</p>
+<pre><code class="language-text">外部連携は同期呼び出しではなく、ビジネスイベントまたは outbox パターンで疎結合にできるか検討します。</code></pre>
+<p>含义：外部集成要考虑能否用 business event 或 outbox 进行松耦合，而不是同步调用。</p>
+<pre><code class="language-text">拡張後はメタデータ、権限、保存処理、ATC、QAS 移送後の疎通まで確認します。</code></pre>
+<p>含义：扩展后要确认 metadata、authorization、save processing、ATC 和 QAS 移送后的连通。</p>
+<h4 id="49-6-english-terms-b1d9bcd5" class="semantic-heading semantic-terms">49.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP extensibility</code></li>
+<li>Related terms: <code>Clean Core</code>, <code>released API</code>, <code>developer extensibility</code>, <code>in-app extensibility</code>, <code>side-by-side extensibility</code>, <code>custom fields</code>, <code>metadata extension</code>, <code>behavior extension</code>, <code>BAdI</code>, <code>business event</code>, <code>extension include</code>, <code>upgrade stability</code></li>
+<li>Recommended search pattern: <code>SAP RAP extensibility Clean Core released API custom fields</code></li>
+<li>Delivery terms to keep in English: <code>extension point</code>, <code>released API</code>, <code>upgrade compatibility</code>, <code>ATC</code>, <code>Clean Core</code>, <code>side-by-side</code></li>
+</ul>
+<h4 id="49-7-example-fbc7bd38" class="semantic-heading semantic-example">49.7 Example / 学习例子</h4>
+<p>需求：客户希望 Travel 页面增加一个“外部审批编号”字段，并在 API 中返回。</p>
+<p>不要直接去改标准底表或复制标准 CDS。更合理的分析顺序是：</p>
+<pre><code class="language-text">1. 标准 BO / CDS / API 是否 released？
+2. 是否有 custom field / extension include？
+3. 字段是否要进入 persistent table？
+4. CDS view entity / projection 是否要暴露？
+5. UI metadata 是否要显示？
+6. OData metadata 是否要稳定对外？
+7. 权限、DCL、RAP authorization 是否受影响？
+8. ATC / Clean Core 检查是否通过？</code></pre>
+<p>另一个需求：Travel approved 后通知外部系统。不要把 HTTP 调用塞进 handler。应先看 RAP business event、outbox、BTP integration flow 或 side-by-side service。</p>
+<p>对 AC0567C POC，如果未来要从 POC 变成可维护项目，扩展点也要明确：上传模板字段怎么扩展？状态字段是否对外稳定？validate/execute/status 是否是 Web API contract？扩展日志是否通过 outbox/event，而不是直接改内部表？</p>
+<p>把“外部审批编号”字段需求展开成项目设计：</p>
+<pre><code class="language-text">Requirement:
+  Add ExternalApprovalId to Travel process and expose it to API consumers.
+
+Good path:
+  1. Check whether the standard Travel BO or custom BO has an allowed extension surface.
+  2. Add field through custom field / extension include / custom BO table, depending on release model.
+  3. Expose field through interface/projection only if it is part of the stable contract.
+  4. Add UI metadata only for the UI service, not blindly for all APIs.
+  5. Check authorization: can all users see this external approval id?
+  6. Update API testing workflow: `$metadata`, GET, PATCH/action, negative input, QAS.
+  7. Run ATC / Clean Core checks and record released object evidence.</code></pre>
+<p>错误路径则是：</p>
+<pre><code class="language-text">Bad path:
+  Copy a standard CDS view into Z*, add the field, expose it as a new API,
+  directly update a standard table in an action handler,
+  and document the design as &quot;small customization&quot;.</code></pre>
+<p>这个 bad path 的问题不只是“技术不优雅”。它可能绕过 SAP 标准 authorization 和 save sequence，破坏升级路径，让外部系统依赖一个没有稳定承诺的 Z copy，后续 SAP Note 或 upgrade 后也难以判断差异。</p>
+<p>对于 AC0567C，扩展性检查可以写成：</p>
+<div class="table-wrap"><table><thead><tr><th>扩展点</th><th>应该问的问题</th></tr></thead><tbody><tr><td>上传模板字段</td><td>是否允许新增字段，字段校验在哪一层做</td></tr><tr><td>validate API</td><td>是否只是校验，不产生最终副作用</td></tr><tr><td>execute API</td><td>是否支持幂等 key、状态追踪、错误恢复</td></tr><tr><td>status API</td><td>哪些字段是稳定对外 contract，哪些只是内部诊断</td></tr><tr><td>日志/事件</td><td>是否通过 Application Log、outbox 或 event，而不是直接散落写表</td></tr><tr><td>权限</td><td>新字段/新 action 是否需要额外 role 或 DCL/RAP auth</td></tr><tr><td>Clean Core</td><td>是否依赖 released API，是否通过 ATC/Cloud readiness</td></tr></tbody></table></div>
+<h4 id="49-8-counterexample-failure-mode-c5bcbc58" class="semantic-heading semantic-example">49.8 Counterexample / Failure mode</h4>
+<p>反例一：复制标准 CDS 自己改。短期满足字段需求，长期标准升级无法跟随。修正方式是找 released extension point。</p>
+<p>反例二：直接读写标准底表。绕过 BO authorization、validation、save sequence。修正方式是使用 released API、RAP BO、BAdI 或标准扩展。</p>
+<p>反例三：把 UI 字段变成外部 API contract。页面调整影响外部系统。修正方式是区分 UI service 和 Web API。</p>
+<p>反例四：在扩展里调用未 released API。开发系统能跑，云/升级/ATC 不通过。修正方式是确认 released status。</p>
+<p>反例五：只测新增字段显示。保存、权限、OData metadata、QAS transport、性能都没测。修正方式是建立扩展测试清单。</p>
+<p>反例六：为了省事做 modification。后续升级冲突、OSS 支持困难。修正方式是用 Clean Core 路径重新设计。</p>
+<p>反例七：把 BAdI 当成万能出口。BAdI 是扩展点，但 BAdI 实现里仍然不能随意读写未 released 对象、直接更新标准表或发不可控同步外部调用。</p>
+<p>反例八：只考虑新增字段，不考虑删除/隐藏/兼容。字段进入 OData metadata 后，外部 consumer 可能依赖它；后续改名、删除或类型变化都可能成为 breaking change。</p>
+<p>反例九：side-by-side 过度设计。明明只是一个标准 app 的 UI 字段，却做成外部微服务，会带来数据同步、权限传播、监控和运维成本。</p>
+<p>反例十：忽略测试证据。扩展设计文档写得很好，但没有 <code>$metadata</code>、API、authorization、QAS transport、ATC 和 regression evidence，上线前仍然不可交付。</p>
+<h4 id="49-9-6c4dce60" class="semantic-heading semantic-practice">49.9 思考问题</h4>
+<ul>
+<li>目标对象是否 released？证据在哪里？</li>
+<li>需求属于字段/UI 扩展、行为扩展、接口扩展，还是外部流程扩展？</li>
+<li>是否有标准 extension point、BAdI、custom field、metadata extension？</li>
+<li>是否会影响 OData metadata 和外部 API contract？</li>
+<li>是否会绕过 authorization、save sequence 或 Clean Core？</li>
+<li>ATC / Cloud readiness / upgrade impact 如何验证？</li>
+<li>AC0567C 从 POC 到正式项目时，哪些点必须设计成扩展点？</li>
+<li>这个扩展属于 UI 体验变化，还是稳定外部 API contract 变化？</li>
+<li>如果未来 SAP 升级，哪些自定义对象或依赖最可能出问题？</li>
+<li>这个扩展是否需要 event/outbox/idempotency，而不是同步调用？</li>
+</ul>
+<h4 id="49-10-83d427c3" class="semantic-heading semantic-reference">49.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-extensibility-options" target="_blank" rel="noopener noreferrer">SAP Learning - Exploring Extensibility Options</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/enabling-data-model-extensibility" target="_blank" rel="noopener noreferrer">SAP Learning - Enabling Data Model Extensibility</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/developing-data-model-extensions" target="_blank" rel="noopener noreferrer">SAP Learning - Developing Data Model Extensions</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/enabling-and-developing-behavior-extensions" target="_blank" rel="noopener noreferrer">SAP Learning - Enabling and Developing Behavior Extensions</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/exploring-released-apis_d80ce197-097e-4e7b-8696-b960738089c7" target="_blank" rel="noopener noreferrer">SAP Learning - Exploring Released APIs</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud" target="_blank" rel="noopener noreferrer">SAP Learning - Practicing Clean Core Extensibility for SAP S/4HANA Cloud</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-cloud/public-released-apis" target="_blank" rel="noopener noreferrer">SAP Help - Public Released APIs - ABAP Cloud</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/released-apis" target="_blank" rel="noopener noreferrer">SAP Help - Released APIs in ADT</a> (accessed 2026-06-18)</li>
+<li><a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a> / <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li><a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li><a class="wiki" href="section-03-048-rap-business-events-fd3eab08.html">RAP business events</a></li>
+<li><a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a></li>
+<li><a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li><a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="49-11-connections-f6cee7c3">49.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-048-rap-business-events-fd3eab08.html">RAP business events</a></li>
+<li>Downstream: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="49-12-503d599a" class="semantic-heading semantic-practice">49.12 学习任务</h4>
+<ul>
+<li>画一张扩展决策树：custom field / metadata extension / behavior extension / event / side-by-side。</li>
+<li>补 2 个日语句子：一条要求确认 released API，一条说明 Clean Core。</li>
+<li>找一个扩展需求，列出它影响 CDS、UI、OData、权限、测试的范围。</li>
+<li>写一个反例：复制标准对象为什么危险。</li>
+<li>如果进入 Week 4，把 AC0567C POC 的字段、状态、日志、API 列为可扩展性检查项。</li>
+<li>用 <code>RAP Extensibility Decision Record</code> 模板写一条“新增审批字段”的设计记录。</li>
+<li>判断一个需求应该走 in-app extensibility、developer extensibility 还是 side-by-side，并说明理由。</li>
+<li>给一个扩展设计补充 API testing、authorization testing 和 ATC/Clean Core evidence。</li>
+</ul>
+<h4 id="49-13-confidence-next-action-d3eb8466" class="semantic-heading semantic-status">49.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for official-source framing of RAP extensibility options, released APIs, Clean Core, extension enablement/provisioning, and in-app / developer / side-by-side boundary after 2026-06-18 official-source closure。已复核 SAP Learning <code>Exploring Extensibility Options</code>、<code>Enabling Data Model Extensibility</code>、<code>Developing Data Model Extensions</code>、<code>Enabling and Developing Behavior Extensions</code>、SAP Learning <code>Exploring Released APIs</code>、SAP Learning Clean Core course、SAP Help <code>Public Released APIs - ABAP Cloud</code> 和 ADT <code>Released APIs</code> 入口。Medium remains for project-specific availability because actual extension points, released object status, BAdI availability, custom field scope, and ABAP Cloud limits must be verified per current system release.</li>
+<li>Review status: current Joule record is deferred, and the 2026-06-18 Claude health check timed out / session expired；外部 review debt 保留。由于本节已完成官方资料闭环、extension impact checklist 和 Clean Core / released API 决策说明，不再停留在提纲草稿状态。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；随后进入 Day 22 / Chapter 04 授权主题 <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a> 的全书质量审计。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-049-rap-extensibility-a515afa6.html">RAP extensibility</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-048-rap-business-events-fd3eab08.html">Previous section</a><a href="section-04-001-authority-check-1ee5b7b8.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

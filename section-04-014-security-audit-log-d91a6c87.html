@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Security Audit Log 安全审计日志 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="14-security-audit-log-bfe9682d" class="chapter-title">14. Security Audit Log 安全审计日志</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 14</li><li>self-contained study note</li></ul><h4 id="14-1-e2ae9277" class="semantic-heading semantic-concept">14.1 一句话结论</h4>
+<p>Security Audit Log 安全审计日志 是 SAP 系统层面记录安全相关事件的审计证据入口；它帮助团队回答“谁在什么时间、从哪里、以什么身份，触发了哪些安全相关行为”。它和 <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 不同：Application Log 主要解释业务处理过程和应用错误，Security Audit Log 主要服务于安全、合规、审计和异常访问调查。</p>
+<p>初学 ABAP 时很容易把所有“日志”混成一个词。项目现场实际会区分多类证据：业务处理失败先看 Application Log；敏感数据读取可能看 <a class="wiki" href="section-04-015-read-access-logging-3f099ea9.html">Read Access Logging 读取访问日志</a>；授权失败先结合 <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a>；系统安全事件、异常登录、可疑远程访问、用户相关变更或高风险操作，则可能进入 Security Audit Log 的调查范围。</p>
+<p>这一节不要求 ABAP 开发者自己配置安全审计策略，也不要求替代 Basis/security 团队做审计判断。要学的是：当接口、后台 job、技术用户、RFC/OData 调用或权限异常牵涉到安全问题时，开发者应该知道哪些信息要保留，哪些证据不能随意复制，什么时候要请 Basis/security 团队确认安全审计日志。</p>
+<h4 id="14-2-0bb13b51" class="semantic-heading semantic-concept">14.2 到底学什么</h4>
+<p>第一，要学 Security Audit Log 的定位。它属于 SAP security / Basis / audit 领域，不是普通应用日志。ABAP 开发者通常不负责最终配置，但必须知道它可能记录登录、授权、安全相关配置或敏感操作等事件，并且知道这些证据通常由有权限的安全或 Basis 角色查询。</p>
+<p>第二，要学它常见记录什么。不同 SAP release、部署模式和配置会影响可记录事件范围；常见关注点包括 logon failure、successful or failed RFC/HTTP access、authorization-related events、user master 或 role 相关变更、security configuration changes、critical transaction/program access、remote access 等。具体项目不能凭记忆判断，必须以目标系统配置和官方文档为准。</p>
+<p>第三，要学它不记录什么。Security Audit Log 通常不会告诉你“第 27 行代码为什么校验失败”，也不会替代业务处理明细。批处理处理了几条、哪一行失败、业务对象状态是什么，这些应由 Application Log、job log、API response 或业务表状态说明。安全审计日志关注的是安全事件本身。</p>
+<p>第四，要学项目调查方式。开发者发现安全相关问题时，不应只说“程序有问题”。更好的做法是提供 investigation packet：系统/client、用户或技术用户、时间窗口、入口、业务对象、request id、application log id、SU53/trace 时间点、可疑操作描述。安全团队才能根据这些线索查询 Security Audit Log 或相关系统日志。</p>
+<p>第五，要学证据最小化。Security Audit Log 可能包含用户、来源、时间、访问对象、安全事件等敏感信息。开发者不应把完整审计日志随意贴到聊天工具、issue 或测试报告里。通常应由授权人员截取最小必要证据，并在项目安全规则允许的范围内共享。</p>
+<h4 id="14-3-76429847" class="semantic-heading semantic-why">14.3 为什么重要</h4>
+<p>Security Audit Log 重要，是因为生产系统里的安全问题往往不能只靠代码解释。异常登录、权限失败、可疑技术用户调用、敏感操作、角色变更、远程访问，都需要系统层面的证据链。没有安全审计证据，团队只能停留在“看起来像权限问题”或“可能有人操作过”的猜测。</p>
+<p>对 SAP 项目交付来说，它直接影响上线前检查、内部审计、合规响应和故障调查。尤其在金融、制造、医药、公共事业等客户项目中，安全日志、访问证据、权限设计和运维追踪通常是正式 review 的一部分。开发者如果不了解边界，就可能把安全事件误判为普通 bug，或把普通应用错误误报成安全事件。</p>
+<p>对 ABAP 开发者来说，它的意义不是“多写一行日志”，而是知道证据链如何组合。例如用户说某个 API 被非法调用，开发者应先提供 API request id、application log id、technical user、client 和时间窗口；Basis/security 再判断是否需要查 Security Audit Log。这样才能避免把安全调查变成口头争论。</p>
+<p>在日本项目里，这类内容常和 <code>証跡</code>、<code>監査</code>、<code>アクセスログ</code>、<code>権限</code>、<code>セキュリティ担当</code>、<code>Basis担当</code> 一起出现。现场表达通常强调“调查对象期間”“閲覧権限”“必要最小限の証跡共有”，而不是把完整日志无控制地扩散。</p>
+<h4 id="14-4-key-mechanism-57131081" class="semantic-heading semantic-mechanism">14.4 Key mechanism / 核心机制</h4>
+<p>Security Audit Log 的核心机制可以理解为：系统根据安全审计配置，把特定安全事件记录成审计证据；之后由有权限的人员按用户、client、时间、来源、事件类型等条件检索分析。它不是每个 ABAP 程序自动生成的业务日志，而是系统安全审计能力。</p>
+<p>项目中要特别区分三层证据。</p>
+<p>第一层是权限检查证据。<a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a>、CDS DCL、RAP authorization 决定用户能否执行某类操作；SU53 或 authorization trace 帮助定位权限检查为什么失败。Security Audit Log 可能提供安全事件证据，但它不替代权限设计本身。</p>
+<p>第二层是应用处理证据。Application Log 记录业务过程、接口处理、后台任务或错误明细。它可以回答“处理到哪一步、哪条业务数据失败、失败原因是什么”。Security Audit Log 不应被拿来替代这类业务处理证据。</p>
+<p>第三层是安全审计证据。Security Audit Log、Read Access Logging、系统变更记录、传输记录和角色变更记录共同形成安全与合规证据体系。项目文档中要说明哪类问题看哪类证据来源，不能一句“看日志”带过。</p>
+<p>开发者最实用的做法，是在接口、后台 job 和重要服务中保留 correlation id / request id / application log id，并记录技术用户、业务键和时间窗口。这样当安全团队查询 Security Audit Log 时，可以把系统层事件和应用层处理关联起来。</p>
+<p>可以使用下面的调查请求模板：</p>
+<pre><code class="language-text">Security Investigation Request
+
+Reported issue:
+  What happened:
+
+Scope:
+  System/client:
+  User or technical user:
+  Time window:
+  Entry point:
+    SAP GUI transaction / Fiori app / OData / RFC / background job
+
+Observed symptom:
+  Logon failure / authorization failure / suspicious access / role change / unknown action
+
+Application context:
+  Program/service/job:
+  Business object/key:
+  Application log id:
+  Request/correlation id:
+
+Requested evidence:
+  Security Audit Log check:
+  Authorization trace/SU53:
+  Read Access Logging:
+
+Handling rule:
+  Share only minimum necessary evidence with the development team.</code></pre>
+<h4 id="14-5-16aae7e9" class="semantic-heading semantic-japan">14.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>セキュリティ監査ログ</code></li>
+<li><code>監査ログ</code></li>
+<li><code>ログイン失敗</code></li>
+<li><code>権限エラー</code></li>
+<li><code>不正アクセス</code></li>
+<li><code>監査証跡</code></li>
+<li><code>調査対象期間</code></li>
+<li><code>証跡確認</code></li>
+<li><code>セキュリティ担当</code></li>
+<li><code>Basis担当</code></li>
+</ul>
+<p>调查请求时可以这样说：</p>
+<pre><code class="language-text">本件は業務ログではなく、セキュリティ監査ログの確認対象になる可能性があります。
+調査のため、ユーザID、クライアント、発生日時、実行トランザクションまたは
+サービス名を整理します。</code></pre>
+<p>向开发团队说明边界时可以这样说：</p>
+<pre><code class="language-text">開発チームではアプリケーションログIDと発生時刻を提示し、
+監査ログの抽出は Basis / セキュリティ担当に依頼します。</code></pre>
+<p>共享证据时可以这样说：</p>
+<pre><code class="language-text">監査ログにはセキュリティ上機微な情報が含まれる可能性があるため、
+共有範囲を限定します。</code></pre>
+<h4 id="14-6-english-terms-e7c3413a" class="semantic-heading semantic-terms">14.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Security Audit Log</code>, <code>SAP Security Audit Log</code>, <code>Security Audit Log configuration</code>, <code>Security Audit Log analysis</code>.</li>
+<li>Related terms: <code>audit event</code>, <code>security event</code>, <code>audit trail</code>, <code>logon failure</code>, <code>authorization failure</code>, <code>client</code>, <code>user master record</code>, <code>RFC</code>, <code>HTTP access</code>, <code>sensitive access</code>.</li>
+<li>Common SAP transaction/search terms in many on-premise contexts: <code>RSAU_CONFIG</code>, <code>RSAU_READ_LOG</code> for newer releases; <code>SM19</code>, <code>SM20</code> as older/legacy entry points. Availability and recommended tools depend on SAP release and deployment model.</li>
+<li>Recommended search pattern: <code>SAP Help Security Audit Log ABAP Platform</code>, <code>SAP Security Audit Log configuration</code>, <code>SAP RSAU_CONFIG RSAU_READ_LOG</code>, <code>SAP audit log SM20 SM19 legacy</code>.</li>
+</ul>
+<h4 id="14-7-example-ac729b9a" class="semantic-heading semantic-example">14.7 Example / 学习例子</h4>
+<p>假设生产中出现一个问题：某技术用户在短时间内大量调用一个 OData API，部分请求返回 authorization failure，业务团队怀疑是不是有人异常使用了接口。</p>
+<p>不要马上把它写成“API bug”。更好的调查步骤是：</p>
+<ul>
+<li>从 API 或应用层拿到 request id、application log id、HTTP endpoint、technical user、client、时间窗口和业务键。</li>
+<li>用 Application Log 判断业务处理是否真的失败、失败在业务校验还是权限/认证前后。</li>
+<li>用 SU53 或 authorization trace 判断是否存在明确的授权对象失败。</li>
+<li>若怀疑登录、远程访问、技术用户异常、可疑来源或安全配置问题，请 Basis/security 查询 Security Audit Log。</li>
+<li>若涉及敏感数据读取，再判断是否需要 Read Access Logging 的证据。</li>
+</ul>
+<p>在 AC0567C 的 batch upload API 场景中，可以这样组织证据：</p>
+<pre><code class="language-text">AC0567C Security Evidence Packet
+
+API layer:
+  Endpoint:
+  Technical user:
+  Request id:
+  HTTP status:
+
+Application layer:
+  Application log id:
+  Business key:
+  Error category:
+
+Authorization layer:
+  Business role:
+  Failed operation:
+  SU53 / trace timestamp:
+
+Security audit layer:
+  System/client:
+  Time window:
+  Event to check:
+  Basis/security owner:
+
+Decision:
+  Business error / authorization error / security event / unclear:</code></pre>
+<p>这个例子说明：Security Audit Log 不是孤立使用的。它要和 Application Log、authorization trace、API evidence、时间窗口和用户信息拼在一起，才能形成可调查的证据链。</p>
+<h4 id="14-8-counterexample-failure-mode-c7874a87" class="semantic-heading semantic-example">14.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下。</p>
+<p>第一，把所有日志都叫 <code>監査ログ</code>。业务日志、应用日志、安全审计日志、访问日志不是同一个东西。混用术语会让调查方向错误。</p>
+<p>第二，用 Application Log 代替 Security Audit Log。Application Log 可以说明业务处理失败，但不能证明系统安全事件是否发生。</p>
+<p>第三，把安全审计日志完整复制到普通文档或聊天工具。审计日志可能包含敏感用户、来源、事件和系统信息，应该最小范围共享。</p>
+<p>第四，没有时间窗口和上下文。只说“这个用户好像做了奇怪操作”，但不给 client、时间、入口、业务键、request id，安全团队很难查询。</p>
+<p>第五，要求开发者直接查看完整审计日志。很多系统中 Security Audit Log 查询权限应限制给 Basis/security 或审计角色；开发者应提供线索，而不是越权获取日志。</p>
+<p>第六，把日志调查当成权限设计。Security Audit Log 可以帮助调查安全事件，但不能替代 authorization object、DCL、RAP authorization 和测试矩阵。</p>
+<p>第七，缺少 correlation id。API response、Application Log 和 Security Audit Log 时间窗口无法关联时，事故调查会依赖猜测。接口和后台任务应尽量保留 request id / job id / log id。</p>
+<h4 id="14-9-a1729531" class="semantic-heading semantic-practice">14.9 思考问题</h4>
+<ul>
+<li>Application Log、Security Audit Log、Read Access Logging 的边界分别是什么？</li>
+<li>一个批处理失败时，哪些证据属于业务处理证据，哪些证据属于安全审计证据？</li>
+<li>如果用户说“权限不够”，为什么不能只看 Security Audit Log？</li>
+<li>在日本项目中，<code>業務ログ</code>、<code>監査ログ</code>、<code>アクセスログ</code> 三个词应如何区分？</li>
+<li>一个 OData API 使用 technical user 被大量调用时，Security Audit Log 可能帮助确认哪些问题？</li>
+<li>哪些信息不应该直接写入 Application Log？</li>
+<li>如果没有 request id 或 application log id，安全调查会遇到什么困难？</li>
+</ul>
+<h4 id="14-10-c55b33de" class="semantic-heading semantic-reference">14.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/docs/search?q=Security%20Audit%20Log%20ABAP%20Platform" target="_blank" rel="noopener noreferrer">SAP Help search - Security Audit Log ABAP Platform</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Security%20Audit%20Log%20configuration" target="_blank" rel="noopener noreferrer">SAP Help search - Security Audit Log configuration</a></li>
+<li><a href="https://help.sap.com/docs/search?q=RSAU_CONFIG%20RSAU_READ_LOG" target="_blank" rel="noopener noreferrer">SAP Help search - RSAU_CONFIG RSAU_READ_LOG</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SM19%20SM20%20Security%20Audit%20Log" target="_blank" rel="noopener noreferrer">SAP Help search - SM19 SM20 Security Audit Log</a></li>
+<li><a href="https://learning.sap.com/search?query=SAP%20security%20audit%20log" target="_blank" rel="noopener noreferrer">SAP Learning search - SAP security audit log</a></li>
+<li><a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li><a class="wiki" href="section-04-015-read-access-logging-3f099ea9.html">Read Access Logging 读取访问日志</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+</ul>
+<h4 id="14-11-connections-671bc866">14.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Downstream: <a class="wiki" href="section-04-015-read-access-logging-3f099ea9.html">Read Access Logging 读取访问日志</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Related: <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 24 - 错误消息、应用日志与审计日志</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="14-12-36409f2e" class="semantic-heading semantic-practice">14.12 学习任务</h4>
+<ul>
+<li>用 5 行中文对比 Application Log、Security Audit Log、Read Access Logging。</li>
+<li>为一个“技术用户大量调用 API”的问题填写 <code>Security Investigation Request</code>。</li>
+<li>写 2 句日语：一句说明本问题可能属于 <code>セキュリティ監査ログ</code> 确认对象，一句说明日志抽出应由 Basis/security 负责。</li>
+<li>在 AC0567C API 场景里写出 request id、application log id、technical user、time window 四个证据字段为什么重要。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认目标系统版本中 Security Audit Log 的配置和查询入口。</li>
+</ul>
+<h4 id="14-13-confidence-next-action-1ba4a8b1" class="semantic-heading semantic-status">14.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the Security Audit Log positioning as system/security audit evidence, boundaries against Application Log / Read Access Logging / SU53 / authorization trace / job log, developer versus Basis/security responsibility split, investigation-packet fields, and evidence-minimization guidance; Claude 2026-06-18 follow-up returned <code>Pass with fixes</code>, and the current text already uses current-first <code>RSAU_CONFIG</code> / <code>RSAU_READ_LOG</code> with <code>SM19</code> / <code>SM20</code> as older or legacy entry points. Medium-High for exact event coverage, configuration options, query tools, retention, access authorization, and cloud/on-premise availability because these depend on release, deployment model, and customer security policy. Joule review remains deferred for this section.</li>
+<li>Next action: 继续强化 <a class="wiki" href="section-04-015-read-access-logging-3f099ea9.html">Read Access Logging 读取访问日志</a>，把安全审计日志与敏感数据读取日志的边界讲清楚；后续如果找到稳定 SAP Help 精确页，再替换当前 search-style references。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-014-security-audit-log-d91a6c87.html">Security Audit Log 安全审计日志</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-013-application-log-17b32fe8.html">Previous section</a><a href="section-04-015-read-access-logging-3f099ea9.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>AC0567C API evidence replay | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="43-ac0567c-api-evidence-replay-1dacf09b" class="chapter-title">43. AC0567C API evidence replay</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 43</li><li>self-contained study note</li></ul><p><strong>43.1 一句话结论</strong></p>
+<p>AC0567C API evidence replay 是把 AC0567C POC 的 API 行为整理成可复盘、可审查、可交付的证据包。它不是说“Swagger 能打开”或“我本地调通过”，而是把 endpoint、request、response、后台结果、重复调用、错误路径和剩余风险串起来，让 reviewer 能判断这个接口到底证明了什么、还没有证明什么。</p>
+<p>当前本地 POC 的证据很清楚：<code>03_api_docs/AC0567C_ENDPOINTS.md</code> 定义了 5 个 AC0567C C 端点；OpenAPI 文件 <code>rpa01-d00020-screen-to-api.openapi.json</code> 也列出这些路径；<code>04_tests/TEST_EVIDENCE.md</code> 和 <code>04_tests/test-results/ac0567c-no-write-latest.json</code> 证明最新 no-write 测试 8/8 通过；README 记录了早先真实写入测试已经证明 <code>ExecuteImport Status = IMPORTED</code>、<code>InsertedRows = 2</code>、重复同一 <code>ImportId</code> 返回 <code>CONFLICT</code>、<code>GetStatus</code> 返回 <code>IMPORTED / 2</code>。</p>
+<p>一句话记忆：API evidence 不是“截图”，而是“调用证据 + 返回证据 + 后台证据 + 风险边界”。AC0567C 目前已经有较好的 no-write 与早先 real-write 证据，但还不能宣称已经具备完整 production evidence，因为 authorization-negative、并发 duplicate、save failure mapping、application log 和 QAS transport 后证据仍然需要补强。</p>
+<p><strong>43.2 到底学什么</strong></p>
+<p>第一，要学 contract evidence。AC0567C 当前本地 proxy base URL 是：</p>
+<pre><code class="language-text">http://127.0.0.1:4315/sap-proxy</code></pre>
+<p>这个 URL 是本机 proxy 入口，不是最终生产 SAP API 地址。证据里必须说明它代表本地可复现路径；如果将来进入 QAS/PRD，还要重新记录真实 system/client、service root、authentication/communication setting 和 transport 后可访问性。</p>
+<p>第二，要学 endpoint evidence。<code>AC0567C_ENDPOINTS.md</code> 记录的 5 个 AC0567C C 端点是：</p>
+<div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Purpose</th><th>DB update</th></tr></thead><tbody><tr><td><code>POST</code></td><td><code>/PriorAllocationImportsC/validate</code></td><td>校验 JSON <code>Rows[]</code> batch</td><td>No</td></tr><tr><td><code>POST</code></td><td><code>/PriorAllocationImportsC/execute</code></td><td>执行 JSON <code>Rows[]</code> import</td><td>Yes, only with <code>AllowRealUpdate = X</code></td></tr><tr><td><code>POST</code></td><td><code>/PriorAllocationImportsC/upload/validate</code></td><td>校验 Base64 CSV/TSV file</td><td>No</td></tr><tr><td><code>POST</code></td><td><code>/PriorAllocationImportsC/upload/execute</code></td><td>执行 Base64 CSV/TSV import</td><td>Yes, only with <code>AllowRealUpdate = X</code></td></tr><tr><td><code>POST</code></td><td><code>/PriorAllocationImportsC/status</code></td><td>按 ImportId-derived key 统计状态</td><td>No write</td></tr></tbody></table></div>
+<p>第三，要学 request evidence。AC0567C 的 JSON batch payload 至少要记录 <code>CompanyCode</code>、<code>CustomerCode</code>、<code>ImportId</code>、<code>SourceFileName</code>、<code>AllowRealUpdate</code> 和 <code>Rows[]</code>。其中 <code>Rows[]</code> 包含 <code>FileLineNo</code>、<code>GroupNo</code>、<code>DocumentAmount</code>、<code>OthersFlag</code> 等字段。证据文档不需要贴完整生产 payload，但必须保留足够字段来解释业务键、错误行、重复检查和后台写入。</p>
+<p>第四，要学 response evidence。latest no-write JSON 证明成功 validate 时返回 <code>Status = VALID</code>、<code>Simulation = X</code>、<code>ReceivedRows = 2</code>、<code>ValidRows = 2</code>、<code>InsertedRows = 0</code>、<code>MessageText = AC0567C batch validation OK; no DB update executed</code>。非法 batch 返回 <code>Status = REJECTED</code>、<code>MessageField = DocumentAmount</code>、<code>MessageLineNo = 1</code>、<code>MessageText = DocumentAmount must be numeric</code>。这些字段比 HTTP 200/400 更重要，因为它们告诉调用方应该怎么修正数据。</p>
+<p>第五，要学 backend evidence 和边界。早先真实写入测试证明 <code>ImportId = POC-AC0567C-20260612115720</code> 映射到 <code>zzup_dat = 20260612</code>、<code>zzup_tme = 115720</code>，<code>ExecuteImport</code> 插入 2 行，重复同一 <code>ImportId</code> 返回 <code>CONFLICT</code>，<code>GetStatus</code> 看到 2 行。但最新 no-write 8/8 明确跳过 real execute 和 duplicate/idempotency 测试，除非执行脚本加 <code>-AllowRealUpdate</code>。读证据时必须区分“安全可重跑的 no-write evidence”和“会写入 <code>ZCOM_B_ACTT397</code> 的 real-write evidence”。</p>
+<p>第六，要学交付证据的脱敏和结论写法。API evidence 可能包含 URL、header、CSRF token、cookie、user、payload、业务键和 response。文档中要遮蔽 token/cookie/password/个人敏感数据，只保留能复盘的业务键、状态、错误字段和结论。每条 evidence 最后都要写 conclusion，例如“validate path 可用，但没有证明真实保存”“real execute 已证明插入和重复拒绝，但没有证明并发安全”。</p>
+<p><strong>43.3 为什么重要</strong></p>
+<p>项目中最危险的 API 证据，是一句“我本地调用成功了”。这句话没有说明系统、client、用户、URL、payload、response、执行时间、后台状态、日志编号、是否真实写入、是否允许重放，也没有说明失败路径。这样的证据不能支撑测试验收、障害調査、上线判断或客户说明。</p>
+<p>AC0567C 的价值在于它已经把 API evidence 做成了一套可以复盘的材料：API docs 可打开，OpenAPI 有路径，PowerShell 脚本可重跑 no-write 检查，latest JSON 保存了每个检查的 result，README 记录了真实写入与重复拒绝的事实，n8n-like flow simulator 也有 smoke 证据。这比“凭记忆说跑过”可靠得多。</p>
+<p>但也正因为证据比较完整，读者更要学会边界判断。no-write 8/8 不能证明真实 insert；真实 insert 证明了顺序重复拒绝，不等于证明并发 duplicate safety；status route 能返回 <code>NOT_FOUND</code> 或 <code>IMPORTED</code>，不等于完整 status workflow；XLSX 返回 400 证明“当前不支持”，不等于未来业务不需要。成熟的 API evidence replay 必须同时写清楚 pass 和 not proven。</p>
+<p>对初学者来说，这一节把 Week 4 的几个主题连起来：<a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a> 和 <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a> 决定服务入口；<a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a> 决定 response 结构；<a class="wiki" href="section-04-042-ac0567c-rap-saver-replay-19af2964.html">AC0567C RAP saver replay</a> 决定写入阶段；<a class="wiki" href="section-04-040-ac0567c-authorization-replay-626f837b.html">AC0567C authorization replay</a> 决定谁能执行；<a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a> 决定重复请求是否安全；<a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 决定失败后是否能调查。</p>
+<p><strong>43.4 Key mechanism / 核心机制</strong></p>
+<h4 id="43-1-contract-evidence-0b85459e">43.1 Contract evidence：证据包先证明“接口合同存在”</h4>
+<p>AC0567C 的 contract evidence 来自三个地方：</p>
+<ul>
+<li><code>03_api_docs/AC0567C_ENDPOINTS.md</code>：人工可读的 endpoint 表和 JSON/Base64 upload contract。</li>
+<li><code>03_api_docs/rpa01-d00020-screen-to-api.openapi.json</code>：OpenAPI 文档，其中 <code>info.title = RPA01-D-00020 Screen-to-API POC</code>、<code>version = 0.1.8-poc</code>。</li>
+<li><code>03_api_docs/swagger-ui.html</code>、<code>redoc.html</code>、<code>static-api-reference.html</code>：文档页面，<code>TEST_EVIDENCE.md</code> 记录它们经本地 proxy 检查为 HTTP 200。</li>
+</ul>
+<p>注意 OpenAPI 文件还包含同一 screen-to-API POC 包中的其他非 AC0567C 路径。本节只讨论 AC0567C C 路径，不能把整个 OpenAPI 都说成 AC0567C 已完成证据。</p>
+<h4 id="43-2-request-evidence-baefa774">43.2 Request evidence：每次调用都要能还原上下文</h4>
+<p>AC0567C no-write 测试脚本 <code>Invoke-Ac0567CBatchPoc.ps1</code> 会生成形如 <code>POC-AC0567C-yyyyMMddHHmmss</code> 的 <code>ImportId</code>，并从其中解析最后 14 位 timestamp。latest no-write 证据的 <code>ImportId</code> 是：</p>
+<pre><code class="language-text">POC-AC0567C-20260612134648</code></pre>
+<p>它映射为：</p>
+<pre><code class="language-text">TimestampToken = 20260612134648
+ExpectedZzupDat = 20260612
+ExpectedZzupTme = 134648</code></pre>
+<p>这说明证据不是孤立 response，而是能反推出后台 key 的测试上下文。对 batch upload API，<code>ImportId</code>、source file、group no、sequence no、user 和 timestamp 都是 replay 证据的核心字段。</p>
+<h4 id="43-3-response-evidence-http-status-ef061cb5">43.3 Response evidence：不要只看 HTTP status</h4>
+<p>latest no-write JSON 包含 8 个检查。最有教学价值的是三类 response：</p>
+<div class="table-wrap"><table><thead><tr><th>Scenario</th><th>关键返回</th><th>说明</th></tr></thead><tbody><tr><td>JSON multi-row validate succeeds</td><td><code>Status = VALID</code>, <code>Simulation = X</code>, <code>ReceivedRows = 2</code>, <code>ValidRows = 2</code>, <code>InsertedRows = 0</code></td><td>validate path 可用且不写 DB</td></tr><tr><td>Invalid batch is rejected before insert</td><td><code>Status = REJECTED</code>, <code>MessageField = DocumentAmount</code>, <code>MessageLineNo = 1</code>, <code>MessageText = DocumentAmount must be numeric</code></td><td>错误能定位到字段和行</td></tr><tr><td>Status lookup route responds</td><td><code>Status = NOT_FOUND</code>, <code>MessageField = ImportId</code>, <code>MessageText = No ZCOM_B_ACTT397 rows found for this ImportId/user key</code></td><td>no-write 下 status route 可用，但没有真实数据</td></tr></tbody></table></div>
+<p>这比“HTTP 200”更接近项目需要。HTTP status 说明通信层结果，<code>Status</code>、<code>MessageField</code>、<code>MessageLineNo</code>、<code>MessageText</code> 才说明业务层结果。对 OData/RAP action 来说，response body 里的业务字段常常决定测试是否真的通过。</p>
+<h4 id="43-4-no-write-evidence-3c9f68e1">43.4 No-write evidence：安全可重跑，但证明范围有限</h4>
+<p>latest no-write 测试结果是：</p>
+<pre><code class="language-text">Passed = true
+Total = 8
+Failed = 0
+AllowRealUpdate = false</code></pre>
+<p>8 个检查分别是：</p>
+<ol>
+<li><code>ImportId timestamp token maps to expected key date/time</code></li>
+<li><code>JSON multi-row validate succeeds</code></li>
+<li><code>Invalid batch is rejected before insert</code></li>
+<li><code>Base64 TSV validate succeeds</code></li>
+<li><code>XLSX unsupported returns error</code></li>
+<li><code>Status lookup route responds</code></li>
+<li><code>Real execute skipped unless -AllowRealUpdate is set</code></li>
+<li><code>Duplicate/idempotency skipped unless -AllowRealUpdate is set</code></li>
+</ol>
+<p>这一组检查的阅读重点，是先判断“安全可重跑的证据”到底覆盖了哪些入口。它适合每天、每次改动后重复执行，因为它不制造新数据；但正因为它不写 DB，它的结论也必须更克制。</p>
+<p>这组证据证明 validate、invalid batch、Base64 TSV validate、XLSX unsupported、status route 和 safety switch 行为；它不证明真实 insert、真实 duplicate conflict、真实 rollback 或 application log。书稿中必须把这条边界写清楚。</p>
+<h4 id="43-5-real-write-evidence-d9ea8bc2">43.5 Real-write evidence：证明写入和重复拒绝，但要谨慎重跑</h4>
+<p>README 和 <code>TEST_EVIDENCE.md</code> 记录了早先真实写入测试。这个 real-write 证据来自旧路径脚本：</p>
+<pre><code class="language-text">deliverables\RPA01-D-00020_api_poc_20260530\rpa-playwright\Invoke-Ac0567CBatchPoc.ps1 -AllowRealUpdate</code></pre>
+<p>它不是 latest no-write JSON 里的 current package rerun 结果，因此引用时要写明“早先受控真实写入证据”，不要让读者误以为当前 <code>04_tests/test-results/ac0567c-no-write-latest.json</code> 已经包含真实写入。</p>
+<pre><code class="language-text">ImportId: POC-AC0567C-20260612115720
+zzup_dat = 20260612
+zzup_tme = 115720
+ExecuteImport Status = IMPORTED
+InsertedRows = 2
+Repeat same ImportId Status = CONFLICT
+GetStatus Status = IMPORTED
+GetStatus InsertedRows = 2</code></pre>
+<p>这组证据证明了 AC0567C 最关键的正向路径：真实 execute 能插入 2 行，重复同一 <code>ImportId</code> 能被拒绝，status 能查到已插入行。但它会向 <code>ZCOM_B_ACTT397</code> 增加测试数据，所以不能像 no-write 测试那样随意重跑。交付文档中应把它标为 controlled real-write evidence。</p>
+<h4 id="43-6-document-and-simulator-evidence-e0de20e5">43.6 Document and simulator evidence：证明可读性和操作入口</h4>
+<p><code>TEST_EVIDENCE.md</code> 记录本地 proxy 下这些文档页面均为 HTTP 200：</p>
+<ul>
+<li><code>http://127.0.0.1:4315/docs/swagger-ui.html</code></li>
+<li><code>http://127.0.0.1:4315/docs/redoc.html</code></li>
+<li><code>http://127.0.0.1:4315/docs/static-api-reference.html</code></li>
+<li><code>http://127.0.0.1:4315/docs/ac0567c-upload-simulator.html</code></li>
+</ul>
+<p>n8n-like flow simulator smoke test 还记录了：</p>
+<pre><code class="language-json">{
+  &quot;validateBadge&quot;: &quot;OK&quot;,
+  &quot;executeBadge&quot;: &quot;Idle&quot;,
+  &quot;status&quot;: &quot;VALID&quot;,
+  &quot;receivedRows&quot;: &quot;2&quot;,
+  &quot;messageText&quot;: &quot;AC0567C batch validation OK; no DB update executed&quot;
+}</code></pre>
+<p>这类证据不能替代 API/backend evidence，但能证明文档入口和演示路径可用。对客户说明或团队培训，它们很有价值；对生产上线判断，还必须回到真实 SAP endpoint、权限、日志和后台数据。</p>
+<h4 id="43-7-evidence-package-9b9d7364">43.7 Evidence package：推荐的交付结构</h4>
+<p>证据包不是为了把文件堆得更多，而是为了让下一位 reviewer 不用从零推理。下面这个结构把“合同、no-write、real-write、剩余风险、结论”分开，适合作为交付文档或 Obsidian 附录的骨架。</p>
+<p>AC0567C 的证据包可以这样整理：</p>
+<pre><code class="language-text">AC0567C API Evidence Package
+
+01-contract.md
+  Base URL / SAP service root
+  OpenAPI file
+  Swagger / Redoc / static docs URL
+  AC0567C endpoint table
+
+02-no-write-test.md
+  Command
+  ImportId
+  8/8 results
+  JSON validate response
+  invalid batch response
+  Base64 TSV validate response
+  XLSX unsupported response
+  status NOT_FOUND response
+
+03-real-write-test.md
+  Controlled execution command
+  ImportId
+  inserted rows
+  duplicate CONFLICT
+  status IMPORTED / inserted rows
+  backend key derivation
+
+04-negative-and-risk.md
+  authorization-negative: not yet proven
+  concurrency duplicate: not yet proven
+  save failure mapping: not yet proven
+  application log: not yet proven
+  QAS transport smoke: not yet proven
+
+05-decision.md
+  reviewer
+  pass / conditional pass / blocked
+  remaining production hardening</code></pre>
+<p>这个结构的好处是：读者不用从散落的 JSON、截图、README 和聊天记录里重新推理；每条证据都有结论，剩余风险也被明确保留。</p>
+<p><strong>43.5 日本项目现场说法</strong></p>
+<p>常见日语：</p>
+<ul>
+<li><code>APIテスト証跡</code></li>
+<li><code>リクエスト</code></li>
+<li><code>レスポンス</code></li>
+<li><code>ペイロード</code></li>
+<li><code>実行ユーザ</code></li>
+<li><code>実行時刻</code></li>
+<li><code>正常系</code></li>
+<li><code>異常系</code></li>
+<li><code>再実行</code></li>
+<li><code>二重登録防止</code></li>
+<li><code>権限パターン</code></li>
+<li><code>疎通確認</code></li>
+<li><code>障害調査</code></li>
+<li><code>証跡として残す</code></li>
+</ul>
+<p>review 要求可以这样说：</p>
+<pre><code class="language-text">プレビューだけではなく、正常系、異常系、権限パターン、再実行時の
+APIテスト証跡を残してください。</code></pre>
+<p>证据边界可以这样说：</p>
+<pre><code class="language-text">今回の no-write テストでは実登録は行っていません。
+実登録と二重登録防止は、別途実行済みの real-write 証跡で確認しています。</code></pre>
+<p>障害调查时可以这样说：</p>
+<pre><code class="language-text">障害調査のため、リクエストURL、ペイロード、レスポンス、実行ユーザ、
+実行時刻、バックエンド状態を確認します。</code></pre>
+<p>风险说明可以这样说：</p>
+<pre><code class="language-text">並行実行時の二重登録防止、保存失敗時のエラーマッピング、
+アプリケーションログは今後の本番化課題です。</code></pre>
+<p><strong>43.6 English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>API test evidence</code>, <code>OData API testing</code>, <code>RAP OData V4 service</code>.</li>
+<li>AC0567C-specific terms: <code>OpenAPI</code>, <code>Swagger UI</code>, <code>Redoc</code>, <code>local proxy</code>, <code>ImportId</code>, <code>AllowRealUpdate</code>, <code>Rows[]</code>, <code>Base64 TSV upload</code>, <code>Status</code>, <code>MessageField</code>, <code>MessageLineNo</code>, <code>MessageText</code>, <code>InsertedRows</code>, <code>CONFLICT</code>.</li>
+<li>Related terms: <code>service definition</code>, <code>service binding</code>, <code>$metadata</code>, <code>service document</code>, <code>entity set</code>, <code>bound action</code>, <code>HTTP method</code>, <code>headers</code>, <code>payload</code>, <code>response body</code>, <code>status code</code>, <code>error payload</code>, <code>authorization test</code>, <code>idempotency key</code>, <code>correlation id</code>, <code>request id</code>, <code>application log</code>, <code>Postman collection</code>, <code>curl</code>.</li>
+<li>Recommended search pattern: <code>SAP RAP OData V4 API testing metadata error payload authorization</code>, <code>SAP OData V4 error response</code>, <code>SAP RAP service binding testing</code>.</li>
+<li>证据文档建议保留英文标签：<code>System</code>, <code>Client</code>, <code>User</code>, <code>Method</code>, <code>URL</code>, <code>Headers</code>, <code>Payload</code>, <code>Status Code</code>, <code>Response</code>, <code>Backend Evidence</code>, <code>Conclusion</code>, <code>Not Proven</code>.</li>
+</ul>
+<p><strong>43.7 Example / 学习例子</strong></p>
+<p>AC0567C 的 evidence matrix 可以这样写：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>当前证据</th><th>当前结论</th><th>边界</th></tr></thead><tbody><tr><td>API docs</td><td>Swagger/Redoc/static docs/upload simulator HTTP 200</td><td>文档入口可打开</td><td>本机 proxy，不代表 QAS/PRD</td></tr><tr><td>Endpoint contract</td><td>5 个 AC0567C C endpoint</td><td>合同可读</td><td>OpenAPI 还含其他 POC 路径</td></tr><tr><td>JSON validate</td><td><code>Status = VALID</code>, <code>ReceivedRows = 2</code>, <code>ValidRows = 2</code></td><td>validate 可用</td><td>不写 DB</td></tr><tr><td>Invalid batch</td><td><code>DocumentAmount</code> line 1 error</td><td>错误字段/行可定位</td><td>只覆盖一个非法字段案例</td></tr><tr><td>Base64 TSV validate</td><td><code>Status = VALID</code>, <code>ReceivedRows = 2</code></td><td>TSV validate 可用</td><td>CSV/encoding 边界仍需更多样例</td></tr><tr><td>XLSX unsupported</td><td>HTTP 400</td><td>明确当前不支持 XLSX</td><td>不是生产需求结论</td></tr><tr><td>Status no-write</td><td><code>NOT_FOUND</code>, <code>InsertedRows = 0</code></td><td>status route 可响应</td><td>no-write 没有真实数据</td></tr><tr><td>Real execute</td><td><code>IMPORTED</code>, <code>InsertedRows = 2</code></td><td>真实写入已证明</td><td>会写 <code>ZCOM_B_ACTT397</code>，不可随意重跑</td></tr><tr><td>Duplicate replay</td><td>repeated ImportId -&gt; <code>CONFLICT</code></td><td>顺序重复拒绝已证明</td><td>并发重复未证明</td></tr><tr><td>n8n-like simulator</td><td><code>validateBadge = OK</code>, <code>status = VALID</code></td><td>演示入口可用</td><td>不是后台保存证据</td></tr></tbody></table></div>
+<p>latest JSON 里的 response 还带有 OData/RAP 证据，例如 <code>@odata.context = ../$metadata#com.sap.gateway.srvd_a2x.zrpa01_sd_ac0567c_import.v0001.ZRPA01_A_AC0567C_RES</code> 和 <code>@odata.metadataEtag = W/&quot;20260612023744&quot;</code>。这说明它不是随手模拟出来的普通 JSON，而是经过 service definition / service binding 暴露出来的 RAP/OData response。</p>
+<p>一条具体 evidence 可以这样写：</p>
+<pre><code class="language-text">Evidence ID: AC0567C-API-NW-002
+Scenario: JSON multi-row validate succeeds
+Source: 04_tests/test-results/ac0567c-no-write-latest.json
+Proxy Base URL: http://127.0.0.1:4315/sap-proxy
+Path: POST /PriorAllocationImportsC/validate
+ImportId: POC-AC0567C-20260612134648
+Payload: CompanyCode=1000, CustomerCode=0000001000, Rows=2, AllowRealUpdate=&quot;&quot;
+Response: Status=VALID, Simulation=X, ReceivedRows=2, ValidRows=2, InsertedRows=0
+Conclusion: validate path is working and safe to rerun; it does not prove DB insert.</code></pre>
+<p>真实写入 evidence 可以这样写：</p>
+<pre><code class="language-text">Evidence ID: AC0567C-API-RW-001
+Scenario: JSON multi-row ExecuteImport with AllowRealUpdate
+Source command: deliverables\RPA01-D-00020_api_poc_20260530\rpa-playwright\Invoke-Ac0567CBatchPoc.ps1 -AllowRealUpdate
+ImportId: POC-AC0567C-20260612115720
+Derived key: zzup_dat=20260612, zzup_tme=115720
+Response: ExecuteImport Status=IMPORTED, InsertedRows=2
+Replay: same ImportId returns Status=CONFLICT
+Status: GetStatus Status=IMPORTED, InsertedRows=2
+Conclusion: controlled real-write path and sequential duplicate rejection are proven.
+Not Proven: concurrent duplicate safety, application log, authorization-negative behavior.</code></pre>
+<p><strong>43.8 Counterexample / Failure mode</strong></p>
+<p>常见失败模式如下。</p>
+<p>第一，只有 preview 或 Swagger 截图。文档能打开只证明入口存在，不证明业务 action 成功。</p>
+<p>第二，把 no-write 8/8 写成“真实导入已证明”。latest no-write 明确 <code>AllowRealUpdate = false</code>，真实 execute 和 duplicate 被 skipped。</p>
+<p>第三，把早先 real-write evidence 当成可随时重放。真实 execute 会向 <code>ZCOM_B_ACTT397</code> 插入测试数据，必须受控执行。</p>
+<p>第四，只看 HTTP status。RAP/OData response body 里的 <code>Status</code>、<code>MessageField</code>、<code>MessageLineNo</code>、<code>MessageText</code> 才能说明业务结果。</p>
+<p>第五，错误证据不可定位。只写 <code>Validation failed</code>，没有行号、字段、业务键或修正方向，用户无法处理。</p>
+<p>第六，宣称“幂等已完成”，但只证明了顺序重复同一 <code>ImportId</code> 的 <code>CONFLICT</code>，没有并发 duplicate safety 证据。</p>
+<p>第七，没有 authorization-negative evidence。当前章节不能用 <code>AUTHORITY-CHECK</code> 源码存在来替代低权限用户调用失败的 API 证据。</p>
+<p>第八，没有 application log。测试 JSON 能证明 POC 行为，但生产障害調査通常还需要持久日志、request id、log id 和错误原因。</p>
+<p>第九，证据未脱敏。token、cookie、密码、个人敏感信息或完整生产 payload 不能原样放入文档。</p>
+<p>第十，用 DEV/local proxy 证据代替 QAS/PRD 证据。transport、service binding、权限、communication setting 和 customizing 都可能变化。</p>
+<p><strong>43.9 思考问题</strong></p>
+<ul>
+<li>AC0567C 的 5 个 C endpoint 分别证明什么？哪些会写 DB，哪些不会？</li>
+<li>latest no-write JSON 的 8/8 通过能证明哪些事实？不能证明哪些事实？</li>
+<li>为什么 <code>Status = VALID</code> 和 <code>Status = IMPORTED</code> 不能只看 HTTP status 判断？</li>
+<li>如果外部系统说“收到 success，但 SAP 没有数据”，需要哪些 request、response 和 backend evidence 排查？</li>
+<li>为什么真实 insert evidence 不能随便重跑？</li>
+<li>当前重复请求证据为什么只能证明 sequential duplicate rejection，而不能证明 concurrency safety？</li>
+<li>哪些 payload/header 字段必须脱敏？哪些字段必须保留以便复盘？</li>
+<li>日本项目 review 时，如何一句话说明“no-write 証跡と real-write 証跡を分けて確認します”？</li>
+</ul>
+<p><strong>43.10 参考资料入口</strong></p>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+<li><span class="wiki unresolved">AC0567C Project Case</span></li>
+<li><a class="wiki" href="section-04-042-ac0567c-rap-saver-replay-19af2964.html">AC0567C RAP saver replay</a></li>
+<li><a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+<li><a class="wiki" href="section-04-040-ac0567c-authorization-replay-626f837b.html">AC0567C authorization replay</a></li>
+<li><a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li><a class="wiki" href="section-01-001-sap-system-landscape-e11c9fc6.html">SAP system landscape 系统环境分层</a></li>
+<li><a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>SAP Help search: <code>https://help.sap.com/docs/search?q=RAP%20OData%20V4%20service%20binding%20testing</code></li>
+<li>SAP Help search: <code>https://help.sap.com/docs/search?q=OData%20V4%20error%20response%20SAP</code></li>
+<li>SAP Help search: <code>https://help.sap.com/docs/search?q=SAP%20API%20testing%20authorization</code></li>
+<li>SAP Learning search: <code>https://learning.sap.com/search?query=RAP%20OData%20API%20testing</code></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>43.11 Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Practice</span></li>
+<li>Upstream: <a class="wiki" href="section-04-042-ac0567c-rap-saver-replay-19af2964.html">AC0567C RAP saver replay</a></li>
+<li>Downstream: <a class="wiki" href="section-01-017-transport-task-request-import-queue-e945d7ef.html">Transport task request import queue governance</a></li>
+<li>Related: <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li>Related: <a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a></li>
+<li>Related: <a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+<li>Related: <span class="wiki unresolved">AC0567C Project Case</span></li>
+<li>Related: <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>Related: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 28 - AC0567C POC 架构复盘</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+</ul>
+<p><strong>43.12 学习任务</strong></p>
+<ul>
+<li>用 <code>AC0567C_ENDPOINTS.md</code> 画一张 5 行 endpoint 表，标注 method、path、purpose、是否写 DB。</li>
+<li>读取 <code>ac0567c-no-write-latest.json</code>，写出 8 个检查各自证明了什么、没有证明什么。</li>
+<li>用自己的话解释为什么 <code>Real execute skipped unless -AllowRealUpdate is set</code> 是安全设计，而不是测试缺失。</li>
+<li>写一条 no-write evidence：包含 <code>ImportId</code>、path、payload 摘要、response 摘要、conclusion。</li>
+<li>写一条 real-write evidence：包含 <code>ImportId = POC-AC0567C-20260612115720</code>、<code>InsertedRows = 2</code>、重复 <code>CONFLICT</code>、<code>GetStatus = IMPORTED / 2</code>。</li>
+<li>用日语写一句 review 要求：说明 API 测试证据必须区分 <code>no-write 証跡</code> 和 <code>real-write 証跡</code>。</li>
+<li>列出 3 个还没有被 AC0567C API evidence 完全证明的 production hardening 项目。</li>
+</ul>
+<p><strong>43.13 Confidence &amp; Next Action</strong></p>
+<ul>
+<li>Confidence: High for local POC evidence structure and current AC0567C API facts, because this section is grounded in <code>AC0567C_ENDPOINTS.md</code>, OpenAPI path extraction, <code>TEST_EVIDENCE.md</code>, latest no-write JSON, README, prior Section 40-42 evidence, and Claude 2026-06-18 follow-up review with final <code>Pass</code>. Current text has removed unsupported concrete cross-POC names, explicitly marks the real-write proof as controlled earlier evidence from the older script/run rather than the latest no-write JSON, adds bridge prose before evidence lists, and grounds the response as genuine RAP/OData through <code>@odata.context</code> and <code>@odata.metadataEtag</code>. Joule review remains deferred; capture SAP-specialist feedback when Joule becomes callable. Medium for production readiness conclusions, because QAS/PRD endpoint, application log, authorization-negative API call, concurrent duplicate safety, and save-failure mapping still require additional evidence.</li>
+<li>Next action: 完成 Chapter 04 / 离线书稿同步与校验后，进入后续 AC0567C / 项目收束章节；如果 Joule/Chrome DevTools 工具恢复，再补 SAP-heavy review。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-042-ac0567c-rap-saver-replay-19af2964.html">Previous section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

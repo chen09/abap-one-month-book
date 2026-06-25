@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Validation 校验 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="29-validation-8c1e25ea" class="chapter-title">29. Validation 校验</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 29</li><li>self-contained study note</li></ul><h4 id="29-1-0f073d41" class="semantic-heading semantic-concept">29.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a> 是 RAP business object 在保存前执行的业务一致性检查，用来判断一个 BO instance 是否允许进入持久化阶段；它不负责派生字段、不负责执行业务动作，也不负责最终保存，而是通过 <code>failed</code> / <code>reported</code> 把“哪里不合法、为什么不合法、消息应该显示在哪个字段上”交回 RAP runtime、OData consumer 和 Fiori UI。</p>
+<p>一句话记忆：validation 是 RAP 的“保存闸门”。它不是前端输入框的简单必填提示，而是 BO 层对业务数据边界的正式检查。</p>
+<h4 id="29-2-1f1ed081">29.2 概念说明</h4>
+<p>在 RAP 中，validation 是 behavior definition 中声明、behavior pool 的 handler class 中实现的一类检查逻辑。常见写法是在 BDEF 中声明：</p>
+<pre><code class="language-abap">define behavior for ZI_Travel alias Travel
+{
+  validation validateDates on save { field BeginDate, EndDate; }
+}</code></pre>
+<p>然后在 behavior implementation 的 local handler class 中实现对应方法：</p>
+<pre><code class="language-abap">CLASS lhc_travel DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+    METHODS validate_dates FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Travel~validateDates.
+ENDCLASS.</code></pre>
+<p>这段代码表达的是：当 Travel 进入保存流程时，RAP runtime 需要针对相关实例执行 <code>validateDates</code> 检查。检查失败时，不是抛出普通异常，也不是直接写数据库标记错误，而是把失败实例放进 <code>failed</code>，把面向用户或 consumer 的消息放进 <code>reported</code>。</p>
+<p>初学者容易把 validation 理解成“字段必填”。这只是很小一部分。真实项目里的 validation 通常包括：</p>
+<ul>
+<li>日期区间是否合法，例如开始日期不能晚于结束日期。</li>
+<li>金额、数量、货币、单位是否成组有效。</li>
+<li>状态迁移是否合法，例如已取消订单不能再次提交。</li>
+<li>外键或主数据是否存在，例如客户、供应商、物料是否可用于当前公司代码。</li>
+<li>多字段组合是否满足业务规则，例如审批原因在特定状态下必须填写。</li>
+<li>当前 BO 与关联对象之间的一致性，例如 item 总额、header 状态、关联对象可用性。</li>
+</ul>
+<p>Validation 的目标不是让 UI 看起来更友好，而是守住 BO 的业务边界。即使 consumer 不是 Fiori 页面，而是 OData API、批处理或 <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a>，同一套 validation 仍应工作。</p>
+<h4 id="29-3-dbf9bea8" class="semantic-heading semantic-why">29.3 为什么重要</h4>
+<p>没有 validation，RAP 服务很容易变成“只要字段能传进来就保存”。这在 demo 阶段看起来能跑，但进入项目后会迅速暴露问题：脏数据被写入业务表，Fiori 页面只显示笼统错误，OData consumer 不知道哪一行失败，测试无法稳定复现，后续报表和接口还要补救这些错误数据。</p>
+<p>Validation 把业务规则放在 BO 层，而不是散落在前端、接口调用方、数据库触发器或 batch 程序里。这样同一个 Travel、Sales Order 或自建业务对象，不管从 UI、OData、EML 还是测试入口进入，都共享同一套保存前检查。</p>
+<p>对项目交付来说，validation 直接影响缺陷归因。结合测试中常见的缺陷描述是：“保存时报错，但不知道哪一行哪一个字段错了。”写得好的 validation 会通过 <code>reported</code> 返回带字段定位的消息，例如把日期错误标到 <code>BeginDate</code> 或 <code>EndDate</code>，让 Fiori Elements 能把错误显示在正确位置；写得差的 validation 只返回一个笼统异常，用户和测试人员只能猜。</p>
+<p>对 Java/Python 背景学习者，可以把 validation 类比成 domain model 的 invariant check 或 application service 的 save-time business rule。但 RAP 的差异是：validation 是 BDEF 契约的一部分，runtime 会把它纳入 save sequence、draft prepare、OData 错误响应、Fiori 消息显示和 EML <code>COMMIT ENTITIES</code> 的结果处理中。</p>
+<p>在日本项目现场，validation 往往不是“开发者觉得应该检查一下”的附加逻辑，而是设计书、単体テスト、結合テスト、障害調査都会追问的交付对象。规则没有写在哪里、消息如何出、错误时是否阻止保存，都会影响验收。</p>
+<h4 id="29-4-80b36d24">29.4 边界</h4>
+<p>第一条边界：validation 不等于 <a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a>。Action 表达用户或 consumer 主动触发的业务动词，例如 approve、reject、cancel、submit；validation 表达保存前必须满足的规则。Action 内部可以让数据进入需要 validation 的状态，但不要把“保存时必须检查日期”包装成一个 action。</p>
+<p>第二条边界：validation 不等于 <a class="wiki" href="section-03-030-determination-375d9597.html">Determination 派生逻辑</a>。Determination 负责自动补全、派生或重新计算，例如根据 item 更新 header total；validation 负责判断数据是否允许保存。能自动修正的数据，优先考虑 determination；必须由用户或调用方改正的数据，通常应通过 validation 报错。</p>
+<p>第三条边界：validation 不等于 authorization。Authorization 关注“谁可以做”，validation 关注“数据是否成立”。例如用户是否有权审批是 authorization；审批金额是否超过剩余额度、审批原因是否填写，是 validation 或 action 内的业务检查。不要用 validation 替代安全控制。</p>
+<p>第四条边界：validation 不等于 feature control。<a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a> 可以让某些字段、action 或 association 在当前状态下不可编辑、不可执行；validation 仍要在保存时兜底检查。前端按钮 disabled 不是完整保证，API consumer 也可能绕过 UI。</p>
+<p>第五条边界：validation 不等于 precheck。RAP 里 precheck 更偏向在 modify 请求进入 transactional buffer 前做即时检查，常用于早期拒绝明显非法的 create/update/delete/action 输入；validation <code>on save</code> 更偏向保存前的 BO 一致性检查。项目里可以两者都用：precheck 提前挡住明显错误，validation 作为保存闸门保证最终一致性。</p>
+<p>第六条边界：validation handler 不应直接 <code>COMMIT WORK</code>、直接持久化数据库或发送不可回滚外部请求。<code>FOR VALIDATE ON SAVE</code> 是 handler method，但它在 save sequence 的 check-before-save 相关阶段被触发；它的职责是检查和返回消息，不是承担 <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a> 的最终持久化职责。</p>
+<p>第七条边界：validation 不应只停留在 UI 必填。Fiori Elements 可以根据 metadata 和 annotation 提供字段必填、格式、value help 等前端体验，但保存时 business rule 仍应由 BO validation 兜底。外部 OData consumer、batch、EML 单元测试或未来新 UI 可能不经过同一个画面；如果规则只放在页面上，接口路径仍可能写入脏数据。</p>
+<p>第八条边界：validation 的质量取决于消息质量。一个好的 validation 不只是“阻止保存”，还要让 consumer 知道哪一个实例、哪一个字段、哪条业务规则失败。能定位到字段的错误尽量绑定字段；跨字段或对象级规则则要明确业务含义。否则 Fiori 只能显示笼统错误，API 调用方只能收到难以处理的 generic failure，缺陷单也会变成“保存失败，原因不明”。</p>
+<h4 id="29-5-key-mechanism-2f1f1787" class="semantic-heading semantic-mechanism">29.5 Key mechanism / 核心机制</h4>
+<p>第一层机制是 BDEF 声明。Validation 通常写在 <code>define behavior for ...</code> 内，并通过 <code>on save</code> 指明触发时机。大多数教学和项目场景先从 <code>validation &lt;name&gt; on save { field ...; }</code> 开始理解。<code>field</code> 列表不是消息字段位置本身，而是告诉 runtime：哪些字段变化与这个 validation 有关，便于触发和优化。</p>
+<p>第二层机制是 handler method。BDEF 中的 <code>validateDates</code> 会在 behavior pool 里对应一个 <code>FOR VALIDATE ON SAVE</code> 方法。方法通常接收 <code>keys</code>，开发者再用 local EML 读取需要检查的字段：</p>
+<pre><code class="language-abap">METHOD validate_dates.
+  READ ENTITIES OF ZI_Travel IN LOCAL MODE
+    ENTITY Travel
+    FIELDS ( BeginDate EndDate )
+    WITH CORRESPONDING #( keys )
+    RESULT DATA(travels).
+
+  LOOP AT travels INTO DATA(travel).
+    IF travel-BeginDate &gt; travel-EndDate.
+      APPEND VALUE #( %tky = travel-%tky ) TO failed-travel.
+      APPEND VALUE #(
+        %tky = travel-%tky
+        %msg = new_message(
+                 id       = &#x27;ZTRAVEL&#x27;
+                 number   = &#x27;001&#x27;
+                 severity = if_abap_behv_message=&gt;severity-error )
+        %element-BeginDate = if_abap_behv=&gt;mk-on
+        %element-EndDate   = if_abap_behv=&gt;mk-on
+      ) TO reported-travel.
+    ENDIF.
+  ENDLOOP.
+ENDMETHOD.</code></pre>
+<p>这段示例的重点不是消息类名称，而是三件事：</p>
+<ul>
+<li>用 <code>IN LOCAL MODE</code> 读取 RAP transactional buffer 中的当前状态，而不是绕过 RAP 直接查旧数据库状态。</li>
+<li>用 <code>failed-&lt;entity&gt;</code> 告诉 runtime 哪些实例不能保存。</li>
+<li>用 <code>reported-&lt;entity&gt;</code> 返回可展示消息，并用 <code>%element-&lt;field&gt;</code> 帮 UI 或 consumer 定位到字段。</li>
+</ul>
+<p>第三层机制是 state message。SAP Help 对 RAP validation 的说明强调，validation 常与 state messages 配合。State message 表达“这个实例当前处于不合法状态”，在 draft 和 Fiori 场景尤其重要：用户可能先保存草稿，系统保留错误消息，之后用户修正字段再清除或替换消息。项目里要避免只返回一次性、无实例定位的 transient message，尤其是会影响后续修改体验的业务规则。</p>
+<p>第四层机制是 save sequence。<code>FOR VALIDATE ON SAVE</code> 不在普通 action handler 那种即时 interaction 语境里完成最终业务提交，而是在保存流程中由 RAP runtime 触发。OData UI 的保存、EML 的 <code>COMMIT ENTITIES</code>、draft 的 Prepare / Activate 流程，都可能让 validation 被执行。理解这一点，才能避免在 validation 里做最终保存、发外部请求或依赖前端按钮顺序。</p>
+<p>第五层机制是 draft。对于 <a class="wiki" href="section-03-025-rap-draft-handling-1cd663ca.html">RAP draft handling</a>，validation 要考虑 active instance 与 draft instance 的体验差异。许多校验会在 draft <code>Prepare</code> 时提前执行，让用户在激活前看到错误；激活时仍要确保最终数据合法。初学者不要把 draft 当成“可以跳过 validation 的临时保存”，更准确的说法是：draft 允许用户分阶段编辑，但最终 active 数据仍必须过业务闸门。</p>
+<p>第六层机制是测试入口。Validation 不只在 UI 点保存时测试。可以用 EML 准备非法数据，然后 <code>COMMIT ENTITIES</code>，检查 <code>FAILED</code> / <code>REPORTED</code> 是否包含预期实例、消息和字段定位。这样才能证明规则属于 BO，而不是只靠某个 Fiori 控件或前端校验。</p>
+<h5 id="29-validation-design-review-checklist-80af515b">29.Validation design review checklist</h5>
+<p>评审一条 RAP validation 时，可以先问“这到底是不是 validation”。如果规则是在保存前判断业务数据是否成立，例如日期区间、金额范围、主数据有效性、状态迁移一致性，它通常适合 validation。如果规则是在用户触发某个业务动词时改变状态，要先看 action；如果规则可以由系统自动补齐，要先看 determination；如果规则判断当前用户是否有权操作，要先看 authorization；如果规则只是为了在 modify 进入 buffer 前尽早拒绝明显非法输入，则可能更接近 precheck。</p>
+<p>第二，确认触发条件是否清楚。BDEF 中的 <code>validation ... on save { field ...; }</code> 应该让读者看出这条规则和哪些字段变化有关。字段列表不是“错误字段清单”，但如果列表过宽，validation 会显得粗糙；如果列表漏掉关键字段，规则可能在某些修改路径下不容易被理解或维护。</p>
+<p>第三，确认读取的是 RAP transactional buffer 中的当前状态。Validation 常需要用 <code>READ ENTITIES ... IN LOCAL MODE</code> 读取本次请求中的已修改数据。直接 <code>SELECT</code> 数据库表可能读到保存前的旧状态，特别是在同一请求中已经有 create/update、determination 或 action 修改过实例时，会导致“明明前端改了，validation 却按旧值判断”。</p>
+<p>第四，确认失败表达完整。只有 <code>failed</code> 没有 <code>reported</code>，用户不知道为什么失败；只有 message 没有正确实例 key，consumer 很难定位哪一行错；字段级规则没有 <code>%element-&lt;field&gt;</code>，Fiori 或 API 调用方只能收到笼统错误。项目上应要求 validation 至少说明：哪一个 entity、哪一个实例、哪条规则、哪个字段或对象级位置失败。</p>
+<p>第五，确认 message strategy 稳定。面向 UI 的文本可以友好，但 API consumer 还需要稳定的消息类、编号、severity、业务含义和可翻译文本。不要在 validation 中拼接不可治理的自由文本，也不要把多个业务错误压成一个 generic error。日本项目里这会直接影响障害調査、测试证据和多语言交付。</p>
+<p>第六，确认 validation 没有副作用。Validation 可以读取、判断、返回 <code>failed</code> / <code>reported</code>，但不应提交事务、直接更新数据库、调用不可回滚外部接口、发送邮件或写入不可恢复日志。需要记录证据时，应区分“保存失败时也要保留的 application log”与“随事务一起回滚的业务数据”，并在 save sequence / logging 设计里说明。</p>
+<p>第七，确认有跨入口测试。至少用一个 UI 保存或 service preview 场景证明用户能看到错误，再用 EML 或 API 测试证明非 UI consumer 也会被同一条 validation 拦住。只有画面测试通过，不代表 BO validation 已经可靠；只有 ABAP Unit/EML 测试通过，也要确认 OData/Fiori message mapping 对读者可解释。</p>
+<h4 id="29-6-70915372" class="semantic-heading semantic-japan">29.6 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>検証</code>：validation / check 的一般说法。</li>
+<li><code>保存時チェック</code>：on-save validation，保存时检查。</li>
+<li><code>業務チェック</code>：业务规则检查。</li>
+<li><code>入力チェック</code>：输入检查，但要注意它可能被误解成前端输入框校验。</li>
+<li><code>エラーメッセージ</code> / <code>項目単位のメッセージ</code>：错误消息 / 字段级消息。</li>
+<li><code>下書き保存</code>、<code>有効化</code>、<code>Prepare</code>：draft 场景下的保存、激活和准备动作。</li>
+</ul>
+<p>说明句：</p>
+<pre><code class="language-text">このチェックは画面側の入力チェックではなく、RAP BO の保存時 validation として実装します。</code></pre>
+<p>意思是：这个检查不是画面侧输入检查，而是作为 RAP BO 的保存时 validation 实现。</p>
+<pre><code class="language-text">エラー時は failed / reported に対象インスタンスと項目単位のメッセージを返す方針です。</code></pre>
+<p>意思是：发生错误时，按方针把目标实例和字段级消息返回到 <code>failed</code> / <code>reported</code>。</p>
+<p>设计评审时可以这样问：</p>
+<pre><code class="language-text">この業務ルールは action 内のチェックですか、それとも保存時 validation として共通化しますか。</code></pre>
+<p>意思是：这个业务规则是 action 内的检查，还是要作为保存时 validation 共通化？</p>
+<p>结合测试缺陷分析时常见表达：</p>
+<pre><code class="language-text">保存時にどの validation が発火して、どの項目にメッセージが紐付いているかを確認してください。</code></pre>
+<p>意思是：请确认保存时触发了哪个 validation，以及消息绑定到了哪个字段。</p>
+<h4 id="29-7-english-terms-ace1d4e4" class="semantic-heading semantic-terms">29.7 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP validation</code></li>
+<li>ABAP syntax terms: <code>validation ... on save</code>, <code>FOR VALIDATE ON SAVE</code>, <code>failed</code>, <code>reported</code>, <code>%msg</code>, <code>%element-&lt;field&gt;</code>, <code>state message</code></li>
+<li>Recommended search pattern: <code>ABAP RAP validation on save failed reported</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="29-8-example-925808f8" class="semantic-heading semantic-example">29.8 Example / 学习例子</h4>
+<p>假设有一个 Travel BO，字段包括 <code>BeginDate</code>、<code>EndDate</code>、<code>CustomerID</code>、<code>BookingFee</code>、<code>TotalPrice</code>。业务规则是：</p>
+<ul>
+<li><code>BeginDate</code> 不能晚于 <code>EndDate</code>。</li>
+<li><code>CustomerID</code> 必须存在并且可用。</li>
+<li><code>BookingFee</code> 不能为负数。</li>
+<li>当 Travel 状态为 Submitted 时，关键字段不允许再被改成不一致状态。</li>
+</ul>
+<p>较好的 RAP 设计通常是：</p>
+<ol>
+<li>在 BDEF 中声明多个小 validation，例如 <code>validateDates</code>、<code>validateCustomer</code>、<code>validateAmount</code>。</li>
+<li>在 handler class 中用 local EML 读取 transactional buffer 中的当前数据。</li>
+<li>对每条非法实例 append 到 <code>failed-travel</code>。</li>
+<li>对每个错误 append 到 <code>reported-travel</code>，消息尽量带 <code>%element-&lt;field&gt;</code>。</li>
+<li>在 EML 或 OData 测试中验证非法数据无法 <code>COMMIT ENTITIES</code>，并且消息能定位到字段。</li>
+</ol>
+<p>一个简化的思考过程：</p>
+<pre><code class="language-text">用户把 BeginDate 改成 2026-07-10，EndDate 仍是 2026-07-01。
+RAP transactional buffer 中先有了这个修改。
+保存时 validateDates 被触发。
+handler 读取当前 buffer，发现 BeginDate &gt; EndDate。
+handler 把该 Travel 放入 failed-travel，并在 reported-travel 中返回错误消息。
+runtime 阻止该实例保存，Fiori/OData consumer 显示错误。</code></pre>
+<p>这就是 validation 的本质：它不一定阻止用户“输入”，但会阻止非法业务状态“保存为正式结果”。</p>
+<p>在 AC0567C POC 或类似批量上传场景中，可以把 validation 思维迁移到上传 API：文件行解析成功不代表业务数据可入库。行级错误应清楚说明哪一行、哪个字段、哪条规则失败；这和 RAP <code>failed</code> / <code>reported</code> 的思想一致。Week 4 复盘 POC 时，可以检查批量导入是否也有类似“结构错误、主数据错误、业务状态错误、保存失败消息”的分层。</p>
+<h4 id="29-9-counterexample-failure-mode-818aed77" class="semantic-heading semantic-example">29.9 Counterexample / Failure mode</h4>
+<p>反例一：只在 Fiori 前端做必填或日期检查。这样页面上看似没问题，但 OData API、batch、EML 测试仍可能写入非法数据。修正方式是：前端可以做即时提示，但 BO 级 validation 必须兜底。</p>
+<p>反例二：在 validation 中直接 <code>UPDATE ztable</code> 或 <code>COMMIT WORK</code>。这会绕开 RAP transaction，导致 runtime 认为只是检查，实际数据库已经被改。修正方式是：validation 只做读取、判断、返回 <code>failed</code> / <code>reported</code>；最终持久化交给 managed runtime 或 saver。</p>
+<p>反例三：把所有业务规则都写成一个巨大 <code>validate_all</code>。短期省事，长期难测试、难定位、难复用，消息也容易笼统。修正方式是按业务规则拆成小 validation，命名表达规则，例如 <code>validateDates</code>、<code>validateCustomer</code>、<code>validateAmount</code>。</p>
+<p>反例四：只返回 <code>failed</code>，不返回 <code>reported</code>。保存确实失败了，但用户不知道为什么失败。修正方式是失败实例和消息成对设计，至少给出可理解的错误文本；字段相关错误尽量使用 <code>%element-&lt;field&gt;</code>。</p>
+<p>反例五：把 authorization 错误写成 validation。结果是无权限和数据不合法混在一起，审计和安全 review 都不好判断。修正方式是授权走 RAP authorization，业务数据规则走 validation。</p>
+<p>反例六：draft 场景中只在 activate 时检查，导致用户编辑很久之后才看到大量错误。修正方式是结合 Prepare / state message，让用户在草稿阶段尽早看到可修正的问题，但最终激活仍执行必要校验。</p>
+<h4 id="29-10-b6afdeff" class="semantic-heading semantic-practice">29.10 思考问题</h4>
+<ul>
+<li>这条规则应该是 validation、action 内部检查、determination、precheck，还是 authorization？判断依据是什么？</li>
+<li>错误消息应该绑定到实例、字段，还是只作为全局消息返回？</li>
+<li>如果同一 BO 同时被 Fiori、OData API 和 EML 使用，validation 如何保证三者一致？</li>
+<li>Draft 场景下，这条规则应在 Prepare 阶段提示，还是只在 Activate / final save 阶段阻止？</li>
+<li>在日本项目里，设计书应写成 <code>画面入力チェック</code>、<code>業務チェック</code> 还是 <code>保存時 validation</code>？</li>
+<li>用 EML 写一个非法输入测试时，预期 <code>FAILED</code> 和 <code>REPORTED</code> 应该长什么样？</li>
+</ul>
+<h4 id="29-11-c89c68fd" class="semantic-heading semantic-reference">29.11 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_VALIDATIONS.html" target="_blank" rel="noopener noreferrer">RAP - validation</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapmethods_for_rap_behv.html" target="_blank" rel="noopener noreferrer">METHODS, FOR, RAP Handler Methods</a> (accessed 2026-06-18)</li>
+<li>SAP Developer Tutorial / SAP-samples RAP100: <a href="https://github.com/SAP-samples/abap-platform-rap100/blob/main/exercises/ex05/README.md" target="_blank" rel="noopener noreferrer">Exercise 5 - Enhance the BO Behavior - Validations</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-actions-and-messages" target="_blank" rel="noopener noreferrer">Defining Actions and Messages</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/message-behavior-in-eml-entity-manipulation-language" target="_blank" rel="noopener noreferrer">Message Behavior in EML</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="29-12-connections-bd1c2d85">29.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a></li>
+<li>Downstream: <a class="wiki" href="section-03-030-determination-375d9597.html">Determination 派生逻辑</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 20 - Action、Validation、Determination、Save Sequence</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="29-13-8d5cf3d3" class="semantic-heading semantic-practice">29.13 学习任务</h4>
+<ul>
+<li>用中文解释 validation、action、determination、authorization 的区别，各写一个例子。</li>
+<li>在本节示例基础上，写出 <code>validateDates</code> 应返回到 <code>failed</code> / <code>reported</code> 的内容。</li>
+<li>补 1 个日语现场句子，说明“这个检查应放在 RAP BO 的保存时 validation，而不是只放在画面”。</li>
+<li>用 English Terms 找 1 个 SAP 官方 <code>validation ... on save</code> 或 <code>FOR VALIDATE ON SAVE</code> 页面，补到自己的学习记录。</li>
+<li>如果已经进入 Week 4，把 AC0567C POC 的上传行级错误处理映射到 <code>failed</code> / <code>reported</code> 的思想。</li>
+</ul>
+<h4 id="29-14-confidence-next-action-56ec0ab5" class="semantic-heading semantic-status">29.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for RAP validation concept, <code>validation ... on save</code>, <code>FOR VALIDATE ON SAVE</code>, <code>failed</code> / <code>reported</code>, field-level messages, and project usage based on ABAP Keyword Documentation, SAP RAP100 validation tutorial evidence, SAP Learning message guidance, and adjacent reviewed RAP sections. 2026-06-18 已重新访问官方资料入口。Claude and Joule did not return usable verdicts for this section in the current session; Claude health check timed out and the dependency is recorded in <code>90-Review/Claude Health Check 2026-06-18 Validation.md</code>.</li>
+<li>Next action: 外部模型恢复后优先补一次 Validation 专项 review；在实机 ADT 中打开一个 RAP BO 的 behavior definition，找到 <code>validation ... on save</code> 和 handler 中的 <code>FOR VALIDATE ON SAVE</code>，再用 EML 或 Fiori 保存非法数据，观察 <code>failed</code> / <code>reported</code> 消息。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-028-action-9e9b0bf1.html">Previous section</a><a href="section-03-030-determination-375d9597.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

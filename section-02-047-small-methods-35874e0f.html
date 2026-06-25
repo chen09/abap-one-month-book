@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Small methods 小方法原则 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="47-small-methods-ce0b7ee2" class="chapter-title">47. Small methods 小方法原则</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 47</li><li>self-contained study note</li></ul><h4 id="47-1-5990b77f" class="semantic-heading semantic-concept">47.1 一句话结论</h4>
+<p>Small methods 小方法原则，是把一个 method 写成“只表达一个清楚意图、只下降一层抽象、容易测试和 review”的代码单元。它不是机械追求行数越少越好，而是让 method name、<a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a> 和 method body 三者说同一件事：这个 method 负责什么、需要什么输入、产生什么结果、失败时怎样表达。</p>
+<p>在 ABAP 项目里，小方法尤其重要，因为一个大 method 很容易同时混入 <code>SELECT</code>、业务校验、权限判断、状态变更、message 输出、BAPI/RFC 调用、commit 边界和日志处理。这样的代码“能跑”不等于“能交付”。读者、reviewer 和测试者真正需要的是：每个 method 的职责能被一句话说清楚，业务规则能被 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a> 验证，副作用能被调用方看见。</p>
+<h4 id="47-2-aba8a8de" class="semantic-heading semantic-concept">47.2 到底学什么</h4>
+<p>本节的重点不是背 Clean ABAP 的“短方法”口号，而是学会判断一个 method 是否承担了太多责任。一个 method 通常比较健康，如果它有少量输入、一个主结果、没有 boolean mode switch、没有多种输出方向、没有过深嵌套、内部语句处在同一抽象层级，而且可以用清楚的测试覆盖主要路径。</p>
+<p>需要掌握七个判断点。</p>
+<ul>
+<li>One thing：method 应该做一件事，而且只做这一件事。</li>
+<li>One abstraction level：method body 里的语句应该比 method name 低一层抽象，不要把高层业务编排和低层字符串处理、数据库读取混在同一层。</li>
+<li>Small body：方法变小通常是前面几个原则的结果，不是独立目标。Clean ABAP 给出少于约 20 条 statement、理想约 3-5 条 statement 的经验值；ABAP Programming Guidelines 也提醒不要走向“太多过小 procedure”的另一极端。</li>
+<li>Signature pressure：输入太多、<code>OPTIONAL</code> 太多、<code>CHANGING</code> 太多、多个 <code>EXPORTING</code>、boolean 输入参数，通常说明职责没有拆清楚。</li>
+<li>Happy path / error path：正常流程和错误处理如果互相遮蔽，就要考虑拆开；必要时使用 fail-fast。</li>
+<li>Testability：能用 ABAP Unit 测的小业务规则，通常比依赖真实 DB、真实授权、真实时间和真实外部接口的大 method 更可靠。</li>
+<li>ABAP boundary：private method、local class、interface、global class 都可以承载小职责；不要把每个小 helper 都升级成 <code>ZCL_...</code> repository object。</li>
+</ul>
+<h4 id="47-3-83a44c2f" class="semantic-heading semantic-why">47.3 为什么重要</h4>
+<p>小方法的第一价值是让代码可读。一个 public method 如果叫 <code>post_order</code>，里面直接写 150 行：读取 customizing、检查权限、查库存、计算价格、写应用日志、调用 BAPI、发 message、处理 commit。读者很难知道哪一段是核心业务规则，哪一段是技术边界，哪一段是异常处理。即使每一行都不复杂，组合在一起也会变成“读不动”的代码。</p>
+<p>小方法的第二价值是让测试可写。<a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a> 最适合验证小而确定的逻辑：状态是否允许、金额是否正确、字段组合是否合法、mapping 是否完整、异常路径是否按预期抛出。如果业务规则埋在一个大 method 的中间，而这个大 method 必须连接数据库、检查权限、调用 RFC、输出 message，测试就会被迫变成集成测试，成本立刻上升。</p>
+<p>小方法的第三价值是降低变更风险。SAP 项目经常不是“写完就结束”，而是长期改修、障害対応、追加要件、移送前 review。一个 method 只做一件事时，改价格规则通常不会碰到 message 输出；改 validation 通常不会碰到 database commit；改 formatter 通常不会影响 authorization。职责越清楚，影响范围越容易说明。</p>
+<p>对 Java/Python 背景学习者来说，小方法的思想并不陌生，但 ABAP 有自己的现场约束：public method 可能是 global class 的 API，global class 是 repository object，RAP handler / saver 的 framework method signature 不能随便改，transport 和 package 边界也会影响重构范围。因此 ABAP 中的小方法不是随便“抽函数”，而是在 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a>、<a class="wiki" href="section-02-025-local-class-4c6dbe23.html">Local class 局部类</a>、<a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a>、visibility、testability 和项目命名規約之间做合适切分。</p>
+<h4 id="47-4-key-mechanism-076aee36" class="semantic-heading semantic-mechanism">47.4 Key mechanism / 核心机制</h4>
+<h5 id="47-4-1-4-1-one-thing-31fac870">47.4.1 4.1 One thing：只承担一个可命名的责任</h5>
+<p>判断 method 是否只做一件事，最简单的方法是让作者不用看代码，用一句短话说明它的职责。如果答案里出现“读取并校验并保存并输出 message”，或者日语说明里不得不用 <code>〜して、〜して、さらに〜する</code>，通常已经不是一件事。ABAP 里最常见的问题，就是 database access、business logic calculation 和 output/message formatting 混在同一个 method body 里；这类代码最难做 ABAP Unit。</p>
+<pre><code class="language-abap">&quot; Too broad
+METHOD process_order.
+  read_order( ).
+  validate_order( ).
+  calculate_amounts( ).
+  save_order( ).
+  show_message( ).
+ENDMETHOD.</code></pre>
+<p>这段看起来已经拆成多个调用，但 <code>process_order</code> 仍然需要被追问：它是否拥有 transaction boundary？它是否可以输出 UI message？它是否可以决定保存？如果它只是 application service 的高层编排，也许可以成立；如果它是一个普通 helper，就太宽了。</p>
+<p>更清楚的设计通常会把责任放到不同层：</p>
+<pre><code class="language-abap">METHOD validate_order.
+  validate_header( order ).
+  validate_items( order-items ).
+  validate_credit_limit( order-customer_id ).
+ENDMETHOD.</code></pre>
+<p>这里 <code>validate_order</code> 仍然是编排，但它只编排 validation，不同时负责读取、保存、commit 或 UI 输出。</p>
+<h5 id="47-4-2-4-2-one-abstraction-level-cca223dd">47.4.2 4.2 One abstraction level：同一层级说话</h5>
+<p>小方法不是把代码随机切碎，而是让同一个 method 的每一行处在同一抽象层级。高层方法应该像目录：</p>
+<pre><code class="language-abap">METHOD post_sales_order.
+  validate_order( order ).
+  persist_order( order ).
+  publish_order_posted_event( order ).
+ENDMETHOD.</code></pre>
+<p>这三行都是业务/应用层动作。它不应该突然夹入 <code>CONDENSE</code>, <code>TRANSLATE</code>, <code>SELECT SINGLE</code>, <code>sy-subrc</code>, <code>MESSAGE e001(...)</code> 这类低层细节。如果有这些细节，通常说明应该下沉到更具体的 private method 或 collaborator。</p>
+<p>反过来，低层 method 也不要假装在做高层业务决策。例如 <code>format_amount_text</code> 只应该格式化金额文本，不应该顺便判断订单是否可发布。</p>
+<h5 id="47-4-3-4-3-signature-pressure-280efa99">47.4.3 4.3 Signature pressure：签名会暴露职责过多</h5>
+<p>method body 还没读，signature 往往已经暴露问题。下面这些是常见 smell：</p>
+<pre><code class="language-abap">METHODS process
+  IMPORTING mode          TYPE string
+            user_id       TYPE syuname
+            do_save       TYPE abap_bool
+            do_commit     TYPE abap_bool
+            language      TYPE sylangu OPTIONAL
+  EXPORTING message_text  TYPE string
+            error_code    TYPE string
+  CHANGING  order         TYPE zsales_order.</code></pre>
+<p>这不是一个 method，而像一个小程序。<code>mode</code> 和 boolean 参数暗示多种分支；多个输出暗示它既做业务又做错误处理；<code>CHANGING</code> 暗示副作用；<code>do_commit</code> 暗示 transaction boundary 被藏进 helper。对初学者来说，最容易读、最容易测的 helper 通常长这样：</p>
+<pre><code class="language-abap">METHODS is_order_releasable
+  IMPORTING order TYPE zsales_order
+  RETURNING VALUE(result) TYPE abap_bool.</code></pre>
+<p>如果必须返回多项信息，优先考虑一个清楚的 result structure，而不是多个 <code>EXPORTING</code> 参数。这里和 <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a> 是同一个设计问题：小方法不是只缩短 method body，还要让调用契约变小。</p>
+<p>还有一个 SAP 现场常见旧观念：有人会说 <code>RETURNING</code> 大结构或 internal table 性能差，所以必须用 <code>EXPORTING</code> 或 <code>CHANGING</code>。Clean ABAP 对这个担忧给出了现代 ABAP 语境下的修正：现代运行时通常有优化，不能再把“RETURNING 一定慢”当成通用理由。初学者在项目里仍要尊重既有性能规定，但设计新 helper 时，不应因为旧经验而放弃更清楚的 <code>RETURNING</code> contract。真正的性能问题应通过 profiler、trace 或实际基准确认。</p>
+<h5 id="47-4-4-4-4-split-boolean-mode-switches-4fbb109a">47.4.4 4.4 Split boolean mode switches</h5>
+<p>boolean input parameter 经常说明一个 method 实际有两种行为：</p>
+<pre><code class="language-abap">&quot; Hard to understand at call site
+update_order( order = order do_save = abap_true ).
+update_order( order = order do_save = abap_false ).</code></pre>
+<p>调用方看到 <code>abap_true</code> / <code>abap_false</code> 时，不一定知道 true 代表“保存”“模拟”“同步提交”还是“跳过检查”。更清楚的做法是拆出意图：</p>
+<pre><code class="language-abap">save_order( order ).
+simulate_order_update( order ).</code></pre>
+<p>并不是所有 boolean 参数都必须消灭。例如简单 setter、UI flag 或 framework signature 里可能存在合理 boolean。关键是：它是否改变 method 的主要行为？如果是，就优先考虑拆分。</p>
+<h5 id="47-4-5-4-5-happy-path-and-error-path-ecff9fa3">47.4.5 4.5 Happy path and error path：正常流程和错误流程不要互相埋</h5>
+<p>一个 method 既负责正常路径，又写很多错误路径，读者很容易失去主线。常见处理方式是 fail-fast：先检查前提，不满足就立即返回或抛出清楚的 exception，然后让后续代码保持 happy path。</p>
+<pre><code class="language-abap">METHOD calculate_discount.
+  IF customer_id IS INITIAL.
+    RAISE EXCEPTION NEW zcx_invalid_customer( ).
+  ENDIF.
+
+  result = read_discount_rate( customer_id ) * net_amount.
+ENDMETHOD.</code></pre>
+<p>在更复杂场景中，可以把 validation 拆成单独 method：</p>
+<pre><code class="language-abap">METHOD calculate_discount.
+  validate_discount_input( customer_id = customer_id
+                           net_amount  = net_amount ).
+
+  result = read_discount_rate( customer_id ) * net_amount.
+ENDMETHOD.</code></pre>
+<p>这和 <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a> 的原则一致：不要把错误吞掉；要让错误路径可读、可测试、可追踪。</p>
+<p>ABAP 里 fail-fast 常见机制有三种：<code>RETURN</code>、<code>RAISE EXCEPTION</code> 和 method 开头的 <code>CHECK</code>。初学者要特别注意 <code>CHECK</code> 的上下文：在 method 的初始化/前置检查位置，它可以用于提前离开 method；在 <code>LOOP</code> 内部，<code>CHECK</code> 只结束当前循环轮次并进入下一轮。两者语义不同，不能混用。为了让读者更清楚，项目代码里很多时候会优先写显式 <code>IF ... RETURN.</code> 或 <code>RAISE EXCEPTION</code>。</p>
+<h5 id="47-4-6-4-6-testability-abap-unit-88d3b731">47.4.6 4.6 Testability：小方法让 ABAP Unit 有抓手</h5>
+<p>一个容易测试的 method 通常有明确输入和输出，不直接依赖当前用户、当前日期、真实数据库、真实外部系统和 UI message。比如：</p>
+<pre><code class="language-abap">METHODS is_quantity_allowed
+  IMPORTING quantity TYPE i
+  RETURNING VALUE(result) TYPE abap_bool.</code></pre>
+<p>这类 method 可以用 ABAP Unit 直接断言。相反，如果 <code>is_quantity_allowed</code> 内部顺手 <code>SELECT</code> customizing、检查 <code>AUTHORITY-CHECK</code>、调用 BAPI、写 message，它就不再是一个纯业务规则 helper。更好的设计是把依赖放到外面或放到 interface 后面，让核心规则保持小而确定。</p>
+<p>在 RAP / ABAP Cloud 中也类似。behavior handler、validation、determination、saver 的 method signature 由 framework 决定，不能为了 Clean ABAP 随便改。但可以把核心业务判断抽到小 helper/service 中，让 handler 负责 framework wiring，让 helper 负责可测试的业务规则。关键点是：helper 不应该接收完整的 RAP framework 参数包，而应只接收业务判断真正需要的数据；这样它才能脱离 <code>reported</code> / <code>failed</code> / keys 的 framework 形状，用 ABAP Unit 独立验证。</p>
+<h5 id="47-4-7-4-7-visibility-and-object-boundary-fa6498eb" class="semantic-heading semantic-concept">47.4.7 4.7 Visibility and object boundary：小方法不等于全局对象爆炸</h5>
+<p>小方法可以是 private method、protected method、local class method、interface method 或 global class public method。选择边界时要问：</p>
+<ul>
+<li>只在一个 class 内使用吗？优先 private method。</li>
+<li>只服务当前 global class 的复杂局部协作吗？可以考虑 local class。</li>
+<li>多个对象需要替换实现、做 test double 或表达稳定 contract 吗？考虑 interface。</li>
+<li>多个 package / team / 业务对象复用，并需要 where-used、transport、release contract 管理吗？才考虑 global class。</li>
+</ul>
+<p>不要因为“拆小”就把每个 helper 都建成 <code>ZCL_...</code>。global class 是 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a>，会进入 package、transport、where-used 和 API 治理。小方法的目标是降低复杂度，不是制造更多难以命名和维护的全局对象。</p>
+<h5 id="47-4-8-4-8-performance-and-readability-c87f709b">47.4.8 4.8 Performance and readability：不要机械切碎</h5>
+<p>Clean ABAP 也提醒要关注性能。方法调用有成本，尤其在高频循环、低层数据处理、性能热点里，不要为了形式把每一行都抽成 method。ABAP Programming Guidelines 还提醒，procedure 太大不好，但太多过小 procedure 也不是目标；应该是“modularize instead of atomize”的思路。</p>
+<p>ABAP 还有一个语言层面的现实：同样的动作在 ABAP 里常常比 Java/Python 写更多行，例如 method call、loop、Open SQL、<code>TRY...CATCH</code> 都可能天然占多行。因此 20/3-5 更适合作为 Clean ABAP 的 smell detector，而不是机械门槛。对 ABAP 来说，line count、statement count、抽象层级和职责边界要一起看；一个长 <code>SELECT</code> statement 本身也可能很复杂。</p>
+<p>正确的顺序是：先让职责清楚，再用 SAT / profiler / SQL trace 等证据看是否存在真实性能问题。</p>
+<p>如果一个 method 虽然超过 20 条 statement，但仍然只做一件事、层级统一、没有隐藏副作用，也可能可以接受。反过来，一个 method 只有 3 行，但名字含糊、签名混乱、偷偷 commit，也不是好方法。</p>
+<h5 id="47-4-9-4-9-method-split-checklist-4b48251c">47.4.9 4.9 Method split checklist：判断是否真的该拆</h5>
+<p>拆 method 前，可以用下面的表做 review。目标不是把代码切得越碎越好，而是让职责、抽象层级、测试边界和副作用边界更清楚。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Split is useful when...</th><th>Keep or rethink when...</th></tr></thead><tbody><tr><td>Can you name the extracted logic?</td><td>能给出清楚名字，例如 <code>validate_quantity</code>。</td><td>只能叫 <code>do_part_1</code>、<code>handle_data</code>、<code>helper</code>。</td></tr><tr><td>Is abstraction level mixed?</td><td>高层流程和低层 SQL/string/mapping 混在一起。</td><td>整个 method 都在同一层级表达一个动作。</td></tr><tr><td>Is signature pressure high?</td><td>参数很多、<code>CHANGING</code> 多、boolean mode switch 多。</td><td>拆出来后参数更多，调用方更难读。</td></tr><tr><td>Is there a testable business rule?</td><td>逻辑可用 ABAP Unit 独立验证。</td><td>只是把两行机械语句搬到另一个 method。</td></tr><tr><td>Are side effects hidden?</td><td>DB write、BAPI、message、commit、log 和计算混在一起。</td><td>method 名和签名已经清楚暴露副作用。</td></tr><tr><td>What boundary fits?</td><td>一个 class 内部用 private method；替换实现用 interface。</td><td>每个 helper 都升级成 global <code>ZCL_...</code>，增加 package/transport 负担。</td></tr><tr><td>Is performance context hot?</td><td>非热点路径，拆分提高可读性。</td><td>高频 loop / 性能热点里要先用 profiler 证据判断。</td></tr></tbody></table></div>
+<p>一个实用判断句是：拆完以后，调用方读起来应该更像业务故事，而不是更像跳转迷宫。如果 reviewer 必须在十几个 private method 间来回跳，说明“拆小”已经变成另一种复杂度。</p>
+<h4 id="47-5-5cb40105" class="semantic-heading semantic-japan">47.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>小さいメソッド</code>、<code>単一責務</code>、<code>責務分割</code>、<code>抽象度</code>、<code>ネストを浅くする</code>、<code>早期リターン</code>、<code>早期終了</code>、<code>正常系</code>、<code>異常系</code>、<code>副作用</code>、<code>テストしやすい設計</code>、<code>単体テストしやすい粒度</code>、<code>可読性</code>、<code>保守性</code>、<code>リファクタリング</code>。</li>
+<li>Review 指摘句：<code>このメソッドは責務が多く、単体テストしにくいため、判定ロジックと永続化処理を分けてください。</code></li>
+<li>设计说明句：<code>RAP のハンドラではフレームワークのシグネチャを維持し、業務判定は private helper に切り出して ABAP Unit で検証します。</code></li>
+<li>重构说明句：<code>抽象度をそろえるため、低レベルな文字列整形処理を別メソッドに分離します。</code></li>
+<li>风险说明句：<code>この private method に COMMIT WORK が隠れていると、呼び出し側からトランザクション境界が見えなくなります。</code></li>
+</ul>
+<p>现场沟通时，不要只说“方法太长”。更有说服力的说法是：职责过多、抽象度混在一起、输入输出太多、副作用看不见、单体测试しにくい、障害調査時に追いにくい。</p>
+<h4 id="47-6-english-terms-a644568b" class="semantic-heading semantic-terms">47.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>Clean ABAP methods</code>, <code>Do one thing</code>, <code>Keep methods small</code>, <code>one level of abstraction</code>, <code>fail fast</code>, <code>Boolean input parameter</code>, <code>RETURNING parameter</code>, <code>ABAP Unit</code>.</li>
+<li>Design terms: <code>single responsibility</code>, <code>method body</code>, <code>method signature</code>, <code>happy path</code>, <code>error handling</code>, <code>side effect</code>, <code>testability</code>, <code>private helper</code>, <code>local class</code>, <code>global class</code>, <code>interface</code>.</li>
+<li>SAP project terms: <code>ABAP Unit</code>, <code>RAP handler</code>, <code>RAP saver</code>, <code>ABAP Cloud</code>, <code>released API</code>, <code>transport</code>, <code>repository object</code>, <code>where-used</code>.</li>
+<li>Recommended search pattern: <code>Clean ABAP keep methods small do one thing</code>, <code>Clean ABAP Boolean input parameter RETURNING CHANGING</code>.</li>
+</ul>
+<h4 id="47-7-example-21c8a6ea" class="semantic-heading semantic-example">47.7 Example / 学习例子</h4>
+<p>先看一个常见的大 method 思路：</p>
+<pre><code class="language-abap">METHOD release_order.
+  SELECT SINGLE * FROM zsales_order INTO @DATA(order)
+    WHERE order_id = @order_id.
+
+  IF sy-subrc &lt;&gt; 0.
+    MESSAGE e001(zorder) WITH order_id.
+  ENDIF.
+
+  IF order-status &lt;&gt; &#x27;O&#x27;.
+    MESSAGE e002(zorder) WITH order_id.
+  ENDIF.
+
+  &quot; calculate, update, call external system, write log, commit...
+ENDMETHOD.</code></pre>
+<p>这段示意代码把读取、message、业务校验、更新、外部调用和 transaction boundary 的苗头放在一起。初学者可能觉得“都在一个地方，好找”，但后续测试和维护会很痛。</p>
+<p>更适合学习和 review 的结构是：</p>
+<pre><code class="language-abap">METHOD release_order.
+  DATA(order) = read_order( order_id ).
+
+  validate_order_can_be_released( order ).
+  mark_order_as_released( order ).
+  write_release_log( order ).
+ENDMETHOD.</code></pre>
+<p>这个高层 method 像目录，每一行都在同一抽象层级。下一步可以继续把最适合测试的业务规则抽出来：</p>
+<pre><code class="language-abap">METHOD is_order_releasable.
+  result = xsdbool( order-status = open_status
+                    AND order-blocked = abap_false ).
+ENDMETHOD.</code></pre>
+<p>这样 ABAP Unit 就可以直接测试 <code>is_order_releasable</code> 的正常、异常、边界状态；而 <code>release_order</code> 是否涉及 DB、log、RAP reported/failed 或 transaction boundary，可以放在更高层测试和 review 中处理。</p>
+<h4 id="47-8-counterexample-failure-mode-019fc785" class="semantic-heading semantic-example">47.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把“小方法”理解成“行数越少越好”。修正：先看职责、抽象层级和测试性；行数只是 smell，不是唯一标准。</li>
+<li>误区 2：把每个 helper 都建成 global class。修正：先判断 private method / local class 是否足够；只有复用、接口、transport、API 边界需要时才升级。</li>
+<li>误区 3：拆出来的方法名字仍然含糊，例如 <code>do_check</code>、<code>handle_data</code>、<code>process_item</code>。修正：回到 <a class="wiki" href="section-02-046-clean-abap-naming-955e5592.html">Clean ABAP naming 命名规则</a>，让名字表达具体意图。</li>
+<li>误区 4：用小方法隐藏副作用，例如 private method 里偷偷 <code>COMMIT WORK</code>、发 message、改 global state。修正：副作用要在名字、signature、层级或调用边界上可见。</li>
+<li>误区 5：为了测试强行改 RAP framework method signature。修正：framework signature 保持不动，把业务规则抽到 helper/service 中测试。</li>
+<li>误区 6：把 validation、DB access、authorization、BAPI 调用和 UI message 全塞进一个 method。修正：分清业务规则、依赖访问、错误转换、事务边界。</li>
+<li>误区 7：在性能热点里机械抽方法。修正：先保持职责清楚，再用性能工具验证是否需要合并或优化。</li>
+</ul>
+<h4 id="47-9-94ad7e69" class="semantic-heading semantic-practice">47.9 思考问题</h4>
+<ul>
+<li>当前 method 能不能用一句短话说明职责？这句话里是否出现了多个“并且”？</li>
+<li>method body 的每一行是否处在同一抽象层级？</li>
+<li>signature 是否有太多 <code>IMPORTING</code>、<code>OPTIONAL</code>、<code>EXPORTING</code>、<code>CHANGING</code> 或 boolean 参数？</li>
+<li>哪一段业务规则可以不碰 DB、不碰 UI、不碰外部接口，直接用 ABAP Unit 测？</li>
+<li>这个 helper 应该是 private method、local class、interface，还是 global class？为什么？</li>
+<li>如果这个 method 失败，应该抛 exception、返回 result object、写 RAP <code>reported</code> / <code>failed</code>，还是由更上层转换为 message/log？</li>
+</ul>
+<h4 id="47-10-8b9650a1" class="semantic-heading semantic-reference">47.10 参考资料入口</h4>
+<ul>
+<li><a href="https://github.com/SAP/styleguides/blob/main/clean-abap/CleanABAP.md#method-body" target="_blank" rel="noopener noreferrer">SAP/styleguides - Clean ABAP, Method Body</a> (accessed 2026-06-13)</li>
+<li><a href="https://raw.githubusercontent.com/SAP/styleguides/main/clean-abap/CleanABAP.md" target="_blank" rel="noopener noreferrer">SAP/styleguides - Clean ABAP raw Markdown</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENPROC_VOLUME_GUIDL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Procedure Volume</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMETHODS.html" target="_blank" rel="noopener noreferrer">SAP Help - METHODS</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMETHODS_PARAMETERS.html" target="_blank" rel="noopener noreferrer">SAP Help - METHODS, parameters</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_UNIT.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Unit</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-02-046-clean-abap-naming-955e5592.html">Clean ABAP naming 命名规则</a></li>
+<li><a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li><a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="47-11-connections-98fcb7ef">47.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li><a class="wiki" href="section-02-046-clean-abap-naming-955e5592.html">Clean ABAP naming 命名规则</a></li>
+<li><a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li><a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a></li>
+<li><a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Upstream: <a class="wiki" href="section-02-046-clean-abap-naming-955e5592.html">Clean ABAP naming 命名规则</a></li>
+<li>Downstream: <a class="wiki" href="section-03-001-why-cds-cds-089bd732.html">Why CDS 为什么需要 CDS</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 14 - Clean ABAP 与 Week 2 复盘</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a>、<a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a>、<span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="47-12-de286a92" class="semantic-heading semantic-practice">47.12 学习任务</h4>
+<ul>
+<li>找一个超过 50 行的 method，写出它实际承担的 3-5 个责任。</li>
+<li>把其中一个业务判断抽成 <code>IMPORTING</code> + <code>RETURNING</code> 的小 helper，并写出 method name。</li>
+<li>写一个 ABAP Unit 测试思路：输入是什么、期望结果是什么、需要隔离哪些外部依赖。</li>
+<li>检查一个 method signature，判断是否有 boolean mode switch、过多 optional 参数或隐藏副作用。</li>
+<li>用日语写一句 review comment，说明为什么该 method <code>単体テストしにくい</code>，并提出拆分方向。</li>
+</ul>
+<h4 id="47-13-confidence-next-action-feff79f5" class="semantic-heading semantic-status">47.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for Clean ABAP small-method principles, based on SAP/styleguides Clean ABAP method-body guidance and existing SAP Help / ABAP Unit references. Medium-High for RAP/ABAP Cloud project framing because the section stays at helper-extraction and framework-signature boundaries, leaving deeper RAP save / message / authorization details to Week 3/4 sections.</li>
+<li>Joule review: <code>Pass with fixes</code> evidence from 2026-06-13 has been integrated: responsibility-first framing, ABAP Programming Guidelines procedure-volume nuance, heuristic treatment of method size, boolean-parameter anti-pattern, fail-fast mechanisms, <code>RETURNING</code> performance caveat, and RAP / ABAP Cloud helper extraction.</li>
+<li>Next action: 本节可作为 <code>expanded-review</code> 书稿正文使用；继续进入 <a class="wiki" href="section-03-001-why-cds-cds-089bd732.html">Why CDS 为什么需要 CDS</a>，用小方法设计作为从 core ABAP 过渡到 CDS / RAP / OData 的桥。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-046-clean-abap-naming-955e5592.html">Previous section</a><a href="section-03-001-why-cds-cds-089bd732.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

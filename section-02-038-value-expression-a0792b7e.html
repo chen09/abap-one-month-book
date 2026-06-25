@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>VALUE expression 值构造表达式 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="38-value-expression-a5869394" class="chapter-title">38. VALUE expression 值构造表达式</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 38</li><li>self-contained study note</li></ul><h4 id="38-1-b97a02b3" class="semantic-heading semantic-concept">38.1 一句话结论</h4>
+<p>VALUE expression 值构造表达式 是 ABAP constructor expression 的一种，用 <code>VALUE type( ... )</code> 或 <code>VALUE #( ... )</code> 在表达式位置直接构造一个指定类型的值。它最常用于初始化 structure、构造 internal table、给 method 参数传入临时值、写 ABAP Unit test data，以及在 Modern ABAP 中减少重复的 <code>CLEAR</code> / component assignment / <code>APPEND</code> 样板代码。</p>
+<p>最常见的两种形态是 structure 和 internal table：</p>
+<pre><code class="language-abap">DATA(order) = VALUE ty_order(
+  order_id = &#x27;4500000001&#x27;
+  status   = &#x27;OPEN&#x27;
+).
+
+DATA(items) = VALUE ty_order_items(
+  ( item_no = &#x27;10&#x27; material = &#x27;MAT-001&#x27; quantity = 2 )
+  ( item_no = &#x27;20&#x27; material = &#x27;MAT-002&#x27; quantity = 1 )
+).</code></pre>
+<p>如果目标类型已经从左侧、method parameter、table type 或语句上下文中明确，常见写法是 <code>VALUE #( ... )</code>。这里的 <code>#</code> 不是“随便猜类型”，而是“请编译器从上下文静态推断类型”。如果上下文不足，必须写出显式类型。</p>
+<p>一句话说：<code>VALUE</code> 让“我要构造一个什么值”直接出现在代码里；但它不是越短越好。结构组件省略会变成 initial value，给已有结构重新赋 <code>VALUE #( ... )</code> 会重建整个值；internal table 的 key、唯一性、性能和可读性仍然需要设计。</p>
+<h4 id="38-2-42140e6e" class="semantic-heading semantic-concept">38.2 到底学什么</h4>
+<p>本节要掌握九个点：</p>
+<ul>
+<li><code>VALUE</code> 是 constructor operator，用来构造某个 ABAP data type 的值。</li>
+<li>基本语法是 <code>VALUE type( ... )</code>；如果上下文类型明确，可以写 <code>VALUE #( ... )</code>。</li>
+<li>对 structure，括号内写 <code>component = value</code>；没有写到的 component 会变成该类型的 initial value。</li>
+<li>空的 <code>VALUE #( )</code> 可以构造该类型的 initial value；对结构/内表可理解为清空成 initial 状态。</li>
+<li>对 internal table，括号内每一对 <code>( ... )</code> 通常是一行；行内写 row component。</li>
+<li><code>BASE</code> 可以在已有结构或内表基础上构造新值，而不是完全从 initial value 开始。</li>
+<li><code>VALUE</code> 是表达式，可以直接用于 assignment、method actual parameter、<code>APPEND VALUE #( ... )</code>、<code>INSERT VALUE #( ... )</code>、ABAP Unit assertion、RAP EML 参数等位置。</li>
+<li><code>VALUE #( ... )</code> 的 <code>#</code> 依赖上下文静态推断；如果没有足够上下文，不要硬写 <code>#</code>。</li>
+<li><code>VALUE</code> 可以让测试数据、fixture、小表和结构初始化更清楚，但复杂嵌套会损害可读性。</li>
+<li>日本项目 review 中，重点看 <code>型推論</code> 是否清楚、<code>初期値</code> 是否符合业务语义、<code>BASE指定</code> 是否需要、internal table key 是否被正确设计。</li>
+</ul>
+<p>最小判断标准：读者看到一段 <code>VALUE #( ... )</code>，应该能回答三件事：目标类型是什么？省略字段会怎样？这是构造新值，还是想在旧值基础上修改？</p>
+<h4 id="38-3-dbae98bd" class="semantic-heading semantic-why">38.3 为什么重要</h4>
+<p>没有 <code>VALUE</code> 时，构造结构常常要写很多赋值：</p>
+<pre><code class="language-abap">CLEAR order.
+order-order_id = &#x27;4500000001&#x27;.
+order-status   = &#x27;OPEN&#x27;.
+order-currency = &#x27;JPY&#x27;.</code></pre>
+<p>构造内表也会有很多重复：</p>
+<pre><code class="language-abap">CLEAR item.
+item-item_no = &#x27;10&#x27;.
+item-material = &#x27;MAT-001&#x27;.
+APPEND item TO items.
+
+CLEAR item.
+item-item_no = &#x27;20&#x27;.
+item-material = &#x27;MAT-002&#x27;.
+APPEND item TO items.</code></pre>
+<p>这些写法不是错，但读者要在 <code>CLEAR</code>、component assignment、<code>APPEND</code> 之间拼出“最终值是什么”。<code>VALUE</code> 把最终值直接写成一个整体：</p>
+<pre><code class="language-abap">DATA(items) = VALUE ty_order_items(
+  ( item_no = &#x27;10&#x27; material = &#x27;MAT-001&#x27; )
+  ( item_no = &#x27;20&#x27; material = &#x27;MAT-002&#x27; )
+).</code></pre>
+<p>这对测试和示例尤其有用。ABAP Unit 里经常要构造一小段输入数据：</p>
+<pre><code class="language-abap">cl_abap_unit_assert=&gt;assert_true(
+  act = validator-&gt;is_valid(
+    VALUE ty_amount( amount = 100 currency = &#x27;JPY&#x27; )
+  )
+).</code></pre>
+<p>读者一眼能看出：测试传入的是一个 amount/currency 结构。这里 <code>VALUE</code> 不只是少写代码，而是让 test fixture 更像数据本身。</p>
+<p>但项目代码也有反面。<code>VALUE</code> 嵌套太深会变成一大团括号，debug 和障害调查时很难定位；给已有结构重新赋 <code>VALUE #( only_one_component = x )</code> 会让其他 component 变成 initial value；用 <code>VALUE #( ... )</code> 构造内表时，如果目标 table type 没有合适 key，后续查找性能仍可能很差。Modern ABAP 的目标是清楚表达意图，而不是把所有步骤压成一行。</p>
+<h4 id="38-4-key-mechanism-1726a550" class="semantic-heading semantic-mechanism">38.4 Key mechanism / 核心机制</h4>
+<h5 id="38-4-1-value-constructs-a-value-of-a-known-type-59edd1b8">38.4.1 VALUE constructs a value of a known type</h5>
+<p><code>VALUE</code> 后面必须有类型：</p>
+<pre><code class="language-abap">DATA(order) = VALUE ty_order(
+  order_id = &#x27;4500000001&#x27;
+  status   = &#x27;OPEN&#x27;
+).</code></pre>
+<p>这里 <code>ty_order</code> 是显式类型。也可以写：</p>
+<pre><code class="language-abap">DATA order TYPE ty_order.
+
+order = VALUE #(
+  order_id = &#x27;4500000001&#x27;
+  status   = &#x27;OPEN&#x27;
+).</code></pre>
+<p>第二个例子里，<code>#</code> 从左侧 <code>order TYPE ty_order</code> 推断目标类型。关键是：类型仍然是静态确定的。</p>
+<p>下面这种写法就缺少类型上下文：</p>
+<pre><code class="language-abap">&quot; Not enough context for a structured value
+DATA(order) = VALUE #( order_id = &#x27;4500000001&#x27; status = &#x27;OPEN&#x27; ).</code></pre>
+<p>如果 <code>DATA(order)</code> 自己也要靠右侧推断，而右侧又写 <code>VALUE #(...)</code>，编译器没有足够信息知道这个 structure 到底是什么类型。此时要写显式类型：</p>
+<pre><code class="language-abap">DATA(order) = VALUE ty_order(
+  order_id = &#x27;4500000001&#x27;
+  status   = &#x27;OPEN&#x27;
+).</code></pre>
+<p>还要注意一个边界：<code>VALUE</code> 主要用于结构、内表和 initial value 构造。它可以构造 elementary type 的 initial value，例如 <code>DATA(counter) = VALUE i( ).</code>；但对于“把某个具体值转换成 elementary type”这种需求，通常用 <code>CONV</code> 更合适，例如 <code>CONV i( text_value )</code>。不要把 <code>VALUE</code> 当成所有类型转换和所有字面值构造的通用工具，也不要期待 <code>VALUE #( ... )</code> 能直接塞进普通算术表达式里替代数值 operand。</p>
+<h5 id="38-4-2-structure-construction-starts-from-initial-values-8e6bad2a">38.4.2 Structure construction starts from initial values</h5>
+<p>对 structure 来说，<code>VALUE</code> 的括号里写 component assignment：</p>
+<pre><code class="language-abap">DATA(order) = VALUE ty_order(
+  order_id = &#x27;4500000001&#x27;
+  status   = &#x27;OPEN&#x27;
+).</code></pre>
+<p>没有写到的 component 会成为该类型的 initial value。例如 <code>currency</code> 没写，就不会自动沿用某个旧值，也不会从业务配置里猜出来。</p>
+<p>空的 <code>VALUE #( )</code> 则表示构造一个该类型的 initial value：</p>
+<pre><code class="language-abap">order = VALUE #( ).
+items = VALUE #( ).</code></pre>
+<p>对 structure，可以理解为类似 <code>CLEAR order</code>；对 internal table，可以理解为清空 table value。项目上如果使用这种写法，要确保读者能看懂它是“初期化/清空”，而不是“构造一条空业务数据”。</p>
+<p>这点在给已有变量重新赋值时特别重要：</p>
+<pre><code class="language-abap">order = VALUE #(
+  status = &#x27;CLOSED&#x27;
+).</code></pre>
+<p>这不是“只改 status”。它会把 <code>order</code> 重新构造成一个新的 <code>ty_order</code> 值，只有 <code>status</code> 被赋值，其他 component 回到 initial value。想在旧值基础上只改一个字段，应使用 <code>BASE</code>：</p>
+<pre><code class="language-abap">order = VALUE #(
+  BASE order
+  status = &#x27;CLOSED&#x27;
+).</code></pre>
+<p>还有一个非常容易踩的 self-reference trap：不要在给同一个结构赋 <code>VALUE</code> 时，在右侧读取它自己的旧 component。</p>
+<pre><code class="language-abap">&quot; Risky: order is initialized before component assignment
+order = VALUE #(
+  counter = order-counter + 1
+).</code></pre>
+<p>这类写法的直觉可能是“旧 counter 加 1”，但 <code>VALUE</code> 赋给目标结构时，目标会先被初始化/覆盖，再执行括号里的 component assignment。要保留旧值，应先保存到中间变量，或者使用 <code>BASE order</code> 并只覆盖需要改的字段。</p>
+<h5 id="38-4-3-base-preserves-an-existing-value-as-the-starting-point-a446ef46">38.4.3 BASE preserves an existing value as the starting point</h5>
+<p><code>BASE</code> 的意思是：先拿一个已有值作为基础，再覆盖指定 component 或追加 table row。</p>
+<p>结构例子：</p>
+<pre><code class="language-abap">DATA(changed_order) = VALUE ty_order(
+  BASE old_order
+  status = &#x27;CLOSED&#x27;
+).</code></pre>
+<p>这里 <code>changed_order</code> 先复制 <code>old_order</code> 的全部 component，再把 <code>status</code> 覆盖成 <code>&#x27;CLOSED&#x27;</code>。</p>
+<p>internal table 例子：</p>
+<pre><code class="language-abap">items = VALUE #(
+  BASE items
+  ( item_no = &#x27;30&#x27; material = &#x27;MAT-003&#x27; quantity = 1 )
+).</code></pre>
+<p>这会构造一个“旧 items 加一行”的新 table value，再赋回 <code>items</code>。对小表、测试数据、清楚的追加表达很方便；对大表或性能敏感逻辑，不要把它当成 <code>APPEND</code> 的机械替代，要看内存和可读性。</p>
+<h5 id="38-4-4-internal-table-construction-uses-row-parentheses-f909618b">38.4.4 Internal table construction uses row parentheses</h5>
+<p>构造 internal table 时，外层括号属于 <code>VALUE</code>，每一行再用一对括号：</p>
+<pre><code class="language-abap">DATA(items) = VALUE ty_order_items(
+  ( item_no = &#x27;10&#x27; material = &#x27;MAT-001&#x27; quantity = 2 )
+  ( item_no = &#x27;20&#x27; material = &#x27;MAT-002&#x27; quantity = 1 )
+).</code></pre>
+<p>如果 row type 是 structure，行内写 component assignment。初学者最容易漏掉行括号，或者把 structure 的 component assignment 和 table row 混在一起。</p>
+<p>如果目标 table type 有 unique key，构造时出现重复 key 可能导致运行时异常。比如 sorted/hashed table 的 unique key 不允许重复。<code>VALUE</code> 不会让 key 约束消失；它只是换了一种构造写法。</p>
+<p>相反，如果 table type 是 <code>WITH EMPTY KEY</code> 的 standard table，重复行通常会被接受，因为它本来就没有唯一性约束。不要把“unique key 重复会失败”泛化成“所有 <code>VALUE</code> 构造重复数据都会失败”。</p>
+<p><code>VALUE</code> 还可以用 <code>LINES OF</code> 把其他 internal table 的行纳入构造结果：</p>
+<pre><code class="language-abap">DATA(all_items) = VALUE ty_order_items(
+  ( LINES OF old_items )
+  ( item_no = &#x27;30&#x27; material = &#x27;MAT-003&#x27; quantity = 1 )
+).</code></pre>
+<p>初学阶段只要知道它存在即可。真正使用时要确认 table type、key、重复行和性能。</p>
+<h5 id="38-4-5-value-can-be-used-inline-as-an-actual-parameter-3c3b773a">38.4.5 VALUE can be used inline as an actual parameter</h5>
+<p><code>VALUE</code> 是表达式，所以可以直接放进 method call：</p>
+<pre><code class="language-abap">validator-&gt;is_valid(
+  VALUE ty_amount(
+    amount   = 100
+    currency = &#x27;JPY&#x27;
+  )
+).</code></pre>
+<p>也可以用于 <code>APPEND</code> / <code>INSERT</code>：</p>
+<pre><code class="language-abap">APPEND VALUE #(
+  item_no  = &#x27;10&#x27;
+  material = &#x27;MAT-001&#x27;
+) TO items.
+
+INSERT VALUE #(
+  item_no  = &#x27;20&#x27;
+  material = &#x27;MAT-002&#x27;
+) INTO TABLE items.</code></pre>
+<p>这里 <code>#</code> 的类型来自 <code>items</code> 的 line type。<code>APPEND VALUE #( ... )</code> 适合往 standard table 追加一行；<code>INSERT VALUE #( ... ) INTO TABLE ...</code> 更适合表达 key-aware insertion，尤其是在 sorted/hashed table 或需要遵守 table key 语义时。不要把二者当成单纯风格差异。</p>
+<p>当 <code>VALUE</code> 作为 method actual parameter 使用时，运行时会构造一个临时 data object 作为参数值，语句结束后这个临时值不再需要。对小结构、测试输入、RAP/EML 参数，这很方便；对巨大内表或性能敏感路径，要考虑构造成本。</p>
+<h5 id="38-4-6-value-and-abap-unit-609366d1">38.4.6 VALUE and ABAP Unit</h5>
+<p>ABAP Unit 里 <code>VALUE</code> 非常常见，因为测试要快速表达输入和预期：</p>
+<pre><code class="language-abap">DATA(input) = VALUE ty_order(
+  order_id = &#x27;4500000001&#x27;
+  status   = &#x27;OPEN&#x27;
+).
+
+DATA(expected_messages) = VALUE ty_messages(
+  ( type = &#x27;E&#x27; text = `Missing material` )
+  ( type = &#x27;W&#x27; text = `Quantity was adjusted` )
+).</code></pre>
+<p>这比先 <code>CLEAR</code>、再一行行赋值更像“测试数据表”。但测试里也不要过度嵌套。如果一个 <code>VALUE</code> 表达式长到遮住了测试意图，就拆成 helper method，例如 <code>given_open_order( )</code>。</p>
+<h5 id="38-4-7-value-and-rap-eml-awareness-941ca87e">38.4.7 VALUE and RAP / EML awareness</h5>
+<p>RAP / EML 示例里也经常看到 <code>VALUE</code>：</p>
+<pre><code class="language-abap">MODIFY ENTITIES OF zi_order
+  ENTITY Order
+  CREATE
+  FIELDS ( OrderId Status )
+  WITH VALUE #(
+    ( %cid = &#x27;C1&#x27; OrderId = &#x27;4500000001&#x27; Status = &#x27;OPEN&#x27; )
+  ).</code></pre>
+<p>初学阶段不需要掌握 RAP 的全部语义，但要知道：<code>VALUE #( ( ... ) )</code> 在这里是在构造 EML 语句需要的 internal table 参数。读 RAP 代码时，先判断 <code>VALUE</code> 构造的是 structure 还是 table，再看每一行的 technical components，例如 <code>%cid</code>、<code>%key</code>、<code>%control</code>。</p>
+<h5 id="38-4-8-readability-boundary-aa0b79ab" class="semantic-heading semantic-concept">38.4.8 Readability boundary</h5>
+<p><code>VALUE</code> 好用，但不该无限嵌套：</p>
+<pre><code class="language-abap">&quot; Hard to review
+DATA(result) = VALUE ty_result(
+  header = VALUE #( ... )
+  items  = VALUE #( FOR item IN source ( ... ) )
+  texts  = VALUE #( ( ... ) ( ... ) )
+).</code></pre>
+<p>复杂表达式有时是合理的，但 review 时要问：</p>
+<ul>
+<li>目标类型是否清楚？</li>
+<li>每一层 <code>VALUE</code> 是 structure 还是 table？</li>
+<li>省略字段是否应该 initial？</li>
+<li>是否需要 <code>BASE</code>？</li>
+<li>是否更适合拆成小 method 或中间变量？</li>
+</ul>
+<p>Clean ABAP 不等于“少写行数”。如果拆开后更容易解释、测试和调试，就拆开。</p>
+<p>调试时也要注意：一个结构 <code>VALUE</code> 表达式在 debugger 里可能作为一个整体步骤执行，不能像多行 component assignment 那样逐字段停下来观察。如果正在调查某个字段为什么被赋错，临时拆成显式赋值往往更容易定位问题。</p>
+<h5 id="38-4-9-value-usage-decision-checklist-d71407e5">38.4.9 VALUE usage decision checklist</h5>
+<p>写 <code>VALUE #( ... )</code> 前，可以用下面的表判断它是否适合当前场景。核心不是“能否压缩行数”，而是构造意图是否比传统赋值更清楚。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>VALUE is usually a good fit when...</th><th>Prefer explicit steps when...</th></tr></thead><tbody><tr><td>Is the target type clear?</td><td>左侧变量、method parameter 或 table type 明确。</td><td><code>#</code> 的类型要读很多层才能推断出来。</td></tr><tr><td>Are initial components intended?</td><td>省略字段确实应该 initial。</td><td>旧值必须保留，或省略字段可能误清空业务值。</td></tr><tr><td>Do you need BASE?</td><td>只想覆盖少数字段，并明确以旧值为基础。</td><td>读者看不出是重建新值还是基于旧值修改。</td></tr><tr><td>Is table key behavior understood?</td><td>小型 test data、fixture、临时标准表。</td><td>sorted/hashed/unique key、重复行、性能和顺序很关键。</td></tr><tr><td>Is the expression shallow?</td><td>一两层结构或几行 table data。</td><td>嵌套 <code>VALUE</code>、<code>FOR</code>、<code>COND</code>、<code>LET</code> 后难以 review。</td></tr><tr><td>Is this test data?</td><td>ABAP Unit 输入、expected table、fixture 很短。</td><td>测试数据很大，最好拆成 helper method 或 builder。</td></tr><tr><td>Is debugging easy enough?</td><td>出错时一眼能看出哪个 component/row 错。</td><td>需要逐字段观察、逐行断点或保留中间值。</td></tr></tbody></table></div>
+<p>一个项目上的保守规则是：<code>VALUE</code> 适合“声明式地构造一个小而完整的值”；如果代码开始同时承担筛选、转换、分组、默认值、业务校验和错误处理，就已经超过 <code>VALUE</code> 最舒服的范围，应考虑拆成可命名的小步骤。</p>
+<h4 id="38-5-33f357e2" class="semantic-heading semantic-japan">38.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>VALUE式</code>、<code>コンストラクタ式</code>、<code>構造の初期化</code>、<code>内部テーブルの構築</code>、<code>内部テーブルの値構築</code>、<code>型推論</code>、<code>明示的な型指定</code>、<code>BASE指定</code>、<code>初期値</code>、<code>未指定項目</code>、<code>一時データ</code>、<code>テストデータ作成</code>、<code>可読性</code>、<code>保守性</code>、<code>デバッグ容易性</code>。</li>
+<li>说明句：この <code>VALUE #( ... )</code> は左辺の型から推論できるため問題ありません。未指定項目が初期値になる点だけ確認してください。</li>
+<li>Review 指摘句：既存構造の一部項目だけを変更する意図であれば、<code>VALUE #( BASE ... )</code> を使用するか、明示的な代入に変更してください。</li>
+<li>Review 指摘句：この <code>VALUE</code> 式では代入先構造が先に初期化されるため、同じ構造の旧値を参照する自己参照は避けてください。</li>
+<li>Review 指摘句：この <code>VALUE</code> 式はネストが深く、障害調査時に追いにくいため、中間変数または小さいメソッドに分割してください。</li>
+<li>Review 指摘句：内部テーブルのキー制約を確認してください。重複キーがある場合、<code>VALUE</code> による構築時に実行時エラーになる可能性があります。</li>
+<li>使用场景：ABAP Unit test fixture、RAP EML 参数构造、method 参数、结构初始化、内表初始化、code review、障害调查。</li>
+</ul>
+<h4 id="38-6-english-terms-830051fc" class="semantic-heading semantic-terms">38.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>VALUE</code>, <code>constructor expression</code>, <code>constructor operator</code>, <code>VALUE, Structures</code>, <code>VALUE, Internal Tables</code></li>
+<li>ABAP syntax: <code>VALUE type( ... )</code>, <code>VALUE #( ... )</code>, <code>BASE</code>, <code>APPEND VALUE #( ... )</code>, <code>INSERT VALUE #( ... ) INTO TABLE</code>, <code>WITH VALUE #( ... )</code></li>
+<li>Type terms: <code>type inference</code>, <code>initial value</code>, <code>structured type</code>, <code>internal table</code>, <code>row type</code>, <code>unique key</code>, <code>line type</code></li>
+<li>Style terms: <code>readability</code>, <code>test fixture</code>, <code>temporary value</code>, <code>explicit type</code>, <code>nested expression</code></li>
+<li>Recommended search pattern: <code>ABAP VALUE constructor expression SAP Help</code>, <code>VALUE Structures ABAP Keyword Documentation</code>, <code>VALUE Internal Tables ABAP Keyword Documentation</code></li>
+</ul>
+<p>读官方资料时注意：<code>VALUE</code> 属于 constructor expressions；<code>VALUE #( ... )</code> 的 <code>#</code> 依赖 operand position / target type 推断；结构和内表的 <code>VALUE</code> 语法相似，但括号层级和初始值规则不同。</p>
+<h4 id="38-7-example-84d3b4d2" class="semantic-heading semantic-example">38.7 Example / 学习例子</h4>
+<h5 id="38-7-1-1-structure-eec1448b">38.7.1 例 1：构造 structure</h5>
+<pre><code class="language-abap">TYPES BEGIN OF ty_order.
+TYPES order_id TYPE string.
+TYPES status   TYPE string.
+TYPES currency TYPE string.
+TYPES END OF ty_order.
+
+DATA(order) = VALUE ty_order(
+  order_id = &#x27;4500000001&#x27;
+  status   = &#x27;OPEN&#x27;
+  currency = &#x27;JPY&#x27;
+).</code></pre>
+<p>这个例子中，<code>VALUE ty_order( ... )</code> 明确构造 <code>ty_order</code> 类型的 structure。</p>
+<h5 id="38-7-2-2-initial-72b4e55a">38.7.2 例 2：省略字段会 initial</h5>
+<pre><code class="language-abap">DATA(order) = VALUE ty_order(
+  order_id = &#x27;4500000001&#x27;
+  status   = &#x27;OPEN&#x27;
+).</code></pre>
+<p>如果 <code>currency</code> 没写，它就是 initial value。不要以为它会从之前的变量、用户设置或公司代码自动补出来。</p>
+<h5 id="38-7-3-3-base-514574cc">38.7.3 例 3：用 BASE 保留旧值</h5>
+<pre><code class="language-abap">DATA(closed_order) = VALUE ty_order(
+  BASE order
+  status = &#x27;CLOSED&#x27;
+).</code></pre>
+<p>这里 <code>closed_order</code> 保留 <code>order</code> 的其他字段，只改 <code>status</code>。</p>
+<h5 id="38-7-4-4-internal-table-8d5e4b54">38.7.4 例 4：构造 internal table</h5>
+<pre><code class="language-abap">TYPES ty_order_items TYPE STANDARD TABLE OF ty_order_item WITH EMPTY KEY.
+
+DATA(items) = VALUE ty_order_items(
+  ( item_no = &#x27;10&#x27; material = &#x27;MAT-001&#x27; quantity = 2 )
+  ( item_no = &#x27;20&#x27; material = &#x27;MAT-002&#x27; quantity = 1 )
+).</code></pre>
+<p>每一对 <code>( ... )</code> 是一行。外层 <code>VALUE ty_order_items( ... )</code> 是构造整张 internal table。</p>
+<h5 id="38-7-5-5-ee9ea408">38.7.5 例 5：插入一行</h5>
+<pre><code class="language-abap">APPEND VALUE #(
+  item_no  = &#x27;30&#x27;
+  material = &#x27;MAT-003&#x27;
+  quantity = 1
+) TO items.</code></pre>
+<p>这里 <code>#</code> 从 <code>items</code> 的 line type 推断。这个写法适合追加一行，比先声明 work area 再赋值再 append 更直接。</p>
+<h5 id="38-7-6-6-abap-unit-59bcd8ad">38.7.6 例 6：ABAP Unit 输入</h5>
+<pre><code class="language-abap">cl_abap_unit_assert=&gt;assert_true(
+  act = validator-&gt;is_valid(
+    VALUE ty_amount(
+      amount   = 100
+      currency = &#x27;JPY&#x27;
+    )
+  )
+).</code></pre>
+<p>测试读者可以直接看到输入数据，不需要跳到 method 上方找临时变量。</p>
+<h5 id="38-7-7-7-37a9e58c">38.7.7 例 7：不适合过度嵌套</h5>
+<pre><code class="language-abap">DATA(result) = VALUE ty_result(
+  header = VALUE #( order_id = order_id status = &#x27;OPEN&#x27; )
+  items  = VALUE #( ( item_no = &#x27;10&#x27; material = material ) )
+).</code></pre>
+<p>这个例子还可以接受；如果再嵌套 <code>FOR</code>、<code>COND</code>、<code>CORRESPONDING</code>，可能就该拆成中间变量或 helper method。</p>
+<h4 id="38-8-counterexample-failure-mode-dda8edac" class="semantic-heading semantic-example">38.8 Counterexample / Failure mode</h4>
+<h5 id="38-8-1-1-value-f4024f8c" class="semantic-heading semantic-failure">38.8.1 误区 1：把 <code>VALUE #( ... )</code> 当成自动万能推断</h5>
+<p><code>#</code> 需要上下文。如果上下文没有目标类型，编译器无法知道你要构造什么。</p>
+<p>修正动作：写显式类型，例如 <code>VALUE ty_order( ... )</code>。</p>
+<h5 id="38-8-2-2-98dcd8f7" class="semantic-heading semantic-failure">38.8.2 误区 2：以为省略字段会保留旧值</h5>
+<pre><code class="language-abap">order = VALUE #( status = &#x27;CLOSED&#x27; ).</code></pre>
+<p>这会重建 <code>order</code>，未指定 component 变成 initial value。</p>
+<p>修正动作：如果要保留旧值，写 <code>VALUE #( BASE order status = &#x27;CLOSED&#x27; )</code>。</p>
+<h5 id="38-8-3-3-internal-table-0f552451" class="semantic-heading semantic-failure">38.8.3 误区 3：漏掉 internal table 的行括号</h5>
+<p>构造内表时，每一行需要 <code>( ... )</code>。少一层括号，语法和语义都会混乱。</p>
+<p>修正动作：外层看 table，内层看 row。</p>
+<h5 id="38-8-4-4-unique-key-2bbe2c41" class="semantic-heading semantic-failure">38.8.4 误区 4：忽视 unique key</h5>
+<p>构造 sorted/hashed table 时，如果数据里有重复 unique key，可能运行时失败。</p>
+<p>修正动作：先确认 table type 和 key；测试重复数据路径。</p>
+<h5 id="38-8-5-5-0b6ca810" class="semantic-heading semantic-failure">38.8.5 误区 5：表达式过深</h5>
+<p><code>VALUE</code> 嵌套 <code>VALUE</code>、<code>FOR</code>、<code>COND</code>、<code>CORRESPONDING</code> 后，代码可能很短但很难读。</p>
+<p>修正动作：拆成中间变量、小 method 或显式步骤，让业务意图更清楚。</p>
+<h4 id="38-9-b9c1ed80" class="semantic-heading semantic-practice">38.9 思考问题</h4>
+<ul>
+<li>这个 <code>VALUE #( ... )</code> 的目标类型从哪里来？</li>
+<li>如果省略某个 component，它会保留旧值还是变成 initial value？</li>
+<li>当前是否需要 <code>BASE</code>？</li>
+<li>这里构造的是 structure 还是 internal table？</li>
+<li>internal table 的 row type 和 key 是什么？是否有 unique key 风险？</li>
+<li>如果把这段 <code>VALUE</code> 拆成显式赋值，可读性会变好还是变差？</li>
+<li>在日本项目 review 中，应该如何说明 <code>未指定項目が初期値になる</code>？</li>
+</ul>
+<h4 id="38-10-600ac0be" class="semantic-heading semantic-reference">38.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONSTRUCTOR_EXPRESSIONS.html" target="_blank" rel="noopener noreferrer">Constructor Operators for Constructor Expressions</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENVALUE_CONSTRUCTOR_PARAMS_STRUC.html" target="_blank" rel="noopener noreferrer">VALUE, Structures</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENVALUE_CONSTRUCTOR_PARAMS_ITAB.html" target="_blank" rel="noopener noreferrer">VALUE, Internal Tables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenvalue_constructor_params_itab.html" target="_blank" rel="noopener noreferrer">VALUE, Internal Tables - ABAP Cloud</a></li>
+<li>SAP Cheat Sheets: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/05_Constructor_Expressions.md" target="_blank" rel="noopener noreferrer">Constructor Expressions Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="38-11-connections-7fd1aebb">38.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-037-inline-declaration-d2da10ac.html">Inline declaration 内联声明</a></li>
+<li>Related: <a class="wiki" href="section-01-023-structure-3269a877.html">Structure 结构类型</a></li>
+<li>Related: <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-02-014-sap-transaction-boundary-and-luw-model-3b5ad622.html">SAP Transaction Boundary and LUW Model</a></li>
+<li>Downstream: <a class="wiki" href="section-02-039-corresponding-expression-74c9f3e8.html">CORRESPONDING expression 字段映射</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="38-12-678b1f60" class="semantic-heading semantic-practice">38.12 学习任务</h4>
+<ul>
+<li>写一个 <code>VALUE ty_structure( ... )</code>，说明每个 component 的含义。</li>
+<li>写一个 <code>VALUE ty_table( ( ... ) ( ... ) )</code>，确认外层和行括号。</li>
+<li>写一个省略字段的例子，说明未指定 component 是 initial value。</li>
+<li>把 <code>order = VALUE #( status = &#x27;CLOSED&#x27; )</code> 改成带 <code>BASE order</code> 的版本，并解释差异。</li>
+<li>写一个 <code>APPEND VALUE #( ... ) TO itab</code> 例子，并说明 <code>#</code> 从哪里推断类型。</li>
+<li>用 ABAP Unit 写一个 <code>VALUE</code> 构造输入数据的小测试。</li>
+<li>用 English Terms 找 SAP Help 对 <code>VALUE, Structures</code> 和 <code>VALUE, Internal Tables</code> 的说明，并补到个人学习记录。</li>
+</ul>
+<h4 id="38-13-confidence-next-action-75e654ac" class="semantic-heading semantic-status">38.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节基于 ABAP Keyword Documentation 的 constructor expressions、<code>VALUE, Structures</code>、<code>VALUE, Internal Tables</code>、SAP constructor expression cheat sheet，以及 <code>90-Review/joule-value-expression-snapshot-2-2026-06-13.txt</code> 的 Joule <code>Pass with fixes</code> 修正完成；重点修正包括显式类型 vs <code>#</code>、initial value、<code>BASE</code>、self-reference trap、<code>LINES OF</code>、unique key vs <code>WITH EMPTY KEY</code>、<code>APPEND VALUE</code> vs <code>INSERT VALUE INTO TABLE</code>、method actual parameter temporary value、RAP/EML <code>WITH VALUE</code>、debuggability 和日本项目用语。Claude 旧 review 为 credential error，2026-06-18 health check 超时，作为外部 review debt 记录。</li>
+<li>Next action: 已同步到 Chapter 02 与离线书稿后，继续质量闭环到 <a class="wiki" href="section-02-039-corresponding-expression-74c9f3e8.html">CORRESPONDING expression 字段映射</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-038-value-expression-a0792b7e.html">VALUE expression 值构造表达式</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-037-inline-declaration-d2da10ac.html">Previous section</a><a href="section-02-039-corresponding-expression-74c9f3e8.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

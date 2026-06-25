@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>TYPE vs LIKE 类型声明方式 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="22-type-vs-like-166020da" class="chapter-title">22. TYPE vs LIKE 类型声明方式</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 22</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p><code>TYPE</code> 是“用一个独立的类型来声明数据对象”，<code>LIKE</code> 是“照某个已经可见的数据对象或字段的类型形状来声明数据对象”。初学者最重要的判断规则是：新代码和接口边界优先用 <code>TYPE</code> 指向稳定类型；只有当一个局部变量确实依赖另一个数据对象的形状时，才考虑 <code>LIKE</code>，并且要让这种依赖在代码 review 中说得清楚。</p>
+<p><strong>正文</strong></p>
+<p>上一节已经解释了 <a class="wiki" href="section-01-021-elementary-data-types-70039e9a.html">Elementary data types 基础技术类型</a>，但真实 ABAP 代码不会只写 <code>TYPE i</code>、<code>TYPE string</code>。项目里更常见的是：字段来自 DDIC data element，结构来自 Dictionary structure，内表来自 table type，方法参数来自全局 class/interface 的 public type，或者局部变量想跟某个已有参数保持同样类型。这时就会遇到 <code>TYPE</code> 和 <code>LIKE</code>。</p>
+<p>先看 <code>TYPE</code>。<code>TYPE</code> 后面放的是 data type 类型名。这个类型可以是 ABAP built-in type，例如 <code>i</code>、<code>string</code>、<code>p LENGTH ... DECIMALS ...</code>；也可以是当前程序里用 <code>TYPES</code> 定义的本地类型；也可以是全局 class / interface 暴露出来的 public type；还可以是 ABAP Dictionary 中可作为类型使用的对象，例如 <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a>、DDIC structure、table type。CDS view type 等后面章节会继续展开，本节先把声明方式的判断规则学稳。SAP Learning 还提醒：database table 作为类型使用时，表示的是该表的行结构；这种写法在旧代码里常见，但新代码如果不是明确要模拟数据库表行，通常不应直接把数据库表名当作通用结构类型，因为它会让程序变量和物理表定义过度耦合。</p>
+<p>再看 <code>LIKE</code>。<code>LIKE</code> 后面不是一个抽象类型名，而是一个在当前位置可见的数据对象或字段。<code>DATA lv_save LIKE iv_amount.</code> 的意思不是“lv_save 指向 iv_amount”，也不是 Java/Python 里的引用别名；它只是在声明时借用了 <code>iv_amount</code> 的类型属性，声明出来的 <code>lv_save</code> 仍然是独立的 <a class="wiki" href="section-01-020-abap-data-object-e568a611.html">ABAP data object 数据对象</a>。这点非常重要：<code>LIKE</code> 是声明期的类型继承，不是运行时的数据引用。真正的数据引用、对象引用要到 <code>REF TO</code>、data reference、field symbol 等后面章节再学。</p>
+<p>为什么 ABAP 还需要 <code>LIKE</code>？一个典型场景是 helper variable。假设方法参数 <code>iv_amount</code> 的类型以后可能从一个 data element 改成另一个更合适的 data element，那么局部备份变量 <code>DATA lv_amount_save LIKE iv_amount.</code> 会跟着参数变化。另一个常见场景是 work area：<code>DATA ls_item LIKE LINE OF lt_items.</code> 明确表达“这一行变量依赖这张内表的行类型”。这类 <code>LIKE</code> 是有意建立依赖，项目 review 时可以解释。</p>
+<p>但是 <code>LIKE</code> 也很容易被滥用。旧 ABAP 代码里经常看到 <code>DATA lv_matnr LIKE mara-matnr.</code> 这种写法，它是有效且需要能读懂的 legacy form：<code>mara-matnr</code> 是 DDIC 表字段，<code>LIKE</code> 借用了该字段类型。可是在新代码中，如果真正想表达的是“物料号这个业务字段”，更清晰的写法通常是指向对应 data element，例如 <code>DATA lv_matnr TYPE matnr.</code>。这样读者看到的是稳定语义类型，而不是“这个变量碰巧像 MARA 的某个字段”。Joule 和 SAP 指南都强调：如果数据对象直接依赖另一个数据对象，用 <code>LIKE</code>；其他情况用 <code>TYPE</code> 指向 standalone data type。</p>
+<p>还要特别区分 data element 和 domain。<a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a> 是 DDIC 中定义技术属性、取值范围等底层规则的对象，但它本身不是 ABAP 声明里的类型名。ABAP 编译器不会把 domain name 当作合法 <code>TYPE</code> 目标；正确路径是引用基于该 domain 的 data element。换句话说，domain 是 DDIC 的取值/格式基础，data element 才是带技术属性和语义含义的可用类型入口。</p>
+<p>最后，把 inline declaration 放在正确位置理解。<code>DATA(result) = method( ).</code>、<code>SELECT ... INTO TABLE @DATA(lt_result)</code> 这类写法是在编译期从表达式、方法签名或 SQL 结果静态推断类型，不是运行时动态类型，也不是 <code>LIKE</code> 的另一种写法。它们能让代码更短，但如果推断结果不明显，项目 review 仍可能要求显式 <code>TYPE</code> 或补充变量命名，让类型来源更容易追踪。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li><code>TYPE</code> / <code>LIKE</code> 决定了变量、参数、work area、内表行的类型来源，也决定了以后改 DDIC、改接口、改方法签名时，哪些变量会自动跟随、哪些变量需要手工调整。</li>
+<li>用 <code>TYPE</code> 指向 data element 或全局 type，读者能看到业务语义；滥用 <code>LIKE dbtab-field</code> 会让类型来源分散到数据库表字段上，影响 review、重构和 Clean Core 判断。</li>
+<li>用 <code>LIKE</code> 表达直接依赖时很有价值，例如 helper variable 跟随方法参数、work area 跟随内表行；但如果依赖关系不真实，它就会变成隐藏耦合。</li>
+<li>对 Java/Python 背景学习者来说，最大误区是把 <code>LIKE</code> 理解成 runtime reference。ABAP 的 <code>LIKE</code> 只是声明方式，不会让两个变量共享同一块内存。</li>
+</ul>
+<p><strong>核心机制</strong></p>
+<ul>
+<li><code>TYPE type</code>：引用一个 standalone data type，适合新代码、接口、方法签名、全局可复用类型、DDIC data element / structure / table type。</li>
+<li><code>LIKE dobj</code>：引用一个当前位置可见的数据对象或字段的类型属性，适合局部 helper、work area、<code>LIKE LINE OF</code> 等“真实依赖另一个对象”的场景。</li>
+<li><code>LIKE dbtab-field</code>：旧代码和维护项目里常见且需要能读懂；新代码通常优先找对应 data element，用 <code>TYPE</code> 表达业务语义。</li>
+<li><code>TYPE domain_name</code>：不要这样写。domain 不是 ABAP 声明里的类型名；要引用基于 domain 的 data element。</li>
+<li><code>DATA(var)</code> / <code>@DATA(var)</code>：属于 inline declaration 和静态型推论，不等于 <code>LIKE</code>，也不表示 ABAP 变成动态类型语言。</li>
+<li>Field symbol、generic formal parameter、data reference 与 <code>LIKE</code> 的交互有额外规则；Day 03 只需知道不要把它当作初学写法，后面动态编程章节再展开。</li>
+</ul>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>TYPE指定</code>、<code>LIKE指定</code>、<code>型参照</code>、<code>データオブジェクトの型継承</code>、<code>スタンドアロン型</code>、<code>型依存性</code>。</li>
+<li>DDIC 相关：<code>データ要素</code>、<code>ドメイン（DDICのドメイン）</code>、<code>構造型</code>、<code>テーブル型</code>、<code>項目定義</code>、<code>技術属性</code>、<code>意味情報</code>。</li>
+<li>代码 review 相关：<code>インライン宣言</code>、<code>静的型推論</code>、<code>暗黙型推論</code>、<code>開発標準</code>、<code>保守性</code>、<code>影響範囲</code>。</li>
+<li>说明句：この変数は入力パラメータに直接依存するため、<code>TYPE</code> ではなく <code>LIKE</code> 指定で型依存性を明示します。</li>
+<li>Review 句：この <code>LIKE mara-matnr</code> は保守性の観点で型依存性が高いため、可能であればデータ要素 <code>MATNR</code> を <code>TYPE</code> 指定してください。</li>
+<li>注意句：ここでいうドメインは DDIC のドメインであり、DDD のビジネスドメインとは意味が異なります。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>TYPE</code></li>
+<li>Official / search term: <code>LIKE</code></li>
+<li>Official / search term: <code>standalone data type</code></li>
+<li>Official / search term: <code>bound data type</code></li>
+<li>Official / search term: <code>data element</code></li>
+<li>Official / search term: <code>domain</code></li>
+<li>ABAP syntax: <code>DATA ... TYPE ...</code>, <code>DATA ... LIKE ...</code>, <code>LIKE LINE OF</code>, <code>TYPES ... TYPE ...</code>, <code>TYPES ... LIKE ...</code>, <code>DATA(...)</code>, <code>@DATA(...)</code></li>
+<li>Recommended search pattern: <code>ABAP Keyword Documentation TYPE LIKE data object</code></li>
+</ul>
+<p><strong>例子</strong></p>
+<p>先看一组可以在 ADT 练习类里阅读的声明：</p>
+<pre><code class="language-abap">DATA lv_travel_id TYPE /dmo/travel_id.
+DATA lv_travel_id_copy LIKE lv_travel_id. &quot;directly depends on lv_travel_id
+
+DATA lt_travel_keys TYPE /dmo/t_travel.
+DATA ls_travel_key  LIKE LINE OF lt_travel_keys.
+
+DATA lv_carrier_id TYPE /dmo/carrier_id.</code></pre>
+<p><code>lv_travel_id</code> 和 <code>lv_carrier_id</code> 用 <code>TYPE</code>，因为它们要表达稳定的业务语义：旅行 ID、航空公司 ID。<code>lv_travel_id_copy</code> 用 <code>LIKE lv_travel_id</code>，因为它只是一个局部 helper，明确依赖上面的变量。<code>ls_travel_key</code> 用 <code>LIKE LINE OF lt_travel_keys</code>，因为它是内表行 work area，真正依赖 <code>lt_travel_keys</code> 的行类型。</p>
+<p>再看两个 review 中常见的对比：</p>
+<pre><code class="language-abap">&quot;Legacy form: valid and commonly seen in old code
+DATA lv_matnr_old LIKE mara-matnr.
+
+&quot;New-code preference when a semantic DDIC type exists
+DATA lv_matnr TYPE matnr.</code></pre>
+<p>第一种写法需要能读懂，但它把变量类型绑到某个数据库表字段上。第二种写法直接告诉读者：这是 material number 的 data element 语义。日本项目中做保守改修时，遇到第一种不要急着全局替换；新写代码或重构时，优先问“有没有更稳定的 data element / class type / interface type 可以作为 <code>TYPE</code> 目标”。</p>
+<p>错误练习：</p>
+<pre><code class="language-abap">&quot;Wrong mental model: domain is not a DATA TYPE target
+DATA lv_status TYPE some_domain_name.</code></pre>
+<p>如果 <code>some_domain_name</code> 是 DDIC domain，这不是“风格不好”，而是类型目标不成立。应使用基于该 domain 的 data element，或者使用项目定义的全局 type。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>把 <code>LIKE</code> 理解成引用：以为 <code>lv_b LIKE lv_a</code> 会让两个变量共享值，结果误解赋值、清空和调试行为。</li>
+<li>旧代码里看到 <code>LIKE mara-matnr</code> 就盲目模仿：变量类型被绑到数据库表字段，业务语义和可维护性都变差。</li>
+<li>用 domain name 写 <code>TYPE</code>：把 DDIC domain 当作 ABAP 类型名，语法层面就不成立。</li>
+<li>在方法签名和公共 API 上大量使用偶然字段形状：调用方难以理解语义，后续 RAP/OData/CDS 映射也不清楚。</li>
+<li>过度使用 inline declaration：代码短了，但 review 时看不出变量应当承载的业务语义，尤其在金额、数量、日期、key 字段上风险更高。</li>
+<li>真实依赖关系不用 <code>LIKE</code>：helper variable 本来应跟随参数类型，却手工写了另一个 <code>TYPE</code>，以后参数类型变更时局部变量可能被遗漏。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li><code>DATA lv_a TYPE matnr.</code> 和 <code>DATA lv_a LIKE mara-matnr.</code> 分别把类型来源交给了谁？</li>
+<li>如果一个局部变量只是保存输入参数的旧值，用 <code>TYPE</code> 和 <code>LIKE</code> 哪个更能表达依赖关系？为什么？</li>
+<li>为什么 domain 不是 <code>TYPE</code> 的直接目标？data element 在这里多提供了什么？</li>
+<li><code>DATA(result) = method( ).</code> 是动态类型吗？它和 <code>LIKE</code> 的区别是什么？</li>
+<li>在日本项目 code review 中，什么情况下 reviewer 可能要求把 <code>LIKE</code> 改成 <code>TYPE</code>？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPTYPES_REFERRING.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - TYPES, TYPE, LIKE</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPDATA_SIMPLE.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DATA, TYPE abap_type</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENREF_TYPES_OBJECTS_GUIDL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Reference to Data Types or Data Objects</a></li>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/using-dictionary-objects-as-data-types_e28df7c3-7686-414e-9827-673dceeb21fb" target="_blank" rel="noopener noreferrer">SAP Learning - Using Dictionary Objects as Data Types</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenddic_data_elements.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Data Elements</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-022-type-vs-like-5da66ea5.html">TYPE vs LIKE 类型声明方式</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-021-elementary-data-types-70039e9a.html">Previous section</a><a href="section-01-023-structure-3269a877.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>UI service vs Web API | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="43-ui-service-vs-web-api-e4f11fae" class="chapter-title">43. UI service vs Web API</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 43</li><li>self-contained study note</li></ul><h4 id="43-1-f5c1ffcf" class="semantic-heading semantic-concept">43.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a> 是 RAP/OData 服务设计中的消费方边界：UI service 主要服务 Fiori Elements / SAPUI5 页面，强调 annotation、draft、side effects、value help 和用户交互；Web API 主要服务外部系统或技术集成，强调稳定 contract、payload、HTTP 状态、认证授权、版本兼容和可自动化测试。</p>
+<p>一句话记忆：UI service 是“给页面用的业务服务”，Web API 是“给系统调用的业务接口”；两者都可能基于 OData V4，但交付标准不同。</p>
+<h4 id="43-2-bcca1d3c" class="semantic-heading semantic-concept">43.2 到底学什么</h4>
+<p>学完 <a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a> 后，下一步不是见到 V4 就说“API 完成”，而是先问：这个服务到底给谁用？如果给 Fiori Elements 页面，它要支持页面生成、字段显示、筛选、value help、action button、draft、message 显示和 side effect 刷新。如果给外部系统，它要支持稳定的 endpoint、清晰 payload、错误码、幂等、认证、版本管理和接口文档。</p>
+<p>这两个方向都可能从同一个 RAP BO 出发，但不一定应该共用同一个 service binding。UI service 可以更贴近页面体验，暴露 UI 需要的 annotation、draft 行为和导航；Web API 则应该更克制，避免把 UI 专用字段、内部导航、临时 action、实现细节暴露给外部消费者。</p>
+<p>本节要学的是一套判断框架：需求来自用户界面还是系统集成？消费者是谁？是否有人类在页面上修正错误？是否需要长期兼容 payload？是否允许因 UI 调整改变 service contract？是否需要通信用户、communication arrangement、API policy、版本策略和自动化回归测试？</p>
+<h4 id="43-3-184519c9" class="semantic-heading semantic-why">43.3 为什么重要</h4>
+<p>这个区别重要，是因为 UI 和 API 的失败成本不同。UI service 的消费者是页面和用户；字段顺序、value help、draft 按钮、message 显示、side effect 刷新都影响体验。Web API 的消费者是另一个系统；一个字段改名、状态码变化、错误 payload 变化，就可能让集成作业失败。</p>
+<p>如果把 UI service 当 Web API 给外部系统使用，后续 UI annotation、projection 字段、navigation 或 draft 行为调整时，外部系统可能被无意破坏。反过来，如果把 Web API 当 UI service 使用，页面可能缺少 annotation、value help、draft、side effect 和用户友好的消息。</p>
+<p>对项目交付来说，这一节直接影响设计书、测试计划和运维。UI service 的验收证据常是 Fiori preview、页面操作、字段校验、action message、draft activate；Web API 的验收证据则是 OpenAPI/API 文档、HTTP 请求响应、错误 payload、认证方式、接口版本、重试和监控。</p>
+<p>对 Java/Python 背景学习者，可以把 UI service 类比成 backend-for-frontend，把 Web API 类比成 public/stable integration API。但 SAP 的差异是两者都可能由 RAP/OData metadata 驱动，且和 CDS annotation、behavior definition、service binding、authorization 深度绑定。</p>
+<p>初学者最容易犯的错，是把“能通过 OData 调到”当作“可以对外发布为 API”。在 SAP 项目里，服务的技术协议只是第一层。真正的设计问题是 consumer contract：谁会调用、调用多久、是否允许无人值守、是否跨系统、是否需要 SLA、是否需要版本兼容、是否涉及审计和通信用户。UI service 更像页面体验的一部分；Web API 更像系统间契约。两者都能走 HTTP，但治理方式完全不同。</p>
+<p>这个区别也会影响对象命名和文档。UI service 的对象名、projection、annotation 可以围绕页面语义组织；Web API 的 entity 名称、字段、operation、错误 code、deprecation policy 要更稳定。若一个服务已经被外部系统接入，就不能因为 Fiori 页面要重排字段而随意改变 payload；若一个服务只给页面使用，也不应该为了“以后可能被外部系统用”而过度牺牲页面体验。</p>
+<p>在日本项目里，这一节常会落到一句很现实的话：<code>このサービスの利用者は誰ですか。</code> 如果回答不清，后面的设计、测试、权限、移送、监控都会跟着模糊。把 consumer 说清楚，比先争论 OData V2/V4 或 URL 形状更重要。</p>
+<h4 id="43-4-key-mechanism-fe36f165" class="semantic-heading semantic-mechanism">43.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是消费方。UI service 的消费方通常是 Fiori Elements、SAPUI5 或内部门户页面；Web API 的消费方通常是 middleware、外部系统、batch job、RPA/proxy、BTP integration flow 或第三方工具。不同消费者决定不同契约。</p>
+<p>第二层机制是 binding type。ADT 中创建 service binding 时，选择 OData V4 UI 和 OData V4 Web API 不是随意命名，而是表达消费场景。UI binding 更自然地连接 preview 和 Fiori Elements；Web API binding 更接近外部接口交付。SAP Learning 的 RAP 课程还把 OData V2 UI、OData V2 Web API、OData V4 UI、OData V4 Web API、InA UI、SQL Web API 作为不同 binding type 说明；初学者不用背完全部选项，但要知道 binding type 本身就是“这个服务准备给谁、通过什么协议、按什么场景消费”的设计证据。</p>
+<p>第三层机制是 projection layer。<a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a> 本身是 protocol-agnostic：它描述对 consumer 暴露哪些 CDS/RAP entity，不决定最终使用 OData V2、OData V4 UI 还是 OData V4 Web API。真正选择协议和消费场景的是 <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a>。因此，设计时要先看 projection 是否代表一个稳定 consumer view，再决定一个 service definition 是否可以被多个 binding 共享；如果 UI 和外部 API 的字段、行为、annotation、兼容性要求差异很大，通常应拆 projection / service definition / binding，而不是强行共用。</p>
+<p>第四层机制是 metadata 和 annotation。UI service 需要丰富 annotation：字段标签、列表列、对象页、value help、selection field、action placement、side effects。SAP Learning 对 OData UI service 的建模建议是：service-specific metadata 属于 projection layer，UI annotation 最好放入 metadata extension，以便隔离页面调整并提升可读性。Web API 也依赖 metadata，但更关注类型、entity set、key、operation、payload 和稳定性，不一定需要 UI annotation。</p>
+<p>第五层机制是 provider contract。RAP projection view 的 provider contract 表达 projection 的运行场景。UI service 常围绕 transactional query / UI 场景组织页面体验；稳定 Web API 则更要思考 projection 是否是清晰的 public interface surface，是否需要更克制的字段、operation、navigation 和兼容策略。不要把底层 interface/root view 直接暴露给外部系统，也不要让一个 UI projection 无意承担长期集成 API 的职责。</p>
+<p>第六层机制是 draft。UI service 常常会利用 draft、edit/activate/discard、side effects、field messages 来支持人类用户逐步修正数据；Web API 的 consumer 往往是无人值守系统，不应该被迫理解 UI draft lifecycle。若外部系统只需要提交一个明确业务请求，最好暴露清晰的 action / operation contract，而不是把页面 draft 过程直接当作 API contract。</p>
+<p>第七层机制是错误处理。UI service 的错误要能被页面定位到字段或 action，用户能修正；Web API 的错误要能被机器处理，包含稳定 code、message、HTTP status、业务错误分类和可重试判断。</p>
+<p>第八层机制是版本和兼容。UI service 可以跟随页面迭代；Web API 一旦给外部系统使用，就需要更严格的 backward compatibility。删除字段、改名、改变 enum/status、调整 action payload，都要做消费者影响分析。</p>
+<p>第九层机制是权限和身份。UI service 常用业务用户和 business role；Web API 常涉及 technical user、communication user、OAuth/client credential、communication arrangement、destination、principal propagation 等集成身份。具体方式随系统和架构不同，但“谁调用”必须在设计中明确。</p>
+<p>第十层机制是测试证据。UI service 测试偏页面流程；Web API 测试偏 HTTP contract。两者都要测 authorization、validation、error payload、并发和重复请求，但证据形式不同。OData V4 Web API 尤其要固定 <code>$metadata</code> snapshot、sample payload、negative test、authorization failure、idempotency / retry behavior 和 monitoring evidence，不能只拿 preview 成功当作 API 验收。</p>
+<p>第十一层机制是 Clean Core / legacy boundary。现代 RAP service definition / service binding 是 ABAP Cloud / RAP 方向的服务暴露模型；classic SEGW / SAP Gateway OData V2 服务在 brownfield 项目里仍会存在，但不应和 RAP service binding 混成同一种交付物。新开发时要优先看当前系统、Cloud restriction、released APIs 和项目 Clean Core 策略。</p>
+<p>第十二层机制是 service split。一个 RAP BO 可以有多个 projection、service definition 和 service binding。是否拆分，不是看“能不能省对象”，而是看 contract 是否不同。常见做法是：同一业务对象底层复用，但 UI projection/service 面向页面，API projection/service 面向外部集成。也可以共享底层 interface/root view，并为不同 consumer 建不同 projection；只有当 UI 与 API 的字段、行为、annotation、draft、authorization、兼容性要求足够接近时，才考虑共享 service definition 或 binding。这样 UI annotation、draft、value help 的变化，不会轻易破坏外部 API。</p>
+<p>第十三层机制是 lifecycle。UI service 的 lifecycle 常跟随应用发布、Fiori 页面调整和业务用户反馈；Web API 的 lifecycle 要有发布版本、废弃通知、consumer impact analysis、接口测试集合和监控。Web API 一旦被外部 job、middleware 或 partner 系统调用，就进入接口治理，不再只是 ABAP 对象。</p>
+<p>可以用下面的判断表快速分类：</p>
+<div class="table-wrap"><table><thead><tr><th>判断问题</th><th>更像 UI service</th><th>更像 Web API</th></tr></thead><tbody><tr><td>主要消费者</td><td>Fiori Elements、SAPUI5、业务用户</td><td>外部系统、middleware、batch job、BTP integration</td></tr><tr><td>主要证据</td><td>页面 preview、annotation、draft、value help、message</td><td>HTTP request/response、metadata、payload、status code、API 文档</td></tr><tr><td>改动风险</td><td>影响用户体验和页面行为</td><td>影响系统集成和自动化作业</td></tr><tr><td>身份模型</td><td>业务用户、business role、catalog</td><td>communication user、OAuth/client、destination、principal propagation</td></tr><tr><td>兼容性要求</td><td>随 UI 发布节奏管理</td><td>需要 backward compatibility / deprecation policy</td></tr><tr><td>错误处理</td><td>可读 message、字段定位、用户修正</td><td>稳定 error code、HTTP status、retry / no-retry 语义</td></tr></tbody></table></div>
+<p>一个设计原则是：如果一个 consumer 不应该理解 UI 细节，就不要让它依赖 UI service；如果一个页面需要丰富 UI metadata，就不要只给它一个贫血 Web API。</p>
+<h5 id="consumer-contract-decision-record-bcb0bdbb">Consumer contract decision record</h5>
+<p>实际项目中，UI service / Web API 的讨论不应该只停留在口头判断。推荐在设计书或 API 台账中保留一段 consumer contract decision record，用几行文字把服务边界固定下来。</p>
+<div class="table-wrap"><table><thead><tr><th>Decision item</th><th>UI service 写法</th><th>Web API 写法</th></tr></thead><tbody><tr><td>Consumer</td><td>Fiori Elements app、业务用户、业务角色</td><td>外部系统、middleware、batch、technical client</td></tr><tr><td>Main purpose</td><td>支持列表页、对象页、draft、value help、action、message</td><td>支持系统间创建、查询、执行、状态确认</td></tr><tr><td>Contract owner</td><td>功能/前端/ABAP 共同维护页面体验</td><td>API owner 维护 contract、版本、消费者通知</td></tr><tr><td>Stable surface</td><td>页面语义、UI annotation、用户操作流程</td><td>endpoint、metadata、payload、HTTP status、error code</td></tr><tr><td>Allowed change</td><td>跟随 UI release 调整字段显示、annotation、action 位置</td><td>只允许 backward compatible change；breaking change 需要版本或迁移计划</td></tr><tr><td>Test evidence</td><td>preview、UI flow、field message、draft/action 截图</td><td>API collection、request/response、negative test、monitoring/correlation</td></tr><tr><td>Identity</td><td>business user、business role、catalog</td><td>communication user、OAuth/client、destination、principal propagation</td></tr><tr><td>Out of scope</td><td>外部系统长期依赖 UI 专用字段</td><td>UI 排版、value help 展示、页面 draft 体验</td></tr></tbody></table></div>
+<p>可以把设计结论写成类似下面的短文：</p>
+<pre><code class="language-text">This service is a Web API for external allocation upload automation.
+It is not the Fiori correction UI contract.
+Stable contract items are entity/action names, payload fields, HTTP status,
+business error code, authorization model, idempotency behavior, and application log correlation.
+Fiori UI annotation, field grouping, value help presentation, and draft page behavior
+must be handled by a separate UI service if required.</code></pre>
+<p>或者相反：</p>
+<pre><code class="language-text">This service is a UI service for a Fiori Elements app.
+It is optimized for page layout, annotation, draft, value help, actions, and user messages.
+External systems must not depend on this service as a stable integration API
+unless a separate Web API contract is reviewed and approved.</code></pre>
+<p>这段记录的价值很大：半年后有人想复用服务时，不需要重新猜“这个 binding 当时到底是给谁用的”。在日本项目里，这通常对应 <code>利用者</code>, <code>公開範囲</code>, <code>API 契約</code>, <code>互換性方針</code>, <code>影響範囲</code> 这些设计书条目。</p>
+<h4 id="43-5-5693b2e6" class="semantic-heading semantic-japan">43.5 日本项目现场说法</h4>
+<ul>
+<li><code>UI サービス</code>：UI service。</li>
+<li><code>Web API</code>：Web API。</li>
+<li><code>利用者</code> / <code>コンシューマ</code>：consumer。</li>
+<li><code>外部連携</code>：external integration。</li>
+<li><code>API 契約</code>：API contract。</li>
+<li><code>後方互換性</code>：backward compatibility。</li>
+<li><code>エラー応答</code>：error response。</li>
+<li><code>通信ユーザ</code>：communication user。</li>
+</ul>
+<p>このサービスは Fiori 画面用の UI サービスですか、それとも外部連携用の Web API ですか。</p>
+<p>意思是：这个服务是给 Fiori 画面用的 UI service，还是给外部集成用的 Web API？</p>
+<p>外部システムが利用する場合、項目名、ペイロード、エラー応答の互換性を API 契約として管理してください。</p>
+<p>意思是：如果外部系统使用，要把字段名、payload、错误响应的兼容性作为 API contract 管理。</p>
+<p>UI 用 annotation の変更が外部 API 利用者に影響しないよう、公開サービスを分けるか確認してください。</p>
+<p>意思是：请确认是否需要分离公开服务，避免 UI annotation 变更影响外部 API 消费者。</p>
+<p>レビューでよく使う追加表現：</p>
+<ul>
+<li>このサービスは画面操作のためのものか、システム間連携のためのものかを設計書に明記してください。</li>
+<li>外部公開する場合、ペイロード、エラーコード、認証方式、バージョン管理を API 契約として管理します。</li>
+<li>UI 用サービスを外部連携で利用する場合、将来の画面変更が API 利用者に影響しないか確認が必要です。</li>
+</ul>
+<h4 id="43-6-english-terms-718c9871" class="semantic-heading semantic-terms">43.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>UI service vs Web API</code></li>
+<li>Related terms: <code>OData V4 UI</code>, <code>OData V4 Web API</code>, <code>Fiori Elements</code>, <code>SAPUI5</code>, <code>API contract</code>, <code>metadata</code>, <code>annotation</code>, <code>value help</code>, <code>side effects</code>, <code>draft</code>, <code>communication arrangement</code>, <code>communication user</code>, <code>backward compatibility</code>, <code>error payload</code></li>
+<li>Recommended search pattern: <code>SAP RAP OData V4 UI service Web API service binding</code></li>
+<li>Delivery terms to keep in English: <code>contract</code>, <code>payload</code>, <code>endpoint</code>, <code>HTTP status</code>, <code>versioning</code>, <code>consumer</code>, <code>backward compatibility</code></li>
+</ul>
+<h4 id="43-7-example-2844721d" class="semantic-heading semantic-example">43.7 Example / 学习例子</h4>
+<p>同一个 Travel BO，可以有两个不同服务视角：</p>
+<pre><code class="language-text">UI service
+  Consumer: Fiori Elements app
+  Needs: list report, object page, value help, draft, action buttons, messages
+  Evidence: preview page, UI annotations, draft flow, field message screenshots
+
+Web API
+  Consumer: external middleware
+  Needs: stable endpoint, payload, authentication, error codes, retry behavior
+  Evidence: HTTP request/response examples, metadata, API test collection, version policy</code></pre>
+<p>如果外部系统只需要创建 Travel，不需要 UI 字段分组、value help 或 draft 页面，就不应该被迫依赖 UI service 的全部 metadata。更好的设计可能是单独的 Web API projection/service，字段更稳定，payload 更清晰，错误响应更适合机器处理。</p>
+<p>反过来，Fiori Elements 页面如果使用纯 Web API，可能缺少 UI annotation、selection field、line item、value help、side effect、draft action，页面体验会很差。此时应为 UI 场景提供合适的 UI service。</p>
+<p>AC0567C POC 的 proxy 调用路径更像 Web API 思路：外部或本地代理按固定路径调用 <code>validate</code>、<code>execute</code>、<code>status</code>。如果把它迁移为正式 RAP 服务，要明确它是 UI 操作用，还是接口调用用。两者的测试和文档不一样。</p>
+<p>更完整的设计记录可以这样写：</p>
+<pre><code class="language-text">Service purpose:
+  External batch upload API for allocation import
+
+Consumer:
+  Proxy / middleware / external job
+
+Service style:
+  Web API
+
+Not part of contract:
+  UI field grouping, Fiori line item order, draft page behavior
+
+Contract evidence:
+  $metadata snapshot
+  endpoint list
+  request/response samples
+  validation error payload
+  authorization failure payload
+  duplicate request behavior
+  version/deprecation note
+
+Separate UI need:
+  If business users need monitoring or correction screen,
+  create UI service / projection for Fiori Elements separately.</code></pre>
+<p>如果未来 AC0567C 需要一个人工修正页面，可以在同一业务对象上再设计 UI service。UI service 负责列表、对象页、value help、message、action placement；Web API 继续保持 validate/execute/status 的接口稳定性。这样既能复用业务逻辑，又不把页面契约和系统接口绑死。</p>
+<h4 id="43-8-counterexample-failure-mode-07d5c5a6" class="semantic-heading semantic-example">43.8 Counterexample / Failure mode</h4>
+<p>反例一：把 UI service 直接交给外部系统。后来 UI 页面新增字段、调整 alias、改变 draft 行为，外部系统解析失败。修正方式是为外部集成定义稳定 Web API。</p>
+<p>反例二：Web API 没有版本策略。接口已经被多个系统调用，开发者直接删除字段。修正方式是做 API versioning / deprecation / consumer impact analysis。</p>
+<p>反例三：UI service 不重视 annotation。服务能读数据，但 Fiori 页面没有 value help、action 位置混乱、错误消息不可读。修正方式是补 UI annotation 和页面测试。</p>
+<p>反例四：Web API 只测成功。外部系统遇到 validation error、authorization error、duplicate request 时无法处理。修正方式是把错误 payload 和重试语义写进 API 测试。</p>
+<p>反例五：权限模型混用。UI 用业务用户，API 用技术用户，但设计书没有说明。修正方式是明确 consumer identity、role、communication arrangement 和审计要求。</p>
+<p>反例六：为了省对象强行一个 service 同时给 UI 和外部 API。短期少建对象，长期耦合严重。修正方式是按消费方拆 service 或至少拆 projection/binding。</p>
+<p>反例七：Web API 没有 consumer owner。接口上线后没人知道哪个系统在调用，字段调整时也没人做影响通知。修正方式是在 API 台账里记录 consumer、owner、用途、认证方式、版本和测试联系人。</p>
+<p>反例八：把 draft 行为暴露给不理解 draft 的外部系统。外部系统只想创建业务对象，却被迫处理 draft activate/edit/discard 语义。修正方式是为系统集成提供更明确的非 UI API 或 action contract。</p>
+<p>反例九：UI service 的错误消息只适合人读，Web API 却直接复用。外部系统无法判断是可重试、不可重试、权限问题还是业务校验失败。修正方式是为 Web API 设计稳定错误分类和机器可处理字段。</p>
+<h4 id="43-9-08a3b7f0" class="semantic-heading semantic-practice">43.9 思考问题</h4>
+<ul>
+<li>这个服务的真实 consumer 是人用的 UI，还是系统对系统接口？</li>
+<li>UI service 是否需要 draft、value help、side effect、field message？</li>
+<li>Web API 是否需要版本策略、稳定 payload、错误码、重试语义？</li>
+<li>权限身份是业务用户、技术用户还是 principal propagation？</li>
+<li>如果 UI 调整字段或 annotation，会不会影响外部系统？</li>
+<li>是否应该拆成两个 service definition / binding？</li>
+<li>AC0567C 的 validate/execute/status 更像 UI action 还是 Web API operation？</li>
+</ul>
+<h4 id="43-10-4ea7c413" class="semantic-heading semantic-reference">43.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-binding" target="_blank" rel="noopener noreferrer">SAP Help - Service Binding</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-definition" target="_blank" rel="noopener noreferrer">SAP Help - Service Definition</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/using-service-binding-editor-for-odata-v4-service" target="_blank" rel="noopener noreferrer">SAP Help - Using Service Binding Editor for OData V4 Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-an-odata-ui-service" target="_blank" rel="noopener noreferrer">SAP Learning - Defining OData UI Services</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/getting-started-with-creating-an-sap-fiori-elements-app-based-on-an-odata-v4-rap-service" target="_blank" rel="noopener noreferrer">SAP Learning - Getting Started with Creating an SAP Fiori Elements App Based on an OData V4 RAP Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud" target="_blank" rel="noopener noreferrer">SAP Help Portal - ABAP Cloud</a> (accessed 2026-06-18)</li>
+<li><a href="https://api.sap.com/" target="_blank" rel="noopener noreferrer">SAP Business Accelerator Hub</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/search?q=communication%20arrangement%20OData%20service" target="_blank" rel="noopener noreferrer">SAP Help search - communication arrangement OData service, pending precise page</a></li>
+<li><a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li><a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="43-11-connections-d6a16589">43.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li>Downstream: <a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="43-12-8f61bd66" class="semantic-heading semantic-practice">43.12 学习任务</h4>
+<ul>
+<li>把一个服务需求分成 UI service 需求和 Web API 需求，各写 5 条验收证据。</li>
+<li>写 2 个日语句子：一条询问 consumer，一条说明 API contract 兼容性。</li>
+<li>找一个 service binding，判断它更像 UI service 还是 Web API，并说明理由。</li>
+<li>设计 Web API 的错误测试：validation error、authorization error、duplicate request。</li>
+<li>如果已经进入 Week 4，把 AC0567C 的 <code>validate</code>、<code>execute</code>、<code>status</code> 映射到 Web API operation checklist。</li>
+<li>追加练习：为同一个 RAP BO 画出两个 service 视角，一个给 Fiori Elements，一个给外部 middleware，并说明哪些字段/operation 不应该共享。</li>
+<li>追加练习：写一张 API consumer 台账，包含 consumer、owner、认证方式、endpoint、版本、测试联系人和废弃通知方式。</li>
+</ul>
+<h4 id="43-13-confidence-next-action-7ac309f4" class="semantic-heading semantic-status">43.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-facing UI service vs Web API design boundary after official-source closure。正文已集成 2026-06-16 Joule 后续快照中的高优先级建议，并于 2026-06-18 复核 SAP Help <code>Service Binding</code> / <code>Service Definition</code>、ADT OData V4 service binding editor、SAP Learning <code>Defining OData UI Services</code> 和 Fiori Elements OData V4 RAP service 课程。当前内容覆盖 binding type 差异、service definition protocol-agnostic 边界、projection layer / metadata extension、provider contract、draft 不外泄、Clean Core 与 classic SEGW 边界、OData V4 Web API 测试证据、shared projection vs separate projection 权衡、consumer contract decision record 和 AC0567C Web API 视角。communication arrangement 仍需按目标系统补精确页。</li>
+<li>Review status: Joule provided usable gap findings but not a final pass verdict；Claude review timed out / session expired and没有 usable verdict。外部 review debt 保留，但本节已达到官方资料闭环的可读书稿质量，不再停留在提纲草稿状态。</li>
+<li>Next action: Claude 或 Joule 恢复后补 final review；下一节继续 <a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a>，重点验证 service binding preview、metadata、endpoint、authorization negative case 和 DEV/QAS 发布差异。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-042-odata-v4-8703e611.html">Previous section</a><a href="section-03-044-service-preview-1b5668a5.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

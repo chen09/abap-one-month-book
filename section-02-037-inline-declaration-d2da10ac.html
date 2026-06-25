@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Inline declaration 内联声明 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="37-inline-declaration-0654f565" class="chapter-title">37. Inline declaration 内联声明</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 37</li><li>self-contained study note</li></ul><h4 id="37-1-9ae1a002" class="semantic-heading semantic-concept">37.1 一句话结论</h4>
+<p>Inline declaration 内联声明 是 Modern ABAP 里把变量声明放在“第一次需要它的 operand position / declaration position”上的写法。它的目标不是让 ABAP 变成动态类型语言，而是在编译期能静态推断类型的地方，用 <code>DATA(...)</code>、<code>@DATA(...)</code>、<code>FIELD-SYMBOL(...)</code> 或 <code>FINAL(...)</code> 减少样板代码，让变量更靠近使用点。</p>
+<p>最常见的例子是：</p>
+<pre><code class="language-abap">DATA(total_amount) = price * quantity.
+
+READ TABLE lt_items INTO DATA(ls_item)
+     WITH KEY item_no = item_no.
+
+LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-status = &#x27;DONE&#x27;.
+ENDLOOP.
+
+SELECT FROM zorder
+       FIELDS order_id, status
+       WHERE status = @open_status
+       INTO TABLE @DATA(lt_open_orders).</code></pre>
+<p>这些写法看起来像“临时变量随手创建”，但本质仍是静态类型 ABAP：编译器必须能从右侧表达式、method signature、table row type、SQL result 或语句规则推断出类型。推断不清楚、业务语义重要、金额/数量/日期/key 类型需要明确时，显式 <code>DATA ... TYPE ...</code> 仍然是更好的写法。</p>
+<h4 id="37-2-4f7dca9d" class="semantic-heading semantic-concept">37.2 到底学什么</h4>
+<p>本节要掌握八个点：</p>
+<ul>
+<li>inline declaration 的关键词是 <code>declaration position</code>：只有语法规则允许、且类型能静态推断的位置，才能写内联声明。</li>
+<li><code>DATA(var)</code> 声明普通 data object，常见于赋值、method call、<code>READ TABLE ... INTO DATA(...)</code>、<code>LOOP AT ... INTO DATA(...)</code>、<code>CATCH ... INTO DATA(...)</code> 等位置。</li>
+<li><code>@DATA(var)</code> 是 ABAP SQL 中常见写法；<code>@</code> 是 host variable / host expression 语境的标记，<code>DATA(...)</code> 仍然是 inline declaration。</li>
+<li><code>FIELD-SYMBOL(&lt;fs&gt;)</code> 声明 field symbol，常见于 <code>ASSIGNING FIELD-SYMBOL(&lt;row&gt;)</code>、<code>ASSIGN ... TO FIELD-SYMBOL(&lt;fs&gt;)</code>，语义是引用/别名式访问，不是普通复制。</li>
+<li><code>FINAL(var)</code> 是 immutable variable 的 inline declaration；初始化后再次写入会在语法检查阶段被拦下。如果当前上下文后续不应再改这个变量，<code>FINAL(...)</code> 往往比 <code>DATA(...)</code> 更能表达 intent。</li>
+<li>inline declaration 不等于动态类型，也不等于省略业务建模。变量仍有静态类型，只是类型由编译器从上下文推断。</li>
+<li>inline declaration 能减少模板代码，但过度使用会让类型来源、生命周期和业务语义变得不清楚。</li>
+<li>日本项目 review 里，重点不是“能不能写短”，而是“型推論是否清楚、可読性是否高、障害調査时是否容易追踪”。</li>
+</ul>
+<p>本节的最低目标是：看到 <code>DATA(...)</code> / <code>@DATA(...)</code> / <code>FIELD-SYMBOL(...)</code> 时，能说出它从哪里推断类型；自己写代码时，能判断内联声明和显式声明哪个更适合当前场景。</p>
+<h4 id="37-3-2b0306f3" class="semantic-heading semantic-why">37.3 为什么重要</h4>
+<p>传统 ABAP 代码经常先在 method 或 form 开头写一大段变量声明：</p>
+<pre><code class="language-abap">DATA lv_total TYPE p LENGTH 16 DECIMALS 2.
+DATA ls_item  TYPE zorder_item.
+DATA lt_items TYPE STANDARD TABLE OF zorder_item WITH EMPTY KEY.</code></pre>
+<p>然后几十行之后才看到这些变量第一次被使用。对初学者来说，这种写法的问题不是“旧”，而是读者要在声明区和使用区之间来回跳：这个变量从哪里来、是什么类型、为什么需要、是否只用一次，都不够直观。</p>
+<p>inline declaration 把变量放到使用点附近。比如：</p>
+<pre><code class="language-abap">DATA(total_amount) = price * quantity.</code></pre>
+<p>读者立刻知道：这里要算一个 total amount，它来自 <code>price * quantity</code>。如果右侧表达式和变量名都清楚，代码更短，也更容易 review。</p>
+<p>在 ABAP SQL 中，inline declaration 也特别常用：</p>
+<pre><code class="language-abap">SELECT FROM zorder
+       FIELDS order_id, status
+       WHERE customer_id = @customer_id
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这里 <code>lt_orders</code> 的 row type 来自 SELECT list，读者不需要提前写一个专门的结构或表类型。对于一次性查询结果、短 method、示例代码、ABAP Unit test fixture，这非常有效。</p>
+<p>但 inline declaration 也容易被误用。金额、数量、汇率、日期、业务 key、跨多步复用的 internal table，如果只靠 <code>DATA(result)</code> 这样的名字，reviewer 可能看不出业务含义和技术类型。SAP 项目不是代码越短越好，而是长期维护、障害調査、升级和交接时能读懂。Modern ABAP 的目标是减少无意义样板，不是把类型信息全部藏起来。</p>
+<h4 id="37-4-key-mechanism-cd3d1268" class="semantic-heading semantic-mechanism">37.4 Key mechanism / 核心机制</h4>
+<h5 id="37-4-1-inline-declaration-needs-a-declaration-position-8d995e25">37.4.1 Inline declaration needs a declaration position</h5>
+<p>ABAP 不是任意位置都能写 <code>DATA(x)</code>。必须是在语法定义为 declaration position 的地方，也就是编译器知道“这里需要一个变量，并且能从上下文确定它的类型”的位置。</p>
+<p>典型位置包括：</p>
+<pre><code class="language-abap">DATA(text) = |Order { order_id }|.
+
+method_call(
+  EXPORTING input  = source
+  IMPORTING result = DATA(result)
+).
+
+READ TABLE lt_items INTO DATA(ls_item)
+     WITH KEY item_no = item_no.
+
+CATCH zcx_order_error INTO DATA(order_error).</code></pre>
+<p>这些例子里，类型来源分别来自右侧表达式、method signature、internal table row type、exception class。</p>
+<p>反过来，如果上下文没有足够类型信息，inline declaration 就不合适，甚至语法上不成立。还有一个初学者常犯的错误：inline declaration 不能出现在 assignment 的右侧 / right-hand side 或普通表达式内部，例如不要写成 <code>result = some_method( DATA(temp) ).</code>。它必须出现在语句允许的写入/目标位置。不要把它理解成 JavaScript/Python 那种运行时动态变量创建；ABAP 仍然要求编译期类型可判定。</p>
+<h5 id="37-4-2-data-declares-a-normal-data-object-3728505c">37.4.2 DATA(...) declares a normal data object</h5>
+<p><code>DATA(var)</code> 声明的是普通 ABAP data object。它后续可以像普通变量一样被读取、传递和修改：</p>
+<pre><code class="language-abap">DATA(counter) = 0.
+
+LOOP AT lt_items INTO DATA(ls_item).
+  counter += 1.
+ENDLOOP.</code></pre>
+<p>这里 <code>counter</code> 从 literal <code>0</code> 推断出技术类型，<code>ls_item</code> 从 <code>lt_items</code> 的 line type 推断出结构类型。初学者要注意三件事。</p>
+<p>第一，<code>LOOP AT ... INTO DATA(ls_item)</code> 是 value copy。修改 <code>ls_item</code> 不会自动修改 internal table 当前行；要原地修改，应使用 <code>ASSIGNING FIELD-SYMBOL(&lt;row&gt;)</code> 或在合适场景下使用 <code>REFERENCE INTO DATA(ref)</code>。</p>
+<p>第二，<code>DATA(ls_item)</code> 不是每一轮循环重新声明一个新变量。inline variable 按 ABAP 的 declaration context / processing block 规则声明；它不会像 Java/C# 的块级局部变量那样在 <code>ENDLOOP</code>、<code>ENDIF</code>、<code>ENDTRY</code> 后自动消失。也就是说，在同一处理块后续代码里仍可能访问到它。这个规则很容易造成误解：如果 loop 一次都没有执行，后续变量可能只是初始值，而不是“不存在”。</p>
+<p>第三，同一 context 中同名 inline variable 只能声明一次。在同一个 processing block 中第二次写 <code>DATA(ls_item)</code> 通常会造成语法错误。代码写长了以后，如果发现反复想声明同名临时变量，往往说明 method 应该拆小，或变量名应更具体。</p>
+<h5 id="37-4-3-data-in-abap-sql-ef97db0a">37.4.3 @DATA(...) in ABAP SQL</h5>
+<p>ABAP SQL 里常见 <code>@DATA(...)</code>：</p>
+<pre><code class="language-abap">SELECT FROM zorder
+       FIELDS order_id, status
+       WHERE status = @open_status
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这里有两层含义。<code>@</code> 属于 ABAP SQL 的 host variable / host expression 标记，用来说明后面是 ABAP 程序世界里的对象或表达式。<code>DATA(lt_orders)</code> 是 inline declaration。两者组合起来，就是“把 SELECT 结果接收到一个在此处声明的 ABAP internal table”。</p>
+<p>如果是单行结果，可以写：</p>
+<pre><code class="language-abap">SELECT SINGLE FROM zorder
+       FIELDS order_id, status
+       WHERE order_id = @order_id
+       INTO @DATA(ls_order).</code></pre>
+<p>如果是多行 <code>INTO TABLE @DATA(lt_orders)</code>，结果是 standard internal table，不会自动带上你为业务访问设计的 sorted/hashed key 或 secondary key。前面学习 internal table 时已经讲过：inline 接收很方便，但如果后续要频繁按 key 查找、在 nested loop 里反复读取、需要 sorted/hashed table、或需要明确 table key，就不要只依赖默认推断，而应显式设计 table type。</p>
+<h5 id="37-4-4-field-symbol-declares-a-field-symbol-87ac1891">37.4.4 FIELD-SYMBOL(...) declares a field symbol</h5>
+<p><code>FIELD-SYMBOL(&lt;fs&gt;)</code> 常见于直接处理 internal table 行：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-status = &#x27;DONE&#x27;.
+ENDLOOP.</code></pre>
+<p>这和 <code>LOOP AT ... INTO DATA(ls_item)</code> 的语义不同。<code>INTO DATA(ls_item)</code> 是复制当前行到 work area；<code>ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)</code> 是让 field symbol 指向当前行。修改 <code>&lt;ls_item&gt;-status</code> 会改 internal table 里的当前行。</p>
+<p>也可以用在动态或条件 assign 中：</p>
+<pre><code class="language-abap">ASSIGN COMPONENT &#x27;STATUS&#x27; OF STRUCTURE ls_order
+       TO FIELD-SYMBOL(&lt;status&gt;).
+
+IF &lt;status&gt; IS ASSIGNED.
+  &lt;status&gt; = &#x27;CLOSED&#x27;.
+ENDIF.</code></pre>
+<p>这里必须理解上一组 field symbol 章节的规则：field symbol 可能未 assigned，访问前要确认；不要把 field symbol 当成普通变量；在 sorted/hashed table 的 key 字段、生命周期和别名修改上要非常小心。</p>
+<h5 id="37-4-5-final-is-inline-declaration-with-immutability-intent-30027ed0">37.4.5 FINAL(...) is inline declaration with immutability intent</h5>
+<p>现代 ABAP 中还可以看到：</p>
+<pre><code class="language-abap">FINAL(today) = cl_abap_context_info=&gt;get_system_date( ).</code></pre>
+<p><code>FINAL(today)</code> 表达的是：这个局部值初始化后不应该再被修改。再次写入 <code>today</code> 会在语法检查阶段成为错误，而不是等到运行时才失败。它对读者有一个很好的信号：后面看到 <code>today</code>，不用担心它在 method 中途被重新赋值。</p>
+<p>因此，如果一个局部值初始化后就不应该再被改，<code>FINAL(...)</code> 比 <code>DATA(...)</code> 更能表达 intent。是否在项目中大量使用 <code>FINAL(...)</code>，还要看目标 ABAP release、团队 Clean ABAP 约定和代码风格；但它不只是“语法小知识”，而是现代 ABAP 里表达不变性的工具。</p>
+<h5 id="37-4-6-type-inference-is-compile-time-not-runtime-magic-5caa4d79">37.4.6 Type inference is compile-time, not runtime magic</h5>
+<p>inline declaration 的类型推断是静态的。常见类型来源如下：</p>
+<ul>
+<li>literal 或表达式：<code>DATA(count) = 0.</code></li>
+<li>method signature：<code>lo_service-&gt;read( IMPORTING result = DATA(result) ).</code></li>
+<li>internal table line type：<code>LOOP AT lt_items INTO DATA(ls_item).</code></li>
+<li>field symbol assignment source：<code>ASSIGN ls_order-status TO FIELD-SYMBOL(&lt;status&gt;).</code></li>
+<li>ABAP SQL select list：<code>INTO TABLE @DATA(lt_orders)</code></li>
+<li>exception class：<code>CATCH zcx_order_error INTO DATA(order_error).</code></li>
+</ul>
+<p>还可以写对象引用创建：</p>
+<pre><code class="language-abap">DATA(pricing_service) = NEW zcl_pricing_service( ).</code></pre>
+<p>这里变量类型来自 <code>NEW zcl_pricing_service( )</code> 的静态类型，适合短小、清楚的对象创建场景。</p>
+<p>如果 operand type 来自 ABAP Dictionary / DDIC 类型，inline variable 可以继承相应的语义属性，例如 conversion exit、input help、field help 等。这是内联声明的优点之一：它不是“丢掉所有类型信息”，而是在上下文足够强时复用已有类型信息。</p>
+<p>这也是 inline declaration 的判断标准：如果读者看上下文就能知道类型，内联通常很好；如果必须跳到多个地方才能猜出类型，或者推断结果不符合业务预期，就要显式声明。</p>
+<p>反过来，如果类型来源过于 generic，例如 <code>ANY</code>、<code>ANY TABLE</code>、generic field symbol 或 generic interface parameter，编译器可能无法从 declaration position 完全静态地推出你想要的业务类型，或者只能得到过宽的技术类型。遇到这类边界时，不要硬写 <code>DATA(result)</code>；显式声明目标类型，或者先把 generic 边界收窄，会比让 reviewer 猜推断结果更安全。</p>
+<h5 id="37-4-7-inline-declaration-does-not-remove-naming-discipline-9da29905">37.4.7 Inline declaration does not remove naming discipline</h5>
+<p><code>DATA(result)</code>、<code>DATA(data)</code>、<code>DATA(temp)</code> 这样的名字很容易写，但不一定适合项目代码。变量名仍然要表达业务语义：</p>
+<pre><code class="language-abap">&quot; Weak
+DATA(result) = calculate( ).
+
+&quot; Better
+DATA(total_net_amount) = calculate_total_net_amount( ).</code></pre>
+<p>对一次性临时值，短名字可以接受；对业务 key、金额、状态、日期、跨多行使用的对象，变量名要让 reviewer 不需要猜。内联声明越短，命名越重要。</p>
+<h5 id="37-4-8-when-explicit-declaration-is-better-95a4a724">37.4.8 When explicit declaration is better</h5>
+<p>下面这些场景，显式声明常常更好：</p>
+<ul>
+<li>金额、数量、汇率、百分比等需要明确 length / decimals / currency / unit 语义。</li>
+<li>internal table 需要明确 sorted / hashed / key。</li>
+<li>变量跨多个步骤复用，生命周期很长。</li>
+<li>method signature 或 SQL result 太复杂，推断类型不直观。</li>
+<li>代码用于接口边界、公共 API、复杂 mapping，读者需要清楚类型 contract。</li>
+<li>团队 review 明确要求某类变量显式 <code>TYPE</code>。</li>
+</ul>
+<p>比如：</p>
+<pre><code class="language-abap">DATA total_amount TYPE zamount.
+total_amount = price * quantity.</code></pre>
+<p>这不“落后”。它是在业务语义重要时，把类型 contract 直接写出来。</p>
+<p>金额和数量还要特别注意 DDIC 语义。SAP 业务字段往往有 currency / unit reference field。若 inline declaration 的来源不能清楚保留这些语义，后续显示、换算、ALV 输出或接口 mapping 都可能变得模糊。此时显式 <code>TYPE</code> 到合适的 data element、structure component 或专门类型，是更稳的项目写法。</p>
+<h5 id="37-4-9-inline-declaration-review-checklist-e9d2ad7b">37.4.9 inline declaration review checklist</h5>
+<p>Review 一段 Modern ABAP 时，可以用下面的表判断 inline declaration 是否真的提高了可读性。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Inline is usually fine when...</th><th>Prefer explicit declaration when...</th></tr></thead><tbody><tr><td>Is the inferred type obvious?</td><td>右侧是简单表达式、method return、table row 或清楚的 SQL result。</td><td>类型来自复杂表达式、deep structure、generic parameter 或难懂 SQL。</td></tr><tr><td>Is the variable short-lived?</td><td>变量只在邻近几行使用。</td><td>变量跨多个逻辑步骤、多个分支或整个 method 使用。</td></tr><tr><td>Is business meaning encoded?</td><td>变量名已经清楚表达语义，例如 <code>net_amount</code>。</td><td>金额、数量、日期、key、currency/unit 需要明确 DDIC 类型。</td></tr><tr><td>Should the value change?</td><td>后续确实会重新赋值，用 <code>DATA(...)</code>。</td><td>初始化后不应改变，用 <code>FINAL(...)</code> 表达 intent。</td></tr><tr><td>Is alias semantics intended?</td><td><code>FIELD-SYMBOL(...)</code> 用于直接修改 table row 或避免复制。</td><td>只是读取值，或者不希望修改原表；此时普通 <code>INTO DATA(...)</code> 更安全。</td></tr><tr><td>Will debugging be clear?</td><td>变量名、位置和类型来源都容易追踪。</td><td>过度嵌套表达式让调试时很难看出中间值。</td></tr></tbody></table></div>
+<p>一个实用规则是：inline declaration 应该缩短“声明和使用之间的距离”，而不是隐藏类型 contract。若 reviewer 需要一路追溯 method signature、DDIC structure 和 SQL result 才能理解变量类型，就说明这处 inline declaration 可能已经越界。</p>
+<h4 id="37-5-97570abc" class="semantic-heading semantic-japan">37.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>インライン宣言</code>、<code>DATA(...)</code>、<code>FIELD-SYMBOL(...)</code>、<code>FINAL(...)</code>、<code>型推論</code>、<code>コンパイル時型推論</code>、<code>静的型付け</code>、<code>宣言位置</code>、<code>処理ブロックのスコープ</code>、<code>明示的な型宣言</code>、<code>明示的な型指定</code>、<code>可読性</code>、<code>保守性</code>、<code>正確性</code>、<code>命名規約</code>。</li>
+<li>说明句：この変数はインライン宣言で問題ありません。右辺の式から型が明確に推論でき、利用箇所も限定されています。</li>
+<li>Review 指摘句：この <code>DATA(result)</code> は型と業務意味が分かりにくいため、変数名を具体化するか、明示的な型宣言に変更してください。</li>
+<li>Review 指摘句：金額項目の型推論が読み手に伝わりにくいため、<code>TYPE</code> を明示して桁数・小数点・通貨単位の意図を確認してください。</li>
+<li>Review 指摘句：この変数は <code>LOOP</code> 内でインライン宣言されていますが、ABAP では処理ブロックのスコープに残るため、後続処理で誤用されないように変数名または処理分割を見直してください。</li>
+<li>障害調査场景：障害調査時に型の由来を追いやすいよう、長い処理ではインライン宣言を使いすぎず、必要に応じて明示的な宣言にしてください。</li>
+<li>使用场景：code review、Clean ABAP review、性能/障害调查、ABAP Unit test fixture、ABAP SQL 查询结果接收、field symbol 修改范围确认。</li>
+</ul>
+<h4 id="37-6-english-terms-f3458f1c" class="semantic-heading semantic-terms">37.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>Inline Declarations</code>, <code>DATA, Inline Declaration for Variables</code>, <code>FIELD-SYMBOL, Inline Declaration for Field Symbols</code></li>
+<li>ABAP syntax: <code>DATA(var)</code>, <code>@DATA(var)</code>, <code>FIELD-SYMBOL(&lt;fs&gt;)</code>, <code>FINAL(var)</code>, <code>INTO DATA(...)</code>, <code>INTO TABLE @DATA(...)</code>, <code>ASSIGNING FIELD-SYMBOL(...)</code></li>
+<li>Type terms: <code>declaration position</code>, <code>operand position</code>, <code>statically identifiable type</code>, <code>type inference</code>, <code>data object</code>, <code>field symbol</code>, <code>declaration context</code></li>
+<li>Chinese terms: <code>内联声明</code>, <code>字段符号</code>, <code>编译期型推断</code>, <code>静态类型</code>, <code>处理块作用域</code>, <code>显式类型声明</code></li>
+<li>Style terms: <code>readability</code>, <code>explicit declaration</code>, <code>naming convention</code>, <code>scope</code>, <code>business semantics</code></li>
+<li>Recommended search pattern: <code>ABAP inline declarations SAP Help DATA FIELD-SYMBOL</code>, <code>ABAP DATA inline declaration ABAP Keyword Documentation</code>, <code>ABAP FIELD-SYMBOL inline declaration SAP Help</code></li>
+</ul>
+<p>读官方资料时注意：<code>Inline Declarations</code> 是总入口；<code>DATA, Inline Declaration for Variables</code> 和 <code>FIELD-SYMBOL, Inline Declaration for Field Symbols</code> 分别说明两类最常用形式。ABAP SQL 里的 <code>@DATA(...)</code> 同时涉及 host variable escape <code>@</code>，不要把 <code>@</code> 误解成 inline declaration 的一部分。</p>
+<h4 id="37-7-example-1cc04e25" class="semantic-heading semantic-example">37.7 Example / 学习例子</h4>
+<h5 id="37-7-1-1-a05f0b53">37.7.1 例 1：一次性局部值</h5>
+<pre><code class="language-abap">DATA(discounted_amount) = gross_amount - discount_amount.</code></pre>
+<p>这个例子适合 inline declaration，因为右侧表达式简单，变量名表达了业务意义，变量很可能只在附近使用。如果后续发现 amount 类型需要明确 currency / decimal 语义，再改成显式类型。</p>
+<h5 id="37-7-2-2-method-call-importing-result-ade961a0">37.7.2 例 2：method call 的 importing result</h5>
+<pre><code class="language-abap">lo_pricing_service-&gt;calculate(
+  EXPORTING order_id = order_id
+  IMPORTING amount   = DATA(net_amount)
+).</code></pre>
+<p>这里 <code>net_amount</code> 的类型来自 <code>calculate</code> method signature。读者可以通过 method contract 追溯类型。这个写法比在 method 开头提前声明一个只用于这一句的变量更清楚。</p>
+<h5 id="37-7-3-3-read-table-result-e10ed072">37.7.3 例 3：READ TABLE result</h5>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+     WITH KEY item_no = item_no.
+
+IF sy-subrc = 0.
+  &quot; use ls_item
+ENDIF.</code></pre>
+<p><code>ls_item</code> 的类型来自 <code>lt_items</code> 的 line type。这里要把 inline declaration 和 <code>sy-subrc</code> 处理一起看：变量声明成功不代表读取成功，仍要判断读取结果。</p>
+<h5 id="37-7-4-4-abap-sql-multi-row-result-b870336a">37.7.4 例 4：ABAP SQL multi-row result</h5>
+<pre><code class="language-abap">SELECT FROM zorder
+       FIELDS order_id, customer_id, status
+       WHERE status = @open_status
+       INTO TABLE @DATA(lt_open_orders).</code></pre>
+<p>这适合短小查询和局部使用。如果 <code>lt_open_orders</code> 后面要被频繁按 <code>customer_id</code> 查找，就要考虑显式定义 sorted/hashed table 或 secondary key，而不是满足于默认 inline 结果。</p>
+<h5 id="37-7-5-5-field-symbol-inline-declaration-46347bc9">37.7.5 例 5：field symbol inline declaration</h5>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  IF &lt;ls_item&gt;-quantity = 0.
+    &lt;ls_item&gt;-status = &#x27;INVALID&#x27;.
+  ENDIF.
+ENDLOOP.</code></pre>
+<p>这个例子里 <code>&lt;ls_item&gt;</code> 不是复制出来的 work area，而是指向当前 internal table 行。修改它会影响原表。初学者必须把它和 <code>LOOP AT ... INTO DATA(ls_item)</code> 区分开。</p>
+<h5 id="37-7-6-6-3e573dc9">37.7.6 例 6：显式声明更好</h5>
+<pre><code class="language-abap">DATA exchange_rate TYPE p LENGTH 9 DECIMALS 5.
+
+exchange_rate = read_exchange_rate(
+  source_currency = source_currency
+  target_currency = target_currency
+).</code></pre>
+<p>汇率的小数位、舍入和业务含义很重要。即使可以内联，显式类型也可能更适合 review 和交付文档。</p>
+<h4 id="37-8-counterexample-failure-mode-c6e72c2a" class="semantic-heading semantic-example">37.8 Counterexample / Failure mode</h4>
+<h5 id="37-8-1-1-inline-declaration-4568df22" class="semantic-heading semantic-failure">37.8.1 误区 1：把 inline declaration 当成动态类型</h5>
+<p><code>DATA(x) = ...</code> 不是运行时动态类型。ABAP 编译器仍然在编译期决定类型。</p>
+<p>修正动作：每次看到 inline declaration，都问“类型从哪里推断出来？”</p>
+<h5 id="37-8-2-2-735e7671" class="semantic-heading semantic-failure">37.8.2 误区 2：变量名太泛</h5>
+<pre><code class="language-abap">DATA(result) = get_data( ).
+DATA(value)  = calculate( ).</code></pre>
+<p>这种代码短，但读者不知道业务含义。</p>
+<p>修正动作：把名字改成业务语义，例如 <code>open_order_items</code>、<code>net_amount</code>、<code>approval_status</code>。</p>
+<h5 id="37-8-3-3-inline-declaration-ce24bd24" class="semantic-heading semantic-failure">37.8.3 误区 3：用 inline declaration 掩盖复杂类型</h5>
+<p>复杂 SQL result、复杂 mapping、金额/数量/日期 key 如果全靠 <code>DATA(...)</code> 推断，review 时可能看不清类型 contract。</p>
+<p>修正动作：显式声明结构、表类型或 domain/data element 绑定。</p>
+<h5 id="37-8-4-4-field-symbol-dc675834" class="semantic-heading semantic-failure">37.8.4 误区 4：忘记 field symbol 语义</h5>
+<p><code>FIELD-SYMBOL(&lt;row&gt;)</code> 指向对象，不是复制。未 assigned 访问、修改 key 字段、生命周期混乱都可能造成问题。</p>
+<p>修正动作：回到 <a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a> 与 <a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a>，确认 copy 和 direct update 的差异。</p>
+<h5 id="37-8-5-5-e10b8b81" class="semantic-heading semantic-failure">37.8.5 误区 5：过度嵌套现代表达式</h5>
+<p>inline declaration 常和 <code>VALUE</code>、<code>COND</code>、<code>SWITCH</code>、<code>FOR</code> 等表达式一起出现。嵌套过深会让代码难读。</p>
+<p>修正动作：如果一行表达式需要读三遍才懂，拆成有名字的中间变量或小 method。</p>
+<h4 id="37-9-f0d5ecd7" class="semantic-heading semantic-practice">37.9 思考问题</h4>
+<ul>
+<li>这条 inline declaration 的类型从哪里推断出来？</li>
+<li>如果把它改成显式 <code>DATA ... TYPE ...</code>，可读性会更好还是更差？</li>
+<li>变量名是否表达业务语义，还是只有 <code>result</code>、<code>data</code>、<code>temp</code>？</li>
+<li>这是普通 data object、field symbol，还是 final variable？</li>
+<li>在 ABAP SQL 中，<code>@DATA(...)</code> 里的 <code>@</code> 和 <code>DATA(...)</code> 分别表示什么？</li>
+<li>这个 inline internal table 是否需要明确 sorted/hashed/key？</li>
+<li>日本项目 review 中，应该用 <code>型推論が明確</code> 还是 <code>明示的な型宣言が必要</code> 来说明？</li>
+</ul>
+<h4 id="37-10-fe8575f7" class="semantic-heading semantic-reference">37.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENINLINE_DECLARATIONS.html" target="_blank" rel="noopener noreferrer">Inline Declarations</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENDATA_INLINE.html" target="_blank" rel="noopener noreferrer">DATA, Inline Declaration for Variables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENFIELD-SYMBOL_INLINE.html" target="_blank" rel="noopener noreferrer">FIELD-SYMBOL, Inline Declaration for Field Symbols</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSELECT_INLINE_DECL_ABEXA.html" target="_blank" rel="noopener noreferrer">SELECT, Inline Declarations</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="37-11-connections-29b19399">37.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC quality check 代码质量检查</a></li>
+<li>Related: <a class="wiki" href="section-01-020-abap-data-object-e568a611.html">ABAP data object 数据对象</a></li>
+<li>Related: <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a></li>
+<li>Related: <a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a></li>
+<li>Related: <a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Downstream: <a class="wiki" href="section-02-038-value-expression-a0792b7e.html">VALUE expression 值构造表达式</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="37-12-3a284310" class="semantic-heading semantic-practice">37.12 学习任务</h4>
+<ul>
+<li>找出 5 个已有代码里的 <code>DATA(...)</code>，分别写出它们的类型来源。</li>
+<li>写一个 <code>READ TABLE ... INTO DATA(ls_item)</code> 例子，并说明为什么仍要检查 <code>sy-subrc</code>。</li>
+<li>写一个 <code>LOOP AT ... ASSIGNING FIELD-SYMBOL(&lt;row&gt;)</code> 例子，并说明它和 <code>INTO DATA(row)</code> 的差异。</li>
+<li>写一个 <code>SELECT ... INTO TABLE @DATA(lt_result)</code> 例子，并说明 <code>@</code> 和 <code>DATA(...)</code> 各自的作用。</li>
+<li>把一个变量名 <code>result</code> 改成更有业务意义的名字，并用日语写一句 review comment。</li>
+<li>找一个金额或汇率场景，说明为什么显式 <code>TYPE</code> 比 inline declaration 更安全。</li>
+<li>用 English Terms 找 SAP Help 对 <code>Inline Declarations</code> 的说明，并补到个人学习记录。</li>
+</ul>
+<h4 id="37-13-confidence-next-action-8a7b6ced" class="semantic-heading semantic-status">37.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节基于 ABAP Keyword Documentation 的 <code>Inline Declarations</code>、<code>DATA</code> inline、<code>FIELD-SYMBOL</code> inline 和 ABAP SQL inline declaration 入口，以及 <code>90-Review/joule-inline-declaration-snapshot-2-2026-06-13.txt</code> 的 Joule <code>Pass with fixes</code> 修正完成；重点修正包括 declaration position、right-hand-side restriction、processing-block scope、value copy vs field-symbol alias、<code>@DATA(...)</code> 的 <code>@</code>/<code>DATA</code> 分离、<code>INTO TABLE @DATA(...)</code> standard table/no-key 风险、<code>FINAL(...)</code> 的 immutability intent、DDIC semantic inheritance、generic/ANY 推断边界和日语项目说法。Claude 旧 review 为 credential error，2026-06-18 health check 超时，作为外部 review debt 记录。</li>
+<li>Next action: 已同步到 Chapter 02 与离线书稿后，继续质量闭环到 <a class="wiki" href="section-02-038-value-expression-a0792b7e.html">VALUE expression 值构造表达式</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-037-inline-declaration-d2da10ac.html">Inline declaration 内联声明</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-036-atc-quality-check-5c4e095a.html">Previous section</a><a href="section-02-038-value-expression-a0792b7e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

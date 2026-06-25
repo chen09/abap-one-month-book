@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP Action Handler Anti-Pattern: Direct INSERT | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="38-rap-action-handler-anti-pattern-direct-insert-1de730ed" class="chapter-title">38. RAP Action Handler Anti-Pattern: Direct INSERT</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 38</li><li>self-contained study note</li></ul><h4 id="38-1-b97a02b3" class="semantic-heading semantic-concept">38.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-038-rap-action-handler-anti-pattern-direct-insert-7325d509.html">RAP Action Handler Anti-Pattern: Direct INSERT</a> 指的是：在 RAP action handler 中为了“让按钮立刻生效”，直接对持久表执行 <code>INSERT</code> / <code>UPDATE</code> / <code>DELETE</code>，甚至再写 <code>COMMIT WORK</code>。这是一种典型反模式，因为 action handler 属于 RAP 生命周期中的交互处理位置，不应该绕过 business object、transactional buffer、validation、save sequence 和 rollback 语义。</p>
+<p>一句话记忆：action handler 负责表达“用户这次想做什么、BO 状态如何变化”，不负责偷偷把数据库先写了。</p>
+<h4 id="38-2-42140e6e" class="semantic-heading semantic-concept">38.2 到底学什么</h4>
+<p>本节接在 <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a> 后面，把抽象的事务原则落到一个最常见的代码坏味道：action handler 中直接插表。</p>
+<p>RAP action 是 business object 的行为入口。比如 Travel BO 有 <code>AcceptTravel</code>、<code>RejectTravel</code>、<code>Submit</code> 之类 action，handler method 会根据 keys 读取当前 BO 状态，检查是否允许执行，改变状态、写 response、返回 result 或 message。它看起来很像 Java/Python 里的 service method，所以初学者容易在里面直接写：</p>
+<pre><code class="language-abap">INSERT ztravel_log FROM @ls_log.
+COMMIT WORK.</code></pre>
+<p>短期看，这样“能跑”。按钮点了，表里有记录，日志也出来了。但它绕过了 RAP 的核心模型：action handler 应该修改 RAP transactional buffer 或返回 action result，真正的持久化由 RAP runtime 在 <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a> 中统一处理。否则，后续 validation、authorization、draft activation、late numbering、additional save、cleanup 任何一步失败，前面直接写入的数据都可能已经留在数据库里。</p>
+<p>本节要学的是：如何判断一个 action handler 是否越界；什么时候应该用 local EML 修改 BO 状态；什么时候应该把逻辑移动到 validation、determination、saver、<code>save_modified</code>、additional save、business event 或 outbox；以及如何在 code review 中把“能跑”的 direct INSERT 改成“可交付”的 RAP 设计。</p>
+<p>可以把 direct INSERT 反模式理解成“把框架托管的 unit of work 偷偷拆开”。RAP runtime 本来要统一决定：哪些实例被修改、哪些检查失败、哪些消息返回给 consumer、哪些数据最终保存、失败时如何回滚。Action handler 直接写持久表，就像在这套流程旁边挖了一条小路：数据看似进入数据库，但没有进入 BO 的一致性协议。短期它能让 POC 很快看到表里有数据，长期却会让测试、回滚、并发和审计全部变得不可解释。</p>
+<p>读者不需要一开始背所有 saver 方法，但要建立一个分流判断。状态变化如果属于当前 BO，就优先通过 EML/transactional buffer 表达；最终持久化如果属于 unmanaged save，就放到 saver/save sequence；附属日志如果必须和主数据同事务一致，就放到 additional save 或同一保存边界；外部通知、文件发送、HTTP call 这类不可轻易 rollback 的副作用，就更适合 outbox/event/job。判断的核心不是“哪种写法语法能跑”，而是“这件事是否应该和 BO 保存一起成功、一起失败、一起被测试”。</p>
+<h4 id="38-3-dbae98bd" class="semantic-heading semantic-why">38.3 为什么重要</h4>
+<p>Direct INSERT 反模式重要，是因为它会把 RAP BO 重新写回“按钮 + SQL + commit”的旧式程序。RAP 的价值在于把 UI、OData、authorization、validation、draft、lock、message、save sequence 和 service exposure 统一到 BO 契约中。如果 action handler 直接写表，就等于绕开了这套契约。</p>
+<p>项目里最常见的问题不是编译不过，而是生产上出现不一致。用户点击 Approve，handler 直接把审批日志插入 <code>zapprove_log</code>。随后 on-save validation 发现金额超限，主数据保存失败。用户看到的是“保存失败”，但日志表已经有“审批成功”。另一个用户或 batch job 读日志时，就会误以为审批已完成。类似地，如果 handler 直接更新主表状态，draft 仍未 activate，UI 和数据库就可能出现两套状态。</p>
+<p>对测试来说，direct INSERT 也会制造假通过。ABAP Unit 或 OData 测试只检查日志表有数据，以为 action 成功；但没有验证 <code>failed</code> / <code>reported</code>、rollback、重复点击、并发锁、draft cancel、save failure。上线后才发现“保存失败但副作用已发生”。</p>
+<p>对 Java/Python 背景学习者，这一节尤其重要。很多 Web 框架里，controller 调 service，service 调 repository 写库，是正常结构。但 RAP action handler 不是普通 service method。它位于 RAP runtime 控制的 BO 生命周期中。更准确的类比是：action handler 是 domain command handling 的一部分，而最终数据库 flush/commit 由 framework-managed unit of work 控制。</p>
+<p>这也是 Clean Core 视角下的风险。直接写底层表通常会绕开 released API、业务对象封装、升级稳定性和扩展点边界。即使当前系统允许这条 SQL，未来升级、迁移到 ABAP Cloud、替换 UI 服务或引入 Fiori draft 时，也可能暴露隐藏依赖。RAP 的设计目标不是让开发者更难写 SQL，而是让业务对象的行为、权限、验证、锁、消息和保存结果可以被框架、工具、测试和 API consumer 一起理解。</p>
+<p>从项目管理角度看，direct INSERT 还会降低缺陷可定位性。出现数据不一致时，团队很难判断这条记录是 action handler 提前写的、saver 写的、additional save 写的、job 写的，还是外部重试写的。若设计时把副作用归类清楚，application log、outbox、request id、save result 和 OData response 就能连成证据链；否则只能靠逐行查代码。</p>
+<h4 id="38-4-key-mechanism-1726a550" class="semantic-heading semantic-mechanism">38.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 action handler 的位置。Action handler 通常处理 RAP interaction phase 中的业务动作：读取 keys、检查当前状态、执行 action 语义、通过 local EML 修改同一个 BO 的 transactional buffer、设置 <code>result</code>、<code>failed</code>、<code>reported</code>。它可以决定“这次 action 对 BO 状态提出什么变化”，但不应该提前把持久表写死。</p>
+<p>第二层机制是 transactional buffer。RAP 中很多修改先停留在 buffer 中。handler 如果要改当前 BO，应优先通过 RAP 提供的行为契约和 local EML 进入 buffer，而不是直接 <code>UPDATE</code> persistent table。这样后续 validation、authorization、save sequence、messages、draft、cleanup 才能看到同一份 BO 状态。</p>
+<p>第三层机制是 save sequence。真正保存的位置要看 BO 类型和 BDEF 保存策略：managed save 由 runtime 写 persistent table；unmanaged BO 可能在 saver <code>save()</code> 中写；managed with unmanaged save 可能在 <code>save_modified()</code> 中写主数据；additional save 可以追加审计、日志、事件 outbox 等附属保存。无论哪种，都不等于 action handler 随手 direct INSERT。</p>
+<p>第四层机制是 response 语义。Action handler 要把失败写入 <code>failed</code>，把消息写入 <code>reported</code>，必要时返回 action <code>result</code>。Direct INSERT 往往只关注数据库有没有数据，忽略了 OData consumer / Fiori UI 看到的 response。结果是数据库变化和用户消息不一致。</p>
+<p>第五层机制是 rollback 和幂等。handler 直接写表后，如果后续保存失败，RAP rollback 不一定能覆盖已经提交或外部副作用。用户重试、浏览器重复提交、OData consumer retry、Fiori action 重复点击，都可能造成重复日志、重复扣减、重复外部调用。</p>
+<p>第六层机制是 ABAP Cloud / Clean Core 边界。在面向云和 Clean Core 的 RAP 开发中，直接操作非 released 对象、绕过 BO API、在 extension 中写底层表，通常都和 released API / upgrade stability 目标相冲突。即使技术上能写，设计上也应优先通过 BO、released API、event/outbox 或可维护扩展点。</p>
+<p>可以用下面的重构表来审查 direct INSERT：</p>
+<div class="table-wrap"><table><thead><tr><th>代码想做什么</th><th>更合适的位置</th><th>Review 关注点</th></tr></thead><tbody><tr><td>改当前 BO 状态</td><td>Action handler 中 local EML / modify transactional buffer</td><td>是否进入 <code>failed/reported/result</code> 语义</td></tr><tr><td>写主持久表</td><td>Managed runtime 或 unmanaged saver / <code>save_modified</code></td><td>是否遵守 save sequence 和 rollback</td></tr><tr><td>写同事务审计日志</td><td>Additional save 或同一保存边界的附属表</td><td>保存失败时是否一起 rollback</td></tr><tr><td>发外部通知</td><td>Business event / outbox / background job</td><td>是否有 idempotency、retry、监控</td></tr><tr><td>写“处理中”标记</td><td>RAP locking + status transition + application log</td><td>是否会残留、是否覆盖所有入口</td></tr><tr><td>快速 bypass 标准 BO</td><td>Released API / BO action / extension point</td><td>是否违反 Clean Core 和升级稳定性</td></tr></tbody></table></div>
+<p>审查时还要看消息路径。RAP consumer 看到的是 <code>failed</code>、<code>reported</code>、action <code>result</code>、HTTP/OData response 和 Fiori message，不是开发者私下插入的日志表。如果 direct INSERT 产生了“数据库成功但 response 失败”的状态，用户和调用方会收到互相矛盾的信号。</p>
+<p>另外，<code>COMMIT WORK</code> 是明显红灯，但“没有 COMMIT WORK 的 direct SQL”也不自动安全。问题不只是 commit 语句，而是这次写入是否绕过了 RAP BO 的 buffer、save sequence、draft、authorization、lock、message 和 rollback 设计。Code review 不应只搜索 <code>COMMIT WORK</code>，还要搜索 action handler 中的 <code>INSERT</code> / <code>UPDATE</code> / <code>DELETE</code>、外部 HTTP call、文件写入、number range 消耗、application log 保存、job submit 等副作用。</p>
+<p>代码 review 时，可以用一个很快的判定清单：</p>
+<div class="table-wrap"><table><thead><tr><th>看到的代码</th><th>风险判断</th><th>更合理的方向</th></tr></thead><tbody><tr><td>action handler 中 <code>INSERT</code> / <code>UPDATE</code> 持久表</td><td>绕过 transactional buffer 和 save sequence</td><td>用 local EML 表达 BO 状态变化，或移动到 saver</td></tr><tr><td>action handler 中 <code>COMMIT WORK</code></td><td>抢走 RAP runtime 的 transaction owner 角色</td><td>由 RAP runtime / <code>COMMIT ENTITIES</code> 管理提交</td></tr><tr><td>action handler 中发 HTTP / mail / file</td><td>point-of-no-return 前产生不可回滚副作用</td><td>outbox、business event、background job、additional save 后续处理</td></tr><tr><td>只检查日志表有记录就认为 action 成功</td><td>测试证据太窄</td><td>同时检查 <code>failed</code> / <code>reported</code> / response / rollback / duplicate</td></tr><tr><td>保存失败但附属表已有记录</td><td>副作用时机错误</td><td>把附属记录放到同一保存边界或保存成功后的可靠机制</td></tr></tbody></table></div>
+<p>这张表的目的不是禁止所有 SQL，而是让读者问清楚：这条 SQL 是 BO 主保存的一部分、附属保存的一部分，还是提前发生的副作用？如果答案是“为了按钮马上看到效果，先写了再说”，基本就是 direct INSERT 反模式。</p>
+<h5 id="refactoring-path-from-direct-insert-b7062ba7">Refactoring path from direct INSERT</h5>
+<p>把 direct INSERT 改成 RAP-friendly 设计时，可以按五步走。</p>
+<p>第一步，给每个副作用分类。把 action handler 里的代码逐行标注为：读取当前 BO、业务规则检查、修改 BO 状态、写主持久表、写附属日志、调用外部系统、提交事务、清理临时状态。分类后，通常会发现一个 action handler 同时承担了太多阶段的责任。</p>
+<p>第二步，把 BO 状态变化移回 transactional buffer。审批、提交、取消、重试这类状态变化，应优先用 RAP local EML 或 action result 表达，让后续 validation、authorization、lock、draft 和 save sequence 能看到同一份状态。不要让持久表先变，BO buffer 后变。</p>
+<p>第三步，把主保存放回保存策略。Managed BO 让 runtime 保存；fully unmanaged BO 在 saver <code>save()</code>；managed with unmanaged save 在 <code>save_modified()</code>。如果 direct INSERT 实际是在保存主数据，就说明它不属于 action handler，应移到对应 saver 责任里。</p>
+<p>第四步，重新设计附属副作用。审计日志如果必须和主保存同事务一致，可考虑 additional save 或同一保存边界；外部通知、HTTP call、文件输出、后台 job 更适合 business event、outbox 或保存成功后的异步处理。这里要同时设计 request id、幂等、重试、错误监控和补偿。</p>
+<p>第五步，用失败路径测试证明迁移成功。至少验证：action handler 不直接写持久表；validation 失败时主数据和日志不残留；保存成功时日志/事件与主数据一致；重复点击或 API retry 不重复创建副作用；并发时 lock/status/idempotency 给出可解释响应。</p>
+<div class="table-wrap"><table><thead><tr><th>旧代码动作</th><th>迁移目标</th><th>必要证据</th></tr></thead><tbody><tr><td>直接改主表状态</td><td>local EML / BO buffer + save sequence</td><td>保存失败时状态不落库</td></tr><tr><td>直接插业务日志</td><td>additional save / application log strategy</td><td>主保存失败时日志语义正确</td></tr><tr><td>直接发外部 HTTP</td><td>outbox / business event / async job</td><td>重试可去重，失败可监控</td></tr><tr><td>直接消耗业务编号</td><td>numbering strategy / save sequence</td><td>保存失败和缺号规则可解释</td></tr><tr><td><code>COMMIT WORK</code></td><td>RAP runtime / external <code>COMMIT ENTITIES</code></td><td>behavior implementation 内无内部 commit</td></tr></tbody></table></div>
+<h4 id="38-5-33f357e2" class="semantic-heading semantic-japan">38.5 日本项目现场说法</h4>
+<ul>
+<li><code>アクションハンドラ</code>：action handler。</li>
+<li><code>直接更新</code> / <code>直接 INSERT</code>：direct table update / direct insert。</li>
+<li><code>保存シーケンス</code>：save sequence。</li>
+<li><code>トランザクション境界</code>：transaction boundary。</li>
+<li><code>副作用</code>：side effect。</li>
+<li><code>ロールバック不可</code>：cannot be rolled back。</li>
+<li><code>二重登録</code>：duplicate registration / duplicate insert。</li>
+</ul>
+<p>RAP の action handler で永続テーブルを直接更新する設計は避け、BO の transactional buffer または save sequence 側で扱うべきです。</p>
+<p>意思是：应避免在 RAP action handler 中直接更新持久表，应通过 BO 的 transactional buffer 或 save sequence 侧处理。</p>
+<p>この INSERT は action handler ではなく、追加保存または outbox 方式に移すべきか確認してください。</p>
+<p>意思是：请确认这个 INSERT 是否应该从 action handler 移到 additional save 或 outbox 方式。</p>
+<p>保存失敗時にこのログがロールバックされるか、二重登録されないかをテスト観点に入れてください。</p>
+<p>意思是：请把保存失败时该日志是否 rollback、是否会重复登记纳入测试观点。</p>
+<h4 id="38-6-english-terms-830051fc" class="semantic-heading semantic-terms">38.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP Action Handler Anti-Pattern: Direct INSERT</code></li>
+<li>Related terms: <code>RAP action</code>, <code>action handler</code>, <code>handler class</code>, <code>local EML</code>, <code>transactional buffer</code>, <code>direct table update</code>, <code>save sequence</code>, <code>additional save</code>, <code>business event</code>, <code>outbox pattern</code>, <code>COMMIT WORK</code>, <code>COMMIT ENTITIES</code></li>
+<li>Recommended search pattern: <code>SAP RAP action handler transactional buffer save sequence direct update</code></li>
+<li>ABAP keywords to keep in English: <code>MODIFY ENTITIES</code>, <code>READ ENTITIES</code>, <code>IN LOCAL MODE</code>, <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code>, <code>COMMIT WORK</code>, <code>COMMIT ENTITIES</code>, <code>failed</code>, <code>reported</code>, <code>result</code></li>
+</ul>
+<h4 id="38-7-example-84d3b4d2" class="semantic-heading semantic-example">38.7 Example / 学习例子</h4>
+<p>反模式代码的形状通常类似这样：</p>
+<pre><code class="language-abap">METHOD accept.
+  LOOP AT keys INTO DATA(key).
+    UPDATE ztravel
+      SET status = &#x27;A&#x27;
+      WHERE travel_id = @key-TravelId.
+
+    INSERT ztravel_log FROM VALUE #(
+      travel_id = key-TravelId
+      action    = &#x27;ACCEPT&#x27;
+      uname     = sy-uname
+      created_at = cl_abap_context_info=&gt;get_system_time( ) ).
+  ENDLOOP.
+
+  COMMIT WORK.
+ENDMETHOD.</code></pre>
+<p>这段代码的问题不只是 <code>COMMIT WORK</code>。即使删掉 commit，直接 <code>UPDATE ztravel</code> / <code>INSERT ztravel_log</code> 也已经绕过了 RAP BO buffer、authorization、validation、draft 和 save sequence。后续如果 action 失败或保存失败，状态和日志可能已经和 RAP response 不一致。</p>
+<p>更合理的思路是分层处理：</p>
+<pre><code class="language-text">Action handler
+  - read current BO state through RAP/local EML
+  - check whether action is allowed
+  - modify BO transactional buffer, such as Status = Accepted
+  - return result / failed / reported
+
+Save sequence / additional save / event
+  - persist managed BO changes
+  - write audit log only if it participates in the same save semantics
+  - or create outbox/event for external side effects after successful save</code></pre>
+<p>如果审批日志必须和主数据同事务保存，可以考虑 additional save 或由 saver 统一写入日志表，并设计唯一键避免重复。若审批后要通知外部系统，不建议 handler 里直接 HTTP call；更稳妥的是保存成功后记录 outbox，再由后台 job 或 event consumer 发送，确保可重试、可去重、可追踪。</p>
+<p>在 AC0567C POC 中，也可以用同样的眼光看批量上传按钮。解析文件、检查行、准备 BO 修改可以在交互阶段完成；真正写入业务表、上传日志、错误汇总，应有清楚的保存边界。不要因为 POC 里 direct INSERT 方便，就把它原样迁移成 RAP action handler。</p>
+<p>一个更贴近 AC0567C 的重构例子是：</p>
+<pre><code class="language-text">Action: ExecuteUploadBatch
+
+Handler responsibilities:
+  - read batch by keys using EML
+  - check status, authorization, and lock outcome
+  - set requested transition in the BO buffer, such as READY -&gt; PROCESSING
+  - return failed/reported messages for invalid rows or invalid status
+
+Save / additional save responsibilities:
+  - persist accepted state transition
+  - persist row-level result summary if it must share the same transaction
+  - write application log with batch id and request id
+
+Outbox / event responsibilities:
+  - trigger external posting or notification after successful save
+  - retry safely with idempotency key
+  - record downstream response without pretending the action handler already completed it</code></pre>
+<p>测试也要按这三层拆开。保存成功时，BO 状态、日志、outbox 都应一致；保存失败时，不能留下“已执行成功”的日志；重复点击时，不能重复生成外部副作用；并发执行时，lock/status/idempotency 要给出可解释结果。这样写出来的测试，比“执行 action 后表里多一行”更能证明 RAP 设计成立。</p>
+<p>如果确实需要在 unmanaged saver 中写自定义表，也要把责任写清楚：这个 saver 是 BO 保存的一部分，不是 action handler 偷写表；它处理哪些 mapped/failed/reported 结果；失败时如何抛回框架；是否和 root/entity keys 一致；是否有唯一约束防重复；是否有 application log 证明写入来源。</p>
+<h4 id="38-8-counterexample-failure-mode-dda8edac" class="semantic-heading semantic-example">38.8 Counterexample / Failure mode</h4>
+<p>反例一：审批 action 直接更新主表状态。后续 validation 失败，但主表已经是 Approved。修正方式是：action handler 改 BO buffer，由 save sequence 统一保存。</p>
+<p>反例二：action handler 直接插日志表。主保存失败后日志仍存在，审计含义错误。修正方式是：把日志写入 additional save、同事务附属表，或保存成功后 outbox。</p>
+<p>反例三：handler 中直接调用外部 API。用户保存失败或取消 draft，但外部系统已收到通知。修正方式是：使用 business event、outbox、异步 job 和幂等 key。</p>
+<p>反例四：为了避免重复点击，在 handler 里先插“处理中”记录。并发场景下可能锁不住 BO，失败后也清不掉。修正方式是：使用 RAP lock / authorization / feature control / status validation，而不是自建提前提交表。</p>
+<p>反例五：把测试写成“点 action 后数据库表有记录”。这会鼓励 direct INSERT。更好的测试是：检查 <code>failed</code> / <code>reported</code>，保存成功后数据一致；保存失败时主数据和附属数据都不应残留；重复调用不会生成重复副作用。</p>
+<p>反例六：把所有 direct INSERT 都一刀切禁止，却没有给替代设计。正确 review 不只是说“不许写”，还要判断它应该放到 managed save、unmanaged save、<code>save_modified</code>、additional save、event/outbox，还是应该变成普通 validation / determination。</p>
+<p>反例七：只删除 <code>COMMIT WORK</code>，保留 direct INSERT。代码看起来更“RAP-friendly”，但仍然绕过 BO buffer 和 save sequence。修正方式是把写入移到正确生命周期位置，而不是只去掉 commit。</p>
+<p>反例八：在 action handler 中直接写 application log，并把它当作业务成功证据。若后续保存失败，日志会误导运维。修正方式是区分 technical trace、business audit log 和 post-save evidence。</p>
+<p>反例九：在 handler 中消耗正式业务编号。保存失败后编号已消耗，用户却没有得到对象。修正方式是把编号策略放回 <a class="wiki" href="section-03-034-rap-early-numbering-vs-late-numbering-05dccf21.html">RAP early numbering vs late numbering</a> 和 save sequence 讨论，必要时分离 technical key 和 business number。</p>
+<p>反例十：handler 直接触发后台 job 或外部接口。用户取消 draft 或保存失败后，job/外部系统仍继续处理。修正方式是保存成功后通过 outbox/event 触发，并设计 request id、幂等和补偿策略。</p>
+<h4 id="38-9-b9c1ed80" class="semantic-heading semantic-practice">38.9 思考问题</h4>
+<ul>
+<li>这个 action handler 是否直接 <code>INSERT</code> / <code>UPDATE</code> / <code>DELETE</code> 持久表？</li>
+<li>这段写库是否应该由 managed runtime、saver、<code>save_modified</code> 或 additional save 处理？</li>
+<li>如果后续 validation 失败，direct INSERT 的数据会不会残留？</li>
+<li>如果用户重复点击 action，会不会重复插入日志或重复调用外部系统？</li>
+<li>这段逻辑需要同事务保存，还是保存成功后异步执行？</li>
+<li>是否可以通过 local EML 修改 BO buffer，而不是直接 SQL？</li>
+<li>在日本项目 review 中，应如何解释“直接更新ではなく保存シーケンス側で扱う”？</li>
+</ul>
+<h4 id="38-10-600ac0be" class="semantic-heading semantic-reference">38.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/action-definition" target="_blank" rel="noopener noreferrer">Action Definition</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">Entity Manipulation Language (EML)</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/save-options" target="_blank" rel="noopener noreferrer">Save Options</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/additional-save" target="_blank" rel="noopener noreferrer">Additional Save</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT_ENTITIES.html" target="_blank" rel="noopener noreferrer">COMMIT ENTITIES</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT.html" target="_blank" rel="noopener noreferrer">COMMIT WORK</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapmethods_for_rap_behv.html" target="_blank" rel="noopener noreferrer">METHODS, FOR, RAP Handler Methods</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_SAVING.html" target="_blank" rel="noopener noreferrer">RAP - SavingOptions</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-actions-and-messages" target="_blank" rel="noopener noreferrer">Defining Actions and Messages</a> (accessed 2026-06-18)</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/08_EML_ABAP_for_RAP.md" target="_blank" rel="noopener noreferrer">ABAP for RAP: Entity Manipulation Language</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="38-11-connections-7fd1aebb">38.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-036-rap-save-modified-implementation-84f70d3a.html">RAP save_modified implementation</a></li>
+<li>Downstream: <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 20 - Action、Validation、Determination、Save Sequence</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="38-12-678b1f60" class="semantic-heading semantic-practice">38.12 学习任务</h4>
+<ul>
+<li>找一个 action handler 伪代码，把其中 direct INSERT / UPDATE 标红，并写出替代位置。</li>
+<li>用中文解释 action handler、transactional buffer、save sequence 的职责分工。</li>
+<li>补 2 个日语 review 句子：一条指出 direct update 风险，一条要求确认 rollback / duplicate insert。</li>
+<li>设计 3 个测试：保存成功、保存失败、重复点击 action。</li>
+<li>如果已经进入 Week 4，把 AC0567C POC 的上传保存流程拆成 handler / validation / save / log / outbox 五类责任。</li>
+</ul>
+<h4 id="38-13-confidence-next-action-75e654ac" class="semantic-heading semantic-status">38.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the anti-pattern diagnosis and refactoring guidance after official-source closure. 2026-06-18 已复核 SAP Help Action Definition、EML、Save Options、Additional Save、ABAP Keyword Documentation <code>COMMIT ENTITIES</code> / <code>COMMIT WORK</code> / RAP handler methods / saving options、SAP Learning <code>Defining Actions and Messages</code> 和 SAP-samples EML cheat sheet。正文已覆盖 action handler / transactional buffer / save sequence 职责分工、direct <code>INSERT</code> / <code>UPDATE</code> / <code>DELETE</code> 风险、只删除 <code>COMMIT WORK</code> 仍不够的边界、additional save / business event / outbox 替代路径、Clean Core/released API 风险、重复点击 / retry / rollback 测试和 AC0567C 迁移视角。Claude/Joule review artifacts 仍是 deferred/no usable verdict，且 2026-06-18 Claude CLI 当前 session expired；外部 review debt 保留，但本节不再停留在提纲草稿。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；本地验证时，在实际 behavior pool 中搜索 action handler 内的 direct SQL 和 external side effects，按“buffer / save sequence / additional save / outbox”重新归类。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-038-rap-action-handler-anti-pattern-direct-insert-7325d509.html">RAP Action Handler Anti-Pattern: Direct INSERT</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">Previous section</a><a href="section-03-039-service-definition-0138b5dc.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

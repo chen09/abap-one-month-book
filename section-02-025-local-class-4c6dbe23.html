@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Local class 局部类 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="25-local-class-dea8f6a2" class="chapter-title">25. Local class 局部类</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 25</li><li>self-contained study note</li></ul><h4 id="25-1-a5ea08c8" class="semantic-heading semantic-concept">25.1 一句话结论</h4>
+<p>Local class 局部类，是定义在某个 ABAP program、class pool 或当前开发对象局部上下文中的 class：它有 <code>CLASS ... DEFINITION</code> 和 <code>CLASS ... IMPLEMENTATION</code>，可以像普通 OO ABAP class 一样拥有 method、attribute、visibility section 和 test class，但它不是独立 ABAP repository object，不能被整个系统随意复用。它最适合放“只服务当前对象”的 helper、demo、局部封装和 ABAP Unit test class；一旦逻辑要成为跨对象复用的业务能力，就应该考虑 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a>。</p>
+<h4 id="25-2-e84e750d" class="semantic-heading semantic-concept">25.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a> 讲的是项目级 class：有 package、activation、transport、public contract，可以被多个 repository object 使用。local class 则反过来回答一个更细的问题：如果某段逻辑只属于当前程序或当前 global class，是否有必要把它提升成全局对象？</p>
+<p>例如，在一个实现 <code>IF_OO_ADT_CLASSRUN</code> 的练习 global class 的 class pool 里，只想把状态码转换成显示文本。严格说，下面的 <code>lcl_status_text</code> 通常写在该 global class 对应的 local definitions / local implementations 区域，而不是作为另一个独立的 <code>ZCL_...</code> 对象存在：</p>
+<pre><code class="language-abap">CLASS lcl_status_text DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS lcl_status_text IMPLEMENTATION.
+  METHOD get_text.
+    CASE iv_status.
+      WHEN &#x27;O&#x27;.
+        rv_text = &#x27;Open&#x27;.
+      WHEN &#x27;C&#x27;.
+        rv_text = &#x27;Closed&#x27;.
+      WHEN OTHERS.
+        rv_text = &#x27;Unknown&#x27;.
+    ENDCASE.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这个 <code>lcl_status_text</code> 就是 local class。它把“状态码如何显示”从主流程里拿出来，让主流程更清楚；但它并没有成为一个能在当前局部上下文之外作为 public API 调用的 <code>ZCL_...</code> class。</p>
+<p>本节要学的核心问题：</p>
+<ul>
+<li>local class 和 global class 的边界是什么？</li>
+<li>local class 写在哪里，为什么不能把它当成独立 repository object？</li>
+<li>local class 的 <code>PUBLIC SECTION</code> / <code>PRIVATE SECTION</code> 是否仍然有意义？</li>
+<li>为什么 ABAP Unit test class 常写成 local class？</li>
+<li>什么逻辑适合留在 local class，什么逻辑应该提升为 global class？</li>
+<li>在日本项目 review 中，怎样说明“ローカルクラスに閉じる”或“グローバルクラスへ切り出す”？</li>
+</ul>
+<h4 id="25-3-1b057436" class="semantic-heading semantic-why">25.3 为什么重要</h4>
+<p>初学 OO ABAP 时，很容易走向两个极端。</p>
+<p>第一个极端是“什么都写在一个大 method 里”。这样虽然短期能跑，但随着条件分支、internal table 处理、消息组装、格式转换越来越多，主流程会变成几百行，测试困难，review 也只能靠人脑追踪。</p>
+<p>第二个极端是“任何小 helper 都建一个 global class”。这样 repository 里很快堆满 <code>ZCL_...</code>，每个对象都要考虑 package、transport、where-used、public contract 和命名治理，反而增加维护成本。</p>
+<p>local class 的价值在这两个极端之间：它允许把当前对象内部的复杂逻辑结构化，又不把局部实现细节过早暴露为全局 contract。</p>
+<p>对 Java 背景学习者，可以把 local class 粗略类比成“只在当前文件/当前外部类附近使用的 helper class”。但 ABAP 的差异是：global class 是 repository object / class pool；local class 随所在 program 或 class pool 一起激活、传输和生命周期管理。对 Python 背景学习者，可以把它理解成模块内私有 helper 的 OO 版本，但 ABAP 的可见性和编译/激活边界更正式。</p>
+<p>在真实项目里，local class 经常出现在：</p>
+<ol>
+<li>global class 的 local definitions / local implementations 区域，用作 private helper，或当前对象 / 当前组件专用的 test double。</li>
+<li>ABAP Unit 的 local test class，例如 <code>ltcl_... DEFINITION FOR TESTING</code>。</li>
+<li>demo、training、report 或 POC 里，把主流程拆成几个小对象。</li>
+<li>某个大型 repository object 内部，为了减少一个 method 的复杂度而引入的局部策略类、格式化类、计算类。</li>
+</ol>
+<h4 id="25-4-key-mechanism-599c5b75" class="semantic-heading semantic-mechanism">25.4 Key mechanism / 核心机制</h4>
+<h5 id="25-4-1-local-class-is-local-to-its-context-28e0e277">25.4.1 local class is local to its context</h5>
+<p>local class 不是单独的 <code>ZCL_...</code> repository object。它属于当前 ABAP program、class pool 或对应的 local type/include 上下文。外部对象通常不能像调用 global class 那样直接依赖它。</p>
+<p>这带来三个直接后果：</p>
+<ul>
+<li>它适合表达局部实现细节，不适合作为局部上下文之外的 public API。</li>
+<li>它作为宿主 repository object 的一部分一起 syntax check、activation 和 transport，不能像独立 global class 那样单独移送。</li>
+<li>它的 where-used、复用边界和变更影响都应从宿主对象角度理解。</li>
+</ul>
+<p>在 ABAP Cloud / RAP 语境下，还要多记一层限制：classic report/program 不是主要扩展形态，local class 更常出现在 global class 的 local definitions、local implementations 或 local test classes 中。local class 本身不是 released API 的治理对象；真正需要遵守 Clean Core / released API 约束的是宿主 global class、RAP behavior、service 暴露和它调用的外部 API。</p>
+<p>所以，local class 的名字通常使用 <code>lcl_...</code>；local test class 常见 <code>ltcl_...</code> 或 <code>ltc_...</code>；local interface 常见 <code>lif_...</code>。这些不是语法强制，但在项目 review 里很有帮助：reader 一眼能看出这是局部对象，不是可复用的全局类。</p>
+<h5 id="25-4-2-definition-and-implementation-4173598a">25.4.2 definition and implementation</h5>
+<p>local class 同样分成 definition 和 implementation：</p>
+<pre><code class="language-abap">CLASS lcl_quantity_rule DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS is_valid
+      IMPORTING iv_quantity     TYPE i
+      RETURNING VALUE(rv_valid) TYPE abap_bool.
+ENDCLASS.
+
+CLASS lcl_quantity_rule IMPLEMENTATION.
+  METHOD is_valid.
+    rv_valid = xsdbool( iv_quantity &gt; 0 AND iv_quantity &lt;= 999 ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>definition 是“这个局部 class 对当前上下文暴露什么能力”；implementation 是“具体怎么做”。即使 local class 不对系统外部开放，definition 仍然是阅读入口。review 时先看 local class 的 public method 名称和参数，判断它是否真的把主流程变清楚，而不是把复杂度从一个大 method 挪到另一个大 method。</p>
+<h5 id="25-4-3-visibility-still-matters-5b8b446f">25.4.3 visibility still matters</h5>
+<p>local class 也可以有：</p>
+<pre><code class="language-abap">PUBLIC SECTION.
+PROTECTED SECTION.
+PRIVATE SECTION.</code></pre>
+<p>这里的 <code>PUBLIC SECTION</code> 不等于“全系统公开”。它表示在 local class 的可见范围内，外部代码可以访问哪些 component。对一个 <code>lcl_...</code> helper 来说，public surface 仍然应该小而清楚；内部计算步骤、常量、临时状态应该放在 <code>PRIVATE SECTION</code>。</p>
+<p>SAP Help 中的 <code>local friends</code> 属于进阶访问控制细节：在少数场景下，可以让同一 class pool 上下文中的 local/global class 建立 friend 关系并访问非公开 component。初学阶段只需知道它不是常规复用方式；真正稳定的公共契约仍应优先设计为 global class 或 interface。</p>
+<p>常见判断：</p>
+<ul>
+<li>主流程需要调用的入口 method：放在 <code>PUBLIC SECTION</code>。</li>
+<li>拆分出来的内部步骤：放在 <code>PRIVATE SECTION</code>。</li>
+<li>inheritance 相关的 <code>PROTECTED SECTION</code>：初学阶段少用，等 <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a> 再展开。</li>
+</ul>
+<h5 id="25-4-4-local-class-vs-global-class-e380c7f3">25.4.4 local class vs global class</h5>
+<p>可以用这张判断表：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>更适合</th></tr></thead><tbody><tr><td>只被当前 global class/report 使用的小 helper</td><td>local class</td></tr><tr><td>ABAP Unit test class / 当前对象专用 test double</td><td>local class</td></tr><tr><td>demo、training、POC 中的局部封装</td><td>local class</td></tr><tr><td>被多个 repository object 复用的业务规则</td><td>global class</td></tr><tr><td>RAP handler / saver 之外复用的 service 或 validator</td><td>global class</td></tr><tr><td>需要成为稳定 public contract 的 API wrapper</td><td>global class</td></tr><tr><td>需要单独 package、transport、where-used 管理的对象</td><td>global class</td></tr></tbody></table></div>
+<p>不要把 local/global 理解成“哪个更高级”。它们解决的是不同范围的问题：local class 让当前对象内部更清楚；global class 让跨对象复用和交付治理更清楚。</p>
+<h5 id="25-4-5-local-test-class-eaa3d54a">25.4.5 local test class</h5>
+<p>ABAP Unit 里，test class 通常就是 local class。它服务于被测试对象，不应该成为生产代码可调用的业务对象。测试类声明除了 <code>FOR TESTING</code>，通常还会写清楚 <code>DURATION</code> 和 <code>RISK LEVEL</code>，让测试运行成本和风险级别更明确。</p>
+<pre><code class="language-abap">CLASS ltcl_status_text DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+  PRIVATE SECTION.
+    METHODS open_status FOR TESTING.
+ENDCLASS.
+
+CLASS ltcl_status_text IMPLEMENTATION.
+  METHOD open_status.
+    cl_abap_unit_assert=&gt;assert_equals(
+      act = lcl_status_text=&gt;get_text( &#x27;O&#x27; )
+      exp = &#x27;Open&#x27; ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这段代码表达三个信息：</p>
+<ul>
+<li><code>FOR TESTING</code> 说明这是 ABAP Unit test class。</li>
+<li>test method 也标记 <code>FOR TESTING</code>。</li>
+<li>test class 依附于当前对象，用来验证当前对象或局部 helper 的行为。</li>
+</ul>
+<p>测试逻辑放在 local test class，是为了让测试与被测代码保持同一生命周期，同时不把测试 helper 暴露给生产调用者。后面 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a> 会专门展开。</p>
+<h5 id="25-4-6-local-class-in-global-class-source-c8604688">25.4.6 local class in global class source</h5>
+<p>在 ADT 打开 global class 时，除了主要 class definition / implementation，通常还能看到 local types、local definitions、local implementations、test classes 等区域或 include。local class 常被放在这些局部区域里，用来支持主 global class。</p>
+<p>这时要记住：宿主 global class 仍然是 repository object；local class 只是它内部的实现工具。移送、激活、包归属都跟着宿主对象走。</p>
+<h4 id="25-5-049aa97b" class="semantic-heading semantic-japan">25.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>ローカルクラス</code></li>
+<li><code>グローバルクラス</code></li>
+<li><code>ヘルパークラス</code></li>
+<li><code>テストクラス</code></li>
+<li><code>ローカル定義</code></li>
+<li><code>ローカル実装</code></li>
+<li><code>局所的な責務</code></li>
+<li><code>再利用範囲</code></li>
+<li><code>公開契約</code></li>
+<li><code>切り出し</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li>このクラスは当該オブジェクト内だけで使う補助ロジックなので、ローカルクラスとして閉じています。</li>
+<li>複数のクラスや RAP オブジェクトから再利用する可能性がある場合は、ローカルクラスではなくグローバルクラスとして切り出してください。</li>
+<li>テスト用の補助ロジックは本番の公開契約にしないため、ローカルテストクラスに置きます。</li>
+<li>ローカルクラスは特定のリポジトリオブジェクト内に閉じた実装なので、再利用範囲が広がる場合はグローバルクラスまたはインターフェースへの切り出しを検討してください。</li>
+</ul>
+<p>review 里常见问法：</p>
+<ul>
+<li><code>このローカルクラスは本当にこのクラス内だけで完結しますか。</code></li>
+<li><code>再利用範囲が広がるならグローバルクラス化を検討してください。</code></li>
+<li><code>ローカルクラスの PUBLIC SECTION が大きすぎるため、責務を分割してください。</code></li>
+<li><code>テスト用のクラスは本番コードから参照されないようにしてください。</code></li>
+</ul>
+<p>使用场景：详细设计、代码 review、ABAP Unit review、RAP behavior implementation 拆分、transport 前影响范围确认、旧 report 重构。</p>
+<h4 id="25-6-english-terms-43a1c8d5" class="semantic-heading semantic-terms">25.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>local class</code></li>
+<li>Official / search term: <code>global class</code></li>
+<li>Official / search term: <code>local test class</code></li>
+<li>ABAP statement: <code>CLASS ... DEFINITION</code></li>
+<li>ABAP statement: <code>CLASS ... IMPLEMENTATION</code></li>
+<li>ABAP addition: <code>FOR TESTING</code></li>
+<li>Visibility section: <code>PUBLIC SECTION</code></li>
+<li>Visibility section: <code>PRIVATE SECTION</code></li>
+<li>Related term: <code>class pool</code></li>
+<li>Related term: <code>local definitions</code></li>
+<li>Related term: <code>local implementations</code></li>
+<li>Related term: <code>ABAP Unit</code></li>
+<li>Naming convention: <code>lcl_...</code></li>
+<li>Naming convention: <code>ltcl_...</code></li>
+</ul>
+<p>读官方资料时保留 <code>local class</code>、<code>global class</code>、<code>class pool</code>、<code>FOR TESTING</code>、<code>CLASS ... DEFINITION</code> 这些英文原词；中文和日语解释可以辅助理解，但检索和 review 证据应以官方英文术语为准。</p>
+<h4 id="25-7-example-0f9aa698" class="semantic-heading semantic-example">25.7 Example / 学习例子</h4>
+<h5 id="25-7-1-1-local-class-helper-6b2cb3e3">25.7.1 例 1：用 local class 拆出局部 helper</h5>
+<p>主流程里直接写状态码转换：</p>
+<pre><code class="language-abap">DATA: lv_status TYPE string VALUE &#x27;O&#x27;,
+      lv_text   TYPE string.
+
+CASE lv_status.
+  WHEN &#x27;O&#x27;.
+    lv_text = &#x27;Open&#x27;.
+  WHEN &#x27;C&#x27;.
+    lv_text = &#x27;Closed&#x27;.
+  WHEN OTHERS.
+    lv_text = &#x27;Unknown&#x27;.
+ENDCASE.</code></pre>
+<p>如果这段逻辑在当前对象中出现多次，但还没有跨对象复用价值，可以先放进 local class：</p>
+<pre><code class="language-abap">CLASS lcl_status_text DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS lcl_status_text IMPLEMENTATION.
+  METHOD get_text.
+    CASE iv_status.
+      WHEN &#x27;O&#x27;.
+        rv_text = &#x27;Open&#x27;.
+      WHEN &#x27;C&#x27;.
+        rv_text = &#x27;Closed&#x27;.
+      WHEN OTHERS.
+        rv_text = &#x27;Unknown&#x27;.
+    ENDCASE.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>调用者只读一行：</p>
+<pre><code class="language-abap">DATA(lv_text) = lcl_status_text=&gt;get_text( lv_status ).</code></pre>
+<p>这不是为了“多写一个类显得高级”，而是让主流程表达业务步骤，把局部细节收进一个命名清楚的小对象。</p>
+<h5 id="25-7-2-2-local-test-class-04a3b7fa">25.7.2 例 2：local test class</h5>
+<pre><code class="language-abap">CLASS ltcl_status_text DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+  PRIVATE SECTION.
+    METHODS unknown_status FOR TESTING.
+ENDCLASS.
+
+CLASS ltcl_status_text IMPLEMENTATION.
+  METHOD unknown_status.
+    cl_abap_unit_assert=&gt;assert_equals(
+      act = lcl_status_text=&gt;get_text( &#x27;X&#x27; )
+      exp = &#x27;Unknown&#x27; ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>测试类本身不是业务 API。它和被测代码放在同一开发对象附近，是为了让修改和测试一起走，避免测试代码散落成独立业务对象。</p>
+<h5 id="25-7-3-3-global-class-a99d7fe3">25.7.3 例 3：什么时候提升成 global class</h5>
+<p>如果状态码转换只在一个 demo 或一个 global class 内部使用，local class 可以接受。若它开始被多个对象需要，例如：</p>
+<ul>
+<li>RAP handler 要用。</li>
+<li>batch job 要用。</li>
+<li>OData wrapper 要用。</li>
+<li>ABAP Unit 多个测试对象都要用。</li>
+<li>项目文档把它定义成可复用业务规则。</li>
+</ul>
+<p>这时继续藏在 local class 里就会造成重复实现或隐式依赖。更合理的做法是提升成命名清楚的 global class，例如 <code>ZCL_STATUS_TEXT</code> 或更贴近项目命名规则的 service / helper class，并设计 public method、package、transport 和测试策略。</p>
+<h5 id="25-7-4-4-local-class-f20ab360">25.7.4 例 4：不好的 local class</h5>
+<pre><code class="language-abap">CLASS lcl_all_business_rules DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS validate_order.
+    CLASS-METHODS calculate_price.
+    CLASS-METHODS post_document.
+    CLASS-METHODS call_external_api.
+ENDCLASS.</code></pre>
+<p>这不是“局部封装”，而是把多个责任塞进一个局部黑箱。它既不利于复用，也不利于测试和 review。修正方向是：按责任拆分，能局部完成的留在 local class；跨对象复用或有稳定 contract 的部分提升为 global class 或 interface。</p>
+<h4 id="25-8-counterexample-failure-mode-94f67b51" class="semantic-heading semantic-example">25.8 Counterexample / Failure mode</h4>
+<h5 id="25-8-1-1-local-class-b03ecb63" class="semantic-heading semantic-failure">25.8.1 误区 1：把 local class 当成低成本全局复用</h5>
+<p>如果多个对象都需要同一段逻辑，却把它重复写成多个 <code>lcl_...</code>，后续规则变更就要改很多地方。项目风险是：一个地方改了，另一个地方漏改，测试覆盖也分散。</p>
+<p>修正动作：确认复用范围。如果规则已经跨 repository object 使用，设计 global class 或 interface。</p>
+<h5 id="25-8-2-2-local-class-public-surface-5d3fd371" class="semantic-heading semantic-failure">25.8.2 误区 2：local class 的 public surface 太大</h5>
+<p>local class 虽然是局部的，但 <code>PUBLIC SECTION</code> 太大仍然会制造混乱。当前对象内部的主流程也会依赖太多细节，后续重构成本升高。</p>
+<p>修正动作：只暴露主流程需要的入口 method；中间步骤放 <code>PRIVATE SECTION</code>。</p>
+<h5 id="25-8-3-3-helper-contract-234f3bde" class="semantic-heading semantic-failure">25.8.3 误区 3：把测试 helper 混进生产 contract</h5>
+<p>测试用的 fake、double、assertion helper 如果做成生产可调用的 global class，可能污染业务 API。</p>
+<p>修正动作：优先使用 local test class 或测试专用 helper；需要跨测试对象复用时，再按项目测试策略设计公共 test utility。</p>
+<h5 id="25-8-4-4-local-class-method-bdcd00c1" class="semantic-heading semantic-failure">25.8.4 误区 4：用 local class 掩盖大 method</h5>
+<p>如果 local class 里仍然只有一个几百行 <code>run</code> method，问题没有解决，只是换了位置。</p>
+<p>修正动作：用 <a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a> 拆分职责；让 method name 表达意图，让参数和返回值清楚。</p>
+<h4 id="25-9-458fbc7d" class="semantic-heading semantic-practice">25.9 思考问题</h4>
+<ul>
+<li>这段逻辑只属于当前对象，还是可能被多个对象复用？</li>
+<li>如果明天另一个 RAP handler 也需要它，是重复写一个 local class，还是抽成 global class？</li>
+<li>这个 local class 的 <code>PUBLIC SECTION</code> 是否只暴露了必要入口？</li>
+<li>这个 local class 是否只是把一个大 method 换了地方？</li>
+<li>测试逻辑应该留在 local test class，还是已经需要项目级 test utility？</li>
+<li>在日本项目 review 中，应说 <code>ローカルクラスに閉じる</code>，还是 <code>グローバルクラスへ切り出す</code>？</li>
+</ul>
+<h4 id="25-10-69664571" class="semantic-heading semantic-reference">25.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASSES.html" target="_blank" rel="noopener noreferrer">ABAP Objects - Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCLASS_DEFINITION.html" target="_blank" rel="noopener noreferrer">CLASS, DEFINITION</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCLASS_IMPLEMENTATION.html" target="_blank" rel="noopener noreferrer">CLASS, IMPLEMENTATION</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASS_VISIBILITY.html" target="_blank" rel="noopener noreferrer">Visibility Sections in Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASS_METHODS.html" target="_blank" rel="noopener noreferrer">Methods of Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm?file=ABENLOCAL_CLASSES.html" target="_blank" rel="noopener noreferrer">Local Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm?file=ABENLOCAL_GLOBAL_CLASSES.html" target="_blank" rel="noopener noreferrer">Local and Global Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm?file=ABENCLASS_LOCAL_FRIENDS.html" target="_blank" rel="noopener noreferrer">Local Friends</a></li>
+<li>SAP Learning: <code>Defining a Local Class</code></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="25-11-connections-7ed2941c">25.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li><a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a></li>
+<li><a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li><a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a></li>
+<li><a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li><a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a></li>
+<li>Upstream: <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a></li>
+<li>Downstream: <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 11 - OO ABAP 类与方法基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="25-12-2700ae0c" class="semantic-heading semantic-practice">25.12 学习任务</h4>
+<ul>
+<li>写一个 <code>lcl_...</code> local class，封装一个只在当前练习对象中使用的转换或校验逻辑。</li>
+<li>给这个 local class 加一个 <code>ltcl_... FOR TESTING</code> local test class，至少测试一个正常分支和一个异常/默认分支。</li>
+<li>用 5 行中文说明：为什么这段逻辑暂时不需要成为 global class？</li>
+<li>用日语写一句 review comment：<code>再利用範囲が広がるならグローバルクラス化を検討してください。</code></li>
+<li>对照 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a>，列出 local class 与 global class 在 repository object、reuse、transport、test、public contract 上的区别。</li>
+</ul>
+<h4 id="25-13-confidence-next-action-800bd799" class="semantic-heading semantic-status">25.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容已用 SAP Help 的 class definition / implementation / visibility / local class 入口校准，并已通过 Joule SAP accuracy review 与 Claude 文件式 review；ABAP Cloud/Clean Core、local/global 边界、ABAP Unit test class 和 local friends 表述已按 review 修正。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a> 扩写；后续整书排版时再统一微调章节标题和术语密度。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-025-local-class-4c6dbe23.html">Local class 局部类</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-024-global-class-66824a36.html">Previous section</a><a href="section-02-026-method-signature-78cdcab2.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

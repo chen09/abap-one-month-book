@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP Unit 单元测试基础 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="35-abap-unit-ffd509d4" class="chapter-title">35. ABAP Unit 单元测试基础</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 35</li><li>self-contained study note</li></ul><h4 id="35-1-b52171ad" class="semantic-heading semantic-concept">35.1 一句话结论</h4>
+<p>ABAP Unit 是 ABAP 语言内建的单元测试框架，用来把“这个 method 应该怎样工作”写成可自动执行的测试。它不是画面测试，也不是完整集成测试；它最适合保护小而明确的业务规则、计算逻辑、字段映射、异常路径和 helper method。</p>
+<p>初学者要先掌握一个判断：ABAP Unit 的核心不是“多写一些测试代码”，而是把可重复验证的业务约定放到系统里。手工点一次画面只能证明“刚才这个操作看起来通过”；ABAP Unit 可以在每次改代码、激活对象、执行质量检查或准备传输前，重新验证关键逻辑是否仍然成立。</p>
+<p>本节要学会读懂并写出最小测试类：用 <code>CLASS ... DEFINITION FOR TESTING</code> 声明 test class，用 <code>DURATION</code> 和 <code>RISK LEVEL</code> 描述运行时间与风险，用 <code>METHODS ... FOR TESTING</code> 声明 test method，用 <code>CL_ABAP_UNIT_ASSERT</code> 断言实际结果和期望结果，并在 ADT 的 ABAP Unit 结果里读懂失败原因。</p>
+<p>测试类虽然不是生产业务逻辑的一部分，但它仍然属于 ABAP repository object 的交付内容，会跟随被测对象一起进入开发、传输、质量检查和维护流程。换句话说，ABAP Unit 不是临时脚本；它是项目质量资产。</p>
+<h4 id="35-2-d0fc479f" class="semantic-heading semantic-concept">35.2 到底学什么</h4>
+<p>本节不追求覆盖 ABAP Unit 的所有高级能力，而是建立“能看懂、能写、能 review”的基础。需要掌握十个点。</p>
+<ul>
+<li>ABAP Unit 是 unit test / module test，主要测试可隔离的代码逻辑。</li>
+<li>Test class 通常是 local class，常放在被测对象的 test include 或 ADT 的 Test Classes 区域。</li>
+<li><code>FOR TESTING</code> 把 class 或 method 标记为测试相关对象。</li>
+<li><code>DURATION SHORT|MEDIUM|LONG</code> 表示测试预期运行时间。</li>
+<li><code>RISK LEVEL HARMLESS|DANGEROUS|CRITICAL</code> 表示测试可能影响系统状态的风险级别。</li>
+<li>如果省略 <code>RISK LEVEL</code>，默认是 <code>CRITICAL</code>；普通单元测试应显式写 <code>RISK LEVEL HARMLESS</code>。</li>
+<li>Test method 通常没有参数，放在 test class 的 <code>PRIVATE SECTION</code>。</li>
+<li>测试代码常用 Arrange / Act / Assert：准备数据、执行被测代码、断言结果。</li>
+<li><code>CL_ABAP_UNIT_ASSERT</code> 提供常见断言，例如 <code>assert_equals</code>、<code>assert_true</code>、<code>assert_bound</code>、<code>assert_initial</code>、<code>fail</code>。</li>
+<li><code>setup</code>、<code>teardown</code>、<code>class_setup</code>、<code>class_teardown</code> 用来准备和清理测试上下文。</li>
+<li>好的 ABAP Unit 测试不依赖执行顺序，不直接修改生产数据，不把外部系统、真实权限、系统日期、真实数据库状态当作隐式前提。</li>
+</ul>
+<p>一个最小骨架如下：</p>
+<pre><code class="language-abap">CLASS ltcl_quantity_rule DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    METHODS accepts_positive_quantity FOR TESTING.
+ENDCLASS.
+
+CLASS ltcl_quantity_rule IMPLEMENTATION.
+  METHOD accepts_positive_quantity.
+    DATA(lo_rule) = NEW lcl_quantity_rule( ).
+
+    DATA(lv_result) = lo_rule-&gt;is_valid( 10 ).
+
+    cl_abap_unit_assert=&gt;assert_equals(
+      act = lv_result
+      exp = abap_true
+      msg = &#x27;Positive quantity should be valid&#x27; ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这段代码表达了一个很小但完整的测试：准备一个 quantity rule，调用它，断言正数数量应被视为有效。以后有人修改 <code>is_valid</code>，如果破坏了这个约定，ABAP Unit 会用失败结果提醒团队。</p>
+<h4 id="35-3-8d0cefb5" class="semantic-heading semantic-why">35.3 为什么重要</h4>
+<p>SAP 项目里，很多缺陷不是“代码不能运行”，而是“某个规则在改动后悄悄变了”。例如金额计算少考虑了舍入，状态判断漏掉了取消状态，错误消息从具体业务错误变成了通用错误，字段映射把同名但不同语义的字段复制错了。这些问题靠人工测试很难长期稳定覆盖。</p>
+<p>ABAP Unit 的价值在于把回归保护前移到开发阶段。它能让团队在 DEV 系统中快速验证小逻辑，减少“等到结合测试才发现”的成本。对于需要反复修改的业务规则，ABAP Unit 是非常直接的安全网。</p>
+<p>对 Java/Python 背景学习者来说，可以把 ABAP Unit 类比成 JUnit 或 pytest，但 SAP 项目有自己的语境：测试代码是 ABAP repository 世界的一部分，被测对象需要激活；test class 常作为 local class 与被测代码一起维护；测试结果可能参与 ATC / quality gate / transport 前检查；测试设计还要考虑 SAP 数据库、权限、锁、事务和外部接口的隔离。</p>
+<p>更重要的是，ABAP Unit 会反过来推动代码设计变好。如果一个 method 只有清楚输入、一个明确返回值、没有隐藏数据库写入、没有弹窗消息、没有直接 <code>COMMIT WORK</code>，它通常很容易测试。反过来，如果一个 method 同时查数据库、检查权限、改状态、发消息、调 BAPI、写日志、提交事务，就很难用 ABAP Unit 稳定验证。这就是它和 <a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a>、<a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a>、<a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a> 之间的关系。</p>
+<h4 id="35-4-key-mechanism-add17db2" class="semantic-heading semantic-mechanism">35.4 Key mechanism / 核心机制</h4>
+<h5 id="35-4-1-test-class-is-marked-with-for-testing-c5c18dfb">35.4.1 Test class is marked with FOR TESTING</h5>
+<p>ABAP Unit test class 用 <code>FOR TESTING</code> 标记。常见写法如下：</p>
+<pre><code class="language-abap">CLASS ltcl_price_calculator DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.</code></pre>
+<p><code>ltcl_...</code> 是常见 local test class 命名习惯，不是强制语法。<code>FINAL</code> 表示不需要继承。<code>FOR TESTING</code> 告诉 ABAP runtime 这是测试类，不是生产代码直接调用的业务类。</p>
+<p><code>DURATION</code> 用来说明测试预期运行时间。初学者的单元测试通常应尽量是 <code>SHORT</code>：不跑长时间批处理，不等待真实外部系统，不读大量生产数据。<code>MEDIUM</code> 和 <code>LONG</code> 应该有明确理由。</p>
+<p><code>RISK LEVEL</code> 用来说明测试是否可能改变系统状态或配置。常见理解如下：</p>
+<div class="table-wrap"><table><thead><tr><th>Risk level</th><th>含义</th></tr></thead><tbody><tr><td><code>HARMLESS</code></td><td>不改变持久化业务数据或系统设置，适合普通单元测试</td></tr><tr><td><code>DANGEROUS</code></td><td>可能改变持久化数据，需要更谨慎执行</td></tr><tr><td><code>CRITICAL</code></td><td>可能改变系统设置或 customizing，通常受执行限制</td></tr></tbody></table></div>
+<p>项目上常要求普通单元测试显式写 <code>RISK LEVEL HARMLESS</code>。不要让读者猜“这个测试会不会改系统状态”。</p>
+<p>更精确地说，省略 <code>RISK LEVEL</code> 不是“自动变安全”，而是默认视为 <code>CRITICAL</code>，也就是最受限制的风险级别。在通过客户端级设置限制高风险测试的系统里，<code>CRITICAL</code> 测试可能不会被执行。普通业务逻辑单元测试应主动声明 <code>RISK LEVEL HARMLESS</code>，让开发者、reviewer 和质量门禁都能看出它不会修改持久化业务数据或系统设置。</p>
+<h5 id="35-4-2-test-method-is-marked-with-for-testing-dbf1b178">35.4.2 Test method is marked with FOR TESTING</h5>
+<p>Test method 也用 <code>FOR TESTING</code> 声明：</p>
+<pre><code class="language-abap">METHODS calculates_net_amount FOR TESTING.</code></pre>
+<p>测试方法通常没有输入参数。它由 ABAP Unit framework 调用，而不是由生产代码调用；即使 test method 放在 <code>PRIVATE SECTION</code>，framework 也能调用它，这正是推荐把 test method 设为 private 的原因。一个 test class 至少应有一个 test method。多个 test method 的执行顺序不应该成为测试前提；如果测试依赖顺序，通常说明测试共享了不该共享的状态。</p>
+<h5 id="35-4-3-arrange-act-assert-c480818c">35.4.3 Arrange / Act / Assert</h5>
+<p>测试代码最容易读的结构是 Arrange / Act / Assert：</p>
+<pre><code class="language-abap">METHOD calculates_net_amount.
+  &quot; Arrange
+  DATA(lo_calculator) = NEW lcl_price_calculator( ).
+
+  &quot; Act
+  DATA(lv_net) = lo_calculator-&gt;calculate_net(
+    iv_gross    = &#x27;110.00&#x27;
+    iv_tax_rate = &#x27;0.10&#x27; ).
+
+  &quot; Assert
+  cl_abap_unit_assert=&gt;assert_equals(
+    act = lv_net
+    exp = &#x27;100.00&#x27;
+    msg = &#x27;Net amount should exclude tax&#x27; ).
+ENDMETHOD.</code></pre>
+<p>不要把测试写成一大段难读的脚本。失败时，维护者应该能马上看出：输入是什么、调用了什么、期望是什么、实际哪里不对。</p>
+<h5 id="35-4-4-cl-abap-unit-assert-reports-test-results-9db77765">35.4.4 CL_ABAP_UNIT_ASSERT reports test results</h5>
+<p><code>CL_ABAP_UNIT_ASSERT</code> 是 ABAP Unit 常用断言类。最常见的是比较实际值和期望值：</p>
+<pre><code class="language-abap">cl_abap_unit_assert=&gt;assert_equals(
+  act = lv_actual
+  exp = lv_expected
+  msg = &#x27;Unexpected calculation result&#x27; ).</code></pre>
+<p>对象引用可以用类似 <code>assert_bound</code> / <code>assert_not_bound</code> 的断言；布尔结果可以用 <code>assert_true</code> / <code>assert_false</code>；初始值可以用 <code>assert_initial</code> / <code>assert_not_initial</code>。具体可用方法应以当前系统的类定义和 SAP 文档为准。</p>
+<p><code>fail( )</code> 用于明确说明“执行到这里就是失败”。它常用于测试异常路径：</p>
+<pre><code class="language-abap">METHOD rejects_zero_quantity.
+  DATA(lo_rule) = NEW lcl_quantity_rule( ).
+
+  TRY.
+      lo_rule-&gt;check( 0 ).
+      cl_abap_unit_assert=&gt;fail( &#x27;Expected zcx_quantity_invalid&#x27; ).
+    CATCH zcx_quantity_invalid.
+      &quot; expected path
+  ENDTRY.
+ENDMETHOD.</code></pre>
+<p>这里的逻辑是：如果没有抛出预期异常，就失败；如果抛出了具体异常，则测试通过。不要用空的 <code>CATCH cx_root</code> 把所有异常都吞掉。异常路径测试应该 catch 具体 exception class。</p>
+<p>如果测试前提条件不满足，例如测试环境没有必要的配置或测试数据，ABAP Unit 中应使用 <code>cl_abap_unit_assert=&gt;abort( )</code> 表达“当前测试无法继续”，而不是把它写成普通 assertion failure。不要把 JUnit / pytest 里的 <code>skip</code> 或 <code>assume_*</code> 直接当作 ABAP Unit 方法名写进教程；具体可用方法要以当前系统的 <code>CL_ABAP_UNIT_ASSERT</code> 类定义为准。</p>
+<h5 id="35-4-5-fixture-methods-prepare-test-context-969a5de2">35.4.5 Fixture methods prepare test context</h5>
+<p>Fixture methods 用来准备或清理测试环境：</p>
+<ul>
+<li><code>setup</code>：每个 test method 之前执行。</li>
+<li><code>teardown</code>：每个 test method 之后执行。</li>
+<li><code>class_setup</code>：一个 test class 执行前执行一次。</li>
+<li><code>class_teardown</code>：一个 test class 执行后执行一次。</li>
+</ul>
+<p>常见例子：</p>
+<pre><code class="language-abap">CLASS ltcl_quantity_rule DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    DATA mo_rule TYPE REF TO lcl_quantity_rule.
+    METHODS setup.
+    METHODS accepts_positive_quantity FOR TESTING.
+ENDCLASS.
+
+CLASS ltcl_quantity_rule IMPLEMENTATION.
+  METHOD setup.
+    mo_rule = NEW #( ).
+  ENDMETHOD.
+
+  METHOD accepts_positive_quantity.
+    cl_abap_unit_assert=&gt;assert_equals(
+      act = mo_rule-&gt;is_valid( 10 )
+      exp = abap_true ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>setup</code> 的好处是让每个测试都有新的上下文，减少测试之间互相污染。<code>class_setup</code> 适合准备昂贵且只读的共享资源，但不要把会被测试修改的对象放进去共享。</p>
+<p>生命周期也要精确理解：<code>setup</code> / <code>teardown</code> 围绕每一个 test method 执行；<code>class_setup</code> / <code>class_teardown</code> 围绕一个 test class 的一次执行只执行一次。如果 <code>setup</code> 失败或用 <code>abort( )</code> 中断，对应 test method 不应再进入业务断言。<code>class_setup</code> 适合准备昂贵、只读、不会被各个测试修改的资源；会变化的对象应在 <code>setup</code> 中为每个测试重新准备。</p>
+<h5 id="35-4-6-unit-test-should-isolate-business-logic-aadce397">35.4.6 Unit test should isolate business logic</h5>
+<p>ABAP Unit 最适合测试确定性逻辑：计算、状态判断、字段映射、异常路径、formatter、converter、small helper、RAP handler 中抽出的纯业务判断。它不适合直接依赖真实生产数据、真实 RFC、真实 OData endpoint、真实权限配置或真实系统时间。</p>
+<p>如果业务逻辑需要依赖外部资源，应考虑隔离边界：</p>
+<ul>
+<li>数据读取放到 repository / gateway / adapter 后面。</li>
+<li>当前日期时间通过 clock interface 提供。</li>
+<li>外部接口通过 interface 包装。</li>
+<li>OO 依赖用 <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a> 或手写 test double 替换；ABAP Test Double Framework 的核心入口是 <code>CL_ABAP_TESTDOUBLE</code>。</li>
+<li>Open SQL 相关场景在后续学习 <a class="wiki" href="section-04-020-abap-sql-test-double-framework-54bfde0c.html">ABAP SQL Test Double Framework</a>；SAP 也提供 ABAP SQL replacement service，例如 <code>CL_OSQL_REPLACE</code>，用于在测试执行时把生产代码里的 ABAP SQL 访问重定向到受控替代对象。</li>
+<li>服务级逻辑在 Week 4 继续连接 <a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a>。</li>
+</ul>
+<p>本节只要求建立原则：单元测试越小、越快、越确定，越适合频繁运行；真实系统行为则交给集成测试、API evidence replay、ATC、SQL Trace、授权测试和业务验收补充。</p>
+<p>ABAP Cloud / RAP 项目还要注意两点。第一，测试代码也要遵守 released API / C1 release 约束，不能为了测试去引用 unreleased SAP standard class。第二，RAP behavior handler / saver 是 framework-managed 对象，不应把 RAP 框架 wiring 当作普通 local object 直接实例化测试；更好的做法是把业务判断抽到可测试的 helper / service class，用 ABAP Unit 测 helper，把 RAP <code>reported</code> / <code>failed</code>、save sequence 和 OData 行为放到更高层级的测试或 evidence replay 中验证。</p>
+<h5 id="35-4-7-run-and-read-results-in-adt-fbf01f5f">35.4.7 Run and read results in ADT</h5>
+<p>在 ADT 中，通常可以对 class、package 或测试类运行 ABAP Unit。结果会显示哪些 test method 通过、失败、跳过或因为异常中止。读失败结果时要区分：</p>
+<ul>
+<li>assertion failure：实际值和期望值不一致。</li>
+<li>unexpected exception：测试没有处理到某个异常路径。</li>
+<li>skipped / assumption not met：前提条件不满足。</li>
+<li>aborted / prerequisite not met：前提条件不满足，测试被 <code>abort( )</code> 或 framework 前提中断。</li>
+<li>runtime error / dump：测试或被测代码发生了更底层的运行时错误。</li>
+</ul>
+<p>失败消息要对维护者有帮助。<code>msg = &#x27;error&#x27;</code> 或 <code>msg = &#x27;failed&#x27;</code> 几乎没有信息量；<code>msg = &#x27;Net amount should exclude tax&#x27;</code> 才能帮助下一个人理解业务期望。</p>
+<p>ADT 里的单对象 ABAP Unit 执行适合开发阶段快速反馈；package / mass execution 和 ATC 更适合质量门禁、transport 前检查或 CI/CD 流程。ABAP Unit 还可以和 code coverage 视图结合，帮助团队看出哪些生产代码路径被测试覆盖、哪些还没有被触达。Coverage 不是质量本身，但它能帮助发现明显没被保护的分支。</p>
+<h5 id="35-4-8-minimal-abap-unit-design-checklist-cbcb928e">35.4.8 minimal ABAP Unit design checklist</h5>
+<p>第一次给业务逻辑补 ABAP Unit 时，可以按下面的顺序设计。它比“先写一个 test class”更可靠，因为它先逼你说清楚要保护的业务约定。</p>
+<div class="table-wrap"><table><thead><tr><th>Step</th><th>Question</th><th>Example</th></tr></thead><tbody><tr><td>1. Name the behavior</td><td>这个测试证明哪条业务规则？</td><td><code>calculates_net_amount_without_tax</code></td></tr><tr><td>2. Arrange minimal input</td><td>需要哪些最小输入和依赖？</td><td>amount、tax rate、test double notifier</td></tr><tr><td>3. Act once</td><td>被测 public method 是哪一个？</td><td><code>lo_service-&gt;calculate( ... )</code></td></tr><tr><td>4. Assert one main outcome</td><td>最关键的期望是什么？</td><td>net amount equals expected value</td></tr><tr><td>5. Add helpful message</td><td>失败时维护者要知道什么？</td><td><code>Net amount should exclude tax</code></td></tr><tr><td>6. Cover one failure path</td><td>预期异常或非法输入如何验证？</td><td><code>TRY ... CATCH zcx_...</code> or <code>assert_bound</code></td></tr><tr><td>7. Check isolation</td><td>测试是否依赖真实数据、顺序、日期或外部系统？</td><td>如依赖外部系统，应拆到集成/API 测试。</td></tr></tbody></table></div>
+<p>一个 test method 尽量只证明一件事。多个业务规则可以写多个 test method，而不是把所有断言塞进一个很长的测试里。这样失败结果会直接告诉维护者是哪条规则破了；在 transport 前或 ATC 前运行时，也更容易判断是业务逻辑变化、测试数据变化，还是环境依赖导致失败。</p>
+<h4 id="35-5-46450a64" class="semantic-heading semantic-japan">35.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>ABAP Unit</code></li>
+<li><code>単体テスト</code></li>
+<li><code>テストクラス</code></li>
+<li><code>テストメソッド</code></li>
+<li><code>アサーション</code></li>
+<li><code>期待値</code></li>
+<li><code>実績値</code></li>
+<li><code>テストフィクスチャ</code></li>
+<li><code>正常系</code></li>
+<li><code>異常系</code></li>
+<li><code>境界値</code></li>
+<li><code>回帰テスト</code></li>
+<li><code>品質ゲート</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>この業務ロジックは ABAP Unit で正常系・異常系を確認します。</li>
+<li>このメソッドは外部依存が強いため、単体テストしやすい helper に切り出します。</li>
+<li>期待値と実績値が一致しないため、<code>assert_equals</code> の失敗として表示されています。</li>
+<li>通常の単体テストでは <code>DURATION SHORT</code>、<code>RISK LEVEL HARMLESS</code> を明示します。</li>
+<li>このテストは永続データを変更しないため、<code>HARMLESS</code> として定義できます。</li>
+<li><code>RISK LEVEL</code> を省略すると <code>CRITICAL</code> 扱いになるため、通常の単体テストでは <code>HARMLESS</code> を明示してください。</li>
+<li>前提条件不足でテストを継続できない場合は、<code>FAIL</code> ではなく <code>ABORT</code> として扱います。</li>
+<li>前提条件不足の場合は、業務ロジックの失敗ではなくテスト前提の不足として扱います。</li>
+</ul>
+<p>使用场景：设计说明、代码 review、缺陷修复后的回归测试、transport 前确认、ATC / quality gate、RAP helper logic 验证。</p>
+<h4 id="35-6-english-terms-41d74e6a" class="semantic-heading semantic-terms">35.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>ABAP Unit</code>, <code>FOR TESTING</code>, <code>DURATION</code>, <code>RISK LEVEL</code>, <code>CL_ABAP_UNIT_ASSERT</code>.</li>
+<li>Test class terms: <code>test class</code>, <code>test method</code>, <code>local test class</code>, <code>test fixture</code>, <code>setup</code>, <code>teardown</code>, <code>class_setup</code>, <code>class_teardown</code>.</li>
+<li>Assertion terms: <code>assert_equals</code>, <code>assert_true</code>, <code>assert_false</code>, <code>assert_bound</code>, <code>assert_initial</code>, <code>assert_not_initial</code>, <code>assert_differs</code>, <code>fail</code>, <code>abort</code>.</li>
+<li>Test design terms: <code>Arrange Act Assert</code>, <code>unit test</code>, <code>module test</code>, <code>regression test</code>, <code>test double</code>, <code>test isolation</code>.</li>
+<li>SAP project terms: <code>ABAP Unit View</code>, <code>ABAP Test Cockpit</code>, <code>quality gate</code>, <code>transport release</code>, <code>risk level</code>, <code>duration</code>, <code>code coverage</code>, <code>SAUNIT_CLIENT_SETUP</code>.</li>
+<li>Recommended search pattern: <code>ABAP Unit SAP Help</code>, <code>CLASS FOR TESTING ABAP Keyword Documentation</code>, <code>CL_ABAP_UNIT_ASSERT SAP ABAP</code>, <code>Implementing Code Tests with ABAP Unit SAP Learning</code>.</li>
+</ul>
+<h4 id="35-7-example-e2d79d2b" class="semantic-heading semantic-example">35.7 Example / 学习例子</h4>
+<h5 id="35-7-1-1-6a572057">35.7.1 例 1：测试纯业务计算</h5>
+<pre><code class="language-abap">CLASS lcl_discount DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS calculate
+      IMPORTING iv_amount TYPE decfloat34
+      RETURNING VALUE(rv_discount) TYPE decfloat34.
+ENDCLASS.
+
+CLASS lcl_discount IMPLEMENTATION.
+  METHOD calculate.
+    IF iv_amount &gt;= 1000.
+      rv_discount = iv_amount * &#x27;0.10&#x27;.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.
+
+CLASS ltcl_discount DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+  PRIVATE SECTION.
+    METHODS gives_ten_percent_for_large_amount FOR TESTING.
+ENDCLASS.
+
+CLASS ltcl_discount IMPLEMENTATION.
+  METHOD gives_ten_percent_for_large_amount.
+    DATA(lo_discount) = NEW lcl_discount( ).
+
+    cl_abap_unit_assert=&gt;assert_equals(
+      act = lo_discount-&gt;calculate( 1000 )
+      exp = CONV decfloat34( &#x27;100&#x27; )
+      msg = &#x27;Amount 1000 should receive 10 percent discount&#x27; ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这个测试不访问数据库，不依赖当前用户，不修改系统状态，因此适合 <code>SHORT</code> / <code>HARMLESS</code>。</p>
+<h5 id="35-7-2-2-768d7202">35.7.2 例 2：测试异常路径</h5>
+<pre><code class="language-abap">METHOD rejects_negative_amount.
+  DATA(lo_service) = NEW lcl_invoice_service( ).
+
+  TRY.
+      lo_service-&gt;check_amount( -1 ).
+      cl_abap_unit_assert=&gt;fail( &#x27;Expected zcx_amount_invalid&#x27; ).
+    CATCH zcx_amount_invalid.
+      &quot; expected exception
+  ENDTRY.
+ENDMETHOD.</code></pre>
+<p>异常路径测试不是“手工读一眼就好”。一旦 bug 修复后应该抛出具体异常，就要把这个行为固定成测试。</p>
+<h5 id="35-7-3-3-setup-a167dfb4">35.7.3 例 3：用 setup 准备对象</h5>
+<pre><code class="language-abap">CLASS ltcl_invoice_service DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    DATA mo_service TYPE REF TO lcl_invoice_service.
+    METHODS setup.
+    METHODS accepts_valid_invoice FOR TESTING.
+ENDCLASS.
+
+CLASS ltcl_invoice_service IMPLEMENTATION.
+  METHOD setup.
+    mo_service = NEW #( ).
+  ENDMETHOD.
+
+  METHOD accepts_valid_invoice.
+    cl_abap_unit_assert=&gt;assert_true(
+      act = mo_service-&gt;is_invoice_valid( iv_invoice_id = &#x27;4711&#x27; ) ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>setup</code> 让每个测试方法从干净对象开始。不要让第一个测试修改对象后，第二个测试依赖这个修改结果。</p>
+<h4 id="35-8-counterexample-failure-mode-4bdb2e5d" class="semantic-heading semantic-example">35.8 Counterexample / Failure mode</h4>
+<h5 id="35-8-1-1-abap-unit-ui-5263fb1b" class="semantic-heading semantic-failure">35.8.1 误区 1：把 ABAP Unit 当成 UI 测试</h5>
+<p>如果测试需要人工打开 Fiori、输入数据、点保存按钮，它不是 ABAP Unit 的典型场景。ABAP Unit 应优先测试可直接调用的 ABAP 逻辑。</p>
+<p>修正动作：把核心业务判断抽到 helper / service method，再用 ABAP Unit 验证；UI 行为用合适的 UI/API/集成测试补充。</p>
+<h5 id="35-8-2-2-b2bb92ae" class="semantic-heading semantic-failure">35.8.2 误区 2：测试依赖真实生产数据</h5>
+<p>测试里直接 <code>SELECT</code> 某个真实订单，然后假设它永远存在，是很脆弱的做法。</p>
+<p>修正动作：用受控测试数据、test double 或专门测试环境。测试输入要由测试自己准备，不能依赖“系统里刚好有这条数据”。</p>
+<h5 id="35-8-3-3-db3d21ec" class="semantic-heading semantic-failure">35.8.3 误区 3：测试之间依赖执行顺序</h5>
+<p>第一个测试创建状态，第二个测试依赖这个状态，第三个测试再清理。这会让测试变得不稳定。</p>
+<p>修正动作：让每个 test method 独立；必要时用 <code>setup</code> 准备新的对象。</p>
+<h5 id="35-8-4-4-fec4da4e" class="semantic-heading semantic-failure">35.8.4 误区 4：把所有异常都吞掉</h5>
+<pre><code class="language-abap">CATCH cx_root.
+  &quot; ignore</code></pre>
+<p>这种写法会让真正的错误也被当成测试通过。</p>
+<p>修正动作：catch 具体 exception class；未预期异常应该让测试失败。</p>
+<h5 id="35-8-5-5-646200fb" class="semantic-heading semantic-failure">35.8.5 误区 5：失败消息没有信息</h5>
+<p><code>msg = &#x27;error&#x27;</code> 对排查没有帮助。</p>
+<p>修正动作：写清楚业务预期，例如 <code>Net amount should exclude tax</code>。</p>
+<h5 id="35-8-6-6-public-method-f4bea0aa" class="semantic-heading semantic-failure">35.8.6 误区 6：为了测试暴露 public method</h5>
+<p>把 private helper 改成 public 只为了测试，会污染生产接口。</p>
+<p>修正动作：优先测试 public behavior；如果 private helper 复杂到必须单独测试，考虑是否应抽成独立 class 或 service。</p>
+<h5 id="35-8-7-7-abap-unit-e706ed77" class="semantic-heading semantic-failure">35.8.7 误区 7：把 ABAP Unit 当万能测试</h5>
+<p>ABAP Unit 不替代 ATC、SQL Trace、集成测试、授权测试、RAP/OData contract test 或业务验收测试。</p>
+<p>修正动作：用 ABAP Unit 保护可隔离的业务逻辑；其它质量活动放到对应工具和阶段。</p>
+<h4 id="35-9-678d9d89" class="semantic-heading semantic-practice">35.9 思考问题</h4>
+<ul>
+<li>这个 method 的核心业务规则是什么？能否用一个 <code>assert_equals</code> 表达？</li>
+<li>这个测试是 <code>HARMLESS</code> 吗？它是否写入了数据库、customizing 或外部系统？</li>
+<li>这个测试为什么应该是 <code>SHORT</code>？如果不短，是否还是 unit test？</li>
+<li>每个 test method 是否互相独立？是否依赖执行顺序？</li>
+<li><code>setup</code>、<code>teardown</code>、<code>class_setup</code>、<code>class_teardown</code> 分别应该放什么？</li>
+<li>失败时 ABAP Unit View 的 message 能否让下一个开发者快速定位？</li>
+<li>异常路径是否写了测试？是否 catch 了具体 exception class？</li>
+<li>这个测试有没有直接依赖系统日期、当前用户、授权、真实 DB 或外部接口？</li>
+<li>是否应该把依赖抽成 interface，再用 test double 替换？</li>
+<li>这个 ABAP Unit 测试和 ATC、review、transport release 前检查如何配合？</li>
+</ul>
+<h4 id="35-10-c4de88b5" class="semantic-heading semantic-reference">35.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_UNIT.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Unit</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCLASS_FOR_TESTING.html" target="_blank" rel="noopener noreferrer">SAP Help - CLASS, FOR TESTING</a></li>
+<li><a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/implementing-code-tests-with-abap-unit_b23c7a00-c2e8-406d-8969-b00db3f1fd87" target="_blank" rel="noopener noreferrer">SAP Learning - Implementing Code Tests with ABAP Unit</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenabap_unit.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Unit for Cloud Development</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-for-visual-studio-code/how-to-write-abap-unit-test-classes" target="_blank" rel="noopener noreferrer">SAP Help - How to Write ABAP Unit Test Classes</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li><a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a></li>
+<li><a class="wiki" href="section-04-020-abap-sql-test-double-framework-54bfde0c.html">ABAP SQL Test Double Framework</a></li>
+<li><a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC quality check 代码质量检查</a></li>
+</ul>
+<h4 id="35-11-connections-e95447e3">35.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li>Downstream: <a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC quality check 代码质量检查</a></li>
+<li>Related: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a></li>
+<li>Related: <a class="wiki" href="section-04-020-abap-sql-test-double-framework-54bfde0c.html">ABAP SQL Test Double Framework</a></li>
+<li>Related: <a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 12 - OO ABAP 抽象、异常与单元测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="35-12-25509aac" class="semantic-heading semantic-practice">35.12 学习任务</h4>
+<ul>
+<li>写一个 <code>ltcl_... DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS</code>。</li>
+<li>写一个 <code>METHODS ... FOR TESTING</code>，用 <code>assert_equals</code> 验证正常结果。</li>
+<li>写一个异常路径测试：没有抛预期异常时调用 <code>fail( )</code>，抛了具体 exception 时通过。</li>
+<li>加一个 <code>setup</code> method，让每个测试都有新的被测对象。</li>
+<li>用中文说明 <code>setup</code> 和 <code>class_setup</code> 的区别。</li>
+<li>用日语写一句 review comment，要求给核心业务规则补 <code>単体テスト</code>。</li>
+<li>故意让测试失败一次，观察 ABAP Unit View 中的失败信息。</li>
+<li>判断一个现有测试是否真的 <code>HARMLESS</code>，有没有访问真实 DB 或外部系统。</li>
+<li>检查一个 test class 是否显式写了 <code>RISK LEVEL HARMLESS</code>，并说明为什么普通单元测试不应省略风险声明。</li>
+<li>写一句中文说明：省略 <code>RISK LEVEL</code> 时为什么会被视为 <code>CRITICAL</code>，以及这会如何影响质量系统里的测试执行。</li>
+<li>用 <code>cl_abap_unit_assert=&gt;abort( )</code> 写一个“前提条件不足，测试无法继续”的示例，并说明它和 <code>fail( )</code> 的区别。</li>
+<li>用 ADT code completion 查看当前系统的 <code>CL_ABAP_UNIT_ASSERT</code>。</li>
+<li>找一个后续适合用 <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a> 的依赖点。</li>
+</ul>
+<h4 id="35-13-confidence-next-action-f55c41f0" class="semantic-heading semantic-status">35.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节基于 SAP Help ABAP Unit / <code>CLASS ... FOR TESTING</code> / ABAP Cloud test-class 入口、SAP Learning ABAP Unit lesson，以及 <code>90-Review/joule-abap-unit-snapshot-2-2026-06-13.txt</code> 的 Joule <code>Pass with fixes</code> 修正完成；重点修正包括 <code>RISK LEVEL</code> 省略默认 <code>CRITICAL</code>、private test method 可由 framework 调用、<code>abort( )</code> 与 <code>fail( )</code> 区分、fixture 生命周期、test double / ABAP SQL replacement、ADT/ATC/code coverage、以及 ABAP Cloud / RAP 边界。Claude 旧 review 和 2026-06-18 health check 均未返回有效 verdict，作为外部 review debt 记录。</li>
+<li>Next action: 已同步到 Chapter 02 与离线书稿后，继续质量闭环到 <a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC quality check 代码质量检查</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-034-try-catch-exception-handling-1b6ab118.html">Previous section</a><a href="section-02-036-atc-quality-check-5c4e095a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

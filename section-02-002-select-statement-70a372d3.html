@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SELECT statement 查询语句 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="2-select-statement-c6946c56" class="chapter-title">2. SELECT statement 查询语句</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 02</li><li>self-contained study note</li></ul><h4 id="2-1-a3ea43e5" class="semantic-heading semantic-concept">2.1 一句话结论</h4>
+<p><code>SELECT</code> 是 ABAP SQL 里读取数据的核心语句。学它不是背一条语法模板，而是学会把“从哪里读、读哪些列、按什么条件读、结果放到哪里、顺序是否稳定、没有结果怎么办、权限和事务在哪里处理”一次性想清楚。项目里很多 bug 并不是因为开发者不会写 <code>SELECT</code>，而是因为写出了“能跑、但业务语义不稳定”的 <code>SELECT</code>。</p>
+<h4 id="2-2-c3ac3d85" class="semantic-heading semantic-concept">2.2 到底学什么</h4>
+<p>本节专讲读取语句本身。上一节 <a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a> 已经建立了 ABAP SQL 的大图；本节开始进入最常见的读数动作。后续 <a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a> 会专讲 <code>@</code>，<a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a> 会专讲结果接收，<a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a> 会专讲排序。本节先把一条 <code>SELECT</code> 的骨架讲完整。</p>
+<p>现代 ABAP SQL 里，推荐读者先熟悉这种结构：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status,
+              created_at
+       WHERE customer_id = @lv_customer_id
+         AND status      = @lc_status_open
+       ORDER BY created_at DESCENDING,
+                sales_order_id
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这条语句可以按五段读：</p>
+<ul>
+<li><code>FROM zsales_order</code>：从哪个 ABAP SQL data source 读取。</li>
+<li><code>FIELDS ...</code>：读取哪些列，形成什么样的结果行。</li>
+<li><code>WHERE ...</code>：用什么业务条件过滤。</li>
+<li><code>ORDER BY ...</code>：如果结果顺序有业务意义，明确排序。</li>
+<li><code>INTO TABLE @DATA(lt_orders)</code>：把多行结果接收到 ABAP 内表。</li>
+</ul>
+<p>老 ABAP 程序里还会看到 <code>SELECT field1 field2 FROM ... INTO ... WHERE ...</code> 这样的排列方式。初学者要能读懂旧代码，但写新代码时优先采用现代、清晰、ADT 友好的写法，尤其在 ABAP Cloud 或严格语法检查语境里更要遵守现代 ABAP SQL 习惯。</p>
+<h4 id="2-3-2a4013b3" class="semantic-heading semantic-why">2.3 为什么重要</h4>
+<p><code>SELECT</code> 是业务逻辑的入口。销售订单、客户、物料、库存、会计凭证、配置表、状态表，最终都要被某种读取逻辑取出来。只要读取条件错了，后面的判断、消息、更新、接口响应、测试结果都会跟着错。</p>
+<p>它的重要性体现在四个方面。</p>
+<p>第一是业务正确性。<code>WHERE customer_id = @lv_customer_id</code> 和没有 <code>WHERE</code> 完全不是一个风险等级；<code>SELECT SINGLE</code> 用完整主键读取，和用非唯一条件随便取一行，也不是同一件事。业务上说“取该客户最新一张未完成订单”，技术上就必须出现客户条件、状态条件和稳定排序。</p>
+<p>第二是性能。<code>FIELDS *</code>、弱 <code>WHERE</code>、循环里反复 <code>SELECT</code>、无意义排序、把大量数据读到应用服务器再筛，都可能在开发机上没感觉，在 QAS 或 PRD 数据量上爆炸。性能不是后期才考虑的“调优”，而是每条读取语句的基本素养。</p>
+<p>第三是权限和合规。<code>SELECT</code> 本身不是授权设计。能写 SQL 不代表用户能看业务数据；能查到表不代表这个表适合在当前 Clean Core / ABAP Cloud 语境下直接访问。读取逻辑要和 <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>、<a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a>、<a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a> 分工理解。</p>
+<p>第四是可审查性。日本 SAP 项目 review 中，<code>SELECT</code> 经常被问得非常具体：<code>検索条件は十分ですか</code>、<code>ソート順は保証されていますか</code>、<code>全件検索になっていませんか</code>、<code>権限チェックはどこですか</code>、<code>本番データ量で問題ありませんか</code>。如果这些问题回答不上来，代码即使能激活也很难说“可交付”。</p>
+<h4 id="2-4-key-mechanism-ab339ff8" class="semantic-heading semantic-mechanism">2.4 Key mechanism / 核心机制</h4>
+<p><code>SELECT</code> 的核心机制可以拆成六个判断点。</p>
+<p>第一，数据源。<code>FROM</code> 后面可以是 ABAP SQL 支持的数据源，例如 DDIC database table、classic view、CDS entity，或者特定语法下的 internal table。初学者先不要把它理解成“物理数据库表名”，而要理解成 ABAP repository 和数据模型世界里的对象。特别是在 S/4HANA、RAP、Clean Core 场景中，优先确认是否有 released CDS view、released API、RAP BO 或项目自有持久化对象。</p>
+<p>第二，结果列。<code>FIELDS</code> 决定结果集的结构。<code>FIELDS *</code> 在 demo、临时调查、表结构很小且上下文明确时可能方便，但业务代码和服务代码应优先选取需要的列。这样更容易 review，也减少数据库传输、ABAP 内存占用和后续字段误用。</p>
+<p>第三，过滤条件。<code>WHERE</code> 是正确性和性能的共同入口。条件里的 ABAP 变量需要用 host variable 写法，例如 <code>@lv_customer_id</code>。这样能清楚区分 ABAP 变量和 SQL 标识符，也符合现代 ABAP SQL 语法。</p>
+<p>第四，结果接收。单行结果可以进入 work area、结构或 inline data object；多行结果通常进入 internal table。<code>INTO TABLE @DATA(lt_orders)</code> 是初学者最常用、最容易读的多行接收写法。注意：inline 内表默认是 standard table 且 empty key，后续如果要频繁按 key 读取，需要再设计表类型。</p>
+<p>第五，结果顺序。数据库不会因为你“上次看到是这个顺序”就保证下一次还是这个顺序。没有 <code>ORDER BY</code> 的多行结果，不要拿来做“第一条”“最后一条”“最新一条”的业务判断。需要顺序，就写出排序字段；需要唯一 tie-breaker，就把主键或业务唯一字段补进排序。</p>
+<p>第六，系统字段和异常路径。<code>SELECT</code> 会设置 <code>sy-subrc</code> 和 <code>sy-dbcnt</code>，但具体含义要看语句形态。典型多行 <code>INTO TABLE</code> 后，<code>sy-dbcnt</code> 可用于确认读取行数；单行读取后，<code>sy-subrc = 0</code> 通常表示读到行，<code>sy-subrc &lt;&gt; 0</code> 表示没有读到。学习时要连接 <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a>，不要把 <code>sy-subrc</code> 检查写散、写晚，或被后续语句覆盖。</p>
+<h4 id="2-5-a69f2d9b" class="semantic-heading semantic-japan">2.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>SELECT文</code></li>
+<li><code>検索条件</code></li>
+<li><code>WHERE条件</code></li>
+<li><code>取得項目</code></li>
+<li><code>取得対象</code></li>
+<li><code>検索結果</code></li>
+<li><code>全件検索</code></li>
+<li><code>単一行取得</code></li>
+<li><code>複数行取得</code></li>
+<li><code>ソート順</code></li>
+<li><code>取得件数</code></li>
+<li><code>存在チェック</code></li>
+<li><code>主キー検索</code></li>
+<li><code>権限チェック</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>この <code>SELECT文</code> は、主キー検索なので <code>SELECT SINGLE</code> で問題ありません。</li>
+<li>この条件では一意にならないため、<code>SELECT SINGLE</code> ではなく、業務上の <code>ソート順</code> を明示した取得にしてください。</li>
+<li>本番データ量を考えると、この <code>WHERE条件</code> では絞り込みが弱すぎます。</li>
+<li>取得項目は必要な列だけに絞り、<code>FIELDS *</code> は避けます。</li>
+<li>この <code>SELECT文</code> はデータ取得のみであり、権限チェックは別レイヤーで確認します。</li>
+<li>存在チェックだけであれば、全項目を取得する必要はありません。</li>
+</ul>
+<p>日本项目里，“全件検索” 是一个很敏感的词。它不一定永远错误，但如果 PRD 数据量大、没有分页、没有最大件数、没有业务过滤条件，就会被当成性能和稳定性风险。</p>
+<h4 id="2-6-english-terms-cbeeb31f" class="semantic-heading semantic-terms">2.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>SELECT statement</code></li>
+<li>Related term: <code>SELECT FROM</code></li>
+<li>Related term: <code>FIELDS</code></li>
+<li>Related term: <code>WHERE condition</code></li>
+<li>Related term: <code>INTO target</code></li>
+<li>Related term: <code>INTO TABLE</code></li>
+<li>Related term: <code>SELECT SINGLE</code></li>
+<li>Related term: <code>UP TO n ROWS</code></li>
+<li>Related term: <code>ORDER BY</code></li>
+<li>Related term: <code>sy-subrc</code></li>
+<li>Related term: <code>sy-dbcnt</code></li>
+<li>Related term: <code>host variable</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL SELECT SAP Help</code></li>
+<li><code>ABAP SELECT FROM FIELDS WHERE INTO</code></li>
+<li><code>ABAP SELECT SINGLE SAP Help</code></li>
+<li><code>ABAP SELECT UP TO ROWS ORDER BY</code></li>
+<li><code>ABAP SQL sy-subrc sy-dbcnt SELECT</code></li>
+</ul>
+<h4 id="2-7-example-cc14c85d" class="semantic-heading semantic-example">2.7 Example / 学习例子</h4>
+<h3 id="s-21e0362b">多行读取</h3>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status,
+              created_at
+       WHERE customer_id = @lv_customer_id
+         AND status      = @lc_status_open
+       ORDER BY created_at DESCENDING,
+                sales_order_id
+       INTO TABLE @DATA(lt_orders).
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; No open orders found for this customer.
+  RETURN.
+ENDIF.</code></pre>
+<p>这类写法适合“取一组业务记录”。重点不是 <code>SELECT</code> 能不能跑，而是条件、列、排序和空结果路径是否表达了业务意思。</p>
+<h3 id="s-f18099f9">完整主键单行读取</h3>
+<pre><code class="language-abap">SELECT SINGLE FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE sales_order_id = @lv_sales_order_id
+       INTO @DATA(ls_order).
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; The requested order does not exist.
+  RETURN.
+ENDIF.</code></pre>
+<p>如果 <code>sales_order_id</code> 是主键或业务上唯一的键，这种 <code>SELECT SINGLE</code> 很自然。review 时要能说明“为什么唯一”。</p>
+<h3 id="s-975f94e8">按业务排序取一条</h3>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status,
+              created_at
+       WHERE customer_id = @lv_customer_id
+         AND status      = @lc_status_open
+       ORDER BY created_at DESCENDING,
+                sales_order_id DESCENDING
+       INTO TABLE @DATA(lt_latest_orders)
+       UP TO 1 ROWS.</code></pre>
+<p>如果业务语义是“最新一条”，不要用非唯一条件下的 <code>SELECT SINGLE</code> 假装它会知道“最新”。要把 <code>ORDER BY</code> 写出来，再限制一行。SAP Samples 的 ABAP SQL cheat sheet 也提示：当 <code>INTO</code> 放在最后时，<code>UP TO n ROWS</code> 放在 <code>INTO TABLE ...</code> 后面。</p>
+<h3 id="s-dd254b86">只做存在性检查</h3>
+<pre><code class="language-abap">SELECT SINGLE @abap_true
+       FROM zsales_order
+       WHERE customer_id = @lv_customer_id
+       INTO @DATA(lv_exists).
+
+IF sy-subrc = 0.
+  &quot; At least one row exists.
+ENDIF.</code></pre>
+<p>如果只是问“有没有”，就不需要把整行或大量列读出来。存在性检查要尽量小、清楚、可解释。</p>
+<h4 id="2-8-counterexample-failure-mode-42905632" class="semantic-heading semantic-example">2.8 Counterexample / Failure mode</h4>
+<p>失败模式一：没有条件或条件太弱。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS *
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这可能在开发机只读几十行，但生产里读几十万行。除非这是明确的后台统计、迁移、分页或受控批处理逻辑，否则 review 会追问为什么全件读取。</p>
+<p>失败模式二：非唯一条件下滥用 <code>SELECT SINGLE</code>。</p>
+<pre><code class="language-abap">SELECT SINGLE FROM zsales_order
+       FIELDS sales_order_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       INTO @DATA(ls_order).</code></pre>
+<p>如果一个客户有多张订单，这段代码没有说明取哪张。数据库返回的某一行不是业务规则。要么补完整唯一条件，要么用 <code>ORDER BY ... UP TO 1 ROWS</code> 表达业务优先级。</p>
+<p>失败模式三：只看 <code>sy-subrc</code>，不看业务路径。没有读到数据可能是正常情况，也可能是配置缺失、权限过滤、数据同步延迟、输入错误。好的代码会把“没有结果”的业务含义写清楚，而不是统一吞掉。</p>
+<p>失败模式四：把 <code>SELECT</code> 当授权。<code>SELECT</code> 成功不等于用户有权。特别是在直接读表、后台程序、API、RAP unmanaged 逻辑里，权限检查要有明确位置。</p>
+<p>失败模式五：为了省事 <code>FIELDS *</code>。字段多、包含大字段、后续结构变化或服务输出变化时，<code>*</code> 会让代码更难维护。初学阶段可以在 demo 里看懂 <code>*</code>，但项目代码要养成“取需要的列”的习惯。</p>
+<h4 id="2-9-0169d316" class="semantic-heading semantic-practice">2.9 思考问题</h4>
+<ul>
+<li>这条 <code>SELECT</code> 的数据源是什么对象？DDIC table、CDS entity、view、internal table，还是不该直接访问的底层表？</li>
+<li><code>FIELDS</code> 里的每个字段后续都真的会用到吗？</li>
+<li><code>WHERE</code> 是否表达了业务范围？是否存在全件读取风险？</li>
+<li>ABAP 变量是否都用了 <code>@</code> 作为 host variable？</li>
+<li>如果只读取一行，唯一性从哪里来？</li>
+<li>如果读取多行，是否有稳定 <code>ORDER BY</code>？</li>
+<li>读取为空时，业务含义是什么？</li>
+<li>权限检查在哪里？是不是误以为 <code>SELECT</code> 自动处理了业务权限？</li>
+<li>如果后续要更新数据，锁和事务边界在哪里？</li>
+<li>在 ABAP Cloud / Clean Core 语境下，这个数据源是否允许直接访问？</li>
+</ul>
+<h4 id="2-10-89eeda0f" class="semantic-heading semantic-reference">2.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSELECT.html" target="_blank" rel="noopener noreferrer">SELECT</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapfrom_clause.html" target="_blank" rel="noopener noreferrer">SELECT, FROM</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapselect_clause.html" target="_blank" rel="noopener noreferrer">SELECT, select_clause</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPWHERE.html" target="_blank" rel="noopener noreferrer">SELECT, WHERE</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSELECT_INTO_TARGET.html" target="_blank" rel="noopener noreferrer">SELECT, INTO target</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapinto_clause.html" target="_blank" rel="noopener noreferrer">SELECT, INTO, APPENDING</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSELECT_SINGLE.html" target="_blank" rel="noopener noreferrer">SELECT, SINGLE</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapselect_up_to_offset.html" target="_blank" rel="noopener noreferrer">SELECT, UP TO, OFFSET</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPORDERBY_CLAUSE.html" target="_blank" rel="noopener noreferrer">SELECT, ORDER BY</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="2-11-connections-5f070711">2.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a></li>
+<li>Downstream: <a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a></li>
+<li>Downstream: <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></li>
+<li>Downstream: <a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a></li>
+<li>Downstream: <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a></li>
+<li>Related: <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a></li>
+<li>Related: <a class="wiki" href="section-02-014-sap-transaction-boundary-and-luw-model-3b5ad622.html">SAP Transaction Boundary and LUW Model</a></li>
+<li>Security line: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>, <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a>, <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 08 - ABAP SQL 读取基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="2-12-b6214de9" class="semantic-heading semantic-practice">2.12 学习任务</h4>
+<ul>
+<li>写一个多行 <code>SELECT FROM ... FIELDS ... WHERE ... ORDER BY ... INTO TABLE ...</code>，并解释每一段的作用。</li>
+<li>写一个完整主键 <code>SELECT SINGLE</code>，说明为什么它是唯一读取。</li>
+<li>把一个非唯一条件的 <code>SELECT SINGLE</code> 改成 <code>ORDER BY ... INTO TABLE ... UP TO 1 ROWS</code>。</li>
+<li>找一段 <code>FIELDS *</code>，判断它是 demo、调查代码，还是应该改成明确字段列表。</li>
+<li>写一句日语 review 说明：この <code>SELECT文</code> は検索条件が弱く、全件検索になる可能性があります。</li>
+<li>用 SAP Help 的 <code>SELECT, SINGLE</code> 和 <code>SELECT, UP TO, OFFSET</code> 页面确认“取一行”的两种不同语义。</li>
+</ul>
+<h4 id="2-13-confidence-next-action-d97d8471" class="semantic-heading semantic-status">2.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-high for official-doc-backed draft. 本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 交叉校验核心结论。</li>
+<li>Review state: Joule 对本节短 prompt 返回总体认可，但给出了“cloud development always use RAP queries instead of direct database access”的过宽说法；本笔记只吸收更谨慎的表述：ABAP Cloud / RAP 场景要优先使用 released APIs、CDS/RAP models，并避免不合适或 unreleased persistence direct access。本轮准备了新的 Claude follow-up prompt，但当前 Claude CLI 仍处于 session expired 状态，需待重新认证后复核。</li>
+<li>Next action: 同步本节到 Chapter 02 和整本离线书稿；后续如果 Claude CLI 恢复，再对本节做补充复核。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-001-abap-sql-overview-3115f94b.html">Previous section</a><a href="section-02-003-host-variables-8a74508b.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Loop constructs 循环语句 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="25-loop-constructs-fa3230c1" class="chapter-title">25. Loop constructs 循环语句</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 25</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Loop constructs 循环语句 是 ABAP 控制流的基础，但 Day 04 最先要掌握的是 <code>LOOP AT itab</code>：它让程序逐行处理 <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a>。初学者要先分清两件事：<code>INTO</code> 是把当前行复制到 work area，改了 copy 不会自动改回表；<code>ASSIGNING</code> 是直接指向当前行，改字段会立刻影响表内容。这个差异比背所有 loop 语法更重要。</p>
+<p><strong>正文</strong></p>
+<p>ABAP 里不只有一种循环。官方资料把常见循环分成 <code>DO</code>、<code>WHILE</code>、<code>LOOP</code>、<code>SELECT ... ENDSELECT</code> 等形式；后面还会遇到 <code>LOOP AT GROUP BY</code>、<code>FOR</code> 表达式、<code>REDUCE</code> 等现代写法。但业务 ABAP 的第一入口通常是 <code>LOOP AT internal_table</code>，因为项目里大量数据先被放进 internal table，再逐行校验、转换、累计、组装消息或生成结果。</p>
+<p>先看最普通的读循环：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  out-&gt;write( |{ ls_item-travel_id } { ls_item-item_no } { ls_item-amount }| ).
+ENDLOOP.</code></pre>
+<p><code>INTO DATA(ls_item)</code> 的意思是：每一轮把当前行复制到一个 work area。适合只读输出、计算临时值、或者先改 work area 再用 <code>MODIFY</code> 写回。它不等于 Python/Java 里“拿到集合元素引用”。如果在 loop 里写 <code>ls_item-amount = 0.</code>，但没有 <code>MODIFY lt_items FROM ls_item ...</code>，表里的原行不会自动被改掉。SAP Learning 也明确提醒：改 work area 后不写回，下一轮 work area 被新行覆盖时，修改就丢了。</p>
+<p>再看直接访问：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-amount = &lt;ls_item&gt;-amount * &#x27;1.10&#x27;.
+ENDLOOP.</code></pre>
+<p><code>ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)</code> 让 field symbol 指向当前表行。改 <code>&lt;ls_item&gt;-amount</code> 就是在改 internal table 当前行。本节只建立“copy vs direct update”的判断；field symbol 的生命周期、typing、unassigned 风险会在后面专门学。还有第三种形式 <code>REFERENCE INTO DATA(lr_item)</code>，会得到当前行的数据引用；Day 04 只需要知道它存在，完整 data reference 放到动态编程章节。</p>
+<p>可以把三种 row access 先整理成一张小表：</p>
+<div class="table-wrap"><table><thead><tr><th>写法</th><th>行为</th><th>初学推荐理解</th></tr></thead><tbody><tr><td><code>LOOP AT itab INTO DATA(row)</code></td><td>copy 到 work area</td><td>读为主；要改表必须显式 <code>MODIFY</code></td></tr><tr><td><code>LOOP AT itab ASSIGNING FIELD-SYMBOL(&lt;row&gt;)</code></td><td>直接指向当前行</td><td>原地修改；细节后面学 field symbol</td></tr><tr><td><code>LOOP AT itab REFERENCE INTO DATA(ref)</code></td><td>当前行 data reference</td><td>先认识；完整引用语义后面学</td></tr></tbody></table></div>
+<p>过滤循环可以用 <code>WHERE</code>：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_jpy) WHERE currency = &#x27;JPY&#x27;.
+  out-&gt;write( ls_jpy-amount ).
+ENDLOOP.</code></pre>
+<p><code>WHERE</code> 只让满足条件的行进入 loop body。对 standard table 来说，这通常仍然要顺序扫描；对 sorted table，如果条件能匹配排序 key 的左侧前缀，系统可以更好地利用 key。Day 04 不需要掌握优化细节，但要知道：<code>WHERE</code> 不是魔法性能开关，性能仍取决于 table category、key 和条件写法。<code>FROM</code> / <code>TO</code> 可以限制 index table 的行号范围，<code>STEP</code> 还可以改变步长或方向；这些偏 index-table 技巧先作为 awareness，后续再学。</p>
+<p>再讲 <code>sy-tabix</code>。<code>sy-tabix</code> 是系统字段，表示当前 loop pass 处理到的 table index / row position，但它不是可靠的通用 counter。对 standard table 和 sorted table / sorted key，它通常可以反映当前行位置；对 hashed table，<code>sy-tabix</code> 在每一轮都是 <code>0</code>，因为 hashed table 没有行号索引。并且 loop body 里的 <code>READ TABLE</code>、嵌套 <code>LOOP</code> 等语句可能改写 <code>sy-tabix</code>，所以如果真的要保存当前行号，要在 loop body 一开始立刻写 <code>DATA(current_tabix) = sy-tabix.</code>。如果只是想要 1、2、3 这样的连续计数，自己声明 <code>DATA(counter) = 0.</code> 并在 loop 里加一，更清楚。</p>
+<p>控制跳转有三类要先会读。<code>EXIT</code> 在 loop 内退出当前 loop，类似 Java 的 <code>break</code>；但如果写在 loop 外，也会退出当前处理块。<code>CONTINUE</code> 跳过本轮剩余代码，进入下一轮，类似 Java/Python 的 <code>continue</code>。<code>CHECK condition</code> 在 loop body 里如果条件为 false，会跳过当前 loop pass；但 <code>CHECK</code> 在方法或处理块层级也可能直接退出整个处理块，所以新手很容易读错作用范围。日本项目 review 中更偏向显式写法：<code>IF NOT condition. CONTINUE. ENDIF.</code>，比 <code>CHECK condition.</code> 更容易被团队读懂。</p>
+<p>还要知道两个风险。第一，不要在遍历同一张 internal table 时随意 <code>INSERT</code>、<code>APPEND</code>、<code>DELETE</code> 这张表，否则可能漏处理、重复处理或触发难查的 runtime error。初学写法可以先收集要改/要删的 key 到另一张内表，loop 结束后统一处理；或者在明确安全的场景下使用 <code>ASSIGNING</code> / <code>MODIFY</code> 修改当前行的字段。第二，避免无意识的 nested loop：<code>LOOP AT lt_a. LOOP AT lt_b.</code> 在小数据里能跑，在真实项目里可能变成性能事故。重复查找时要考虑 key、sorted/hashed table 或预先构造 lookup table。ATC / Code Inspector 往往会把 nested loop 当作质量检查点。</p>
+<p>最后给现代语法留一个位置。<code>FOR</code> 表达式、<code>REDUCE</code>、<code>LOOP AT GROUP BY</code> 可以让某些循环写得更函数式、更短；Java/Python 背景的人可能会联想到 list comprehension / reduce / grouping。但这些写法需要先理解 internal table、row type、constructor expression 和 grouping 语义，本书后面再展开。Day 04 的目标是：把 <code>LOOP AT ... INTO</code>、<code>ASSIGNING</code>、<code>WHERE</code>、<code>EXIT</code>、<code>CONTINUE</code>、<code>sy-tabix</code> 的基本边界讲清楚。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li>ABAP 项目里的校验、转换、消息组装、批量处理、RAP reported/failed 处理，经常都是 loop over internal table。</li>
+<li><code>INTO</code> copy 与 <code>ASSIGNING</code> direct update 的差异会决定修改是否真正写回内表；这是 Java/Python 学习者最容易误判的行为。</li>
+<li><code>sy-tabix</code> 被滥用会导致 hashed table、nested loop、READ TABLE 场景下的隐藏 bug。</li>
+<li><code>EXIT</code>、<code>CONTINUE</code>、<code>CHECK</code> 让流程变短，但也可能让代码变难读；日本项目 code review 很重视是否能解释跳转意图。</li>
+<li>Nested loop 性能风险往往不是语法错，而是数据量变大后才爆出来；越早建立“访问模式和 key”的意识越好。</li>
+</ul>
+<p><strong>核心机制</strong></p>
+<ul>
+<li><code>LOOP AT itab INTO DATA(row)</code>：逐行复制到 work area，适合只读或显式写回。</li>
+<li><code>LOOP AT itab ASSIGNING FIELD-SYMBOL(&lt;row&gt;)</code>：field symbol 直接指向当前行，修改字段会影响内表。</li>
+<li><code>WHERE</code>：按条件过滤 loop pass；性能取决于 table category、key 和条件能否被优化。</li>
+<li><code>FROM</code> / <code>TO</code> / <code>STEP</code>：按 index 范围、步长、方向控制 loop，先作为 index-table awareness。</li>
+<li><code>sy-tabix</code>：对 hashed table 始终为 <code>0</code>；不是通用 counter，且可能被嵌套语句覆盖。</li>
+<li><code>EXIT</code> 在 loop 内退出 loop，在 loop 外退出当前处理块；<code>CONTINUE</code> 跳到下一轮；<code>CHECK</code> 在 loop 内可跳过当前 pass，但在 loop 外语义不同，初学优先写显式 <code>IF ... CONTINUE</code>。</li>
+<li>不要在 loop 中随意插入/删除同一张内表；避免无意识 nested loop。</li>
+</ul>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>LOOP処理</code>、<code>ループ処理</code>、<code>条件付きLOOP</code>、<code>ワークエリア</code>、<code>フィールドシンボル</code>、<code>コピー処理</code>、<code>直接更新</code>。</li>
+<li>跳转相关：<code>途中終了</code>、<code>次のループへスキップ</code>、<code>条件付き早期終了</code>、<code>EXIT文</code>、<code>CONTINUE文</code>、<code>CHECK文</code>。</li>
+<li>性能相关：<code>ネストループ</code>、<code>二重ループ</code>、<code>ネストループ問題</code>、<code>性能劣化</code>、<code>計算量</code>、<code>ループ内テーブル変更</code>。</li>
+<li>说明句：<code>LOOP AT ... INTO</code> はワークエリアへのコピー処理であり、内部テーブル本体を更新するには <code>MODIFY</code> が必要です。</li>
+<li>Review 句：<code>CHECK</code> 文はループ外では条件付き早期終了となるため、可読性の観点で <code>IF ... CONTINUE</code> に書き換えてください。</li>
+<li>性能 review 句：二重ループによる計算量増大が懸念されるため、キー付きテーブルまたは事前作成したルックアップテーブルを検討してください。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>LOOP AT itab</code></li>
+<li>Official / search term: <code>work area</code></li>
+<li>Official / search term: <code>field symbol</code></li>
+<li>Official / search term: <code>sy-tabix</code></li>
+<li>Official / search term: <code>EXIT</code></li>
+<li>Official / search term: <code>CONTINUE</code></li>
+<li>Official / search term: <code>CHECK</code></li>
+<li>Official / search term: <code>FOR expression</code></li>
+<li>ABAP syntax: <code>LOOP AT</code>, <code>ENDLOOP</code>, <code>INTO DATA(...)</code>, <code>ASSIGNING FIELD-SYMBOL(...)</code>, <code>REFERENCE INTO DATA(...)</code>, <code>WHERE</code>, <code>FROM</code>, <code>TO</code>, <code>STEP</code>, <code>MODIFY</code>, <code>READ TABLE</code></li>
+<li>Recommended search pattern: <code>ABAP Keyword Documentation LOOP AT itab sy-tabix CONTINUE EXIT CHECK</code></li>
+</ul>
+<p><strong>例子</strong></p>
+<p>从一个订单行内表开始：</p>
+<pre><code class="language-abap">DATA(counter) = 0.
+
+LOOP AT lt_items INTO DATA(ls_item) WHERE currency = &#x27;JPY&#x27;.
+  counter += 1.
+  DATA(current_tabix) = sy-tabix.
+
+  IF ls_item-amount IS INITIAL.
+    CONTINUE.
+  ENDIF.
+
+  out-&gt;write( |#{ counter } tabix={ current_tabix } { ls_item-travel_id } { ls_item-amount }| ).
+ENDLOOP.</code></pre>
+<p>这段代码里，<code>ls_item</code> 是 copy，适合只读输出。<code>counter</code> 是人工计数器，比用 <code>sy-tabix</code> 当连续编号更稳定，因为 <code>WHERE</code> 过滤后，<code>sy-tabix</code> 代表当前表行位置，不代表第几次输出。<code>current_tabix</code> 在 loop body 一开始保存，是为了避免后面其他 internal table 操作改写 <code>sy-tabix</code>。</p>
+<p>如果要原地修改金额，可以用 <code>ASSIGNING</code>：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;) WHERE currency = &#x27;JPY&#x27;.
+  &lt;ls_item&gt;-amount = &lt;ls_item&gt;-amount * &#x27;1.10&#x27;.
+ENDLOOP.</code></pre>
+<p>这时 <code>&lt;ls_item&gt;</code> 指向 internal table 的当前行。修改 <code>&lt;ls_item&gt;-amount</code> 会直接修改表里的值，不需要 <code>MODIFY</code>。但这也意味着要更小心：不要在同一个 loop 里随意 <code>DELETE lt_items</code> 或 <code>APPEND</code> 到 <code>lt_items</code>，除非你明确知道当前语句对 loop cursor 的影响。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>以为 <code>LOOP AT ... INTO</code> 给的是引用：改了 work area 却没有 <code>MODIFY</code>，结果表内容没变。</li>
+<li>把 <code>sy-tabix</code> 当连续 counter：<code>WHERE</code> 过滤、nested loop、hashed table 都可能让这个理解出错；hashed table loop 下它始终是 <code>0</code>。</li>
+<li>在 loop 里随意 <code>DELETE</code> / <code>APPEND</code> 同一张内表：小样本看不出问题，真实数据里漏行、重复、runtime error。</li>
+<li>用 <code>CHECK</code> 让流程过度隐式：loop 外的 <code>CHECK</code> 会变成处理块早退，review 时很容易被误读。</li>
+<li>双重 loop 做重复查找：数据量一上来就性能劣化，ATC 或 Code Inspector 可能直接提示 nested loop 风险。</li>
+<li>Day 04 就急着使用 <code>FOR</code>/<code>REDUCE</code>：代码短了，但读者还没理解 row type、copy/direct update 和 key，后续难以维护。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li><code>LOOP AT lt_items INTO DATA(ls_item)</code> 和 <code>LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)</code> 最大的行为差异是什么？</li>
+<li>如果 loop 里修改 <code>ls_item-amount</code>，为什么原表不一定变？</li>
+<li>为什么 <code>sy-tabix</code> 不应该被当作通用 counter？hashed table 下它是什么值？</li>
+<li><code>EXIT</code>、<code>CONTINUE</code>、<code>CHECK</code> 三者分别会让程序流走向哪里？</li>
+<li>如果发现 <code>LOOP AT lt_a</code> 里又 <code>LOOP AT lt_b</code>，你会先问哪两个问题？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/working-with-complex-internal-tables_f8c923f3-6f95-4b47-960f-557001f13977" target="_blank" rel="noopener noreferrer">SAP Learning - Working with Complex Internal Tables</a></li>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/using-control-structures-in-abap_a4d7803e-eac2-458e-acf9-8628289f3701" target="_blank" rel="noopener noreferrer">SAP Learning - Using Control Structures in ABAP</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPLOOP_AT_ITAB.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - LOOP AT itab</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPLOOP_AT_ITAB_RESULT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - LOOP AT itab, result</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCONTINUE.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - CONTINUE</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENLEAVE_LOOPS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Exiting Loops</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-025-loop-constructs-7301b587.html">Loop constructs 循环语句</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-024-internal-table-60645cd5.html">Previous section</a><a href="section-01-026-conditional-logic-51e0f0a0.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

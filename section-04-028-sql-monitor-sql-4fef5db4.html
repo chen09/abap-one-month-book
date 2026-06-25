@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SQL Monitor 生产级 SQL 观察 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="28-sql-monitor-sql-221b3a83" class="chapter-title">28. SQL Monitor 生产级 SQL 观察</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 28</li><li>self-contained study note</li></ul><h4 id="28-1-8ee50817" class="semantic-heading semantic-concept">28.1 一句话结论</h4>
+<p>SQL Monitor 生产级 SQL 观察 是从系统或较长时间窗口观察 ABAP 程序实际 SQL 使用情况的性能分析方法；在本教程里要学的是：如何从真实工作负载中找出执行次数多、总耗时高、读数异常或调用位置可疑的 SQL，再决定是否进入 SQL Trace、ABAP Profiler 或代码重构。</p>
+<p>上一节 <a class="wiki" href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">ABAP Profiler performance analysis</a> 关注 ABAP 应用层调用路径：哪个方法耗时、调用多少次、热点在业务逻辑还是框架回调。SQL Monitor 关注的是 SQL 使用的整体画像：系统里哪些 SQL 被频繁执行，哪些访问对象消耗最高，哪些调用点在真实业务流量下成为候选瓶颈。</p>
+<p>换句话说，SQL Trace 像显微镜，适合看一个可复现场景中的具体 SQL；SQL Monitor 像一段时间的观测记录，适合回答“在真实负载下，到底哪些 SQL 值得优先分析”。生产级性能改善不能只靠感觉，也不能只看一次单人测试，而要把长期、聚合、可解释的数据纳入判断。</p>
+<p>初学者可以这样理解：开发阶段常问“这一条 SELECT 写得对不对”；上线前和生产问题调查常问“系统实际最常跑、最耗时、最可疑的 SQL 是哪些”。前者适合代码 review、SQL Trace 和小数据验证；后者需要 SQL Monitor 这类聚合观察工具。SQL Monitor 不会自动告诉你“应该改成哪段代码”，但它能帮你把注意力从猜测转到数据。</p>
+<p>这也是性能治理里很重要的一步：先确定热点，再解释热点，最后才优化。没有 SQL Monitor 或类似证据时，团队很容易优化自己熟悉的代码，而不是优化真正影响用户和后台作业的路径。</p>
+<h4 id="28-2-919c123b" class="semantic-heading semantic-concept">28.2 到底学什么</h4>
+<p>第一，要学 SQL Monitor 的边界。它不是用来逐行解释一条 SQL 执行计划的工具，也不是替代 <a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a> 或数据库分析器的工具。它更适合在开发集成环境、测试环境、预生产环境，或经过治理的生产观察窗口中，收集一段时间内 ABAP SQL 的聚合使用情况。</p>
+<p>第二，要学它回答的问题。SQL Monitor 通常用于回答：哪些 SQL 执行次数最多？哪些 SQL 总耗时最高？哪些访问对象读数或返回量异常？这些 SQL 来自哪个 ABAP 程序、类、方法、包或调用位置？是否集中在某个 job、接口、报表、RAP/OData 服务或批处理路径上？</p>
+<p>第三，要学工具组合。SQL Monitor 发现候选热点后，通常还要用 SQL Trace 看单次 SQL 细节，用 ABAP Profiler 看应用层调用路径，用 <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a> 找静态性能风险，用业务日志和测试数据确认是否真的是项目风险。SQL Monitor 是入口，不是最后判决。</p>
+<p>第四，要学解释结果的上下文。一个 SQL 总耗时高，可能因为它被错误地循环调用，也可能因为它是正常的月结批处理；一个返回行数大，可能是设计缺陷，也可能是业务必须。没有业务场景、数据量、时间窗口、用户和系统负载说明，SQL Monitor 数据很容易被误读。</p>
+<p>第五，要学指标之间的关系。执行次数高、总耗时高、平均耗时高、读取行数高、返回行数高，含义不同。一个 SQL 平均很快但执行 50 万次，可能是 N+1 问题；一个 SQL 单次很慢但每天只跑一次，可能是批处理可接受成本；一个 SQL 返回很多行，可能是缺过滤，也可能是合法报表导出。</p>
+<p>第六，要学证据包写法。性能调查不是截一张 SQL Monitor 排名图就结束，而是要写清：观察窗口、系统/client、业务场景、测试数据量、用户/技术用户、后台 job 是否运行、候选 SQL、下一步 trace/profile 证据、改前改后对比。这样性能结论才像项目交付材料。</p>
+<h4 id="28-3-372c6d63" class="semantic-heading semantic-why">28.3 为什么重要</h4>
+<p>很多 SAP 性能问题不是单次测试能暴露的。开发者在本地或开发机只跑 10 条数据，看不到问题；到了结合测试或准生产，真实数据量、后台 job、接口并发、权限过滤、CDS association、业务日历和缓存状态一起出现，SQL 访问模式才变得清楚。SQL Monitor 的价值就是把“偶尔很慢”变成“在这个窗口内，这些 SQL/调用点值得优先处理”。</p>
+<p>对项目交付来说，它特别适合做上线前性能审计、生产问题初筛、批处理改善、报表优化、RAP/OData 服务访问模式检查，以及 legacy 程序现代化前的影响评估。它可以帮助团队决定先改哪里、为什么改、改完如何比较。</p>
+<p>对 Java/Python 背景学习者来说，可以把 SQL Monitor 类比为应用层 SQL 使用画像或数据库访问 telemetry，但 SAP 语境不同：ABAP Open SQL、CDS、authorization、client、package、transport、后台 job、业务事务和系统角色会一起影响解释方式。不能只看“SQL 慢”，还要问它属于哪个业务流程、哪个系统层级、哪个上线风险。</p>
+<p>尤其在 SAP 中，很多慢并不来自“数据库本身慢”，而来自调用方式：循环里 SELECT、逐条读取文本、association 造成行数放大、CDS 层层叠加、权限过滤后仍拉取过多数据、后台 job 和在线查询抢同一资源。SQL Monitor 的结果要和 ABAP 代码结构、业务频度和数据模型一起读。</p>
+<p>对项目经理或客户说明时，也不要只说“这个 SQL 很慢”。更好的说法是：“在 10:00-12:00 的 status API 结合测试窗口内，自开发包 ZAC0567C 的某调用点执行 50 万次，总耗时占主要比例；后续用 SQL Trace 确认为循环读取，已改为批量读取，复测执行次数下降到 200 次。”这样的说明可验证，也能进入性能改善报告。</p>
+<h4 id="28-4-key-mechanism-4d9cd16b" class="semantic-heading semantic-mechanism">28.4 Key mechanism / 核心机制</h4>
+<p>SQL Monitor 的基本思路是：在一个明确观察窗口内启用低开销 SQL 使用收集，让系统记录 ABAP 程序实际发出的 SQL 访问，再按语句、访问对象、调用位置、执行次数、总耗时、返回记录数等维度聚合分析。常见 SQLM 语境下，收集更接近系统/client/server 范围的运行时记录；按包、程序、用户、调用点或业务场景缩小范围，通常是在评估/显示结果时做过滤，而不是在 capture 时只收某一个自开发包。不同 SAP 版本和部署形态的入口、字段和可用功能会有差异，常见检索词包括 <code>SQL Monitor</code>、<code>SQLM</code>、<code>SQL Performance Tuning Worklist</code>。</p>
+<p>在常见 on-premise 资料和项目口语里，也会看到 <code>SQLM</code>、<code>SQLMD</code>、<code>SWLT</code> 这类入口或工具名。可以把 <code>SQLM</code> 理解为 SQL Monitor 的收集/管理入口，把 <code>SQLMD</code> 理解为结果显示/评估语境，把 <code>SQL Performance Tuning Worklist</code> / <code>SWLT</code> 理解为把 SQL Monitor 的运行时数据和 ATC/静态检查结果关联起来做优化候选清单的工具。具体可用性仍要以目标系统 release 和权限为准。</p>
+<p>分析时可以按五步推进。</p>
+<p>第一，定义观察窗口。说明系统、client/server、起止时间、业务场景、数据量和是否包含后台 job；同时说明后续评估时准备用哪些用户、程序、包、调用点或 workload 作为过滤条件。这里要特别区分“收集范围”和“评估过滤”：SQLM 收集通常不是只收某一个包，而是收集后再按包/程序/用户/调用点缩小分析结果。</p>
+<p>第二，收集真实或生产相当负载。可以让测试人员执行固定业务流程，也可以在受控窗口观察接口、报表、job 或批处理。关键是记录“这段时间发生了什么”，否则聚合结果无法解释。</p>
+<p>第三，查看候选热点。优先关注执行次数异常高、总耗时高、读取数据量大、访问大表或核心业务表、调用位置集中、来自自开发包或当前改造对象的 SQL。不要只看单次平均耗时，也不要只看总耗时，要结合业务频度。</p>
+<p>第四，钻取验证。SQL Monitor 发现的是候选点。要判断原因，通常需要回到代码位置，看 WHERE 条件、JOIN、association、排序、聚合、内表循环；再用 SQL Trace 复现单次访问，用 ABAP Profiler 看是否由应用层循环放大。</p>
+<p>第五，改前改后比较。性能改善必须留下基线：同一业务场景、相近数据量、相近窗口下，执行次数、总耗时、读取量或响应时间是否下降。没有前后比较，就很难向项目说明改善效果。</p>
+<p>可以把 SQL Monitor 的分析流程写成一个固定模板：</p>
+<pre><code class="language-text">1. Define window
+   collection scope: system/client/server and time range
+   evaluation filters: users, package/program, caller, workload
+
+2. Capture workload
+   what business scenario ran, data volume, job/interface status
+
+3. Rank candidates
+   executions, total runtime, records, caller, object
+
+4. Classify candidates
+   expected high-volume, suspicious repeated access, large read, custom code
+
+5. Drill down
+   SQL Trace, ABAP Profiler, code review, business data check
+
+6. Change and compare
+   same scenario, similar volume, before/after metrics</code></pre>
+<p>再看几个指标解释：</p>
+<div class="table-wrap"><table><thead><tr><th>观察结果</th><th>可能含义</th><th>下一步</th></tr></thead><tbody><tr><td>execution count 极高</td><td>循环中 SELECT、N+1、重复读取缓存缺失</td><td>看调用点和 ABAP Profiler</td></tr><tr><td>total runtime 高</td><td>高频 SQL 或单次重 SQL</td><td>分别看执行次数和平均耗时</td></tr><tr><td>records/read rows 高</td><td>返回给 ABAP 的行数大，可能是缺少过滤或合法大报表</td><td>看 WHERE、业务条件、数据量；是否全表扫描/索引问题要回到 SQL Trace 或执行计划确认</td></tr><tr><td>caller 集中在自开发类</td><td>当前代码可改空间大</td><td>进入 SQL Trace / code review</td></tr><tr><td>标准对象耗时高</td><td>可能是业务负载或标准行为</td><td>谨慎判断，查 Note/配置/索引建议</td></tr><tr><td>job 窗口内突增</td><td>后台批处理影响在线服务</td><td>看 job log、并发、调度窗口</td></tr></tbody></table></div>
+<p>SQL Monitor 结果还需要分层沟通。对开发者，重点是 caller、SQL pattern、可改代码；对 Basis/DBA，重点是系统负载、数据库指标、索引/执行计划；对业务顾问，重点是数据量、业务频度和是否可以调整选择条件；对 PM/客户，重点是影响范围、改善前后数值和残风险。</p>
+<h4 id="28-5-d06ffc43" class="semantic-heading semantic-japan">28.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>SQLモニタ</code>、<code>本番相当負荷</code>、<code>長時間の観測</code>、<code>実行回数</code>、<code>総実行時間</code>、<code>取得件数</code>、<code>アクセス対象</code>、<code>呼び出し元</code>、<code>ホットスポット</code>、<code>改善候補</code>、<code>改善前後の比較</code>。</p>
+<p>性能调查中可以这样说：</p>
+<ul>
+<li>SQLモニタで一定時間のSQL実行状況を収集し、総実行時間と実行回数の観点で改善候補を確認します。</li>
+<li>SQLモニタ上のホットスポットを起点に、SQLトレースとABAPプロファイラで詳細を切り分けます。</li>
+<li>本番相当のデータ量で改善前後を比較し、効果を数値で確認します。</li>
+</ul>
+<p>review 或障害调查中可以这样问：</p>
+<ul>
+<li>このSQLは実行回数が多いですが、業務上想定されたアクセスですか。</li>
+<li>SQLモニタの結果だけで判断せず、再現シナリオのSQLトレースは取得済みですか。</li>
+<li>観測期間、対象ユーザ、データ量、バックグラウンドジョブの有無は記録されていますか。</li>
+</ul>
+<p>改善报告中可以这样写：</p>
+<ul>
+<li>改善前はステータス照会APIで同一テーブルへのSQL実行回数が高く、SQLモニタ上でホットスポットとして確認されました。</li>
+<li>修正後は同一データ量・同一シナリオで再測定し、実行回数、総実行時間、取得件数を比較しました。</li>
+<li>SQLモニタで候補を特定し、SQLトレースで単一リクエストのSQL明細を確認したうえで修正方針を決定しました。</li>
+<li>本番環境での観測は、性能影響とセキュリティ観点を考慮し、承認された時間帯と対象範囲で実施します。</li>
+</ul>
+<h4 id="28-6-english-terms-8a27a668" class="semantic-heading semantic-terms">28.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>SQL Monitor</code>, <code>SQLM</code>, <code>SQL Performance Tuning Worklist</code>.</li>
+<li>Related terms: <code>SQL trace</code>, <code>ABAP Profiler</code>, <code>runtime analysis</code>, <code>SQL statement</code>, <code>execution count</code>, <code>total runtime</code>, <code>accessed object</code>, <code>caller</code>, <code>hotspot</code>, <code>workload</code>.</li>
+<li>Recommended search pattern: <code>SAP SQL Monitor ABAP</code>, <code>SAP SQLM SQL Monitor</code>, <code>SAP SQL Performance Tuning Worklist</code>.</li>
+<li>读官方资料时要注意版本差异：事务码、可用字段、云/本地限制和推荐工具可能随 release/deployment 改变。</li>
+</ul>
+<h4 id="28-7-example-36b6e652" class="semantic-heading semantic-example">28.7 Example / 学习例子</h4>
+<p>假设 AC0567C 的 status API 在测试环境中功能正确，但结合测试时出现响应不稳定。单个开发者用 20 条数据测试时看不出问题，真实测试会一次查询数千个 batch，并且同时有后台 job 更新状态。</p>
+<p>可以设计一个 SQL Monitor 观察窗口：</p>
+<pre><code class="language-text">Scope:
+  system/client: QAS / test client
+  workload: status API + daily background status update
+  window: 10:00-12:00
+  evaluation filter: package ZAC0567C / AC0567C service classes
+  evidence: SQL Monitor aggregate + SQL Trace for selected scenario</code></pre>
+<p>观察结果可能显示：</p>
+<pre><code class="language-text">Statement / caller                         executions   total time   records
+ZCL_AC0567C_STATUS_READER=&gt;READ_STATUS       500000       high        high
+ZCL_AC0567C_LOG_READER=&gt;READ_LAST_LOG         80000       medium      high</code></pre>
+<p>这时不能马上说“数据库慢”。更合理的判断路径是：</p>
+<ol>
+<li>回到调用代码，确认是否在循环中逐行读取 status。</li>
+<li>用 SQL Trace 复现一次 status API，查看是否存在 N+1 SELECT。</li>
+<li>用 ABAP Profiler 确认 SQL 调用是否由某个 service method 放大。</li>
+<li>修改为批量读取、合适的 key 访问或缓存策略后，用同类窗口比较执行次数和总耗时。</li>
+</ol>
+<p>这个例子说明 SQL Monitor 的角色：它帮助团队从真实工作负载中发现优先分析对象，而不是直接给出最终重构方案。</p>
+<p>把这个例子进一步写成证据包，可以这样组织：</p>
+<pre><code class="language-text">Performance Evidence Packet:
+  Scenario:
+    AC0567C status API queried by external test client.
+  Window:
+    QAS client 100, 10:00-12:00, 5 test users, background update job active.
+  Baseline:
+    average API response time unstable, SQL Monitor shows high executions.
+  Candidate:
+    ZCL_AC0567C_STATUS_READER=&gt;READ_STATUS
+  Hypothesis:
+    service reads status and last log per batch in a loop.
+  Drill-down:
+    SQL Trace for one API request confirms repeated SELECT by batch id.
+    ABAP Profiler shows loop in service method.
+  Fix:
+    bulk read status and logs by key range, build hashed lookup table.
+  Retest:
+    same test script, similar data volume, execution count and total time reduced.</code></pre>
+<p>这个证据包可以直接进入性能改善说明、障害票、結合テスト补充证据或リリース判定資料。它比“我优化了 SELECT”更能被 reviewer 接受。</p>
+<p>再看一个误判例子。SQL Monitor 显示某标准表访问总耗时很高，开发者马上想改自开发代码。但进一步看窗口，发现当天同时运行月结 job，访问量来自标准月结流程，不是当前 AC0567C API。这时正确结论不是“优化 AC0567C”，而是调整观察窗口或分离 workload。SQL Monitor 数据必须和业务事件对齐，否则会把无关热点当成当前缺陷。</p>
+<h4 id="28-8-counterexample-failure-mode-3d2e65ed" class="semantic-heading semantic-example">28.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十二类。</p>
+<p>第一，把 SQL Monitor 当成单条 SQL 解释器。它擅长聚合观察，不负责替代 SQL Trace、执行计划或代码阅读。</p>
+<p>第二，观察窗口没有边界。没有记录用户、时间、业务场景、数据量和后台 job，结果就无法解释，也无法复现。</p>
+<p>第三，只按总耗时排序。总耗时高可能只是业务频度高；真正的问题可能是执行次数异常、每次访问读数过大，或某个调用点在循环里被放大。</p>
+<p>第四，忽略业务语境。月结、库存计算、批处理、接口重试和报表导出本来就可能访问大量数据，需要判断是否符合业务预期。</p>
+<p>第五，发现热点后直接改代码。SQL Monitor 只能指出候选点，仍要用 trace/profile/code review 确认证据链。</p>
+<p>第六，在生产环境随意启用大范围观察。SQL Monitor 的价值之一就是低开销、较长时间窗口的运行时 SQL 观察，很多项目也会把它用于生产或生产相当负载；但生产观察仍必须遵守项目治理、权限、性能影响、数据安全和操作窗口要求。</p>
+<p>第七，改完不做前后比较。没有基线和复测，就无法证明优化有效，也无法写出可信的性能改善说明。</p>
+<p>第八，只看平均耗时。平均值可能掩盖总量问题，也可能被极端值拉偏。执行次数、总耗时、最大耗时、读取量和业务频度要一起看。</p>
+<p>第九，忽略权限和 DCL。某些用户因为 DCL 或授权过滤只能看到少量数据，technical user 可能看到全量数据。只用一个用户测 SQL Monitor 可能低估或高估真实负载。</p>
+<p>第十，混合多个业务场景。一个窗口里同时跑报表、job、接口、手工测试，候选 SQL 很难归因。需要尽量用包、程序、用户、时间或测试脚本缩小范围。</p>
+<p>第十一，把工具结果当承诺。SQL Monitor 的数字受环境、缓存、数据量、并发、系统负载影响。报告应说明条件，而不是承诺所有时间都能达到同一数值。</p>
+<p>第十二，只关注自开发 SELECT，忽略 CDS/OData 消费链。RAP/OData 服务可能通过 CDS 触发复杂访问，热点不一定在显眼的 <code>SELECT</code> 语句旁边，要结合 CDS model 和 service call path 阅读。</p>
+<h4 id="28-9-571a44a3" class="semantic-heading semantic-practice">28.9 思考问题</h4>
+<ul>
+<li>SQL Monitor 和 SQL Trace 分别回答什么问题？</li>
+<li>为什么 SQL Monitor 的结果必须带观察窗口、业务场景和数据量说明？</li>
+<li>一个 SQL 总耗时高，可能有哪些“正常原因”和“异常原因”？</li>
+<li>如果 SQL Monitor 发现某个自开发类执行次数异常高，下一步应该怎么验证？</li>
+<li>AC0567C POC 中哪个 API、job 或读取逻辑最适合设计 SQL Monitor 观察窗口？</li>
+</ul>
+<h4 id="28-10-dbad3bca" class="semantic-heading semantic-reference">28.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>SAP Help Portal: search <code>SQL Monitor</code>, <code>SQLM</code>, <code>SQL Performance Tuning Worklist</code>.</li>
+<li>SAP Help Portal: search <code>SQL Trace</code>, <code>ABAP Profiler</code>, <code>ABAP performance analysis</code> for neighboring tools.</li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=SQL%20Monitor%20ABAP" target="_blank" rel="noopener noreferrer">SQL Monitor ABAP</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=SQL%20Performance%20Tuning%20Worklist" target="_blank" rel="noopener noreferrer">SQL Performance Tuning Worklist</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=SQL%20Trace%20ABAP" target="_blank" rel="noopener noreferrer">SQL Trace ABAP</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=ABAP%20Profiler" target="_blank" rel="noopener noreferrer">ABAP Profiler</a></li>
+</ul>
+<h4 id="28-11-connections-57472b86">28.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">ABAP Profiler performance analysis</a></li>
+<li>Downstream: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Related: <a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a></li>
+<li>Related: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Related: <a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Related: <a class="wiki" href="section-04-023-background-job-and-submit-basics-11cfa86d.html">Background job and SUBMIT basics</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 26 - ATC、Trace、Profiler、SQL Monitor</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="28-12-dad9d2c3" class="semantic-heading semantic-practice">28.12 学习任务</h4>
+<ul>
+<li>用 8-10 行中文说明 SQL Monitor、SQL Trace、ABAP Profiler 的区别。</li>
+<li>设计一个 30-120 分钟的 SQL Monitor 观察窗口，写清系统、用户、业务场景、数据量、程序范围和预期输出。</li>
+<li>从 AC0567C POC 中挑一个候选 API 或 job，说明如果它在 SQL Monitor 中出现高执行次数，你会如何继续验证。</li>
+<li>补 2 句日本项目现场表达：一句用于性能调查开始前，一句用于改善前后比较报告。</li>
+<li>用 English Terms 找 1 个 SAP 官方链接，补到 <code>## 10) 参考资料入口</code>。</li>
+</ul>
+<h4 id="28-13-confidence-next-action-0bf1b99b" class="semantic-heading semantic-status">28.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High，SQL Monitor 的定位、工具组合和项目解释方法稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已补足 SQLM 收集范围与评估过滤的边界、<code>records/read rows</code> 不等于数据库扫描行数的 caveat、<code>SQLM</code> / <code>SQLMD</code> / <code>SWLT</code> 的入口语境，以及生产长期低开销观察与项目治理的平衡。具体入口、字段、权限和推荐事务码需要按 SAP release/deployment 查官方资料确认，Joule scoped review 仍保留为 deferred 证据。</li>
+<li>Next action: 在 Chapter 04 中把本节同步为 Day 26 的最后一个性能观察小节；后续进入 <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a> 时，把 SQL Monitor 结果与上线前 Clean Core/性能治理连接起来。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">Previous section</a><a href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

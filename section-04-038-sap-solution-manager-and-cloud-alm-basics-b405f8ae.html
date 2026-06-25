@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SAP Solution Manager and Cloud ALM basics | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="38-sap-solution-manager-and-cloud-alm-basics-0533c20b" class="chapter-title">38. SAP Solution Manager and Cloud ALM basics</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 38</li><li>self-contained study note</li></ul><h4 id="38-1-b97a02b3" class="semantic-heading semantic-concept">38.1 一句话结论</h4>
+<p>SAP Solution Manager and Cloud ALM basics 是理解 SAP 项目生命周期管理工具的入门知识；在本教程里要学的是：SolMan / Cloud ALM 不是 ABAP 编辑器，而是把需求、变更、测试、移送、监控、运维和障害管理连接起来的项目与运维平台。</p>
+<p>上一节 <a class="wiki" href="section-04-037-change-request-and-incident-workflow-00ea541f.html">Change request and incident workflow</a> 讲了票据和流程；本节讲这些流程可能落在哪类 SAP ALM 工具中。很多老项目使用 SAP Solution Manager，也常简称 SolMan，里面可能有 ChaRM、ITSM、Test Suite、Business Process Monitoring、系统监控等能力。较新的云化项目可能使用 SAP Cloud ALM 来管理实施、测试、任务、部署、监控和运维。</p>
+<p>ABAP 开发者不一定每天配置 SolMan 或 Cloud ALM，但需要知道：自己的 transport、测试证据、障害票、变更请求、监控告警和运维 handover 可能会被这些工具追踪。理解 ALM 工具定位，能帮助你把“我改了代码”放进项目的可追踪流程。</p>
+<h4 id="38-2-42140e6e" class="semantic-heading semantic-concept">38.2 到底学什么</h4>
+<p>第一，要学边界。SolMan / Cloud ALM 不是替代 ADT、SE80、Fiori 或业务系统的工具；它们更接近 SAP 项目的生命周期管理层，负责把流程、证据、任务、测试、变更、监控和运维连接起来。</p>
+<p>第二，要学 SolMan 的典型语境。很多既有项目中，SolMan 可能承载 solution documentation、change request management、incident management、test management、monitoring、ITSM 等。日本现场常听到 <code>SolMan</code>、<code>ChaRM</code>、<code>ITSM</code>、<code>テスト管理</code>、<code>移送管理</code>。</p>
+<p>第三，要学 SAP Cloud ALM 的典型语境。Cloud ALM 更常出现在云化、RISE、S/4HANA Cloud、BTP 或新实施项目中，用于 implementation tasks、requirements、test preparation/execution、deployment、integration monitoring、exception monitoring、business process monitoring 等场景。</p>
+<p>第四，要学开发者视角。ABAP 开发者至少要知道票据编号、transport、测试证据、release/approval、监控告警、incident 和运维 handover 如何关联，而不是把 ALM 当成“PM 或 Basis 的事情”。</p>
+<p>第五，要学当前项目现实。SAP Solution Manager 7.2 在很多客户现场仍然运行，承载 Change Control Management、ITSM、Test Suite、Process Management、Operations 等流程；但 SAP 官方资料说明其 mainstream maintenance 到 2027 年底，并建议客户在 2027 年底前向 SAP Cloud ALM 过渡。对读者来说，正确姿势不是背“哪个工具更先进”，而是进入项目时先确认客户当前使用哪套 ALM、哪些流程已经落地、哪些证据必须放进去、哪些功能只是计划迁移。</p>
+<p>第六，要学 Cloud ALM 的三大入口。官方资料通常把 SAP Cloud ALM 分成 Implementation、Operations 和 Service 方向，并把它定位为用于管理 SAP landscape 的云原生中心入口。Implementation 更关注实施任务、需求、测试、部署和项目追踪；Operations 更关注集成、异常、作业、业务流程和扩展的监控；Service 更关注 SAP 服务交付过程中的协作和透明度。ABAP 开发者不一定配置这些模块，但要知道自己的开发证据可能落在哪一个入口。</p>
+<h4 id="38-3-dbae98bd" class="semantic-heading semantic-why">38.3 为什么重要</h4>
+<p>SAP 项目不是只有代码仓库和 CI/CD。一个修正可能要经过需求、设计、票据、transport、测试、审批、导入、监控和运维交接。ALM 工具的意义，就是把这些活动变成可追踪链条。</p>
+<p>如果团队没有这种链条，就会出现常见混乱：ticket 找不到对应 transport，transport 不知道对应哪个测试，测试结果没有证据，生产告警无法关联变更，障害关闭没有根因，客户问进度时只能口头回答。</p>
+<p>对 Java/Python 背景学习者来说，可以把 SolMan / Cloud ALM 类比为 Jira、ServiceNow、Azure DevOps、test management、release management、monitoring 的 SAP 语境组合。但 SAP 的特殊点是 transport landscape、SAP Note、business process、Basis 运维、SAP 标准组件和客户流程强绑定。</p>
+<p>还要注意，ALM 工具不是“质量本身”。一个 ticket 在工具里状态为 Done，不代表代码质量合格；一个 test case 在工具里通过，不代表覆盖了权限、异常和性能；一个监控 dashboard 绿色，不代表没有业务数据风险。ALM 的价值是承载证据和追踪链，质量仍来自清晰设计、正确实现、真实测试、可查日志和明确责任。</p>
+<p>对长期项目来说，ALM 还关系到人员交替。几个月后，新成员接手某个接口，如果能从 Cloud ALM/SolMan ticket 追到需求、设计、transport、测试证据、SAP Note、上线监控和关闭说明，就能快速理解为什么这样实现。如果这些证据散在聊天、个人文件和截图里，维护成本会急剧上升。</p>
+<h4 id="38-4-key-mechanism-1726a550" class="semantic-heading semantic-mechanism">38.4 Key mechanism / 核心机制</h4>
+<p>从 ABAP 开发者视角看，ALM 工具通常连接六类对象。</p>
+<p>第一，需求与变更。一个 change request 或 requirement 会说明业务背景、范围、优先级、审批人和计划 release。开发对象、设计书、测试和 transport 应该能追溯到它。</p>
+<p>第二，障害与 incident。一个 incident 会记录现象、影响、优先级、再现步骤、原因、暫定対応（临时对策）、恒久対応（根治对策）、修正对象和关闭条件。它可能来自测试、生产监控、用户报告或接口告警。</p>
+<p>第三，测试。ALM 工具可能管理 test case、test package、tester、执行状态、缺陷关联和证据。ABAP 开发者需要把单体/结合测试结果与 ticket 或 release 对齐。</p>
+<p>第四，变更与移送。SolMan ChaRM 或客户变更管理流程可能控制 transport creation、approval、import sequence、release window 和 emergency change。即使用的不是 ChaRM，也通常有类似审批链。</p>
+<p>第五，监控与运维。Cloud ALM 或 SolMan 可能承载 integration monitoring、job monitoring、exception monitoring、business process monitoring、system monitoring。ABAP 日志、job、接口、OData 错误和 application log 都可能成为监控调查入口。</p>
+<p>第六，文档与可追溯性。solution documentation、process documentation、test evidence、release note、runbook、known error、SAP Note/incident 结果，都需要连接到交付物。</p>
+<p>一个成熟项目会尽量让下面这条链能被追踪：</p>
+<pre><code class="language-text">Requirement / Incident
+  -&gt; Design / Analysis
+  -&gt; Development object
+  -&gt; Transport request
+  -&gt; Test case and evidence
+  -&gt; Approval / Release
+  -&gt; Production monitoring
+  -&gt; Closure / Handover</code></pre>
+<p>可以把 SolMan 和 Cloud ALM 的学习边界简化成一张表：</p>
+<div class="table-wrap"><table><thead><tr><th>维度</th><th>SAP Solution Manager / SolMan</th><th>SAP Cloud ALM</th></tr></thead><tbody><tr><td>常见项目</td><td>既有 on-premise / hybrid 客户，老项目较多</td><td>新实施、云化、RISE、S/4HANA Cloud、BTP 场景更多</td></tr><tr><td>典型词汇</td><td>ChaRM, ITSM, Test Suite, Solution Documentation, BPMon</td><td>Implementation, Operations, Service, task, requirement, deployment, monitoring</td></tr><tr><td>开发者关注</td><td>ticket、transport、change document、test plan、incident</td><td>task/requirement、test execution、deployment、monitoring alert</td></tr><tr><td>风险</td><td>客户流程复杂，字段和审批多，迁移计划不一</td><td>功能持续演进，客户采用范围差异大</td></tr><tr><td>正确姿势</td><td>遵守客户现有流程，不私自绕开</td><td>确认项目启用哪些 capability，不假设全都已配置</td></tr></tbody></table></div>
+<p>Cloud ALM 的 operations 视角对 ABAP/RAP/OData 学习尤其有价值。一个服务上线后，开发者应该能回答：如果 API 错误率上升，在哪个监控里看？如果 integration message 失败，谁收到告警？如果 background job 超时，是否有 job monitoring？如果 BTP extension 调用 S/4HANA API 慢，是否能关联到 integration/exception monitoring？这些问题不一定都由开发者配置，但开发者必须提供可监控的日志、错误码、request id 和运维说明。</p>
+<p>SolMan 的 ChaRM/Change Control 视角则提醒读者：transport 不是“开发者点 release 就结束”。在受控项目里，一个 transport 可能必须关联 change document，经过审批、导入顺序、测试状态和 release window。紧急修正还可能走 emergency change。不了解这一层，就会误以为“代码改完”就是“可以上线”。</p>
+<p>术语上可以先这样理解：<code>移送</code> 对应把 transport request 从 DEV 推进到 QAS/PRD 的迁移动作，<code>transport</code> 更偏技术对象和传输请求，<code>リリース</code> / release 更偏上线窗口、发布判断和业务承认。项目现场会混用这些词，但它们关注的层次不同。</p>
+<h4 id="38-5-33f357e2" class="semantic-heading semantic-japan">38.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>SolMan</code>、<code>Solution Manager</code>、<code>Cloud ALM</code>、<code>ChaRM</code>、<code>変更管理</code>、<code>インシデント管理</code>、<code>テスト管理</code>、<code>リリース管理</code>、<code>監視</code>、<code>運用監視</code>、<code>ジョブ監視</code>、<code>インターフェース監視</code>、<code>トレーサビリティ</code>。</p>
+<p>项目沟通中可以这样说：</p>
+<ul>
+<li>変更依頼、移送依頼、テスト証跡をALM上で紐づけて管理します。</li>
+<li>本障害はインシデントとして起票し、原因分析と恒久対応を記録します。</li>
+<li>リリース後はCloud ALMの監視結果とアプリケーションログを確認し、異常がないことを確認します。</li>
+</ul>
+<p>开发者常被问到：</p>
+<ul>
+<li>この移送はどの変更依頼に紐づいていますか。</li>
+<li>テストケースと証跡はALM上で確認できますか。</li>
+<li>本番監視でエラーが出た場合、一次切り分け手順はどこにありますか。</li>
+</ul>
+<h4 id="38-6-english-terms-830051fc" class="semantic-heading semantic-terms">38.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>SAP Solution Manager</code>, <code>SAP Cloud ALM</code>, <code>SAP Cloud ALM for Implementation</code>, <code>SAP Cloud ALM for Operations</code>, <code>ChaRM</code>, <code>Change Request Management</code>, <code>Incident Management</code>.</li>
+<li>Related terms: <code>test management</code>, <code>requirements management</code>, <code>deployment</code>, <code>integration monitoring</code>, <code>exception monitoring</code>, <code>job monitoring</code>, <code>business process monitoring</code>, <code>solution documentation</code>.</li>
+<li>Recommended search pattern: <code>SAP Cloud ALM implementation operations</code>, <code>SAP Solution Manager ChaRM</code>, <code>SAP Cloud ALM monitoring</code>, <code>SAP Solution Manager test suite</code>.</li>
+<li>读官方资料时要注意：SolMan 和 Cloud ALM 的适用范围、功能边界、许可/订阅、部署方式和客户采用策略不同。</li>
+</ul>
+<h4 id="38-7-example-84d3b4d2" class="semantic-heading semantic-example">38.7 Example / 学习例子</h4>
+<p>假设 AC0567C status API 在 QAS 发现缺陷，需要修复并上线。用 ALM 视角可以这样串起来：</p>
+<pre><code class="language-text">Incident:
+  Status API returns wrong status for partially failed batch.
+
+Analysis:
+  Root cause: service logic maps technical status incorrectly.
+
+Change:
+  Fix mapping logic and add regression test.
+
+Development:
+  Class ZCL_AC0567C_STATUS_SERVICE changed.
+
+Transport:
+  DEVK9xxxxx.
+
+Test:
+  normal / partial failure / full failure / unauthorized user.
+
+Evidence:
+  API request-response, application log, ATC result.
+
+Release:
+  Approved for next QAS import and PRD release window.
+
+Operations:
+  Monitor application log and API error count after release.
+
+Closure:
+  Tester and business owner confirm expected result.</code></pre>
+<p>这就是 ALM 的价值：不是让开发者多填表，而是让每个修正从起点到生产验证都有可追踪路径。</p>
+<p>可以再把 AC0567C 映射到 Cloud ALM / SolMan 证据链：</p>
+<pre><code class="language-text">Implementation / Change:
+  Requirement: batch upload API with validate/execute/status.
+  Task: build RAP service and API evidence.
+  Transport: code, DDIC, service binding, roles, jobs/config.
+  Test: API matrix, authorization, idempotency, error payload, performance.
+
+Operations:
+  Monitor: application log object, job status, API error count, integration failures.
+  Alert: high failure rate, repeated duplicate request, long-running batch.
+  Runbook: how to search by batch id / request id / user / timestamp.
+
+Service / Incident:
+  Incident: external system reports failed upload.
+  Evidence: request id, response payload, application log, transport version.
+  Closure: root cause, fix, test result, production monitoring result.</code></pre>
+<p>这张映射能把本书前面的技术章节拉回交付现实：API 设计、日志、权限、幂等、transport、监控不是分散知识，而是同一条 ALM 链上的证据。</p>
+<h4 id="38-8-counterexample-failure-mode-dda8edac" class="semantic-heading semantic-example">38.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下（约十余类）。</p>
+<p>第一，把 ALM 工具当成“项目经理的系统”。开发者不关联 ticket、transport、test evidence，后续追溯会断。</p>
+<p>第二，把 SolMan 和 Cloud ALM 混为一谈。它们都属于 SAP ALM 语境，但功能、定位、采用场景和客户策略不同。</p>
+<p>第三，ticket 和 transport 脱节。上线后不知道某个对象为什么改、谁批准、测过什么。</p>
+<p>第四，只管理开发任务，不管理测试证据。release 判断缺少依据。</p>
+<p>第五，监控和开发断开。生产告警出现后无法快速找到对应 release、变更和负责人。</p>
+<p>第六，工具字段填了，但内容没有证据。状态是 Done 不等于实际完成。</p>
+<p>第七，忽略客户已有工具。有的客户用 SolMan，有的用 Cloud ALM，有的用 Jira/ServiceNow/Excel 混合；开发者要适应项目约定。</p>
+<p>第八，认为 ALM 会自动保证质量。工具只能承载流程，真正的质量仍来自清晰设计、测试、日志、transport 和责任分工。</p>
+<p>第九，忽略 SolMan 到 Cloud ALM 的迁移现实。项目可能仍在 SolMan 中跑 ChaRM/ITSM/Test Suite，同时又开始试用 Cloud ALM operations。开发者如果只认一种工具，就可能找不到正确证据位置。</p>
+<p>第十，把 Cloud ALM 当万能监控。Cloud ALM 能提供很多 operations capability，但前提是系统、服务、集成、告警和责任流程被正确配置；应用本身也要输出可定位的日志和错误信息。</p>
+<p>第十一，监控没有连接 runbook。告警出现了，但没人知道怎么看 application log、如何重跑 job、何时联系 Basis 或接口团队。修正方式是把 monitoring、runbook、incident workflow 连接起来。</p>
+<p>第十二，把 transition 当成开发者无关。SolMan 到 Cloud ALM 的迁移可能影响测试证据、solution documentation、ticket 链接、变更流程和监控入口；ABAP 团队至少要知道项目过渡期证据放在哪里。</p>
+<h4 id="38-9-b9c1ed80" class="semantic-heading semantic-practice">38.9 思考问题</h4>
+<ul>
+<li>SolMan / Cloud ALM 和 ADT 分别解决什么问题？</li>
+<li>一个 transport request 应该和哪些 ALM 对象关联？</li>
+<li>Cloud ALM for Implementation 和 for Operations 的关注点有什么不同？</li>
+<li>如果生产监控发现错误，如何追溯到变更、测试和负责人？</li>
+<li>AC0567C POC 如果作为项目上线，应如何建立 ticket -&gt; transport -&gt; test evidence -&gt; monitoring 的链条？</li>
+</ul>
+<h4 id="38-10-600ac0be" class="semantic-heading semantic-reference">38.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>SAP Help Portal / SAP Learning: search <code>SAP Cloud ALM</code>, <code>SAP Solution Manager</code>, <code>ChaRM</code>, <code>Change Request Management</code>, <code>Incident Management</code>.</li>
+<li>SAP Cloud ALM documentation: search <code>implementation</code>, <code>operations</code>, <code>test management</code>, <code>integration monitoring</code>, <code>exception monitoring</code>.</li>
+<li><a href="https://support.sap.com/en/alm/sap-cloud-alm.html" target="_blank" rel="noopener noreferrer">SAP Cloud ALM official overview</a></li>
+<li><a href="https://help.sap.com/docs/cloud-alm" target="_blank" rel="noopener noreferrer">SAP Cloud ALM documentation</a></li>
+<li><a href="https://support.sap.com/en/alm/solution-manager.html" target="_blank" rel="noopener noreferrer">SAP Solution Manager official overview</a></li>
+<li><a href="https://help.sap.com/docs/SAP_Solution_Manager" target="_blank" rel="noopener noreferrer">SAP Solution Manager documentation</a></li>
+<li>SAP official maintenance note: SAP Solution Manager 7.2 mainstream maintenance is listed to the end of 2027 on the official overview page; confirm the latest customer-specific maintenance situation before project decisions.</li>
+</ul>
+<h4 id="38-11-connections-7fd1aebb">38.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li>Upstream: <a class="wiki" href="section-04-037-change-request-and-incident-workflow-00ea541f.html">Change request and incident workflow</a></li>
+<li>Downstream: <a class="wiki" href="section-04-039-ac0567c-poc-architecture-replay-be4cadf1.html">AC0567C POC architecture replay</a></li>
+<li>Related: <a class="wiki" href="section-04-036-japanese-sap-deliverable-documents-b08681d5.html">Japanese SAP deliverable documents</a></li>
+<li>Related: <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-035-sap-note-and-oss-note-workflow-0e2994f8.html">SAP Note and OSS note workflow</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 27 - Clean Core 与上线前加固</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="38-12-678b1f60" class="semantic-heading semantic-practice">38.12 学习任务</h4>
+<ul>
+<li>用中文说明 SolMan / Cloud ALM 和 ADT 的区别。</li>
+<li>画一条链：change request -&gt; development object -&gt; transport -&gt; test evidence -&gt; release -&gt; monitoring。</li>
+<li>用日语写 2 句：一句说明 ALM 上已关联移送和测试证据，一句说明上线后监控确认。</li>
+<li>找一个 SAP Cloud ALM 或 Solution Manager 官方资料入口，补到参考资料区。</li>
+<li>把 AC0567C POC 的一个缺陷修正映射到 ALM workflow。</li>
+</ul>
+<h4 id="38-13-confidence-next-action-75e654ac" class="semantic-heading semantic-status">38.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High，SolMan / Cloud ALM 的定位、开发者视角和可追踪链条稳定，Claude review 已给出 <code>Pass with fixes</code> 且无 must-fix。当前文本已使用更自然的 <code>审批人</code>，为 <code>暫定対応</code> / <code>恒久対応</code> 补了中文 gloss，并说明 <code>移送</code>、<code>transport</code>、<code>リリース</code> / release 的层次差异。Joule review 仍为 deferred placeholder；如 Joule 恢复，应补一次 SAP Solution Manager / SAP Cloud ALM / ChaRM 视角最终 verdict。具体功能、客户采用方式、工具字段和流程必须按项目实际 ALM 配置确认。</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-039-ac0567c-poc-architecture-replay-be4cadf1.html">AC0567C POC architecture replay</a>，把前面 Week 1-4 的系统、ABAP、RAP/OData、质量、运维和 ALM 知识回放到本地 POC 架构复盘中。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-038-sap-solution-manager-and-cloud-alm-basics-b405f8ae.html">SAP Solution Manager and Cloud ALM basics</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-037-change-request-and-incident-workflow-00ea541f.html">Previous section</a><a href="section-04-039-ac0567c-poc-architecture-replay-be4cadf1.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

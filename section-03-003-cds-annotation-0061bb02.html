@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>CDS annotation 注解基础 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="3-cds-annotation-cc78a2c2" class="chapter-title">3. CDS annotation 注解基础</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 03</li><li>self-contained study note</li></ul><h4 id="3-1-23c07a04" class="semantic-heading semantic-concept">3.1 一句话结论</h4>
+<p>CDS annotation 注解基础，是理解“元数据如何进入 CDS 模型”的入口。annotation 不是普通 comment，它是写在 CDS DDL / metadata extension 中、可被不同 SAP 框架或工具解释的 metadata：有的影响字段说明，有的影响 OData metadata，有的影响 Fiori Elements UI，有的影响 analytics，有的影响 access-control 相关检查或运行时解释。</p>
+<p>上一节 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a> 讲的是“模型对象本身”。本节讲的是“模型上附着的语义说明”。读者要先建立一个边界：annotation 可以告诉消费者“这个字段怎么解释、怎么展示、怎么暴露、是否需要某类检查”；但 annotation 不会自动替代 ABAP 代码、DCL 规则、RAP behavior、authorization、locking、save sequence 或性能设计。</p>
+<h4 id="3-2-0d21e1ed" class="semantic-heading semantic-concept">3.2 到底学什么</h4>
+<p>本节不要求一次背完所有 annotation vocabulary。初学者真正需要的是判断：这个 annotation 加在哪里、谁会读取它、它影响哪个层面、有没有放错层、是否会给下游消费者造成契约变化。</p>
+<p>需要掌握六个判断点。</p>
+<ul>
+<li>Metadata role：annotation 是可被工具/框架读取的元数据，不是给人看的普通注释。</li>
+<li>Target / scope：annotation 可以挂在 CDS object、view element、association、parameter、metadata extension 等不同位置。</li>
+<li>Consumer：不同 annotation 有不同消费者；ABAP runtime、ADT、OData、Fiori Elements、analytics、RAP 或 access-control 相关机制并不会读取同一批 annotation。</li>
+<li>Vocabulary：annotation 名称和结构要符合 SAP 支持的 vocabulary / annotation definition，不要自造“看起来像配置”的字段。</li>
+<li>Layering：基础语义、技术约束、UI 表达、analytics 表达、服务元数据不要无脑堆在同一个底层 view entity。</li>
+<li>Boundary：annotation 只能补充模型语义和消费元数据，不能替代代码逻辑、授权规则、事务行为或测试。</li>
+</ul>
+<h4 id="3-3-a0c10a31" class="semantic-heading semantic-why">3.3 为什么重要</h4>
+<p>annotation 是 CDS 从“SQL 查询”变成“语义模型”的关键原因之一。没有 annotation，view entity 仍然能投影字段和定义 association，但很多消费者无法知道字段的业务含义：哪个字段是 label，哪个金额对应哪个 currency，哪个数量对应哪个 unit，哪个字段适合搜索，哪个字段应该出现在 UI 列表，哪个 view 需要 access-control check，哪些元数据应该出现在 OData service 中。</p>
+<p>项目交付中，annotation 的影响常常比初学者想象得大。一个看似小的 <code>@EndUserText.label</code> 可能影响 UI / 文档可读性；一个 <code>@Semantics.amount.currencyCode</code> 可能影响金额显示和接口解释；一个 UI annotation 可能改变 Fiori Elements 页面；一个 access-control 相关 annotation 可能改变读模型时的检查策略。annotation 写错，不一定导致语法报错，但可能导致服务 metadata、画面、授权或分析结果与预期不一致。</p>
+<p>对 Java/Python 背景学习者来说，可以把 annotation 类比为 decorator、metadata attribute、schema annotation 或 OpenAPI / ORM metadata 的一部分。但 SAP 的差异是：CDS annotation 处在 ABAP repository 和 SAP framework 之间，它的消费者可能是 ADT、ABAP compiler/runtime、Gateway/OData、RAP、Fiori Elements、analytics engine 或其他 SAP 工具。读 annotation 时不能只问“它写了什么”，还要问“谁读取它”。</p>
+<h4 id="3-4-key-mechanism-31b23fbd" class="semantic-heading semantic-mechanism">3.4 Key mechanism / 核心机制</h4>
+<h5 id="3-4-1-annotation-comment-6372a6a6">3.4.1 Annotation 不是 comment</h5>
+<p>普通 comment 只给人读，系统不会按业务规则解释它。CDS annotation 以 <code>@...</code> 形式出现在 DDL source 中，属于模型元数据。比如：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales Order Basic View&#x27;
+define view entity ZI_SalesOrder
+  as select from zsales_order
+{
+  key zsales_order.order_id as SalesOrder
+}</code></pre>
+<p><code>@EndUserText.label</code> 不是注释行。它会成为该 CDS object 的描述性元数据，可被工具或消费者用于显示说明。不同 annotation 的影响不同，有的只帮助可读性，有的会影响运行时或服务元数据。</p>
+<h5 id="3-4-2-annotation-target-scope-d0977d4f">3.4.2 Annotation 有 target 和 scope</h5>
+<p>annotation 必须看它挂在哪里。挂在 view entity 顶部，通常描述整个对象或对象级行为；挂在字段前，通常描述该字段；挂在 association 上，可能描述关系或消费行为；放在 metadata extension 中，则可能是把某些消费元数据从核心模型拆到单独对象。</p>
+<p>例如：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales Order Basic View&#x27;
+@AccessControl.authorizationCheck: #CHECK
+define view entity ZI_SalesOrder
+  as select from zsales_order
+{
+  key zsales_order.order_id as SalesOrder,
+
+  @Semantics.amount.currencyCode: &#x27;Currency&#x27;
+  zsales_order.net_amount as NetAmount,
+
+  @Semantics.currencyCode: true
+  zsales_order.currency as Currency
+}</code></pre>
+<p>这里 object-level annotation 和 element-level annotation 的作用范围不同。<code>@AccessControl.authorizationCheck</code> 放在 entity 上；amount/currency 语义放在字段上。初学者 review annotation 时，第一步就是问：这个 annotation 的 target 是否正确？</p>
+<h5 id="3-4-3-consumer-matters-annotation-c50c8231">3.4.3 Consumer matters：不是所有消费者都读同一批 annotation</h5>
+<p>annotation 的最大陷阱是“写了就以为生效”。实际上，annotation 必须被某个消费者理解，才会产生效果。ADT 可能显示 label；OData 可能暴露 metadata；Fiori Elements 可能读取 UI annotation 生成列表或表单；analytics 相关框架读取 analytics annotation；access-control 相关机制读取对应策略；ABAP SQL 读取 CDS 数据时，不一定关心 UI annotation。</p>
+<p>所以要避免这种说法：“这个 annotation 会让系统自动做 X”。更准确的说法是：“在某个框架/消费场景中，这个 annotation 会被解释为 X”。项目文档中应该写清楚消费方，例如 Fiori Elements list report、OData V4 service、RAP BO projection、analytics query，而不是笼统说“annotation 会生效”。</p>
+<h5 id="3-4-4-annotation-f17cc09f">3.4.4 常见 annotation 类型</h5>
+<p>初学者可以先把 annotation 分成五类。</p>
+<ul>
+<li>Descriptive / semantic：描述名称、label、amount/currency、quantity/unit、text association、value help 等业务语义。</li>
+<li>Technical / runtime：影响 ABAP CDS 或框架处理的技术行为，例如 access-control check 相关标记。</li>
+<li>UI：影响 Fiori Elements 或 UI metadata，例如列表字段、选择字段、字段组等。</li>
+<li>Service / OData：影响服务元数据、暴露方式或消费模型。</li>
+<li>Analytics：影响分析场景下的度量、维度、聚合或查询语义。</li>
+</ul>
+<p>这个分类不是 SAP 官方唯一分类，而是本书给初学者的阅读框架。实际项目中要回到 SAP Help / annotation vocabulary / 项目规范确认每个 annotation 的含义和支持范围。</p>
+<h5 id="3-4-5-inline-annotation-metadata-extension-06639d4b">3.4.5 Inline annotation 和 metadata extension</h5>
+<p>annotation 可以直接写在 CDS DDL source 中。基础语义、技术意图和离模型很近的说明，常常适合 inline，因为读模型时就能看到。例如 label、amount/currency、authorization check 入口等。</p>
+<p>UI-heavy annotation 则经常需要更谨慎。UI 消费和核心数据模型变化频率不同，多个 UI 场景也可能消费同一个基础模型。如果把太多 UI 细节塞进底层 view entity，模型会被某个画面绑死。后续的 <a class="wiki" href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">CDS metadata extension and UI annotations</a> 会专门讨论 metadata extension：什么时候把 UI annotation 拆出去，什么时候保留在核心模型附近。</p>
+<p>metadata extension 也不是“随便把 annotation 搬出去”的万能抽屉。能否拆出去，要看 annotation 的 target、scope、annotation category、系统版本和消费方是否支持。越靠近 compiler/runtime、access-control 入口或基础业务语义的 annotation，越要谨慎确认是否应该留在 DDL source 中；越靠近 UI 展示和消费层布局的 annotation，越值得考虑放在 projection / consumption 层或 metadata extension 中。</p>
+<p>本节只记住原则：inline annotation 方便阅读，但不要把所有 UI/API/analytics 需求都堆在最底层 view entity。</p>
+<h5 id="3-4-6-access-control-annotation-dcl-79dc0004">3.4.6 Access-control annotation 和 DCL 的边界</h5>
+<p>很多初学者第一次见到 <code>@AccessControl.authorizationCheck: #CHECK</code>，会误以为“这个 view 已经做完授权”。这是危险的。annotation 只表达 CDS access-control 检查策略或入口，真正的访问规则通常还要看 <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a> 和 <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a>。</p>
+<p>更重要的是，CDS access control 主要围绕读模型相关的访问控制。它不替代 RAP action authorization、update authorization、UI 按钮控制、后台任务技术用户、接口用户、authorization object 检查或 audit 设计。annotation 可以参与权限模型，但不是权限模型的全部。</p>
+<h5 id="3-4-7-annotation-fba9e937">3.4.7 Annotation 不替代行为和代码</h5>
+<p>annotation 可以减少样板代码，让模型携带更多语义，但它不是魔法。下面这些不能靠 annotation 一句话解决：</p>
+<ul>
+<li>保存前校验：例如订单金额不能为负，需要 RAP validation 或 ABAP logic。</li>
+<li>派生逻辑：例如根据项目自动计算状态，需要 determination 或应用逻辑。</li>
+<li>动作：例如 release / cancel，需要 RAP action 或服务层设计。</li>
+<li>事务边界：save sequence、lock、commit、rollback 不在普通 annotation 中完成。</li>
+<li>性能设计：annotation 不能替代 SQL trace、索引、数据量评估、association/cardinality review。</li>
+<li>完整授权：annotation 不能替代所有 authorization check 和 DCL 规则。</li>
+</ul>
+<p>所以 annotation 的正确定位是“让模型更可解释、更可消费、更能被框架识别”，不是“把业务逻辑从 ABAP 全部搬到 metadata”。</p>
+<h5 id="3-4-8-annotation-review-cb7b3e9a">3.4.8 Annotation 的 review 方法</h5>
+<p>项目 review CDS annotation 时，可以按这个顺序检查：</p>
+<ol>
+<li>它挂在正确 target 上吗？</li>
+<li>它的 consumer 是谁？ADT、OData、Fiori Elements、analytics、RAP 还是 access-control？</li>
+<li>它是否属于基础模型语义，还是 UI/API/analytics 的消费层需求？</li>
+<li>它是否和下游契约绑定，改动是否是 breaking change？</li>
+<li>它是否有对应的 DCL、metadata extension、service definition 或 behavior 设计配合？</li>
+<li>它是否只是“看起来有用”，但当前消费方根本不会读取？</li>
+<li>它是否让底层 view entity 过度耦合到某个画面或服务？</li>
+<li>它是否只是 activation 通过，但还没有经过对应消费方的 metadata / UI / service / authorization 测试？</li>
+</ol>
+<p>这个 review 方法能帮助初学者把 annotation 从“装饰语法”提升为“模型契约的一部分”。</p>
+<h5 id="3-4-9-annotation-consumer-matrix-0fb288f0">3.4.9 Annotation consumer matrix：先问谁会读取</h5>
+<p>同样写成 <code>@...</code>，annotation 的影响范围可能完全不同。读 CDS 时可以先用下面的 matrix 判断它大概服务谁：</p>
+<div class="table-wrap"><table><thead><tr><th>Annotation area</th><th>Typical consumer</th><th>Review focus</th></tr></thead><tbody><tr><td><code>@EndUserText...</code></td><td>ADT、文档、UI/metadata 展示</td><td>label 是否清楚、可翻译、是否适合目标语言。</td></tr><tr><td><code>@Semantics...</code></td><td>UI、OData metadata、analytics、消费框架</td><td>amount/currency、quantity/unit、date/time 语义是否成对正确。</td></tr><tr><td><code>@UI...</code></td><td>Fiori Elements / UI metadata consumer</td><td>是否属于 projection/metadata extension 层，而不是污染底层复用模型。</td></tr><tr><td><code>@OData...</code> / service-related metadata</td><td>OData/service exposure 相关消费者</td><td>是否改变服务 metadata 或外部 API contract。</td></tr><tr><td><code>@Analytics...</code></td><td>analytics engine / analytical consumer</td><td>measure、dimension、aggregation 语义是否和业务报表一致。</td></tr><tr><td><code>@AccessControl...</code></td><td>CDS access control / DCL 相关机制</td><td>是否和 DCL role、RAP authorization、authorization object 边界一致。</td></tr><tr><td>framework / lifecycle annotations</td><td>RAP、compiler/runtime、ADT 或生成工具</td><td>是否属于当前层级，改动是否影响 activation、behavior 或 generated metadata。</td></tr></tbody></table></div>
+<p>一个保守规则是：annotation 越靠近 UI/API/analytics 消费，越要小心把它放在 projection 或 metadata extension 层；annotation 越像基础业务语义，例如 label、amount/currency、unit，则越适合在稳定的复用模型中统一表达。</p>
+<h4 id="3-5-a2a6bc14" class="semantic-heading semantic-japan">3.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>アノテーション</code>、<code>メタデータ</code>、<code>意味付け</code>、<code>項目ラベル</code>、<code>通貨/数量単位</code>、<code>UIアノテーション</code>、<code>メタデータ拡張</code>、<code>アクセス制御</code>、<code>DCL</code>、<code>消費側</code>、<code>公開範囲</code>。</li>
+<li>说明句：<code>CDSアノテーションはコメントではなく、フレームワークや消費側が解釈するメタデータです。</code></li>
+<li>Review 句：<code>このアノテーションはどの消費側で利用される想定か、UI・OData・分析・権限制御のどれに効くのかを明確にしてください。</code></li>
+<li>分层句：<code>UI依存の強いアノテーションは、基礎ビューではなくメタデータ拡張または消費ビュー側に分離できるか確認してください。</code></li>
+<li>权限句：<code>AccessControl のアノテーションだけでは権限制御は完結しないため、DCLロールとRAP側の認可設計も確認してください。</code></li>
+</ul>
+<p>现场沟通时，<code>アノテーションを付ける</code> 只是动作；更重要的说明是 <code>誰がそのアノテーションを解釈するか</code>。如果不能说明消费方，就很难判断 annotation 是否必要。</p>
+<h4 id="3-6-english-terms-6f9275dd" class="semantic-heading semantic-terms">3.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>CDS annotations</code>, <code>ABAP CDS annotations</code>, <code>annotation scope</code>, <code>annotation target</code>, <code>annotation vocabulary</code>, <code>metadata extension</code>, <code>CDS metadata extension</code>.</li>
+<li>Common annotation terms: <code>EndUserText</code>, <code>AccessControl</code>, <code>Semantics</code>, <code>UI annotations</code>, <code>Analytics annotations</code>, <code>OData annotations</code>, <code>Consumption annotations</code>.</li>
+<li>Architecture terms: <code>metadata</code>, <code>consumer</code>, <code>Fiori Elements</code>, <code>OData metadata</code>, <code>RAP projection</code>, <code>service definition</code>, <code>service binding</code>, <code>DCL role</code>, <code>access control</code>.</li>
+<li>Recommended search pattern: <code>ABAP CDS annotations SAP Help</code>, <code>CDS metadata extension ABAP</code>, <code>Fiori Elements CDS UI annotations SAP</code>.</li>
+</ul>
+<h4 id="3-7-example-cf61cbc5" class="semantic-heading semantic-example">3.7 Example / 学习例子</h4>
+<p>下面是一个教学用片段，展示 annotation 如何给 view entity 补语义：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales Order Basic View&#x27;
+@AccessControl.authorizationCheck: #CHECK
+define view entity ZI_SalesOrder
+  as select from zsales_order
+{
+  key zsales_order.order_id as SalesOrder,
+
+  @EndUserText.label: &#x27;Net Amount&#x27;
+  @Semantics.amount.currencyCode: &#x27;Currency&#x27;
+  zsales_order.net_amount as NetAmount,
+
+  @Semantics.currencyCode: true
+  zsales_order.currency as Currency,
+
+  zsales_order.status as SalesOrderStatus
+}</code></pre>
+<p>这段可以这样读：</p>
+<ol>
+<li><code>@EndUserText.label</code> 给 view 或字段提供人类可读说明。</li>
+<li><code>@AccessControl.authorizationCheck: #CHECK</code> 表示该 view entity 有 access-control 检查意图，但还要查 DCL。</li>
+<li><code>@Semantics.amount.currencyCode: &#x27;Currency&#x27;</code> 把金额字段和币种字段关联起来。</li>
+<li><code>@Semantics.currencyCode: true</code> 说明 <code>Currency</code> 字段承担 currency code 语义。</li>
+<li>这段没有 UI line item，也没有 analytics query 语义；不要想象它自动生成完整画面或报表。</li>
+<li>这段没有 validation、action、lock 或 save sequence；那些属于 RAP / ABAP application layer。</li>
+</ol>
+<p>再看一个反例：</p>
+<pre><code class="language-abap">@UI.lineItem: [{ position: 10 }]
+@Analytics.query: true
+@AccessControl.authorizationCheck: #CHECK
+define view entity ZI_SalesOrderEverything
+  as select from zsales_order
+{
+  key order_id,
+      net_amount,
+      currency,
+      internal_flag,
+      technical_note
+}</code></pre>
+<p>这不一定语法错，但设计上值得警惕：基础 view 同时背负 UI、analytics、access-control 和内部字段暴露，模型层级可能混乱。更好的做法通常是把基础语义放在基础 view，把 UI/analytics 消费语义放到 projection/consumption view 或 metadata extension，再根据消费方设计 service。</p>
+<h4 id="3-8-counterexample-failure-mode-5e79d0b6" class="semantic-heading semantic-example">3.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把 annotation 当普通注释。修正：annotation 是可被工具/框架解释的 metadata。</li>
+<li>误区 2：以为写了 annotation 就一定生效。修正：先确认哪个 consumer 会读取它。</li>
+<li>误区 3：把 UI annotation 堆在基础 view entity。修正：区分基础语义、projection/consumption 和 metadata extension。</li>
+<li>误区 4：以为 <code>@AccessControl.authorizationCheck</code> 等于完成授权。修正：还要看 DCL、RAP authorization、authorization object 和业务权限设计。</li>
+<li>误区 5：annotation 替代业务逻辑。修正：validation、determination、action、locking、save sequence 进入 RAP/ABAP 逻辑层。</li>
+<li>误区 6：自造 annotation 名称。修正：使用 SAP 支持的 annotation vocabulary，并确认系统版本和消费者支持。</li>
+<li>误区 7：改 annotation 不做测试。修正：UI/OData/analytics metadata 可能变化，需要 service preview、metadata diff、UI 回归或 API 测试。</li>
+<li>误区 8：把 activation 成功当作设计正确。修正：activation 只能证明语法和部分静态检查通过，不能证明目标 consumer 一定按预期解释。</li>
+</ul>
+<h4 id="3-9-d7c636cc" class="semantic-heading semantic-practice">3.9 思考问题</h4>
+<ul>
+<li>这个 annotation 挂在 object、field、association、parameter 还是 metadata extension 上？</li>
+<li>它的消费者是谁？ADT、OData、Fiori Elements、analytics、RAP 还是 access-control？</li>
+<li>它表达的是基础业务语义、技术行为、UI 需求、analytics 需求，还是服务元数据？</li>
+<li>它是否应该留在基础 view entity，还是应该放到 projection view / consumption view / metadata extension？</li>
+<li>改动这个 annotation 会不会改变 OData metadata、UI 页面、analytics 结果或授权行为？</li>
+<li>这个 annotation 是否需要 DCL、behavior definition、service definition 或测试证据配合？</li>
+<li>在日本项目里，如何用一句话说明这个 annotation 的消费方和目的？</li>
+</ul>
+<h4 id="3-10-45252a2a" class="semantic-heading semantic-reference">3.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_ANNOTATIONS.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS - Annotations</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Core Data Services (ABAP CDS)</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_ACCESS_CONTROL.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS - Access Control</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_VIEW_ENTITY.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS - CDS Entities</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li><a class="wiki" href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">CDS metadata extension and UI annotations</a></li>
+<li><a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></li>
+<li><a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a></li>
+<li><a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li><a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li><a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li><a class="wiki" href="section-01-039-search-help-5766da52.html">Search help 搜索帮助</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="3-11-connections-04dc4e41">3.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li><a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li><a class="wiki" href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">CDS metadata extension and UI annotations</a></li>
+<li><a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></li>
+<li><a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li><a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li><a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Upstream: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Downstream: <a class="wiki" href="section-03-004-cds-built-in-functions-86791175.html">CDS built-in functions 内置函数</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 15 - CDS 入门与 View Entity</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="3-12-67a18a8b" class="semantic-heading semantic-practice">3.12 学习任务</h4>
+<ul>
+<li>找一个 CDS view entity，标出 object-level annotation 和 field-level annotation。</li>
+<li>用中文说明：为什么 annotation 不是 comment？它的消费者是谁？</li>
+<li>选 3 个 annotation，分别判断它们属于 semantic、technical/runtime、UI、analytics、service/OData、access-control 中哪一类。</li>
+<li>写一句日语 review comment，要求说明某个 annotation 的消费方和目的。</li>
+<li>找一个 UI-heavy annotation，判断它是否应该放在 metadata extension 或 projection/consumption 层。</li>
+<li>改写一个错误说法：“加了 annotation 系统就会自动做权限/画面/校验”，说明正确边界。</li>
+</ul>
+<h4 id="3-13-confidence-next-action-750d686d" class="semantic-heading semantic-status">3.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for annotation-as-metadata framing, consumer-dependent interpretation, target/scope review, and access-control/behavior boundaries based on SAP Help / ABAP Keyword Documentation latest pages checked on 2026-06-18. Medium for detailed metadata extension / UI annotation placement until the dedicated <code>CDS metadata extension and UI annotations</code> section is expanded.</li>
+<li>Joule review: attempted on 2026-06-13; Joule returned the same UI error as Sections 1-2. Evidence is recorded in <code>90-Review/Joule Day15 CDS Annotation Section Review 2026-06-13.md</code> and <code>90-Review/joule-cds-annotation-snapshot-*.txt</code>. No callable Joule control tool was available in the current Codex session, so this section is official-source closed, not Joule-passed.</li>
+<li>Claude review: old file-based review failed with <code>API Error: Could not load credentials from any providers</code>; current Claude health checks have been timing out. Treat Claude review as external debt rather than a blocking reason for the official-source closure.</li>
+<li>Next action: Continue to <a class="wiki" href="section-03-004-cds-built-in-functions-86791175.html">CDS built-in functions 内置函数</a>, then return for Joule/Claude batch review when the external tools are stable.</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-002-cds-view-entity-c2c04c24.html">Previous section</a><a href="section-03-004-cds-built-in-functions-86791175.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Enqueue locking 加锁设计 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="10-enqueue-locking-888f1364" class="chapter-title">10. Enqueue locking 加锁设计</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 10</li><li>self-contained study note</li></ul><h4 id="10-1-73222754" class="semantic-heading semantic-concept">10.1 一句话结论</h4>
+<p>SAP enqueue locking 是 SAP 应用层的业务对象锁机制，用来防止多个用户或进程同时修改同一业务对象。它解决的是“并发修改导致覆盖、重复处理或状态错乱”的问题，不等同于数据库层的 <code>SELECT ... FOR UPDATE</code>，也不等同于幂等、授权或 validation。</p>
+<p>初学者可以先记住一句项目话：如果两个用户可能同时处理同一张单据、同一个上传批次、同一个主数据对象或同一段业务状态，就要考虑 SAP enqueue / lock object / lock function module / RAP locking 这类机制，而不是只靠“保存时再检查一下”。</p>
+<h4 id="10-2-812005a7" class="semantic-heading semantic-concept">10.2 到底学什么</h4>
+<p>本节学习 SAP 加锁设计的项目判断。前面的 <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a> 已经说明了 classic lock object、enqueue server 和 generated enqueue/dequeue function modules 的基础；本节站在 Week 4 的生产就绪视角，回答更接近项目设计的问题：什么时候需要锁，锁住什么 key，锁失败怎么处理，锁和事务、幂等、授权、日志如何配合。</p>
+<p>第一，理解锁保护的是业务一致性。锁不是为了让程序“更安全一点”而随手加的装饰，而是为了明确某个业务对象在某段处理期间只能被一个会话或流程修改。</p>
+<p>第二，区分 SAP enqueue 和数据库锁。数据库锁通常和数据库事务、SQL 语句、连接生命周期相关；SAP enqueue 更偏 SAP 应用服务器层的逻辑锁，通常围绕 lock object 和业务 key 建模，能跨用户会话表达“这个业务对象正在被处理”。</p>
+<p>第三，知道锁和事务边界相互影响。锁什么时候取得、什么时候释放、失败时如何提示、超时或用户中断如何处理，都必须和 <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a>、commit/rollback、RAP save sequence、后台 job 和错误处理一起设计。</p>
+<p>第四，知道锁不解决所有并发问题。重复请求要看幂等；无权限操作要看授权；状态规则要看 validation/instance rule；数据库唯一性仍要靠数据库或最终保存检查。锁是并发控制的一部分，不是万能保险。</p>
+<p>第五，能把锁写进设计书和测试书。一个可交付的锁设计不能只写“加锁处理”。它至少要说清：锁对象或 RAP locking 机制、锁 key、锁取得时机、锁失败消息、等待策略、释放路径、并发测试证据，以及是否允许后台 job、API、画面操作共用同一套排他控制规则。</p>
+<p>可以把 enqueue locking 看成“业务关键区”的入口管理。进入关键区之前，系统要确认这个业务对象没有被其他会话、job 或 API 请求占用；进入关键区之后，系统要尽量缩短持锁时间，并保证所有副作用都在清楚的事务和日志边界内发生。这里的关键区不是代码里的某一行，而是一段业务意义明确的处理，比如“执行上传批次”“修改订单状态”“生成正式结果”“关闭主数据维护窗口”。</p>
+<p>初学者还要建立一个重要顺序：先做便宜、无副作用、不会引入竞态的检查；然后拿锁；拿锁后重新读取对象状态并做真正关键的状态判断；最后才进入会产生副作用的处理。这样既避免无意义地长时间持锁，也避免两个请求在拿锁前都读到旧状态。这个顺序在设计书里通常比具体 ABAP 语句更重要。</p>
+<p>锁协议还必须跨入口一致。如果 Fiori action 会拿锁，但 OData API、后台 job、旧 report 或迁移程序没有拿同一个业务 key 的锁，那么用户仍然可能绕过排他控制。生产就绪的排他控制，不是某个画面的按钮逻辑，而是“所有写入口共同遵守同一套业务对象锁协议”。</p>
+<h4 id="10-3-1a08bbac" class="semantic-heading semantic-why">10.3 为什么重要</h4>
+<p>单人 POC 很容易成功，因为没有并发。真正上线后，两个用户可能同时打开同一对象，一个后台 job 正在处理，另一个 API 请求又提交了相同数据；或者用户重复点击、网络重试、外部系统重发请求。没有清晰的锁设计，系统可能出现最后写入覆盖前一次修改、同一批数据被执行两次、状态从已完成倒退、日志和业务数据不一致等问题。</p>
+<p>对 Java/Python 背景读者，可以把 SAP enqueue 类比成基于业务 key 的应用层悲观锁，但 SAP 的语境更具体：锁对象通常由 ABAP Dictionary / lock object 定义，运行时通过 enqueue/dequeue 逻辑管理；锁条目由 enqueue service 管理；RAP 场景还要尊重 framework-managed locking、lock master / lock dependent、unmanaged <code>FOR LOCK</code> 和 save sequence。不能简单把数据库行锁、线程锁或 Redis lock 的经验直接套进 SAP。</p>
+<p>项目交付中，锁设计还影响用户体验。无锁会导致数据错乱；锁太粗会导致用户互相阻塞；锁不释放会导致“对象一直被占用”；错误消息不清楚会让测试和运维无法判断是权限、状态、锁还是系统问题。</p>
+<p>更重要的是，锁设计决定“谁先被拒绝”。好的设计会在真正产生副作用之前拒绝第二个并发请求；坏的设计会在写入一半、调用外部接口之后才发现状态已变化。前者只是一个可解释的 lock error；后者会变成数据修复、接口冲正和客户说明。</p>
+<p>对日本项目来说，这一点会直接影响 <code>結合テスト</code> 和上线后障害调查。锁失败如果能返回明确的业务消息、记录 request id、用户、业务 key、时间和处理阶段，测试人员可以判断“这是预期的排他制御”；如果只出现 timeout、dump、generic error 或数据不一致，缺陷会在开发、Basis、权限、接口团队之间来回流转。好的锁设计能减少这种来回。</p>
+<p>锁也影响性能。持锁时间越长，并发能力越差；锁范围越大，无关用户越容易互相阻塞；等待策略越不清楚，接口调用越容易堆积。不是所有并发问题都应该用长时间悲观锁解决。对只读冲突、保存时覆盖、低概率编辑冲突，optimistic locking / ETag / status recheck 可能更合适。enqueue locking 适合保护会产生明确排他副作用的业务处理，而不是把整个系统串行化。</p>
+<h4 id="10-4-key-mechanism-398f618d" class="semantic-heading semantic-mechanism">10.4 Key mechanism / 核心机制</h4>
+<p>一个典型的 SAP 锁设计包含五个问题：</p>
+<pre><code class="language-text">What to lock?
+  -&gt; business object key, document number, upload batch id, master data key
+
+When to lock?
+  -&gt; before critical change, before long-running state transition, before save
+
+How long to lock?
+  -&gt; shortest period that protects consistency
+
+What if lock fails?
+  -&gt; clear message, retry policy, no partial side effect
+
+When to unlock?
+  -&gt; normal completion, rollback/error path, user cancellation/session end</code></pre>
+<p>经典 ABAP 中常见做法是定义 lock object，然后通过系统生成的 enqueue/dequeue function module 获取和释放锁。RAP 中还要看 behavior definition、lock master/dependent、managed/unmanaged 实现方式以及框架保存流程。具体语法随系统版本和开发模型不同而变化，但设计问题相同：锁 key 是什么、锁范围多大、锁失败如何返回、锁和事务何时结束。</p>
+<p>锁 key 要尽量贴近业务对象。比如上传批次就锁 batch id；单据就锁 document number；公司代码级别大锁只有在确实需要全公司串行处理时才使用。锁太细保护不了一致性，锁太粗会降低并发。</p>
+<p>可以用下面的判断表做初步设计：</p>
+<div class="table-wrap"><table><thead><tr><th>设计问题</th><th>好答案</th><th>风险答案</th></tr></thead><tbody><tr><td>What to lock</td><td>业务 root key，例如 batch id、document number、business partner id</td><td>只锁一条明细行，或直接锁整个 company code</td></tr><tr><td>When to lock</td><td>在关键状态变更、execute、save 或长处理前取得</td><td>等到外部调用、日志写入、部分保存后才锁</td></tr><tr><td>Failure behavior</td><td>返回明确 lock error，不产生正式副作用</td><td>捕获异常后继续处理，或只给 generic error</td></tr><tr><td>Unlock path</td><td>成功、失败、取消、rollback、session/job 结束都有策略</td><td>只在 happy path 解锁</td></tr><tr><td>Test evidence</td><td>两用户、两 API 请求、job/API 交叉并发都测</td><td>只测单用户保存</td></tr></tbody></table></div>
+<p>锁设计还要和四类机制分开：</p>
+<pre><code class="language-text">authorization: who may perform the action
+validation: whether the business state/input is valid
+enqueue locking: whether another process is already handling the object
+idempotency: whether the same request can be retried without duplicate effect</code></pre>
+<p>这四件事经常一起出现在 execute action 或保存逻辑里，但它们的责任不同。权限失败应说明用户无权；validation 失败应说明状态或输入不合法；lock 失败应说明对象正在被处理；idempotency 命中应说明请求已经处理过或正在处理。把它们混成一个“处理失败”会让测试、运维和客户都很难判断。</p>
+<p>一个更接近生产的执行顺序可以写成：</p>
+<pre><code class="language-text">1. Cheap precheck
+   Validate request shape, required keys, static/global authorization, and object existence.
+
+2. Acquire business lock
+   Lock root business key, not an arbitrary technical row.
+
+3. Re-read inside lock
+   Read the latest status and organization values after the lock is held.
+
+4. Check operation rules
+   Run instance/state-dependent authorization, validation, status transition, and idempotency decision.
+
+5. Execute critical changes
+   Change status, write logs, call controlled side effects, and save consistently.
+
+6. Release / recover
+   Release on normal completion and controlled error paths; preserve evidence for failures.</code></pre>
+<p>第 3 步很重要。很多并发 bug 的根源是：程序在拿锁前读了状态，拿锁后继续相信旧状态。正确做法通常是拿到锁以后重新读取关键状态，因为第二个请求等待期间，第一个请求可能已经改变了对象。拿锁只说明“现在轮到你处理”，不说明“你之前读到的状态仍然有效”。</p>
+<p>RAP 场景还要区分三种情况：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>设计重点</th></tr></thead><tbody><tr><td>Managed RAP with locking</td><td>优先理解 behavior definition 的 locking contract、lock master/dependent 和 framework 行为</td></tr><tr><td>Unmanaged RAP</td><td>看是否实现 <code>FOR LOCK</code> / lock handling，并确认与 save sequence 和 authorization 一致</td></tr><tr><td>Classic wrapper / legacy integration</td><td>评估 classic enqueue、released locking API、transaction boundary 和 ABAP Cloud 限制</td></tr></tbody></table></div>
+<p>不要因为熟悉 classic lock object 就在所有 RAP handler 里直接写 enqueue/dequeue。RAP 的 interaction phase、save sequence、draft、ETag、managed locking 和 ABAP Cloud released API 约束，都可能改变正确做法。教程的重点是让读者先问对设计问题，再回到当前系统版本和官方文档确认实现方式。</p>
+<h4 id="10-5-339b7e33" class="semantic-heading semantic-japan">10.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ロック</code>、<code>排他制御</code>、<code>エンキュー</code>、<code>ロックオブジェクト</code>、<code>同時更新</code>、<code>二重実行</code>、<code>ロック解除</code>、<code>ロックエラー</code>。</li>
+<li>设计说明：同一アップロードバッチに対する二重実行を防止するため、execute 処理開始時にバッチ ID 単位で enqueue lock を取得します。</li>
+<li>Review 说法：ロックキーが業務オブジェクト単位になっているか、ロック失敗時に副作用が発生していないか確認してください。</li>
+<li>测试说法：2 ユーザで同一伝票を同時更新し、片方がロックエラーになることを確認します。</li>
+<li>缺陷调查：ロックが残っている場合、正常終了、異常終了、セッション切断時の解除経路を確認します。</li>
+<li>设计书条目：ロックキー、取得タイミング、解除タイミング、ロック失敗時のメッセージを設計書に明記します。</li>
+<li>测试书条目：画面操作、API、バックグラウンドジョブで同一キーを同時処理した場合の排他制御を確認します。</li>
+</ul>
+<h4 id="10-6-english-terms-0391f8c2" class="semantic-heading semantic-terms">10.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>SAP enqueue</code>, <code>enqueue lock</code>, <code>lock object</code>, <code>DEQUEUE</code>, <code>ENQUEUE</code>, <code>SAP lock concept</code></li>
+<li>Related terms: <code>SELECT FOR UPDATE</code>, <code>pessimistic locking</code>, <code>optimistic locking</code>, <code>transaction boundary</code>, <code>SAP LUW</code>, <code>RAP locking</code>, <code>lock master</code>, <code>lock dependent</code>, <code>FOR LOCK</code>, <code>CL_ABAP_LOCK_OBJECT_FACTORY</code></li>
+<li>Recommended search pattern: <code>SAP ABAP enqueue lock object transaction boundary</code></li>
+</ul>
+<h4 id="10-7-example-03b35d5d" class="semantic-heading semantic-example">10.7 Example / 学习例子</h4>
+<p>假设 AC0567C 类似的上传 API 有一个 <code>execute</code> action。用户 A 和外部系统几乎同时提交同一个 batch id。</p>
+<p>合理设计可以是：</p>
+<ul>
+<li>进入 execute 前先做 <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a>，确认 batch id、状态和基本权限。</li>
+<li>在真正执行前按 batch id 获取 enqueue lock。</li>
+<li>如果锁失败，返回“该批次正在处理中”的明确错误，不进入保存或外部调用。</li>
+<li>锁成功后读取最新状态，再做 instance authorization / validation。</li>
+<li>执行保存时尊重 <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存顺序</a> 和 <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a>。</li>
+<li>正常结束或错误退出时释放锁，日志里记录锁失败或处理失败原因。</li>
+</ul>
+<p>测试时需要两个并发调用：第一个持有锁，第二个应被拒绝或等待，具体取决于设计。测试证据要包含时间、用户、batch id、请求响应、日志和最终数据状态。</p>
+<p>可以把这个场景写成更接近设计书的形式：</p>
+<pre><code class="language-text">Object to protect:
+  upload batch root
+
+Lock key:
+  client + batch_id
+
+Lock timing:
+  after cheap precheck, before execute changes status or calls external side effects
+
+Lock failure:
+  return business error &quot;Batch is currently being processed&quot;
+  do not create success log
+  do not call downstream API
+
+Release timing:
+  after save sequence completes, or on controlled error path
+
+Separate controls:
+  authorization -&gt; static/global execute permission plus instance/state-dependent permission
+  validation -&gt; batch status and item consistency
+  idempotency -&gt; repeated request key / processed-state replay
+  application log -&gt; evidence for lock failure and execution result</code></pre>
+<p>为什么不是“先执行，最后保存前再锁”？因为 execute 往往不是一条简单 <code>UPDATE</code>。它可能读取明细、改变状态、写日志、调用其他 API、生成消息或事件。如果到最后才发现另一个请求已经处理过同一批次，系统已经很难干净回滚所有副作用。</p>
+<p>为什么不是“只靠 idempotency”？因为 idempotency 通常处理“同一个请求重复到达”，而锁处理“两个会话同时处理同一个业务对象”。两个请求可能有不同 request id，却指向同一个 batch id；这时只看 request id 不够，仍需要按业务对象做排他控制或状态互斥检查。</p>
+<p>为什么不是“只靠数据库唯一键”？唯一键可以防止重复插入某条记录，但不能完整表达“这个批次正在被执行中”。如果 execute 会跨 header、item、日志、状态和外部系统，数据库约束只是最后一道防线，不是完整的业务并发协议。</p>
+<p>再看一个主数据维护例子。用户 A 打开业务伙伴扩展数据并进入编辑；用户 B 同时尝试编辑同一业务伙伴。如果业务要求“编辑期间就排他”，应在进入编辑或保存前按业务伙伴 key 建立业务锁，并在用户离开、保存、取消或会话结束时释放。如果业务允许多人编辑但保存时检测覆盖，则更可能使用乐观并发控制。两者都可以成立，但测试预期完全不同：前者第二个用户应尽早看到 lock error，后者可能保存时看到 conflict。</p>
+<p>再看后台 job 例子。一个 nightly job 正在处理工厂 1000 的待上传 batch；此时 API 又提交同一 batch 的 execute。若 job 和 API 不共用锁协议，两个入口都认为自己是合法处理者。更稳的设计是 job/API/UI 都用同一个 batch root key 做互斥，并在 application log 中记录 entry point：<code>UI action</code>、<code>OData action</code>、<code>background job</code>。这样发生冲突时，运维可以知道对象被哪个入口占用。</p>
+<p>锁失败证据可以写成下面这种测试期望：</p>
+<pre><code class="language-text">Expected lock-failure evidence:
+  business key: BATCH-4711
+  lock owner or processing entry: user/job/request id
+  second request result: conflict / business lock error
+  side effect: none
+  application log: lock failure recorded with timestamp and request id
+  final status: unchanged by rejected request</code></pre>
+<p>这个证据比“第二个请求失败了”更有价值，因为它证明失败发生在关键副作用之前。</p>
+<h4 id="10-8-counterexample-failure-mode-417cc491" class="semantic-heading semantic-example">10.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十三类。</p>
+<p>第一，不加锁。两个请求同时执行，后提交覆盖先提交，或同一批次被处理两次。</p>
+<p>第二，锁 key 太粗。按公司代码锁住所有处理，导致不同单据也互相阻塞。</p>
+<p>第三，锁 key 太细。只锁行项目，不锁业务头对象，仍然允许两个流程同时改变整体状态。</p>
+<p>第四，锁失败后继续处理。代码捕获了锁错误但仍进入保存或外部调用，锁形同虚设。</p>
+<p>第五，锁释放路径不完整。异常、取消、rollback、后台 job 中断后锁残留，用户持续无法处理对象。</p>
+<p>第六，把锁当幂等。锁能防止同时处理，但不能单独证明“同一个请求重试时只执行一次”；重复请求仍需要 idempotency key、状态检查或唯一约束。</p>
+<p>第七，先持锁再做昂贵或可拒绝的检查。如果权限、batch id 格式、对象存在性这类 cheap precheck 可以提前完成，却在拿锁后才做，会延长持锁时间，降低并发能力。一般思路是：先做不会产生副作用的早期检查，再在进入关键区前拿锁；但涉及状态竞态的检查要在拿锁后重新确认。</p>
+<p>第八，忘记后台和接口入口。画面上加了锁，但后台 job、RFC、OData action、批处理程序绕过同一锁协议，仍然可能并发写同一对象。生产就绪的排他控制要覆盖所有写入口。</p>
+<p>第九，在 RAP 中绕开 framework。Managed RAP 中应优先理解 behavior definition 的 locking contract 和 framework 保存流程；unmanaged RAP 或 wrapper 场景才讨论显式 lock handler / released locking API。直接在 handler 里套 classic enqueue/dequeue 可能引入 ABAP Cloud、transaction boundary 或 save sequence 风险。</p>
+<p>第十，拿锁后不重读状态。程序拿锁前读到 <code>READY</code>，等待锁期间别的流程已经把状态改成 <code>DONE</code>，拿到锁后仍按旧状态执行。修正方式是在锁内重新读取对象并重新判断状态。</p>
+<p>第十一，锁失败没有证据。第二个请求被拒绝，但没有 request id、业务 key、当前持有者或日志，测试和运维只能猜。修正方式是让 lock error 进入可审计响应或 application log。</p>
+<p>第十二，把等待策略留给默认行为。接口调用如果长时间等待锁，调用方可能 timeout 后重试，反而制造更多并发请求。修正方式是明确等待、立即失败、重试间隔、HTTP/conflict 语义和幂等规则。</p>
+<p>第十三，把锁 key 建在可被客户端篡改的字段上。如果 batch id、company code 或 owner 直接来自 payload 而不从持久化对象/可信上下文重读，可能锁错对象。修正方式是锁前校验 key，锁后从数据库或 transactional buffer 重读可信业务对象。</p>
+<h4 id="10-9-573b68a5" class="semantic-heading semantic-practice">10.9 思考问题</h4>
+<ul>
+<li>当前要保护的业务对象 key 是什么？</li>
+<li>两个用户同时处理同一对象时，谁应该成功，谁应该失败或等待？</li>
+<li>锁应该在 precheck 前、precheck 后、保存前，还是整个编辑期间持有？</li>
+<li>锁失败时错误消息是否明确、可测试？</li>
+<li>异常路径是否释放锁？</li>
+<li>这个问题是并发修改、重复请求、权限不足，还是状态校验失败？</li>
+</ul>
+<h4 id="10-10-51df1df3" class="semantic-heading semantic-reference">10.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENSAP_LOCK.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - SAP Locks</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENSAP_LUW.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - SAP LUW</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/lock-definition" target="_blank" rel="noopener noreferrer">SAP Help - RAP Lock Definition</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/lock-implementation" target="_blank" rel="noopener noreferrer">SAP Help - RAP Lock Implementation</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20enqueue%20lock%20object" target="_blank" rel="noopener noreferrer">SAP Help search - SAP enqueue lock object</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20lock%20object%20enqueue" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP lock object enqueue</a></li>
+<li><a href="https://help.sap.com/docs/search?q=RAP%20locking" target="_blank" rel="noopener noreferrer">SAP Help search - RAP locking</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="10-11-connections-333b832d">10.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a></li>
+<li>Related: <a class="wiki" href="section-04-012-select-for-update-vs-sap-enqueue-17d18ae8.html">SELECT FOR UPDATE vs SAP enqueue</a></li>
+<li>Related: <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a></li>
+<li>Related: <a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">Idempotency key 幂等键</a></li>
+<li>Related: <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存顺序</a></li>
+<li>Downstream: <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 23 - 事务边界、Commit 限制与锁</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="10-12-2ea72320" class="semantic-heading semantic-practice">10.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明 SAP enqueue 和数据库 <code>SELECT FOR UPDATE</code> 的差异。</li>
+<li>为一个上传 batch 设计锁 key、锁取得时机、锁失败消息和释放路径。</li>
+<li>写一句日语 review 评论，要求确认 lock key 是否过粗或过细。</li>
+<li>设计两个用户同时处理同一对象的测试步骤。</li>
+<li>在 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中标出 execute action 应该如何防止二重実行。</li>
+</ul>
+<h4 id="10-13-confidence-next-action-97f8c04a" class="semantic-heading semantic-status">10.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the SAP enqueue / business-key logical lock framing, database-lock distinction, idempotency / authorization / validation separation, RAP locking caveats, and cheap-precheck -&gt; acquire lock -&gt; re-read -&gt; operation-rule check sequence; Claude 2026-06-18 follow-up returned <code>Pass with fixes</code>, and the non-blocking static/global authorization versus instance/state-dependent authorization clarification is already present in the current sequence. Medium-High for exact lock object implementation, generated enqueue/dequeue function module details, RAP <code>lock master</code> / <code>lock dependent</code> / unmanaged <code>FOR LOCK</code> syntax, released locking API availability, and release/session cleanup behavior because they depend on the target ABAP release and development model. Joule evidence for this specific section remains deferred because the controlled Joule path was unstable/unavailable.</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a>，把锁持有时间、commit/rollback 和业务一致性边界放在一起理解；后续如 Joule 工具恢复，可补一次 SAP-specialist confirmation，不阻塞当前 <code>expanded-review</code> 状态。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a></p>
+<p>原子笔记入口：<a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-009-pfcg-role-basics-for-developers-705939eb.html">Previous section</a><a href="section-04-011-transaction-boundary-b94ac411.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>CDS access control 访问控制 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="11-cds-access-control-0582b8cc" class="chapter-title">11. CDS access control 访问控制</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 11</li><li>self-contained study note</li></ul><h4 id="11-1-fda20dd2" class="semantic-heading semantic-concept">11.1 一句话结论</h4>
+<p>CDS access control 访问控制，是 ABAP CDS 用 DCL（Data Control Language）在读取 CDS entity 时自动追加访问条件的一套机制。它的目标是让同一个 CDS view entity 在被 ABAP SQL、SADL、RAP/OData 等消费时，只返回当前用户有权看到的数据行。</p>
+<p>这句话有三个边界必须一起记住。第一，CDS access control 主要控制 read access，也就是“能看到哪些数据”。第二，它依赖 CDS role / DCL source 中的 access rule，而不是只靠 <code>@AccessControl.authorizationCheck: #CHECK</code> 这个 annotation。第三，它不是完整 SAP 授权设计：能不能启动应用、能不能执行 action、能不能修改数据、后台技术用户怎样访问、审计怎样留痕，仍然要看 PFCG role、authorization object、<code>AUTHORITY-CHECK</code>、RAP authorization、service 暴露和运维控制。</p>
+<h4 id="11-2-aca8e8cd" class="semantic-heading semantic-concept">11.2 到底学什么</h4>
+<p>本节先学“CDS access control 是什么”，下一节 <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a> 再展开 DCL role 的具体写法。初学者不应该一上来背复杂语法，而应该先建立五个判断。</p>
+<ol>
+<li>哪个 CDS entity 需要 read access control？</li>
+<li>这个 entity 上的 <code>@AccessControl.authorizationCheck</code> 是 <code>#CHECK</code>、<code>#MANDATORY</code>、<code>#NOT_REQUIRED</code> 还是 <code>#NOT_ALLOWED</code>？</li>
+<li>是否真的存在对应 DCL source / CDS role？</li>
+<li>DCL 规则是 literal condition、PFCG condition，还是继承其他 access condition？</li>
+<li>当前消费路径是否会触发隐式 CDS access control？</li>
+</ol>
+<p>SAP Learning 对 ABAP CDS authorization 的说明很适合初学者：DCL 用来以 modeled、declarative 的方式定义 CDS entities 所需授权；CDS role 用 <code>GRANT SELECT ON ... WHERE ...</code> 把 access condition 关联到 CDS view；访问 CDS view 时，结果会按 access condition 自动过滤。SAP-samples 的 authorization cheat sheet 也把它和 <code>AUTHORITY-CHECK</code> 分开：显式授权检查用 ABAP 语句，读 CDS entity 时可以用 CDS access control 做隐式读过滤。这里的“隐式”不是神秘行为，而是说读 CDS entity 的 ABAP SQL / SADL 路径会把 DCL 条件纳入取数；应用代码通常不需要再手写同一段 <code>WHERE SalesOrg IN ...</code>。</p>
+<h4 id="11-3-9442929f" class="semantic-heading semantic-why">11.3 为什么重要</h4>
+<p>没有 CDS access control，很多项目会把权限过滤散落在 ABAP 代码、UI filter、OData handler 或前端逻辑里。这样做短期能跑，长期会出现几个典型风险：</p>
+<ul>
+<li>同一个 CDS view 被多个应用复用时，每个消费方都要自己补过滤，容易漏。</li>
+<li>ABAP SQL 直接读表或读无 DCL 的 CDS view 时，默认不会替开发者自动做业务授权判断。</li>
+<li>Fiori / OData 列表看起来隐藏了数据，但后台 job、接口或另一个报表可能仍然能读到。</li>
+<li>项目 review 时无法明确说明“授权条件在哪里生效、谁维护、如何测试”。</li>
+<li>审计时只能看到零散代码，不能从模型层解释数据访问边界。</li>
+</ul>
+<p>CDS access control 的价值是把一部分 read authorization 前移到模型层。它让数据模型不仅说明“数据是什么”，还说明“当前用户读这个模型时应该看到哪些行”。这对 RAP/OData 尤其重要，因为服务、Fiori 页面、ABAP SQL 消费可能共享同一套 CDS 模型。</p>
+<p>对 Java/Python 背景读者，可以把它粗略类比成 ORM query filter、row-level security 或 repository 层自动加 tenant / organization 条件。但 SAP 的差异在于：它是 ABAP repository object，依赖 CDS DCL、PFCG authorization object、current user、SADL/ABAP SQL 消费路径和系统授权配置。</p>
+<h4 id="11-4-key-mechanism-ab839579" class="semantic-heading semantic-mechanism">11.4 Key mechanism / 核心机制</h4>
+<h5 id="11-4-1-annotation-92a27d50">11.4.1 annotation 只是入口，不是规则本身</h5>
+<p>一个需要访问控制的 CDS view entity 常见写法如下：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales order secured view&#x27;
+@AccessControl.authorizationCheck: #CHECK
+define view entity ZI_SalesOrder
+  as select from zsales_order
+{
+  key sales_order_id as SalesOrderID,
+      sales_org      as SalesOrg,
+      customer_id    as CustomerID,
+      gross_amount   as GrossAmount
+}</code></pre>
+<p><code>@AccessControl.authorizationCheck: #CHECK</code> 的意思不是“授权已经完成”，而是告诉语法检查和运行时：这个 entity 预期会参与 CDS access control。SAP-samples 对 annotation 选项的说明很清楚：</p>
+<ul>
+<li><code>#NOT_REQUIRED</code>：声明这个 entity 不需要 CDS-level access control；如果没有其它限制，所有用户可读到没有 DCL 限制的数据。它不是“更安全”的选项，而是明确说这里不靠 DCL 做行级限制。</li>
+<li><code>#CHECK</code>：期望存在 access control；如果没有 access control object，开发时会看到 warning。但没有 DCL role 时，它不会凭空产生限制，结果仍然不会被 CDS DCL 过滤。</li>
+<li><code>#MANDATORY</code>：必须存在 access control object。和 <code>#CHECK</code> 的 warning 不同，缺少 access control 时会成为更强的错误/激活阻断信号。对生产中需要行级限制的 CDS entity，通常比 <code>#CHECK</code> 更能暴露“忘记创建或移送 DCL”的问题。</li>
+<li><code>#NOT_ALLOWED</code>：不允许 access control；即使有 DCL 也会被忽略或导致相应检查问题。它适合明确不允许 DCL 的技术对象，而不是业务敏感数据的默认选择。</li>
+</ul>
+<p>所以 review 时要问：这里写的是哪一个值？为什么？如果是 <code>#CHECK</code> 或 <code>#MANDATORY</code>，DCL role 在哪里？如果是 <code>#MANDATORY</code>，DCL 是否和 CDS entity 一起 activation、一起进入 transport request？如果是 <code>#NOT_REQUIRED</code>，是否确认这个 view 不需要行级限制？如果是 <code>#NOT_ALLOWED</code>，是否有清楚的技术理由？</p>
+<h5 id="11-4-2-dcl-role-9912ba1f">11.4.2 DCL role 才定义访问规则</h5>
+<p>真正的规则写在 DCL source 中，典型形式是：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales order access&#x27;
+@MappingRole: true
+define role ZR_SO_ACCESS {
+  grant select on ZI_SalesOrder
+    where ( SalesOrg ) =
+      aspect pfcg_auth( ZSO_AUTH, VKORG, ACTVT = &#x27;03&#x27; );
+}</code></pre>
+<p>这段意思是：读取 <code>ZI_SalesOrder</code> 时，把 CDS 字段 <code>SalesOrg</code> 和 authorization object <code>ZSO_AUTH</code> 中的授权字段 <code>VKORG</code> 关联起来，并要求 display activity <code>ACTVT = &#x27;03&#x27;</code>。当前用户在 PFCG role 中拥有哪些授权值，就会影响这个 CDS entity 返回哪些行。</p>
+<p><code>@MappingRole: true</code> 也要看懂：它表示这个 CDS role 会作为映射角色参与隐式访问控制评估，通常不需要像业务角色那样把 DCL role 单独分配给某个用户。真正决定用户能看到哪些值的，仍然是 DCL 条件和当前用户的 PFCG / IAM 授权上下文。</p>
+<p>下一节 <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a> 会专门讲 <code>define role</code>、<code>grant select on</code>、<code>where</code>、<code>aspect pfcg_auth</code>、literal condition、继承规则和 full access rule。本节只要先抓住：CDS access control = CDS entity 上的 access-control 意图 + DCL role 中的 access rule + 当前用户授权上下文。</p>
+<h5 id="11-4-3-cds-entity-e6360139">11.4.3 它通常在读 CDS entity 时隐式生效</h5>
+<p>ABAP Keyword Documentation 说明，如果一个非 abstract CDS entity 有 CDS role / access rule，access condition 会在 ABAP SQL read 中隐式评估；只有满足条件的数据会被读取。SAP Learning 也强调，如果没有 DCL role，查询结果不会因为 <code>#CHECK</code> 自动变安全。这个过滤是设计特性：它让数据库层面少读无权限数据，既保护数据，也避免应用层再拿全量数据做二次过滤。</p>
+<p>这意味着：</p>
+<pre><code class="language-abap">SELECT *
+  FROM ZI_SalesOrder
+  INTO TABLE @DATA(orders).</code></pre>
+<p>如果 <code>ZI_SalesOrder</code> 有生效的 DCL role，上面的 <code>SELECT</code> 会拿到被 DCL 限制后的结果。ABAP 程序通常不会知道“数据库里本来有 100 行，但因为 DCL 只返回了 40 行”。对程序来说，它只是读到了 40 行。这一点对业务错误处理很重要：CDS access control 不会自动告诉用户“你没有权限看另外 60 行”。</p>
+<h5 id="11-4-4-projection-view-rap-authorization-1c93f85f">11.4.4 它和 projection view / RAP authorization 有边界</h5>
+<p>上一节 <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a> 里，projection example 使用了 <code>@AccessControl.authorizationCheck: #NOT_REQUIRED</code>，原因是 projection 层通常继承底层 interface/root view 的 DCL，不应该让读者误以为服务裁剪层要重新定义一套行级授权。</p>
+<p>但这不是说 projection、RAP、service 层不用管授权。它们要管的是不同问题：</p>
+<ul>
+<li>CDS access control / DCL：当前用户读取这个 CDS entity 时能看到哪些行。</li>
+<li>Projection view：服务视角要不要暴露某些字段或 navigation。</li>
+<li>Service definition / binding：哪些 projection entity 被服务暴露，用什么协议消费。</li>
+<li>RAP authorization：当前用户能否执行 create/update/delete/action、是否通过 global / instance authorization。</li>
+<li>Classic authorization：能否启动应用、进入事务、执行报表、使用后台 job、访问技术功能。</li>
+</ul>
+<p>项目上不能把这些混成一句“权限已经做了”。正确说法应该是：DCL 负责某个 read model 的行级读过滤；RAP behavior / authorization 负责业务对象操作权限；PFCG / IAM / role design 负责用户授权分配；service 层负责外部契约暴露。</p>
+<h5 id="11-4-5-c28e7edc">11.4.5 还有绕过和失效场景</h5>
+<p>CDS access control 很有用，但不是魔法。必须知道几个边界：</p>
+<ul>
+<li>如果没有 CDS role / access rule，<code>#CHECK</code> 只会帮助开发时发现 warning，不会自动生成规则。</li>
+<li>如果使用 <code>#NOT_ALLOWED</code>，access control 会被禁用。</li>
+<li>ABAP SQL 可以在特定场景用 <code>WITH PRIVILEGED ACCESS</code> 绕过当前直接读取对象上的 CDS access control；这应该非常谨慎，并有 release/context、审计和设计理由。不要把它当成普通报表“看全量”的开关，也不要假设它会自动绕过所有 association target 上的访问控制。</li>
+<li>CDS access control 主要在“被直接访问的 CDS entity”入口生效。一个 CDS entity 作为另一个 CDS entity 的数据源时，不能简单假设所有底层 DCL 都按预期自动传递到最外层服务；需要用 inherited condition 或在外层 entity 上定义清楚的 DCL。</li>
+<li>一个 CDS entity 可以有多个 DCL role，实际权限可能来自多个规则的组合。初学者不要假设“一个 view 只能有一个 DCL 文件”。</li>
+<li>DCL source 本身也是 ABAP Repository object，移送时要和被保护的 CDS entity、authorization object / role design 一起检查。尤其使用 <code>#MANDATORY</code> 时，如果只移送 CDS entity 而漏掉 DCL，生产环境可能出现全员读不到数据的事故。</li>
+<li>Cross-client access 与 CDS access control 有特殊限制，不能把 DCL 当成跨 client 数据隔离方案。</li>
+</ul>
+<p>这些边界是 review 的重点。安全设计不是“写了 DCL 就结束”，而是确认它在哪条消费路径、哪个 user context、哪个 service contract 中生效。</p>
+<h4 id="11-5-a906f8a1" class="semantic-heading semantic-japan">11.5 日本项目现场说法</h4>
+<p>常见日语表达：</p>
+<ul>
+<li><code>CDSアクセス制御</code></li>
+<li><code>DCLロール</code></li>
+<li><code>行レベルのアクセス制御</code></li>
+<li><code>暗黙的アクセスチェック</code></li>
+<li><code>PFCG権限</code></li>
+<li><code>認可オブジェクト</code></li>
+<li><code>表示権限（ACTVT = 03、読み取り専用）</code></li>
+<li><code>アクセス条件</code></li>
+<li><code>RAP認可</code></li>
+</ul>
+<p>设计说明中可以这样说：</p>
+<pre><code class="language-text">このCDSビューでは、DCLロールにより販売組織単位の行レベルアクセス制御を行います。</code></pre>
+<p>代码 review 中可以这样说：</p>
+<pre><code class="language-text">@AccessControl.authorizationCheck が #CHECK になっていますが、対応する DCL ロールと PFCG 権限の設計を確認してください。</code></pre>
+<p>如果是生产向业务数据，review 语气可以更明确：</p>
+<pre><code class="language-text">本番向けのCDSエンティティで行レベル制御が必要な場合、#CHECK ではなく #MANDATORY の採用可否を確認してください。</code></pre>
+<p>障害调查中可以这样说：</p>
+<pre><code class="language-text">データが存在しないのか、DCLによってフィルタされているのかを切り分ける必要があります。</code></pre>
+<p>移送前确认中可以这样说：</p>
+<pre><code class="language-text">CDSビュー、DCLロール、認可オブジェクト、PFCGロールの移送順序と有効化状態を確認してください。</code></pre>
+<h4 id="11-6-english-terms-5c654faa" class="semantic-heading semantic-terms">11.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>CDS access control</code></li>
+<li>Official / search term: <code>CDS DCL</code></li>
+<li>Official / search term: <code>DEFINE ROLE</code></li>
+<li>Official / search term: <code>@AccessControl.authorizationCheck</code></li>
+<li>Official / search term: <code>aspect pfcg_auth</code></li>
+<li>Official / search term: <code>WITH PRIVILEGED ACCESS</code></li>
+<li>Official / search term: <code>AUTHORITY-CHECK</code></li>
+<li>Official / search term: <code>RAP authorization</code></li>
+</ul>
+<p>推荐检索：</p>
+<pre><code class="language-text">ABAP CDS access control DCL SAP Help
+AccessControl.authorizationCheck ABAP Keyword Documentation
+DEFINE ROLE aspect pfcg_auth ABAP CDS
+SAP Learning authorization concept ABAP CDS DCL</code></pre>
+<h4 id="11-7-example-452ebc7f" class="semantic-heading semantic-example">11.7 Example / 学习例子</h4>
+<h5 id="11-1-60d21005">11.例 1：销售组织行级过滤</h5>
+<p>CDS view entity：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales order secured view&#x27;
+@AccessControl.authorizationCheck: #CHECK
+define view entity ZI_SalesOrder
+  as select from zsales_order
+{
+  key sales_order_id as SalesOrderID,
+      sales_org      as SalesOrg,
+      customer_id    as CustomerID,
+      status         as Status
+}</code></pre>
+<p>DCL role：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Sales order access by sales org&#x27;
+@MappingRole: true
+define role ZR_SO_ACCESS {
+  grant select on ZI_SalesOrder
+    where ( SalesOrg ) =
+      aspect pfcg_auth( ZSO_AUTH, VKORG, ACTVT = &#x27;03&#x27; );
+}</code></pre>
+<p>读法：</p>
+<ul>
+<li><code>ZI_SalesOrder</code> 是被保护的 CDS entity。</li>
+<li><code>ZR_SO_ACCESS</code> 是 DCL role。</li>
+<li><code>@MappingRole: true</code> 表示这个 DCL role 参与隐式访问控制评估。</li>
+<li><code>grant select on</code> 说明这是读访问规则。</li>
+<li><code>SalesOrg</code> 是 CDS 字段。</li>
+<li><code>ZSO_AUTH</code> 是 authorization object。</li>
+<li><code>VKORG</code> 是 authorization field。</li>
+<li><code>ACTVT = &#x27;03&#x27;</code> 表示 display authorization。</li>
+</ul>
+<p>如果用户只被授权 <code>VKORG = 1000</code>，读取这个 CDS view 时只应该看到 <code>SalesOrg = 1000</code> 的订单。</p>
+<h5 id="11-2-dcl-af50fb5c">11.例 2：DCL 不等于修改权限</h5>
+<p>假设用户能通过 DCL 看到某些订单，不代表他能修改这些订单：</p>
+<pre><code class="language-text">能看到订单行：由 CDS access control / DCL 控制。
+能修改订单：由 RAP update authorization、behavior definition、业务规则、PFCG/IAM 等共同控制。
+能执行 cancel action：由 RAP action authorization / instance authorization 控制。
+能打开应用：由 launchpad / business catalog / role / start authorization 控制。</code></pre>
+<p>这就是为什么项目文档不能只写“已做 DCL”。更好的写法是：<code>read access is controlled by DCL; modify/action authorization is controlled by RAP behavior authorization and role design</code>。</p>
+<h5 id="11-3-fa67c106">11.例 3：排查数据少了</h5>
+<p>如果用户说“列表少了数据”，不要马上认为 SQL 错了。排查顺序可以是：</p>
+<ol>
+<li>用相同条件确认基础表或底层 view 是否有数据。</li>
+<li>检查 CDS entity 是否有 <code>@AccessControl.authorizationCheck</code>。</li>
+<li>检查是否存在 DCL role。</li>
+<li>检查 DCL 的 <code>where</code> 条件是否按预期过滤。</li>
+<li>检查用户 PFCG role / business role 是否有对应授权值。</li>
+<li>检查是否通过 projection / service / OData 或另一个 CDS entity 间接消费，外层 entity 是否也有必要的 DCL / inherited condition。</li>
+<li>检查 DCL source 是否随 CDS entity 一起移送和激活，特别是 <code>#MANDATORY</code> 场景。</li>
+<li>不要用 <code>WITH PRIVILEGED ACCESS</code> 作为日常修复；它只是排查或特殊技术场景的工具。</li>
+</ol>
+<h4 id="11-8-counterexample-failure-mode-4940758f" class="semantic-heading semantic-example">11.8 Counterexample / Failure mode</h4>
+<h5 id="11-1-check-0eff2eff" class="semantic-heading semantic-failure">11.误区 1：以为 <code>#CHECK</code> 等于完成授权</h5>
+<p><code>#CHECK</code> 只是检查策略和开发提示。没有 DCL role，就没有具体访问条件。项目上看到 <code>#CHECK</code>，必须继续找 DCL source。</p>
+<h5 id="11-2-dcl-971c8d28" class="semantic-heading semantic-failure">11.误区 2：把 DCL 当成所有权限</h5>
+<p>DCL 控制 read result。它不控制按钮是否显示、不控制 action 是否能执行、不控制 update/delete 是否允许、不控制用户是否能启动应用。完整授权要结合 RAP authorization、PFCG/IAM、service、UI 和 audit。</p>
+<h5 id="11-3-projection-dcl-9cf6fc20" class="semantic-heading semantic-failure">11.误区 3：在 projection 层重复做底层 DCL</h5>
+<p>Projection view 主要是服务裁剪层。多数 RAP 场景下，read access 的核心 DCL 放在底层 interface/root view 更清晰。Projection 层要确认继承和服务暴露，不要随手复制一套不同的 DCL 逻辑。</p>
+<h5 id="11-4-b8c54eea" class="semantic-heading semantic-failure">11.误区 4：忘记用户看不到数据也可能是“被过滤”</h5>
+<p>ABAP 程序通常无法区分“数据不存在”和“被 DCL 过滤掉”。用户反馈数据缺失时，要把 DCL 纳入调查。</p>
+<h5 id="11-5-privileged-access-98894dd3" class="semantic-heading semantic-failure">11.误区 5：滥用 privileged access</h5>
+<p><code>WITH PRIVILEGED ACCESS</code> 会绕过 CDS access control。它不能作为普通报表“看全量数据”的捷径。需要设计理由、权限限制和审计说明。</p>
+<h5 id="11-6-view-view-c1edd628" class="semantic-heading semantic-failure">11.误区 6：只保护底层 view，忘记外层 view</h5>
+<p>如果外层 CDS entity 直接被 ABAP SQL、SADL 或 OData 服务消费，只在底层 view 上写 DCL 未必足够。项目上要确认实际入口对象是否也有 access control 或 inherited condition，否则复用链路可能绕过原本以为存在的限制。</p>
+<h5 id="11-7-dcl-source-4d57cc03" class="semantic-heading semantic-failure">11.误区 7：漏移送 DCL source</h5>
+<p>DCL role 不是注释文字，而是独立的 repository object。CDS entity、DCL source、authorization object、PFCG/business role 的移送和配置顺序要一起检查。否则开发系统看起来正常，测试或生产系统可能因为缺 DCL 或缺授权值而读不到数据。</p>
+<h4 id="11-9-d61818fa" class="semantic-heading semantic-practice">11.9 思考问题</h4>
+<ul>
+<li>这个 CDS entity 是否需要行级读访问控制？</li>
+<li><code>@AccessControl.authorizationCheck</code> 的值为什么是当前选择？</li>
+<li>是否存在对应 DCL role？DCL role 是否已 activation？</li>
+<li>DCL 条件是 literal、PFCG condition，还是继承？</li>
+<li>PFCG role / IAM role 是否给用户分配了正确 authorization object value？</li>
+<li>当前消费路径是直接 ABAP SQL、SADL、RAP/OData，还是另一个 CDS view 间接消费？</li>
+<li>如果是 view-on-view，外层是否通过 DCL inheritance 或自己的 access condition 保留了授权语义？</li>
+<li>如果用户看不到数据，如何区分数据不存在和被 DCL 过滤？</li>
+<li>DCL source 是否和 CDS entity 同步移送、同步 activation？</li>
+<li>哪些权限不应该交给 DCL，而应该交给 RAP authorization、PFCG、service 或 UI？</li>
+</ul>
+<h4 id="11-10-48a0e5c8" class="semantic-heading semantic-reference">11.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_ACCESS_CONTROL.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS Access Control</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_1180334353_ANNO.html" target="_blank" rel="noopener noreferrer">SAP Help - AccessControl.authorizationCheck</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/exploring-the-authorization-concept-for-sap-fiori-on-sap-s-4hana/describing-the-authorization-concept-for-abap-cds" target="_blank" rel="noopener noreferrer">SAP Learning - Describing the Authorization Concept for ABAP CDS</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/preventing-unauthorized-access-to-data_e73ee8f7-8547-44d6-95a8-2675a62ee0cf" target="_blank" rel="noopener noreferrer">SAP Learning - Preventing Unauthorized Access to Data</a></li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/25_Authorization_Checks.md" target="_blank" rel="noopener noreferrer">SAP-samples - Authorization Checks Cheat Sheet</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="11-11-connections-2a93bf4a">11.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li>Upstream: <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li>Downstream: <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a></li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 17 - CDS Authorization</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="11-12-cee61cb4" class="semantic-heading semantic-practice">11.12 学习任务</h4>
+<ol>
+<li>找一个带 <code>@AccessControl.authorizationCheck</code> 的 CDS view entity，说明它的值是什么。</li>
+<li>找对应 DCL role，指出 <code>grant select on</code> 保护哪个 CDS entity。</li>
+<li>用中文解释 <code>#CHECK</code> 和 <code>#MANDATORY</code> 的差异。</li>
+<li>写一句日语 review comment，要求确认 DCL role 和 PFCG role 是否匹配。</li>
+<li>画出 <code>CDS view -&gt; DCL role -&gt; authorization object -&gt; PFCG/business role -&gt; user</code> 的链路。</li>
+<li>说明一个 DCL 不负责的权限场景，例如 RAP action authorization 或应用启动权限。</li>
+<li>说明 DCL source 在 transport 中漏掉时，<code>#CHECK</code> 和 <code>#MANDATORY</code> 的风险分别是什么。</li>
+</ol>
+<h4 id="11-13-confidence-next-action-768d6820" class="semantic-heading semantic-status">11.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for tutorial use。本节已按 SAP Help / ABAP Keyword Documentation、SAP Learning ABAP CDS authorization material、SAP-samples Authorization Checks、Joule <code>Pass with Fixes</code> 和 Claude follow-up <code>Pass</code> 复核；<code>#CHECK</code> / <code>#MANDATORY</code>、<code>@MappingRole: true</code>、<code>WITH PRIVILEGED ACCESS</code>、projection/RAP/PFCG 边界均已闭环。Privileged access scope、projection inheritance 和系统特定 runtime 行为仍需在具体 ABAP release、RAP scenario、service path 和客户授权设计中验证。</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿结构同步；随后继续 <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-010-projection-view-b2bacd1c.html">Previous section</a><a href="section-03-012-dcl-role-37c96020.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

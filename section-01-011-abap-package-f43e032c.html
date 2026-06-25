@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP package 包与子包 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="11-abap-package-f4394efc" class="chapter-title">11. ABAP package 包与子包</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 11</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>ABAP package 包与子包，是 ABAP Repository 中组织开发对象、连接 transport/software logistics、限定开发边界的基本容器；本节要学的是：为什么 repository object 不能像本地文件一样随便放，为什么正式开发对象要放进合适的 package，而不是放在 <code>$TMP</code> 或错误的 package 层级里。</p>
+<p><strong>正文</strong></p>
+<p>前一节讲 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a> 时，已经知道 ABAP class、CDS view entity、DDIC table、behavior definition、service definition、service binding 等都是 SAP 系统里的开发对象。package 要回答下一层问题：这些对象放在哪里、归谁组织、能不能被传输、属于哪个软件交付单元、在 ADT 里从哪里进入。</p>
+<p>ABAP package 不是 Eclipse 里的普通文件夹，也不是 Java/Python 的 <code>package</code> / module 目录。Java/Python 项目里，一个目录常常只是文件系统结构；ABAP 里，package 是 SAP Repository 管理的开发组织单元。它可以包含多个 repository objects，也会带有 package type、software component、transport layer、application component、superpackage 等属性。开发者在 ADT 里看到的 package 树，背后不是本地目录，而是 ABAP 后端系统里的 package model。</p>
+<p>最简单的理解是：package 是“正式开发对象的家”。创建一个 ABAP class 时，ADT 会问 package；创建 CDS、RAP behavior、service binding 时，也要放入 package。放进不同 package，不只是界面上位置不同，还会影响 transport request、transport layer、software component、权限和后续影响分析。日本项目里经常会问：このオブジェクトはどのパッケージに入っていますか。这个问题本质上是在确认对象是否放在正确的交付边界里。</p>
+<p>还要区分 local package 与 transportable package。<code>$TMP</code> 是常见的 local / temporary package，适合临时试验，不适合交付到 QAS/PRD 的项目成果。正式项目对象如果放在 <code>$TMP</code>，后面通常会遇到“为什么不能随 transport 去测试系统”“为什么交付清单里没有这个对象”“为什么别人系统看不到”的问题。Day 02 不要求掌握完整 CTS/TMS，但必须知道：package 是 transport 之前的第一道组织边界。</p>
+<p>最后，本节只浅讲 package hierarchy。package 可以有 superpackage / subpackage 父子结构。subpackage 帮助把一个较大的业务或技术领域拆成更小的开发单元；但它不是随便嵌套的本地目录。在很多环境中，subpackage 会继承 superpackage 的 software component，不能自己改成另一个 software component。你还会看到 Structure package、Main package、Development package 等 package type；Day 02 只要记住：直接创建 class/CDS/table 等 repository objects 的通常是 Development package，Structure/Main package 更偏组织层级，不要把它们当成随便放对象的普通目录。</p>
+<p><strong>为什么重要</strong></p>
+<p>package 是初学者最容易轻视、但真实项目最常卡住的概念之一。能写一段 ABAP 代码，不等于能把它交付到项目里。项目里要能说明：对象属于哪个 package，package 是否可传输，transport layer 是否正确，是否放在客户命名空间，是否和同一功能域的对象放在一起，是否会被 package interface / package check 限制。</p>
+<p>对 Java/Python 背景学习者来说，最容易误判的是把 package 当成本地目录。于是会出现几类典型错误：随手把练习对象放到 <code>$TMP</code>，后来发现不能送到 QAS；在错误 superpackage 下创建 subpackage，后来发现 software component 不匹配；把对象放进结构层 package，后来创建 class/CDS 失败；只看对象名，不看 package，导致影响调查时漏掉相关对象。ABAP 的“对象位置”是一部分架构信息，不只是整理文件用的视觉习惯。</p>
+<p>对日本 SAP 项目交付来说，package 还连接到设计书、移送清单和障害调查。设计说明里经常要列 object name、object type、package、transport request；移送前要确认对象都进入正确 request；故障调查时要从 package、where-used、transport history 追踪影响范围。package 放错，不一定马上编译失败，但会在 review、移送、本番反映或保守阶段变成成本。</p>
+<p><strong>核心机制</strong></p>
+<p>第一层机制是 container。ABAP package 把 repository objects / development objects 组织成一个 self-contained development unit。也就是说，它把逻辑上属于同一开发单元的对象聚在一起。一个业务功能可能有 class、interface、CDS view entity、behavior definition、service definition、service binding、message class、authorization 相关对象；它们不应该散落在无关 package 中。</p>
+<p>第二层机制是 package attributes。常见属性包括 package name、short description、package type、superpackage、software component、transport layer、application component、person responsible 等。不同系统、release、ABAP Cloud / on-premise 形态下字段和可选项会不同，但思路相同：package 不只是名字，而是带着软件物流和项目组织信息。</p>
+<p>第三层机制是 package type。初学者先记住三类常见说法：Structure package 用来搭顶层结构，Main package 用来组织较大的语义区域，Development package 才是直接承载 repository objects 的日常开发包。更准确地说：Structure package 与 Main package 本身不直接存放 class、CDS、table 等 repository object，它们主要承载下级 package 与自己的 package interface；只有 Development package 才能直接容纳日常开发对象。真实项目中不要把所有层级都当成“文件夹”；如果 ADT 不允许在某个 package 下创建对象，第一反应应当是确认 package type 和 superpackage，而不是怀疑代码语法。</p>
+<p>第四层机制是 superpackage / subpackage。subpackage 是某个 superpackage 下的子包，用于细分功能、团队或技术层。它通常继承上层 package 的 software component 等上下文；尤其在 BTP ABAP Environment / ABAP Cloud 相关场景里，software component 是 package 上方的重要组织边界。需要特别注意：subpackage 不能随意换成另一个 software component，否则容易遇到软件组件不匹配类错误，例如 ADT 提示 <code>Invalid software component</code>。</p>
+<p>第五层机制是 transport layer 与 <code>$TMP</code>。transport layer 决定 package 及其中对象的 transport behavior；local package / <code>$TMP</code> 不用于正式跨系统交付。把对象放进可传输 package 后，创建或修改对象通常会关联 <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a>；把对象放在 <code>$TMP</code>，则更像本机临时草稿，不应作为项目 deliverable。</p>
+<p>第六层机制是 namespace。客户自开发对象通常以 <code>Z</code> 或 <code>Y</code> 开头，package 也通常遵守项目命名规范。更完整的客户 namespace、partner namespace、命名规则会在 <a class="wiki" href="section-01-019-japanese-sap-naming-convention-sap-2bdcfbd7.html">Japanese SAP naming convention</a> 和项目标准里展开；Day 02 只要知道：在 ADT 创建 package 或 repository object 时，第一字符就可能决定它是不是合规客户对象。</p>
+<p>第七层机制是 package interface / package check。package 不只是装对象，还可以表达可见性和依赖边界。package interface 用于公开某些对象给其他 package 使用；package check 用于检查 package 之间的使用关系是否违反规则。本节只建立 awareness，不要求设计复杂 package interface。后面讲架构、Clean Core、released APIs 和大型项目依赖治理时，再深入理解 package boundary。</p>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>パッケージ</code>、<code>サブパッケージ</code>、<code>上位パッケージ</code>、<code>下位パッケージ</code>、<code>開発パッケージ</code>、<code>構造パッケージ</code>、<code>メインパッケージ</code>、<code>ローカルパッケージ</code>、<code>$TMPパッケージ</code>、<code>ソフトウェアコンポーネント</code>、<code>移送レイヤ</code>、<code>移送ルート</code>、<code>移送依頼</code>、<code>お気に入りパッケージ</code>、<code>パッケージチェック</code>、<code>パッケージインターフェース</code>、<code>可視性制御</code>。</li>
+<li>说明句：このオブジェクトは <code>$TMP</code> ではなく、移送可能な開発パッケージに登録してください。</li>
+<li>说明句：サブパッケージは上位パッケージのソフトウェアコンポーネントを継承するため、別コンポーネントには変更できません。</li>
+<li>说明句：このパッケージは構造パッケージなので、実装オブジェクトは配下の開発パッケージに作成してください。</li>
+<li>使用场景：新規オブジェクト作成、移送前確認、設計書レビュー、影響範囲調査、障害調査、パッケージ構成見直し。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>ABAP package</code></li>
+<li>Related terms: <code>development package</code>, <code>ABAP package</code>, <code>superpackage</code>, <code>subpackage</code>, <code>package hierarchy</code>, <code>package type</code>, <code>structure package</code>, <code>main package</code>, <code>development package</code>, <code>software component</code>, <code>transport layer</code>, <code>application component</code>, <code>local package</code>, <code>$TMP</code>, <code>package interface</code>, <code>package check</code>, <code>Favorite Packages</code></li>
+<li>Recommended search pattern: <code>ABAP Packages SAP Help</code>, <code>Creating ABAP Packages ADT SAP Help</code>, <code>ABAP package interfaces SAP Help</code>, <code>package check SAP ABAP</code></li>
+<li>读官方资料时注意：SAP 文档里有时把 <code>ABAP package</code>、<code>development package</code>、<code>package</code> 混用；学习时优先看上下文是在讲 repository object container、software logistics，还是 package interface / package check。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>假设今天要创建一个练习 class <code>ZCL_ABAP_LEARN_01</code>。在 <a class="wiki" href="section-01-009-abap-project-in-adt-1e9a4e00.html">ABAP project in ADT</a> 中打开 Project Explorer，先确认目标 package，例如 <code>ZABAP_LEARN_##</code>，已经加入 Favorite Packages。然后在 package 上选择 New -&gt; ABAP Class，输入 class name、description，并在向导中确认 package、transport request 等信息。完成后，这个 class 就不是一个本地 <code>.java</code> 或 <code>.py</code> 文件，而是某个 package 里的 ABAP repository object。</p>
+<p>再观察 package 本身。打开 Properties 或创建向导时，注意 package type、superpackage、software component、transport layer、application component。看到这些字段时，不要急着全部背下来，而是问三个问题：它是不是 Development package？它是不是 <code>$TMP</code>？它是否属于预期的 software component / transport layer？这三个问题足够支撑 Day 02 的判断。</p>
+<p>如果练习环境是 BTP ABAP Environment 或 SAP S/4HANA Cloud Public Edition，package 字段可能比 on-premise 示例更受限制。不要把 SAP Learning 里某个截图当成所有系统都一样。关键判断仍然相同：对象必须在允许的 package / software component / customer namespace 范围内创建，不能随便放到 SAP standard package，也不能随便修改标准对象。另外，ADT 创建向导里的 classical transport request 心智模型主要来自 on-premise / Private Edition；BTP ABAP Environment 通常围绕 software component、Manage Software Components 和 Git-based 生命周期组织移送，不要照搬经典 TMS / SE09 的判断方式。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>误区 1：把 package 当成本地 folder。修正：package 是 SAP Repository / software logistics 的对象组织边界，不只是 UI 树节点。</li>
+<li>误区 2：把正式项目对象放在 <code>$TMP</code>。修正：<code>$TMP</code> 适合临时练习，不适合作为要送到 QAS/PRD 的交付对象位置。</li>
+<li>误区 3：在错误 package type 下创建对象。修正：Structure/Main package 偏组织层，日常开发对象通常放在 Development package 下。</li>
+<li>误区 4：以为 subpackage 可以随便换 software component。修正：subpackage 通常继承 superpackage 的 software component，创建前先确认父包。</li>
+<li>误区 5：只记 package name，不看 transport layer / software component。修正：package name、transport layer、software component 一起决定对象在项目交付链中的位置。</li>
+<li>误区 6：Day 02 就深挖 package interface。修正：先知道 package interface / package check 是依赖边界工具；详细设计留到架构治理章节。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>如果一个对象放在 <code>$TMP</code>，后续进入 QAS/PRD 时会有什么风险？</li>
+<li>为什么 ABAP package 不能简单类比为 Java/Python 的目录？</li>
+<li>一个 subpackage 为什么不能随便换成另一个 software component？</li>
+<li>在 ADT 创建 class 前，应该先确认 package 的哪三个信息？</li>
+<li><code>移送レイヤ</code> 与 <code>移送ルート</code> 在项目沟通中有什么区别？</li>
+<li>package interface / package check 为什么属于“架构边界”而不只是“开发工具功能”？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/4ec14bab6e391014adc9fffe4e204223.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Packages</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/d33ab697df394140874519c8c066ea82.html" target="_blank" rel="noopener noreferrer">SAP Help - Creating ABAP Packages</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/creating-abap-packages" target="_blank" rel="noopener noreferrer">SAP Help - Creating ABAP Packages in ADT User Guide</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/abap-package-interfaces" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Package Interfaces</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/SAP_NETWEAVER_750/bd833c8355f34e96a6e83096b38bf192/6b566a50988611d596b900a0c94260a5.html" target="_blank" rel="noopener noreferrer">SAP Help - Performing a Package Check</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/learn-the-basics-of-abap-programming-on-sap-btp/running-software-structure-and-logistics_dcb66ad6-48f7-4537-9059-d047982224df" target="_blank" rel="noopener noreferrer">SAP Learning - Running Software Structure and Logistics</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+</ul>
+<p>原子笔记入口: <a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-010-repository-object-239ee7d6.html">Previous section</a><a href="section-01-012-transport-request-a1933e45.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

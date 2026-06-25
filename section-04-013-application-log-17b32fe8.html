@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Application Log 应用日志 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="13-application-log-0adce673" class="chapter-title">13. Application Log 应用日志</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 13</li><li>self-contained study note</li></ul><h4 id="13-1-4d787f9f" class="semantic-heading semantic-concept">13.1 一句话结论</h4>
+<p>Application Log 应用日志 是 SAP 应用程序为业务处理过程留下的可查询、可追踪、可交付的处理记录。它回答的问题不是“程序有没有写过日志”，而是“某一次接口、批处理、后台 job 或业务动作到底处理了什么、在哪一步失败、失败后能不能重跑、运维和开发如何定位”。</p>
+<p>在 SAP 项目中，很多问题不是在前台按钮点击的一瞬间解决的，而是在后台作业、接口调用、批量导入、异步处理和上线后故障调查中解决的。Application Log 的价值就在这里：它让一次业务处理从“口头说失败了”变成一组可以被用户、开发、测试、Basis 和运维共同确认的证据。</p>
+<p>它和 <a class="wiki" href="section-04-014-security-audit-log-d91a6c87.html">Security Audit Log 安全审计日志</a>、<a class="wiki" href="section-04-015-read-access-logging-3f099ea9.html">Read Access Logging 读取访问日志</a> 不同。Application Log 关注业务处理本身，例如一批数据导入了多少条、哪几条失败、失败原因是什么、是否可重跑；Security Audit Log 关注安全事件；Read Access Logging 关注敏感数据读取。三者都叫 log，但项目责任和使用场景完全不同。</p>
+<h4 id="13-2-aa8a7aa3" class="semantic-heading semantic-concept">13.2 到底学什么</h4>
+<p>第一，要学 Application Log 的边界。它不是 <code>WRITE</code> 输出，也不是临时 debug 文字。一个合格的应用日志应该服务于生产调查：能按对象、子对象、外部请求号、业务键、时间、用户、处理阶段和消息严重度定位一次处理。</p>
+<p>第二，要学一条日志应包含什么。最低限度应有 log object / subobject、external ID 或 request ID、业务键、处理阶段、消息严重度、可理解的消息文本、处理数量、失败行号或失败对象、是否可重试、下一步建议。对接口和批处理来说，request id、batch id、application log id 尤其关键。</p>
+<p>第三，要学日志和事务边界的关系。日志记录不能制造假的成功感。比如数据还没有提交，却已经写出“保存成功”；或者事务回滚了，但日志说“处理完成”。Application Log 的设计必须和 <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a>、RAP save sequence、后台 job 提交点一起考虑。</p>
+<p>第四，要学它在项目交付中的用途。Application Log 不是装饰功能，而是测试证据、障害調査、运维手顺、客户说明和生产监控的一部分。日本项目现场常会问：<code>処理ログはどこで確認できますか</code>、<code>再実行できますか</code>、<code>失敗明細を特定できますか</code>。</p>
+<p>第五，要学不要把敏感信息写进日志。Application Log 可以记录业务键、行号、错误分类和必要上下文，但不应记录完整密码、token、个人敏感信息、完整 payload 或未经脱敏的数据。敏感访问证据应根据安全设计转向 Read Access Logging 或安全审计流程。</p>
+<h4 id="13-3-16b0f674" class="semantic-heading semantic-why">13.3 为什么重要</h4>
+<p>没有 Application Log 的系统，通常只能靠用户截图、后台 job 状态或开发者 debug 来调查问题。这在开发环境还能勉强凑合，在生产系统里很快会失控。尤其是批处理和接口场景，一次失败可能影响几十、几百、几千条业务数据；如果没有日志，就无法判断哪些成功、哪些失败、哪些可以重跑、哪些必须人工修正。</p>
+<p>对项目交付来说，Application Log 是“可运维”的证明。它帮助测试人员验证异常路径，帮助运维人员按 runbook 定位问题，帮助开发者缩小修正范围，帮助客户确认失败原因不是凭猜测得出的。一个好的日志设计，会把故障调查从“请开发看一下”推进到“根据 log id 和业务键已经定位到第 27 行公司代码无权限”。</p>
+<p>对 Java/Python 背景读者来说，可以把它类比为 structured application logging，但 SAP 场景更强调业务对象、后台作业、接口证据、可查询性、客户运维和审计协作。它不是控制台输出，而是 SAP 项目交付物的一部分。</p>
+<h4 id="13-4-key-mechanism-273383f3" class="semantic-heading semantic-mechanism">13.4 Key mechanism / 核心机制</h4>
+<p>Application Log 的核心可以拆成两层：日志头和消息明细。</p>
+<p>日志头描述“一次处理”。例如 log object、subobject、external ID、request id、batch id、执行用户、技术用户、程序或服务名、开始时间、结束时间、总数、成功数、失败数。它让人能快速找到“是哪一次处理”。</p>
+<p>消息明细描述“处理过程中发生了什么”。例如 success / information / warning / error / abort 等严重度，具体业务键、行号、字段、错误原因和建议动作。它让人能知道“为什么失败”和“下一步该做什么”。</p>
+<p><code>log object</code> 和 <code>subobject</code> 的设计很重要。对象太粗，例如所有 Z 开发都用一个对象，运维查询会混乱；对象太细，例如每个小方法一个对象，也会难以维护。比较实用的做法是：按业务能力或接口域划分 object，按处理阶段划分 subobject，例如 <code>UPLOAD</code>、<code>VALIDATE</code>、<code>EXECUTE</code>、<code>RETRY</code>。</p>
+<p>消息严重度也要统一。<code>S</code> 表示成功步骤，<code>I</code> 表示上下文信息，<code>W</code> 表示可继续但需关注，<code>E</code> 表示某个对象或步骤失败，<code>A</code> 或 abort 类消息表示整体处理无法继续。通常可以把 <code>E</code> 理解成“某条对象或某个步骤失败”，把 <code>A</code> 理解成“整体运行必须终止”，这样监控和运维才能判断优先级。项目中最糟糕的做法，是所有问题都写成同一种严重度，导致监控和运维无法判断优先级。</p>
+<p>Application Log 应与 <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a> 配合。错误消息要让人知道业务规则、失败对象和下一步动作；Application Log 则负责把这些消息组织成一次可追踪的处理记录。对于 OData API 或后台 job，response 或 job log 可以只返回 log id / request id，详细明细保存在 Application Log 中。</p>
+<p>在经典 ABAP / SAP GUI 项目里，Application Log 常用 <code>SLG1</code> 查询，开发和运维会用 log object、subobject、external ID、时间、用户等条件定位一次处理。技术实现上常见 <code>BAL</code> / <code>Business Application Log</code> 相关函数或类；在 ABAP Cloud / Clean Core 语境下，要优先确认目标 release 中可用的 released API，而不是直接沿用老系统里的未释放对象。</p>
+<p>一个实用的日志设计表可以这样开始：</p>
+<pre><code class="language-text">Application Log Design Sheet
+
+Log object:
+  Business capability or interface domain:
+
+Subobject:
+  VALIDATE / EXECUTE / RETRY / STATUS:
+
+External ID:
+  Request id / batch id / file id:
+
+Header context:
+  Program/service:
+  User/technical user:
+  System/client:
+  Start/end time:
+  Total/success/warning/error/skipped count:
+  Retry/idempotency key:
+
+Message detail:
+  Severity:
+  Business key:
+  Row/field:
+  Message text:
+  Retryable:
+  Suggested next action:
+
+Retention and privacy:
+  Retention rule:
+  Sensitive fields excluded:</code></pre>
+<h4 id="13-5-a439c40a" class="semantic-heading semantic-japan">13.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>アプリケーションログ</code></li>
+<li><code>業務ログ</code></li>
+<li><code>処理ログ</code></li>
+<li><code>バッチログ</code></li>
+<li><code>ログ番号</code></li>
+<li><code>外部ID</code></li>
+<li><code>リクエストID</code></li>
+<li><code>再実行</code></li>
+<li><code>障害調査</code></li>
+<li><code>証跡</code></li>
+</ul>
+<p>设计说明时可以这样说：</p>
+<pre><code class="language-text">本機能では、バッチ処理単位でアプリケーションログを出力し、
+処理件数、成功件数、警告件数、エラー明細を確認できるようにします。</code></pre>
+<p>接口证据说明可以这样说：</p>
+<pre><code class="language-text">外部システムからのリクエストIDをログの外部IDとして保持し、
+障害調査時にAPIレスポンスとSAP側の処理ログを突合できるようにします。</code></pre>
+<p>障害调查时可以这样问：</p>
+<pre><code class="language-text">該当処理のアプリケーションログ番号は分かりますか。
+失敗した明細行とエラーメッセージを確認できますか。</code></pre>
+<h4 id="13-6-english-terms-45141886" class="semantic-heading semantic-terms">13.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Application Log</code>, <code>Business Application Log</code>, <code>BAL</code>, <code>SAP Application Log</code>, <code>ABAP Application Log</code>.</li>
+<li>Related terms: <code>log object</code>, <code>subobject</code>, <code>external ID</code>, <code>message severity</code>, <code>correlation ID</code>, <code>request ID</code>, <code>batch log</code>, <code>job log</code>, <code>SLG1</code>, <code>Application Log ABAP Cloud released API</code>.</li>
+<li>Recommended search pattern: <code>SAP Application Log ABAP</code>, <code>SAP Business Application Log BAL</code>, <code>SAP Help Application Log ABAP</code>, <code>Application Log ABAP Cloud released API</code>, <code>BAL application log ABAP</code>.</li>
+<li>注意：<code>Application Log</code> 和 <code>Security Audit Log</code>、<code>Read Access Logging</code>、<code>job log</code>、<code>short dump</code> 不是同义词，检索和项目说明时要分别使用。</li>
+</ul>
+<h4 id="13-7-example-bf5951f6" class="semantic-heading semantic-example">13.7 Example / 学习例子</h4>
+<p>假设 AC0567C batch upload API 收到 100 行数据。系统先校验，再执行保存，最后返回处理结果。没有 Application Log 时，接口可能只返回 <code>failed</code>，用户不知道哪一行错了；运维不知道是否可以重跑；开发不知道问题发生在哪个阶段。</p>
+<p>较好的 Application Log 可以这样设计：</p>
+<pre><code class="language-text">Log object: ZAC0567C_UPLOAD
+Subobject: EXECUTE
+External ID: REQ-20260616-00042
+Batch ID: BATCH-4711
+
+S  Received 100 rows for execution.
+I  Validation completed: success 96, warning 1, error 3.
+W  Row 15 / Key A10015: duplicate business key; skipped according to rule.
+E  Row 27 / Key A10027: company code 1000 is not authorized for this user.
+E  Row 41 / Key A10041: required field PostingDate is missing.
+I  No business update was committed. Correct errors and retry with the same request id.</code></pre>
+<p>如果业务允许部分成功，日志必须明确说明部分提交和重试规则：</p>
+<pre><code class="language-text">W  Partial success mode is active.
+S  96 rows were committed.
+E  3 rows failed and can be corrected in a new retry file.
+I  Retry must not resend already committed rows unless the same idempotency key is used.</code></pre>
+<p>这个例子说明：Application Log 不只是“报错文字”。它必须和事务策略、幂等策略、API response、后台 job 和运维手顺一起设计。</p>
+<h4 id="13-8-counterexample-failure-mode-196b050a" class="semantic-heading semantic-example">13.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下。</p>
+<p>第一，只写泛化错误，例如 <code>System error</code>、<code>Failed</code>、<code>Exception occurred</code>。这样的日志对用户、测试和运维几乎没有帮助。</p>
+<p>第二，把敏感数据写进日志。完整 payload、token、密码、个人敏感信息、银行账号等不应直接进入 Application Log。</p>
+<p>第三，日志和实际事务结果不一致。数据回滚了但日志写“成功”，或部分提交了但日志只写“失败”，都会破坏信任。</p>
+<p>第四，没有 correlation id。API response、job log、Application Log 和后端处理无法关联时，生产调查会依赖人工猜测。</p>
+<p>第五，把 Application Log 当成万能工具。它不能替代 Security Audit Log、Read Access Logging、ST22、SAT/ST05、job log 或系统监控。</p>
+<p>第六，没有保留策略。日志永久不清理会带来容量和隐私风险；清理太快又会影响运维和审计。项目应定义保留期限和归档/删除策略。</p>
+<p>第七，消息没有重跑语义。日志只说失败，不说是否可重跑、是否部分成功、是否需要人工修正，运维无法行动。</p>
+<h4 id="13-9-c323983a" class="semantic-heading semantic-practice">13.9 思考问题</h4>
+<ul>
+<li>一个批量上传接口如果只返回 <code>failed</code>，没有 Application Log，会给测试、运维和客户带来什么问题？</li>
+<li>API response 和 Application Log 应该分别承载哪些信息？</li>
+<li>如果日志写了“保存成功”，但事务最终回滚，会造成什么项目风险？</li>
+<li>在日本项目里，<code>処理ログ</code>、<code>業務ログ</code>、<code>監査ログ</code>、<code>ジョブログ</code> 如何区分？</li>
+<li>AC0567C POC 中哪些 API、后台处理或 evidence replay 场景最需要 Application Log？</li>
+<li>哪些字段不应该写进 Application Log？</li>
+<li>如果没有 request id 或 batch id，重跑和障害調査会遇到什么困难？</li>
+</ul>
+<h4 id="13-10-adcef969" class="semantic-heading semantic-reference">13.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/docs/search?q=Application%20Log%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - Application Log ABAP</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Business%20Application%20Log%20BAL" target="_blank" rel="noopener noreferrer">SAP Help search - Business Application Log BAL</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Application%20Log%20object%20subobject%20external%20ID" target="_blank" rel="noopener noreferrer">SAP Help search - Application Log object subobject external ID</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Application%20Log%20ABAP%20Cloud%20released%20API" target="_blank" rel="noopener noreferrer">SAP Help search - Application Log ABAP Cloud released API</a></li>
+<li><a href="https://learning.sap.com/search?query=application%20log%20ABAP" target="_blank" rel="noopener noreferrer">SAP Learning search - application log ABAP</a></li>
+</ul>
+<h4 id="13-11-connections-e2870693">13.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a></li>
+<li>Downstream: <a class="wiki" href="section-04-014-security-audit-log-d91a6c87.html">Security Audit Log 安全审计日志</a></li>
+<li>Related: <a class="wiki" href="section-04-017-exception-vs-message-414fed45.html">Exception vs message 异常与消息</a></li>
+<li>Related: <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a></li>
+<li>Related: <a class="wiki" href="section-04-015-read-access-logging-3f099ea9.html">Read Access Logging 读取访问日志</a></li>
+<li>Related: <a class="wiki" href="section-04-023-background-job-and-submit-basics-11cfa86d.html">Background job and SUBMIT basics</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Related: <a class="wiki" href="section-04-042-ac0567c-rap-saver-replay-19af2964.html">AC0567C RAP saver replay</a></li>
+<li>Related: <a class="wiki" href="section-03-031-idempotent-determination-determination-4f4ee5d0.html">Idempotent determination 幂等 determination</a></li>
+<li>Related: <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 24 - 错误消息、应用日志与审计日志</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="13-12-41b85e88" class="semantic-heading semantic-practice">13.12 学习任务</h4>
+<ul>
+<li>为一个“100 行 Excel 上传”的场景设计一份 Application Log，包含 log object、subobject、external id、三条消息和一个返回给用户的 log id。</li>
+<li>用中文对比 Application Log、Security Audit Log、Read Access Logging、job log 的区别。</li>
+<li>写 2 句日语现场说明：一句用于设计评审，一句用于障害調査。</li>
+<li>检查一个已有 POC 或自己的小程序：如果它失败，是否能定位到对象、行号、失败原因和重跑条件？</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认目标系统版本中的 Application Log API 或工具入口。</li>
+<li>为 AC0567C 写一张 evidence sheet，包含 request id、batch id、phase、counts、row-level messages、final status。</li>
+</ul>
+<h4 id="13-13-confidence-next-action-f7000a3d" class="semantic-heading semantic-status">13.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the Application Log / Business Application Log / BAL delivery framing, distinction from <code>WRITE</code>, job log, Security Audit Log, Read Access Logging, dumps/traces, API response, transaction/save-sequence caveat, severity model, sensitive-data boundary, and AC0567C-style evidence example; Claude 2026-06-18 follow-up returned <code>Pass</code>. Medium-High for concrete API/class/function names, SLG1 availability, ABAP Cloud released API status, retention tooling, and platform-specific implementation because these depend on target release, deployment model, and customer operations policy. Joule review remains deferred for this section because Joule automation is not callable in the current tool set.</li>
+<li>Next action: 继续强化 <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a>，把 Application Log、API response、request id 和项目证据复盘连接得更具体；后续如果找到稳定 SAP Help 精确页，再替换当前 search-style references。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-012-select-for-update-vs-sap-enqueue-17d18ae8.html">Previous section</a><a href="section-04-014-security-audit-log-d91a6c87.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

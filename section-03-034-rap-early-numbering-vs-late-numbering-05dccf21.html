@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP early numbering vs late numbering | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="34-rap-early-numbering-vs-late-numbering-186ff5b2" class="chapter-title">34. RAP early numbering vs late numbering</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 34</li><li>self-contained study note</li></ul><h4 id="34-1-4129e632" class="semantic-heading semantic-concept">34.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-034-rap-early-numbering-vs-late-numbering-05dccf21.html">RAP early numbering vs late numbering</a> 讲的是 RAP create 场景中最终 key 的分配时机：early numbering 在 create/modify 阶段就给新实例分配 key，late numbering 则等到 save sequence 中、接近最终保存时才分配 key。这个差异会影响 <code>%cid</code> / <code>mapped</code>、草稿、action、validation、业务单号是否跳号、以及 consumer 什么时候能拿到正式编号。</p>
+<p>一句话记忆：early numbering 让新对象“早点有正式 key”，late numbering 让新对象“检查通过后再拿正式 key”。</p>
+<h4 id="34-2-8401d840">34.2 概念说明</h4>
+<p>上一节 <a class="wiki" href="section-03-032-numbering-42f19ede.html">Numbering 编号策略</a> 已经讲过：RAP numbering 要回答“谁给 key、什么时候给 key、如何把临时实例映射到最终 key”。本节只放大其中一个问题：什么时候给 key。</p>
+<p>Early numbering 的意思是：create 请求处理期间就分配最终 key，key 很早进入 RAP transactional buffer。SAP Learning 对 unmanaged early numbering 的说明是：handler method 用 <code>FOR NUMBERING</code> 实现，<code>entities</code> 里是新建实例，开发者必须通过 <code>mapped</code> 返回每个 <code>%cid</code> 对应的 key，或者通过 <code>failed</code> 表示失败。Managed internal numbering 生成 UUID key 也属于早期编号思想：新实例很早就有技术 key。</p>
+<p>Late numbering 的意思是：新实例在 interaction phase 中还没有最终 key，保存阶段才分配。SAP Learning 对 late numbering 的说明是：在 saver class 的 <code>adjust_numbers</code> 中处理，最终 key 在即将保存到数据库前分配。这样可以把号码消耗推迟到业务检查通过之后，适合某些希望尽量减少跳号的业务编号场景。</p>
+<p>两者的核心差异不是“谁更高级”，而是取舍：</p>
+<ul>
+<li>early numbering：开发和关联处理更直接，因为 key 早就可用；但如果保存失败，已分配的业务编号可能被浪费。</li>
+<li>late numbering：更适合把正式编号留到保存前后，但 interaction phase 不能提前依赖最终业务号；实现、mapping 和测试更复杂。</li>
+</ul>
+<p>如果 key 是 technical UUID，通常不必为跳号焦虑，early/managed numbering 很自然。如果 key 是用户可见的申请单号、凭证号、年度连续编号，就必须认真讨论 late numbering、number range、业务是否允许缺号，以及 SAP 标准对象是否已经有编号机制。</p>
+<p>更贴近项目的说法是：RAP numbering 不是“生成一个 ID”这么简单，而是在 create 请求、transactional buffer、save sequence、OData response 和用户可见业务编号之间建立契约。读者可以先把 key 分成两类。第一类是 technical key，它主要服务于系统内部识别、关联、更新和持久化，常见选择是 UUID，适合早期可用。第二类是 business number，它会被用户、客户、审计、接口伙伴当成业务凭证使用，通常要考虑可读性、连续性、年度规则、组织规则、是否允许缺号、以及失败后如何说明。</p>
+<p>很多项目的最佳实践不是在 early 和 late 之间二选一，而是把 technical key 和 business number 分离：技术 key 早期分配，让 RAP 内部关联稳定；业务编号在保存成功附近或特定业务动作中分配，让用户可见编号更符合业务规则。这样做会多一个字段和一段映射说明，但能显著降低“为了显示编号而提前消耗正式号”或“为了不跳号而让 UI/child create 无法关联”的矛盾。</p>
+<p>初学者还要知道，编号策略会进入 API 契约。一个 create API 如果返回的是 technical UUID，consumer 需要后续用 UUID 查询；如果返回的是 business number，consumer 可能会把它写入外部系统；如果保存前只有 <code>%cid</code>，consumer 不能把 <code>%cid</code> 当正式 key。接口文档里必须写清楚 create 成功后返回什么、失败时是否可能消耗编号、重复提交是否会生成新号、deep create 中 parent 和 child 的对应关系如何表达。</p>
+<h4 id="34-3-d3da9ea6" class="semantic-heading semantic-why">34.3 为什么重要</h4>
+<p>编号时机一旦选错，后面会连锁影响很多设计。Early numbering 用在业务单号上，可能出现用户创建失败但号码已经被消耗；late numbering 用在需要早期关联和显示的技术 key 上，又可能让 action、child create、UI feedback 和测试复杂化。</p>
+<p>对项目交付来说，early/late numbering 会影响接口契约。OData consumer 什么时候拿到正式 key？deep create 中 child 如何关联 parent？用户保存前是否能看到业务单号？保存失败后是否要解释缺号？重复请求是否生成多个号码？这些问题都不是 ABAP 语法细节，而是接口和业务验收条件。</p>
+<p>对 Java/Python 背景学习者，可以把 early numbering 类比成 ORM <code>flush</code> 前就拿到 ID，把 late numbering 类比成 commit 末尾才分配业务编号。但 RAP 中还有 <code>%cid</code>、<code>mapped</code>、saver class、<code>adjust_numbers</code>、point-of-no-return、draft 和 OData metadata，因此不能简单套数据库自增主键模型。</p>
+<p>在日本项目现场，这类讨论通常会用 <code>早期採番</code>、<code>後期採番</code>、<code>欠番許容</code>、<code>採番タイミング</code>、<code>番号範囲</code> 来表达。设计书如果只写“自动编号”，是不够的。</p>
+<p>编号问题还会影响测试证据。单体测试不能只验证“创建成功后数据库里有一条记录”，还要验证 <code>mapped</code> 是否完整、失败时 <code>failed/reported</code> 是否可解释、并发 create 是否不会重复号、保存前失败是否消耗业务编号、保存后返回给 OData consumer 的 key 是否和数据库一致。对日本项目交付来说，这些证据通常会进入 <code>単体テスト仕様書</code>、<code>結合テストエビデンス</code> 或 API 受入确认材料。</p>
+<h4 id="34-4-dd6eb6e9">34.4 边界</h4>
+<p>第一条边界：early/late numbering 不是 external/internal numbering 的同义词。External/internal 回答“谁给 key”；early/late 回答“什么时候给 key”。外部编号通常由 consumer 早期提供；内部编号既可能 early，也可能 late。</p>
+<p>第二条边界：managed internal numbering 通常是 early 思维，但不等于所有 early numbering。Managed runtime 自动生成 UUID key是一种早期可用 key；unmanaged early numbering 则由项目代码在 handler method 中实现 <code>FOR NUMBERING</code>。</p>
+<p>第三条边界：late numbering 不等于绝对无缺号。它把编号推迟到保存阶段，减少保存前失败导致的号码浪费；但系统失败、并发、number range 机制、法律凭证规则仍要单独设计。不能承诺“late numbering 就一定无跳号”。</p>
+<p>第四条边界：late numbering 不适合被前期业务逻辑强依赖。如果 action、validation、determination 或 UI 在保存前必须知道正式业务号，late numbering 会让设计复杂化。要么改成 early/managed technical key + later business number，要么调整业务流程。</p>
+<p>第五条边界：early numbering 也不等于可以随便 <code>SELECT MAX + 1</code>。早期生成 key 仍要考虑并发、锁、number range 和唯一性。裸 <code>MAX + 1</code> 是高风险反例。</p>
+<p>第六条边界：temporary ID 不等于 final key。<code>%cid</code> 和 late numbering 中的临时识别只是事务内锚点；保存成功后才通过 <code>mapped</code> 或 OData response 得到最终 key。</p>
+<p>第七条边界：numbering 不等于 idempotency。编号可以生成唯一 key，但不能自动保证同一个外部请求重复提交时只创建一次。如果接口 consumer 可能超时重试，需要独立设计 external request id、idempotency key、唯一约束或状态检查。否则 early numbering 会让每次重试拿到不同号码，late numbering 也可能在第二次成功保存时生成另一个正式号。</p>
+<p>第八条边界：numbering 不等于 authorization。某个用户能否创建对象，应由 RAP authorization、DCL、业务角色或服务层检查决定；不能用“拿不到号码”来间接拒绝。编号失败消息也不应该掩盖权限错误、主数据错误或锁冲突。</p>
+<p>第九条边界：number range 不等于无风险。即使用 SAP number range 或标准编号机制，也要确认缓冲、并发、回滚、法律凭证规则、测试系统数据和生产系统区间。尤其是财务凭证、发票、法定连续编号相关场景，必须以 SAP 标准对象和客户合规要求为准，不能只从 RAP 示例推导。</p>
+<h4 id="34-5-key-mechanism-8ad18f0c" class="semantic-heading semantic-mechanism">34.5 Key mechanism / 核心机制</h4>
+<p>第一层机制是 early numbering 的位置。Early numbering 发生在 create/modify 阶段，结果进入 transactional buffer。典型 unmanaged early numbering handler 形态是：</p>
+<pre><code class="language-abap">METHODS earlynumbering_create FOR NUMBERING
+  IMPORTING entities FOR CREATE Travel.</code></pre>
+<p>实现时要为每个 create request 产生 key，并把 <code>%cid</code> 到 key 的映射填入 <code>mapped</code>。如果某条不能编号，要返回 <code>failed</code> / <code>reported</code>。关键规则是：每个 <code>%cid</code> 都要有明确结果。</p>
+<p>第二层机制是 late numbering 的位置。Late numbering 在 saver class 中实现，典型入口是 <code>adjust_numbers()</code>。它不在普通 handler interaction phase 执行，而是在 <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a> 中、接近最终保存时分配最终 key。这个位置让它可以等保存前检查通过后再消耗号码，但也意味着可预见的业务错误不应拖到这里才发现。SAP Learning 对 late numbering 的说明指出 <code>adjust_numbers</code> 很晚，且没有普通 validation 那样的 <code>failed</code> 参数；所以金额、主数据、权限、重复 key 等检查应尽量提前完成。</p>
+<p>第三层机制是 <code>%cid</code> 与 <code>mapped</code>。无论 early 还是 late，consumer 往往用 <code>%cid</code> 表示“这次 create 请求里的临时实例”。保存或 create 成功后，runtime/implementation 通过 <code>mapped</code> 告诉 consumer：这个 <code>%cid</code> 对应哪个最终 key。读 EML create 测试时，一定要检查 <code>MAPPED</code>，不要只看没有报错。</p>
+<p>第四层机制是 <code>%pid</code> / temporary key。Late numbering 场景中，最终 key 尚未分配时，runtime 需要内部临时识别来跟踪实例。ABAP Keyword Documentation 和 SAP Learning 的 late numbering 示例会出现 <code>%pid</code> / temporary key 相关结构。初学者不必死背所有字段，但要理解：保存前的临时识别不是最终业务 key。</p>
+<p>第五层机制是 child entity。Parent 如果使用 late numbering，child 在保存前不能依赖最终 parent key。RAP 需要通过 composition、temporary ID 和 mapping 保持关系。SAP Learning 还提醒，在某些 late numbering 设计中 parent/child 的 numbering 策略要一致或受约束；实际以当前 release 文档和 ADT 检查为准。</p>
+<p>第六层机制是测试差异。Early numbering 测试要确认 create 后是否立刻拿到 key、失败时是否返回 <code>failed/reported</code>、重复请求是否不冲突。Late numbering 测试要确认保存前正式号不可用、保存成功后 mapping 正确、保存前失败不会消耗业务号、并发保存唯一、错误发生在 point-of-no-return 后时有可解释策略。</p>
+<p>第七层机制是业务编号与技术 key 分离。很多项目最稳的设计是：technical key 用 UUID managed numbering，业务编号作为普通业务字段在保存阶段或业务动作中分配。这样内部关联稳定，用户可见编号也可以按业务规则处理。是否这么做，要结合标准对象、接口契约和客户编号规则确认。</p>
+<p>可以用下面的决策树做初步判断：</p>
+<pre><code class="language-text">Is the key user-visible and business/audit-relevant?
+  No  -&gt; Prefer technical key, often UUID / managed internal numbering.
+  Yes -&gt; Ask whether gaps are acceptable and when the user must see the number.
+
+Must the UI/API know the final number before save?
+  Yes -&gt; Early numbering may be necessary, but document gap behavior.
+  No  -&gt; Late numbering or save-time business number is often safer.
+
+Does the object have parent-child create or actions before save?
+  Yes -&gt; Keep a stable technical key or temporary mapping; do not rely blindly on final business number.
+
+Can the same external request be retried?
+  Yes -&gt; Add idempotency design; numbering alone is not enough.</code></pre>
+<p>在 RAP 代码阅读时，可以按这个顺序找证据：</p>
+<div class="table-wrap"><table><thead><tr><th>证据位置</th><th>要看什么</th></tr></thead><tbody><tr><td>Behavior definition</td><td>是否声明 managed/unmanaged、numbering、lock、authorization</td></tr><tr><td>Handler class</td><td>是否有 <code>FOR NUMBERING</code> 或 create 逻辑</td></tr><tr><td>Saver class</td><td>是否实现 <code>adjust_numbers()</code></td></tr><tr><td>EML test</td><td><code>MAPPED</code>、<code>FAILED</code>、<code>REPORTED</code> 是否检查完整</td></tr><tr><td>OData response</td><td>create 成功后返回的是 technical key、business number，还是两者</td></tr><tr><td>Application log / message</td><td>编号失败、重复请求、并发冲突是否有可追踪证据</td></tr></tbody></table></div>
+<p>这张表的目的不是让初学者一次写出完整 RAP 框架代码，而是训练阅读顺序：先看模型声明，再看 handler/saver，再看测试和 API response。否则很容易只盯着某个 <code>number_get_next</code> 或 UUID 生成语句，却没有理解它在 RAP lifecycle 的位置。</p>
+<h5 id="early-late-numbering-choice-evidence-a62f6a96">Early / late numbering choice evidence</h5>
+<p>做设计评审时，不要只写“采用 early numbering”或“采用 late numbering”，而要把选择依据写成证据。下面这张表可以作为设计书的最小模板。</p>
+<div class="table-wrap"><table><thead><tr><th>设计问题</th><th>Early numbering 证据</th><th>Late numbering 证据</th></tr></thead><tbody><tr><td>保存前是否必须知道正式 key</td><td>UI、child create、action 或外部接口需要立即使用 key</td><td>保存前不需要正式业务号，可以用 technical key / temporary mapping</td></tr><tr><td>失败时是否允许缺号</td><td>业务接受 create 后失败导致号码消耗，或 key 是 technical UUID</td><td>业务希望先完成检查，再尽量减少正式号消耗</td></tr><tr><td>parent-child create 是否复杂</td><td>parent key 早期可用，child 关联简单</td><td>需要证明 temporary ID / mapping 能保持 parent-child 关系</td></tr><tr><td>API response</td><td>create / save response 能立即返回最终 key</td><td>save 成功后才返回最终 key，保存前 response 不能承诺业务号</td></tr><tr><td>并发与重试</td><td>number range / lock / idempotency 已设计</td><td><code>adjust_numbers</code>、point-of-no-return、idempotency 已设计</td></tr><tr><td>测试证据</td><td><code>FOR NUMBERING</code>、<code>mapped</code>、duplicate key、失败消息</td><td><code>adjust_numbers</code>、保存前失败、保存后 mapping、缺号说明</td></tr></tbody></table></div>
+<p>如果一行问题两边都需要满足，通常说明 technical key 和 business number 应该分离。例如 UI 和 child create 需要早期稳定识别，但业务又希望正式单号尽量晚消耗，那么早期 UUID technical key + 保存时 business number 往往比强行选择单一 key 更稳。</p>
+<h4 id="34-6-5d0b6ee3" class="semantic-heading semantic-japan">34.6 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>早期採番</code>：early numbering。</li>
+<li><code>後期採番</code>：late numbering。</li>
+<li><code>採番タイミング</code>：编号时机。</li>
+<li><code>欠番許容</code>：是否允许跳号。</li>
+<li><code>正式番号</code>：正式编号。</li>
+<li><code>仮キー</code>：临时 key。</li>
+<li><code>技術キー</code>：technical key。</li>
+<li><code>業務番号</code>：business number。</li>
+<li><code>番号範囲</code>：number range。</li>
+</ul>
+<p>说明句：</p>
+<pre><code class="language-text">技術キーは早期採番、業務番号は保存時の後期採番として設計します。</code></pre>
+<p>意思是：技术 key 设计为 early numbering，业务编号设计为保存时 late numbering。</p>
+<pre><code class="language-text">後期採番のため、保存前の画面処理では正式番号に依存しない設計にします。</code></pre>
+<p>意思是：因为使用 late numbering，保存前的画面处理不依赖正式编号。</p>
+<p>评审时可以这样问：</p>
+<pre><code class="language-text">この番号は欠番を許容しますか。許容しない場合、後期採番だけで要件を満たせますか。</code></pre>
+<p>意思是：这个编号允许跳号吗？如果不允许，仅靠 late numbering 能满足需求吗？</p>
+<h4 id="34-7-english-terms-00b4feab" class="semantic-heading semantic-terms">34.7 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP early numbering</code>, <code>RAP late numbering</code></li>
+<li>Related terms: <code>unmanaged early numbering</code>, <code>managed internal numbering</code>, <code>late numbering</code>, <code>FOR NUMBERING</code>, <code>adjust_numbers</code>, <code>%cid</code>, <code>%pid</code>, <code>mapped</code>, <code>number range</code>, <code>gap-free numbering</code></li>
+<li>Recommended search pattern: <code>SAP RAP early numbering late numbering adjust_numbers mapped</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="34-8-example-99b15065" class="semantic-heading semantic-example">34.8 Example / 学习例子</h4>
+<p>例子一：early numbering with UUID。</p>
+<p>Travel technical key 是 UUID。创建时 runtime 或项目代码马上给新实例分配 UUID。好处是 parent-child 关联、action result、测试和后续 EML 读取都很直接；UUID 不是用户可见连续单号，因此即使创建失败，也通常没有“缺号”业务争议。</p>
+<p>例子二：unmanaged early numbering with <code>%cid</code>。</p>
+<p>EML create 传入 <code>%cid = &#x27;create-1&#x27;</code>。<code>FOR NUMBERING</code> 方法生成 <code>TravelID = 4711</code>，并在 <code>mapped-travel</code> 中返回 <code>%cid = &#x27;create-1&#x27;</code> 对应 <code>TravelID = 4711</code>。如果编号失败，就要把该 <code>%cid</code> 对应实例放入 <code>failed</code> 并返回消息。</p>
+<p>例子三：late numbering for business number。</p>
+<p>申请单草稿创建时没有正式申请号。用户编辑、保存前检查都通过后，save sequence 的 <code>adjust_numbers()</code> 分配 <code>RequestNo = 2026-000123</code>。保存成功后，response 才返回正式号。这样可以避免用户编辑一半就消耗正式业务号。</p>
+<p>例子四：错误选择。</p>
+<p>如果业务要求保存前页面必须显示正式编号，并且用户会把编号告诉其他人，那么 late numbering 可能不合适。反过来，如果业务要求尽量不跳号，create 一开始就消耗业务编号也不合适。正确做法是回到业务规则，决定 technical key 和 business number 是否分离。</p>
+<p>例子五：deep create 的 parent-child。</p>
+<p>一个上传批次有 header 和 items。header 最终业务号如果采用 late numbering，items 在 interaction phase 里不能提前写死这个最终业务号。更稳的方式是让 header 有一个 early technical key 或 temporary mapping，items 通过 composition / <code>%cid_ref</code> / transactional buffer 关联到 parent；保存成功后再把正式 business number 返回给 consumer。测试时不仅要看 header 是否创建成功，还要看 items 是否关联到同一个最终 parent。</p>
+<p>例子六：外部系统重试。</p>
+<p>外部系统调用 Create Request，网络超时后不确定 SAP 是否保存成功，于是再次发送同一 payload。没有 idempotency key 时，early numbering 可能创建两个 technical key 和两个业务号；late numbering 也可能在第二次保存成功时分配另一个正式号。正确设计通常要让外部请求带 request id，SAP 端用唯一约束或状态表识别重复请求，并在重复时返回已有对象，而不是单靠 numbering 解决。</p>
+<p>例子七：AC0567C 风格上传 API。</p>
+<p>AC0567C 的上传批次可以设计为：<code>batch_uuid</code> 是 technical key，创建时 early/managed 分配；<code>upload_no</code> 是业务可见编号，只有当 batch 通过预检查并进入正式接收状态时才分配；外部 <code>request_id</code> 用于 idempotency。这样 UI、OData、后台 job 都可以用 <code>batch_uuid</code> 追踪对象，用户和交付文档可以用 <code>upload_no</code> 沟通，接口重试则由 <code>request_id</code> 控制。</p>
+<h4 id="34-9-counterexample-failure-mode-f323d844" class="semantic-heading semantic-example">34.9 Counterexample / Failure mode</h4>
+<p>反例一：为了“少跳号”，把所有 key 都做 late numbering，结果 UI、child create、action、测试都拿不到正式 key。修正方式是分离 technical key 和 business number。</p>
+<p>反例二：用 early numbering 生成业务单号，保存前 validation 失败后号码被浪费。修正方式是确认是否允许跳号；若不允许，考虑 late numbering 或标准编号机制。</p>
+<p>反例三：late numbering 后还有可预见业务校验。号码已分配，后续又因为金额或主数据错误失败。修正方式是把可预见错误提前到 validation / check-before-save。</p>
+<p>反例四：<code>FOR NUMBERING</code> 没处理所有 <code>%cid</code>。有些 create 请求既不在 <code>mapped</code>，也不在 <code>failed</code>，consumer 无法知道结果，runtime 也可能报错。修正方式是每条 create 都要明确 mapping 或失败。</p>
+<p>反例五：误把 <code>%cid</code> 当最终 key 写入外部系统。<code>%cid</code> 只是请求内临时标识，不应作为业务编号传播。修正方式是等待 <code>mapped</code> / response 中的最终 key。</p>
+<p>反例六：裸 <code>SELECT MAX + 1</code> 做 early numbering。并发保存时重复号风险极高。修正方式是使用 SAP number range、锁、UUID、late numbering 或标准对象编号。</p>
+<p>反例七：把 technical UUID 暴露成客户业务编号。UUID 适合作为技术 key，但不一定适合发给业务用户、客户或外部合作方。修正方式是明确 technical key 和 business number 的展示边界。</p>
+<p>反例八：late numbering 后没有测试 <code>mapped</code>。保存成功了，但 consumer 拿不到最终 key，后续查询、导航或外部回写失败。修正方式是在 EML/API 测试中把 <code>MAPPED</code> 和 OData response 作为验收项。</p>
+<p>反例九：把“无缺号”写成绝对承诺。即使 late numbering 能减少保存前失败导致的号码浪费，系统故障、合规编号机制、number range buffering 或标准对象规则仍可能产生缺口。修正方式是把 <code>欠番許容</code> 和异常说明写进业务规则，而不是在技术设计中承诺绝对连续。</p>
+<p>反例十：外部重试导致重复创建。编号策略本身没有识别“这是不是同一外部请求”的能力。修正方式是引入 idempotency key，并把重复请求返回已有对象的规则写进 API 契约。</p>
+<h4 id="34-10-1ab3e488" class="semantic-heading semantic-practice">34.10 思考问题</h4>
+<ul>
+<li>这个编号是 technical key 还是 business number？</li>
+<li>consumer 是否需要在保存前知道正式 key？</li>
+<li>业务是否允许跳号？如果不允许，系统失败时如何解释？</li>
+<li>parent-child create 是否依赖最终 parent key？</li>
+<li><code>%cid</code> 到最终 key 的 <code>mapped</code> 是否完整？</li>
+<li>late numbering 前是否已经完成所有可预见业务检查？</li>
+<li>在日本项目设计书中，应写 <code>早期採番</code> 还是 <code>後期採番</code>，理由是什么？</li>
+</ul>
+<h4 id="34-11-bf4648bd" class="semantic-heading semantic-reference">34.11 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/setting-values-using-numbering-and-determinations" target="_blank" rel="noopener noreferrer">Setting Values Using Numbering and Determinations</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_FIELD_NUMBERING.html" target="_blank" rel="noopener noreferrer">RAP - FieldNumbering</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_LATE_NUMBERING.html" target="_blank" rel="noopener noreferrer">RAP - late numbering</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSAVER_ADJUST_NUMBERS.html" target="_blank" rel="noopener noreferrer">adjust_numbers, RAP Saver Method</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapmethods_for_rap_behv.html" target="_blank" rel="noopener noreferrer">METHODS, FOR, RAP Handler Methods</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">Entity Manipulation Language (EML)</a> (accessed 2026-06-18)</li>
+<li><a class="wiki" href="section-03-032-numbering-42f19ede.html">Numbering 编号策略</a></li>
+<li><a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a></li>
+<li><a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="34-12-connections-e4778a09">34.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-032-numbering-42f19ede.html">Numbering 编号策略</a></li>
+<li>Downstream: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 20 - Action、Validation、Determination、Save Sequence</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="34-13-36f9f6f7" class="semantic-heading semantic-practice">34.13 学习任务</h4>
+<ul>
+<li>用中文写出 early numbering 和 late numbering 的区别，并各举一个适合场景。</li>
+<li>设计一个 BO：technical key 用 early/managed UUID，business number 用 late numbering，说明为什么这样分离。</li>
+<li>写出 <code>%cid</code>、<code>mapped</code>、<code>%pid</code> 分别在编号流程中解决什么问题。</li>
+<li>补 1 个日语现场句子，说明“保存前不能依赖正式编号，因为采用後期採番”。</li>
+<li>用 English Terms 找一个 SAP 官方 early/late numbering 页面，记录关键句。</li>
+<li>如果已经进入 Week 4，把 AC0567C POC 的上传 API 是否需要外部 key、technical key、business number 分离写成一段设计说明。</li>
+</ul>
+<h4 id="34-14-confidence-next-action-a38057f6" class="semantic-heading semantic-status">34.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for conceptual early/late numbering distinction and project trade-offs after official-source closure. 2026-06-18 已复核 SAP Learning <code>Setting Values Using Numbering and Determinations</code>、ABAP Keyword Documentation <code>RAP - FieldNumbering</code> / <code>RAP - late numbering</code> / <code>adjust_numbers, RAP Saver Method</code>、RAP handler method documentation 和 SAP Help EML；正文已覆盖 early numbering、late numbering、managed internal numbering、unmanaged <code>FOR NUMBERING</code>、<code>adjust_numbers</code>、<code>%cid</code>、<code>%pid</code>、<code>mapped</code>、deep create、technical key / business number 分离、idempotency、authorization、number range 和 no-gap caveats。Claude/Joule review artifacts 仍是 deferred/no usable verdict，且 2026-06-18 Claude CLI 当前 session expired；外部 review debt 保留，但本节不再停留在提纲草稿。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；本地验证时，在 ADT 中找一个 create 场景，观察 key 是 create 阶段已有、还是 save sequence 中由 <code>adjust_numbers()</code> 分配，并用 EML 检查 <code>MAPPED</code> response。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-034-rap-early-numbering-vs-late-numbering-05dccf21.html">RAP early numbering vs late numbering</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-033-save-sequence-e31c34d1.html">Previous section</a><a href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

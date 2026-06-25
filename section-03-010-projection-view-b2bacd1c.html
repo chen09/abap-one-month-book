@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Projection view 投影视图 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="10-projection-view-81ee9ebf" class="chapter-title">10. Projection view 投影视图</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 10</li><li>self-contained study note</li></ul><h4 id="10-1-73222754" class="semantic-heading semantic-concept">10.1 一句话结论</h4>
+<p>Projection view 投影视图，是用 <code>define [root] view entity ... as projection on ...</code> 在 CDS/RAP 模型上建立一层面向服务或消费场景的裁剪层。它不是复制一份 root view entity，也不是前端页面配置文件；它决定某个 service consumer 能看到哪些字段、association、composition child、semantic alias 和可暴露的行为。</p>
+<p>如果上一节 <a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a> 回答的是“这个 RAP business object 的根是谁”，那么 projection view 回答的是“这个业务对象以什么服务视角给外部看”。同一个底层 BO 可以有不同 projection：一个给 Fiori clerk 使用，只开放 create/update；一个给管理人员使用，额外开放 delete 或 action；一个给 Web API 使用，裁剪 UI annotation，强调稳定字段和集成契约。</p>
+<h4 id="10-2-812005a7" class="semantic-heading semantic-concept">10.2 到底学什么</h4>
+<p>学习 projection view，要先把它放在 RAP 架构链路中：</p>
+<pre><code class="language-text">database table / released API
+  -&gt; CDS data model view / root view entity
+  -&gt; behavior definition / behavior implementation
+  -&gt; projection view
+  -&gt; projection behavior definition
+  -&gt; service definition
+  -&gt; service binding
+  -&gt; OData / Fiori / Web API consumer</code></pre>
+<p>SAP Learning 的 RAP 架构课程说明，BO projection 是为了特定 business service 对 business object 做 project 和 alias；它由 CDS projection views、CDS behavior projection，以及必要时的消费特定行为实现组成。service definition 再引用 projection views，指定哪些 entity 对 service consumer 可见。</p>
+<p>所以本节要学四件事：</p>
+<ol>
+<li>Projection view 是服务/消费视角，不是底层数据模型本身。</li>
+<li>Projection view 可以裁剪字段、alias、association、composition child 和 annotation 暴露。</li>
+<li>Projection behavior definition 决定底层 behavior 中哪些操作在该服务视角可见。</li>
+<li>Service definition / service binding 才把 projection 暴露成具体服务和协议。</li>
+</ol>
+<h4 id="10-3-1a08bbac" class="semantic-heading semantic-why">10.3 为什么重要</h4>
+<p>Projection view 是从“可复用业务模型”走向“对外契约”的门。没有这层，初学者很容易把 interface/root view entity 直接当 API 用，结果把内部字段、技术字段、临时字段、过宽的 association 或不该公开的 operation 暴露给外部 consumer。</p>
+<p>项目上，projection view 至少影响五件事：</p>
+<ul>
+<li>API contract：哪些字段、entity、navigation 会进入 OData metadata。</li>
+<li>UI contract：Fiori Elements 列表页、对象页、value help、字段标签和 UI annotation 看到什么。</li>
+<li>Behavior contract：create/update/delete/action 是否在某个服务中可见。</li>
+<li>Security contract：projection 不替代 DCL/authorization，但它能减少不必要暴露面。</li>
+<li>Upgrade/Clean Core：在 SAP S/4HANA Cloud / BTP ABAP Environment 中，projection 应尽量基于 released APIs / released CDS views，避免服务契约依赖不稳定对象。</li>
+</ul>
+<p>对 Java/Python 背景读者，可以把 projection view 粗略类比成 DTO / API view model / GraphQL schema selection 的组合：它不应该重新实现核心业务逻辑，但它决定 consumer 看到的形状。区别在于，SAP projection view 是 ABAP repository object，有 activation、transport、provider contract、annotation、service definition、behavior projection 和 OData metadata 影响。</p>
+<h4 id="10-4-key-mechanism-398f618d" class="semantic-heading semantic-mechanism">10.4 Key mechanism / 核心机制</h4>
+<h5 id="10-4-1-as-projection-on-cced37dd">10.4.1 <code>as projection on</code> 表示基于已有模型裁剪</h5>
+<p>典型 projection view 长这样：</p>
+<pre><code class="language-abap">@EndUserText.label: &#x27;Travel projection&#x27;
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+define root view entity ZC_Travel
+  provider contract transactional_query
+  as projection on ZI_Travel
+{
+  key TravelID,
+      AgencyID,
+      CustomerID,
+      BeginDate,
+      EndDate,
+      Status,
+
+      _Booking : redirected to composition child ZC_Booking
+}</code></pre>
+<p>这里的重点不是 <code>select from</code>，而是 <code>as projection on ZI_Travel</code>。它说明当前 view 是基于已有 CDS entity 的投影，不是重新从表出发建一套模型。对现代 RAP transactional service 来说，projection root view 应明确写 provider contract，例如 <code>provider contract transactional_query</code>，表示它是用于 RAP business object projection layer 的 transactional query。示例中 projection 层使用 <code>@AccessControl.authorizationCheck: #NOT_REQUIRED</code>，是因为访问控制通常由底层 interface/root view 的 DCL 继承；projection 不应该让读者误以为要在服务裁剪层重新定义一套行级授权。</p>
+<p>SAP Keyword Documentation 对 projection view 的语法有专门页面，<code>DEFINE VIEW ENTITY AS PROJECTION ON</code> 定义 CDS transactional query；provider contract 用来指定 projection view 的用途。项目教材里不应该用“可以省略”作为默认叙述：在现代 ABAP Cloud / S/4HANA Cloud 语境下，新建 projection view 应把 provider contract 当成必须设计的语义。常见 provider contract 包括：</p>
+<ul>
+<li><code>transactional_query</code>：用于 RAP BO projection layer，面向 transactional service / OData UI service 的常见场景。</li>
+<li><code>transactional_interface</code>：用于稳定 BO interface / BO-to-BO 复用等接口层场景。</li>
+<li><code>analytical_query</code>：用于分析查询场景。</li>
+</ul>
+<p>本教程当前主线是 RAP transactional service，所以例子用 <code>transactional_query</code>。但读者要知道：不是所有 projection view 都该无脑写 <code>transactional_query</code>，要看它服务 UI、Web API、BO interface 还是 analytics。语法和 release 细节可能存在 no-contract projection view，但项目教材应把 provider contract 当成必须明确设计的语义，而不是依赖默认或历史写法。</p>
+<h5 id="10-4-2-projection-view-281bf375">10.4.2 Projection view 可以裁剪，不应该乱改核心语义</h5>
+<p>Projection view 可以做的事情包括：</p>
+<ul>
+<li>只暴露部分字段。</li>
+<li>给字段或 association 使用更适合 consumer 的 alias。</li>
+<li>暴露或隐藏 association / composition child。</li>
+<li>redirect composition child 到对应的 projection child。</li>
+<li>承载或配合服务特定 annotation / metadata extension。</li>
+<li>为 service definition 提供被 expose 的 entity。</li>
+</ul>
+<p>但它不应该承担核心业务模型职责。业务 key、核心 association、生命周期关系、root/child composition 和持久化 mapping 应该在 data model / root / behavior 层设计清楚。Projection view 负责“给这个服务看什么”，不是“业务对象到底是什么”。</p>
+<p>这里有两个容易踩的坑。第一，如果 root projection 暴露了 composition child，通常要有对应的 child projection view，并用 <code>redirected to composition child</code> 明确重定向；否则 service binding 或 activation 阶段可能出现很难懂的依赖错误。第二，projection view 中新定义的 association 有语法和消费限制，不要假设它和底层 interface view 中已有的 association 完全一样可用；特别是同一 projection 里新建 association 后立刻用 path expression 取 target 字段，容易触发语法限制。初学阶段先优先投影和重定向底层模型中已经设计好的关系。</p>
+<h5 id="10-4-3-projection-behavior-1e753cf8">10.4.3 Projection behavior 决定服务中可见的行为</h5>
+<p>如果底层 RAP BO 有 behavior definition，projection 层通常还要有 projection behavior definition。SAP Learning 说明，BO Projection defines only the behavior relevant for the specific consumer；projection behavior delegates to the underlying layer，具体实现仍在底层 general business object 中。</p>
+<p>一个简化 projection behavior 可能长这样：</p>
+<pre><code class="language-abap">projection;
+strict ( 2 );
+
+define behavior for ZC_Travel alias Travel
+{
+  use create;
+  use update;
+  use action cancelTravel;
+}</code></pre>
+<p>这段代码表达的是“这个服务视角允许使用哪些底层行为”。它不是重新实现 <code>cancelTravel</code>。底层 action 的实现仍在 behavior pool / implementation 中。也就是说，projection behavior 像服务闸门：底层 BO 有能力，不代表每个服务都应该开放。</p>
+<h5 id="10-4-4-service-definition-binding-9c826bb5">10.4.4 Service definition / binding 才是真正暴露</h5>
+<p>Projection view 本身还不是 OData 服务。要进入服务，还需要 service definition：</p>
+<pre><code class="language-abap">define service ZUI_TRAVEL {
+  expose ZC_Travel as Travel;
+  expose ZC_Booking as Booking;
+}</code></pre>
+<p>再通过 service binding 选择 OData V2 / OData V4、UI service / Web API 等消费方式。SAP Learning 对 RAP 开发流程的说明也把这几步分开：先 project RAP BO，再 define service，最后 bind and test service。项目上看到字段没进 OData metadata，不要只改 projection；还要检查 service definition 是否 expose、service binding 是否激活、metadata cache 是否刷新、authorization 是否拦截。</p>
+<h4 id="10-5-339b7e33" class="semantic-heading semantic-japan">10.5 日本项目现场说法</h4>
+<p>常见日语表达：</p>
+<ul>
+<li><code>プロジェクションビュー</code></li>
+<li><code>プロジェクション層</code></li>
+<li><code>サービス公開用のビュー</code></li>
+<li><code>プロジェクションビヘイビア</code></li>
+<li><code>サービス定義</code></li>
+<li><code>サービスバインディング</code></li>
+<li><code>公開対象</code></li>
+<li><code>サービス公開スコープ</code></li>
+</ul>
+<p>设计说明中可以这样说：</p>
+<pre><code class="language-text">このプロジェクションビューでは、UIサービスに必要な項目とナビゲーションだけを公開し、内部モデルの項目は外部契約に含めません。</code></pre>
+<p>代码 review 中可以这样说：</p>
+<pre><code class="language-text">この操作を projection behavior で公開する必要があるか、利用者ロールとサービス契約の観点で確認してください。</code></pre>
+<p>问题调查中可以这样说：</p>
+<pre><code class="language-text">項目がODataメタデータに出ていないため、projection view、service definition、service binding、権限設定の順に確認します。</code></pre>
+<h4 id="10-6-english-terms-0391f8c2" class="semantic-heading semantic-terms">10.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>CDS projection view</code></li>
+<li>Official / search term: <code>DEFINE VIEW ENTITY AS PROJECTION ON</code></li>
+<li>Official / search term: <code>provider contract transactional_query</code></li>
+<li>Official / search term: <code>provider contract transactional_interface</code></li>
+<li>Official / search term: <code>provider contract analytical_query</code></li>
+<li>Official / search term: <code>RAP BO projection</code></li>
+<li>Official / search term: <code>projection behavior definition</code></li>
+<li>Official / search term: <code>service definition</code></li>
+<li>Official / search term: <code>service binding</code></li>
+</ul>
+<p>推荐检索：</p>
+<pre><code class="language-text">CDS projection view provider contract SAP ABAP
+DEFINE VIEW ENTITY AS PROJECTION ON transactional_query
+SAP Learning RAP BO projection behavior projection service definition</code></pre>
+<h4 id="10-7-example-03b35d5d" class="semantic-heading semantic-example">10.7 Example / 学习例子</h4>
+<h5 id="10-1-root-projection-root-0071b134">10.例 1：底层 root 与 projection root 分层</h5>
+<p>底层 root 表达业务对象模型：</p>
+<pre><code class="language-abap">define root view entity ZI_Travel
+  as select from ztravel
+  composition [0..*] of ZI_Booking as _Booking
+{
+  key travel_id as TravelID,
+      agency_id as AgencyID,
+      status    as Status,
+      _Booking
+}</code></pre>
+<p>服务用 projection root 表达消费视角：</p>
+<pre><code class="language-abap">define root view entity ZC_Travel
+  provider contract transactional_query
+  as projection on ZI_Travel
+{
+  key TravelID,
+      AgencyID,
+      Status,
+      _Booking : redirected to composition child ZC_Booking
+}</code></pre>
+<p>读这段代码时，要问：为什么 <code>ZC_Travel</code> 没有暴露所有字段？为什么 <code>_Booking</code> 要 redirect 到 projection child？这个 projection 是 UI service、Web API，还是 BO interface？这些问题比“字段有没有复制全”更重要。</p>
+<h5 id="10-2-projection-behavior-f92bd747">10.例 2：projection behavior 只开放部分能力</h5>
+<p>底层 BO 可能支持 create、update、delete 和 action：</p>
+<pre><code class="language-abap">define behavior for ZI_Travel alias Travel
+{
+  create;
+  update;
+  delete;
+  action cancelTravel;
+}</code></pre>
+<p>某个 UI projection 只开放 create/update/action，不开放 delete：</p>
+<pre><code class="language-abap">projection;
+strict ( 2 );
+
+define behavior for ZC_Travel alias Travel
+{
+  use create;
+  use update;
+  use action cancelTravel;
+}</code></pre>
+<p>这就是 projection 层的服务契约价值：底层有的能力，不等于所有 consumer 都能使用。</p>
+<h5 id="10-3-service-definition-projection-bf894e26">10.例 3：service definition 暴露 projection，不直接暴露所有模型</h5>
+<pre><code class="language-abap">define service ZUI_TRAVEL {
+  expose ZC_Travel  as Travel;
+  expose ZC_Booking as Booking;
+}</code></pre>
+<p>服务定义引用的是 projection entities。这样 service consumer 面对的是经过裁剪和命名整理的契约，而不是底层 interface model 的全部内部结构。</p>
+<h4 id="10-8-counterexample-failure-mode-417cc491" class="semantic-heading semantic-example">10.8 Counterexample / Failure mode</h4>
+<h5 id="10-1-projection-view-root-view-0c971f61" class="semantic-heading semantic-failure">10.误区 1：把 projection view 当成复制粘贴的 root view</h5>
+<p>如果 projection view 只是把 root view 所有字段原样复制一遍，说明团队可能没有认真设计服务契约。Projection 层要回答“这个 consumer 需要什么”，不是机械复制。</p>
+<h5 id="10-2-ui-annotation-root-f313604d" class="semantic-heading semantic-failure">10.误区 2：把 UI annotation 全塞进底层 root</h5>
+<p>如果某个 annotation 只服务一个 Fiori 页面，优先考虑 projection layer 或 metadata extension，而不是污染底层 interface/root model。底层越靠近核心业务模型，越应该稳定。</p>
+<h5 id="10-3-projection-view-odata-c427a267" class="semantic-heading semantic-failure">10.误区 3：以为 projection view 自动变成 OData</h5>
+<p>Projection view 还需要 service definition expose、service binding activate 和 preview/test。OData metadata 没出现字段时，要沿链路检查，不要只盯着 projection view。</p>
+<h5 id="10-4-projection-behavior-1719166a" class="semantic-heading semantic-failure">10.误区 4：以为 projection behavior 会重新实现逻辑</h5>
+<p>Projection behavior 主要是委托和选择暴露底层 behavior。真正的业务逻辑仍在底层 behavior definition / implementation。服务层不应该复制业务规则。</p>
+<h5 id="10-5-provider-contract-8b4ad95a" class="semantic-heading semantic-failure">10.误区 5：忽略 provider contract</h5>
+<p>项目上如果 projection view 用于 RAP transactional service，却没有明确 provider contract，容易产生 activation、语法检查、语义不清或后续迁移问题。新开发应把 provider contract 当成设计必填项，并根据场景选择 <code>transactional_query</code>、<code>transactional_interface</code> 或 <code>analytical_query</code>。</p>
+<h5 id="10-6-composition-child-projection-redirection-8bd332e8" class="semantic-heading semantic-failure">10.误区 6：暴露 composition 却忘记 child projection / redirection</h5>
+<p>Root projection 如果暴露 <code>_Booking</code> 这类 composition child，就要确认 <code>ZC_Booking</code> 是否存在、是否是正确的 child projection、是否在 root projection 里使用 <code>redirected to composition child</code>。不要等到 service binding activation 才发现导航结构不完整。</p>
+<h4 id="10-9-573b68a5" class="semantic-heading semantic-practice">10.9 思考问题</h4>
+<ul>
+<li>这个 projection 面向 UI service、Web API、BO interface，还是内部复用？</li>
+<li>哪些字段必须成为服务契约？哪些字段只是内部实现细节？</li>
+<li>哪些 association / composition child 应该暴露为 navigation？</li>
+<li>暴露 composition child 时，是否已经有对应 child projection view 和 redirection？</li>
+<li>projection behavior 是否只开放当前 consumer 需要的操作？</li>
+<li>provider contract 是 <code>transactional_query</code>、<code>transactional_interface</code> 还是 <code>analytical_query</code>？为什么？</li>
+<li>service definition 是否 expose 了正确的 projection entity？</li>
+<li>metadata extension、UI annotation 和 projection view 的边界是否清楚？</li>
+<li>当前系统是否要求 released API / Clean Core？projection 是否依赖了不稳定对象？</li>
+<li>在日本项目评审中，能否用 <code>プロジェクションビュー</code>、<code>プロジェクション層</code>、<code>公開対象</code>、<code>サービス契約</code> 说明设计选择？</li>
+</ul>
+<h4 id="10-10-51df1df3" class="semantic-heading semantic-reference">10.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abencds_define_view_as_projection.html" target="_blank" rel="noopener noreferrer">SAP Help - DEFINE VIEW ENTITY AS PROJECTION ON, Transactional Query</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_PV_PROVIDER_CONTRACT.html" target="_blank" rel="noopener noreferrer">SAP Help - CDS DDL, PROVIDER CONTRACT</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_PV_NO_CONTRACT.html" target="_blank" rel="noopener noreferrer">SAP Help - CDS Projection View, No Contract</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_PROJECTION_BO.html" target="_blank" rel="noopener noreferrer">SAP Help - RAP Projection Behavior Definitions</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-concept-and-architecture-of-rap" target="_blank" rel="noopener noreferrer">SAP Learning - Understanding the ABAP RESTful Application Programming Model</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-business-objects-and-their-behavior" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Business Objects and their Behavior</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="10-11-connections-333b832d">10.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li>Upstream: <a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a></li>
+<li>Upstream: <a class="wiki" href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">CDS metadata extension and UI annotations</a></li>
+<li>Downstream: <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></li>
+<li>Downstream: <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li>Downstream: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Related: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Related: <a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 16 - CDS Association、Path 与 Projection</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="10-12-2ea72320" class="semantic-heading semantic-practice">10.12 学习任务</h4>
+<ol>
+<li>画出 <code>ZI_Travel -&gt; ZC_Travel -&gt; service definition -&gt; service binding</code> 的链路。</li>
+<li>从一个 projection view 中找出：哪些字段被保留，哪些字段没有暴露。</li>
+<li>找一个 association 或 composition child，确认它是否被 projection 暴露或 redirected。</li>
+<li>找一个 projection behavior definition，说明哪些底层 behavior 被 <code>use</code> 出来。</li>
+<li>用日语写一句 review 评论，说明某个字段是否应该进入 <code>プロジェクションビュー</code>。</li>
+<li>检查 service definition：它 expose 的是 projection view，还是误用了底层 data model view。</li>
+</ol>
+<h4 id="10-13-confidence-next-action-97f8c04a" class="semantic-heading semantic-status">10.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for tutorial use。本节已按 SAP Help / ABAP Keyword Documentation 和 SAP Learning RAP architecture / behavior material 复核；Joule review 返回 <code>Pass with Fixes</code> 并已集成 provider contract、redirection、日本术语等修正，Claude follow-up 返回 <code>Pass</code> 并确认 <code>#NOT_REQUIRED</code> 与 provider contract nuance 已解决。命名约定仍需按 VDM、RAP generator、客户规范或 SAP sample 确认。</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿结构同步；随后继续 <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-009-root-view-entity-9a91965c.html">Previous section</a><a href="section-03-011-cds-access-control-8ad2c0a0.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

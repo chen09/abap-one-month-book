@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Managed Business Object with Unmanaged Save | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="20-managed-business-object-with-unmanaged-save-ff47844f" class="chapter-title">20. Managed Business Object with Unmanaged Save</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 20</li><li>self-contained study note</li></ul><h4 id="20-1-232d0dd2" class="semantic-heading semantic-concept">20.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a> 是 RAP 中介于 <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a> 和 <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a> 之间的一种实现方式：interaction phase 仍由 RAP managed runtime 管理，标准 create/update/delete/read、transactional buffer 和大部分 save sequence 仍走 managed 机制，但真正写入持久层的那一步由开发者在 saver class 的 <code>save_modified</code> 方法中接管。</p>
+<p>可以把它理解为：“前半段仍是 managed BO，最后落库动作换成项目自己的保存逻辑。”它不是把整个 BO 变成 unmanaged，也不是在 managed save 之后额外做一点副作用；它的重点是用自己的保存逻辑替代框架默认写库。SAP Learning 明确说明，这种场景适合复用不带 application buffer、也不区分 interaction phase 与数据库写入阶段的既有代码，或者处理 BO entity 与数据库表之间不是一对一关系的情况。</p>
+<h4 id="20-2-832bdf62">20.2 概念说明</h4>
+<p>前两节已经把两端讲清楚了。<a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a> 中，RAP runtime 管理 application buffer、标准 operation、save sequence，并根据 BDEF 中的 <code>persistent table</code> / <code>mapping</code> 等信息把数据写入数据库。<a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a> 中，RAP runtime 把更多责任交给 behavior implementation：标准 operation、buffer、read、lock、save 等都需要项目实现。</p>
+<p>Managed BO with unmanaged save 则只接管“保存写库”这一块。它的 BDEF 仍然是 managed implementation，但在保存选项中声明 <code>with unmanaged save</code>。开发者需要实现 saver class，重定义 <code>save_modified</code>，从 operation-specific BDEF-derived table types 接收本次事务中被创建、修改、删除的实例数据，然后调用既有保存逻辑或自行写入目标持久层。</p>
+<p>这里的关键词是 <code>save_modified</code>。在 managed save 中，runtime 根据 managed buffer 自动完成数据库写入；在 unmanaged save 中，runtime 不再执行默认写库，而是把变化内容交给 <code>save_modified</code>。因此，项目既享受 managed runtime 在 interaction phase 的便利，又承担 save phase 中最终持久化的责任。</p>
+<p>这和 <a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a> 很容易混淆。Unmanaged save 是“替代默认写库”：框架不再替你写主数据，你必须写。Additional save 是“追加保存逻辑”：框架仍然写主数据，项目额外写日志、发事件、更新附属对象或做扩展保存。一个字面上都叫 save，但项目责任完全不同。</p>
+<h4 id="20-3-07512a76" class="semantic-heading semantic-why">20.3 为什么重要</h4>
+<p>真实 SAP 项目里，数据模型经常没有教材示例那么规整。一个 RAP BO entity 可能对应多张旧 Z 表、一个已存在的 function module、复杂状态机、审批流、number range、接口 staging table，甚至一段不能轻易重写的行业包逻辑。如果强行使用标准 managed save，BDEF 的 <code>persistent table</code> 与实体字段映射可能无法表达真实保存动作；如果直接改成 fully unmanaged，又会失去 managed runtime 对标准 operation 和 buffer 的大量托管能力。</p>
+<p>Managed BO with unmanaged save 的价值就在这里：它允许项目保留 managed BO 的外部契约和交互阶段，同时在保存阶段复用既有资产。对 Fiori / OData / EML consumer 来说，它仍然像一个 managed RAP BO；对后端实现来说，最终写库可以走项目自己的保存代码。</p>
+<p>对初学者，这一节尤其重要，因为它帮助区分三种经常被混在一起的说法：</p>
+<ul>
+<li>managed save：框架负责标准写库。</li>
+<li>unmanaged save：框架把变化交给 <code>save_modified</code>，项目负责主保存。</li>
+<li>additional save：框架照常写库，项目再补充额外保存逻辑。</li>
+</ul>
+<p>如果这三者分不清，设计评审时就会出现危险表述：“我们 managed，但是保存时自己 commit 一下”“我们 additional save 里顺便把主表也写了”“我们 unmanaged save 但 persistent table 照常配”。这些说法听起来只是术语不准，实际会影响事务一致性、扩展能力、测试边界和上线风险。</p>
+<h4 id="20-4-449c1fb7">20.4 边界</h4>
+<p>Managed BO with unmanaged save 仍然是 managed implementation scenario，不是 fully unmanaged BO。标准 operation 和 managed buffer 的责任仍在 RAP runtime；开发者通常不需要像 fully unmanaged 那样自己实现 create/update/delete/read 的全部标准逻辑，也不需要自己维护完整 application buffer。</p>
+<p>它接管的是“最终保存修改内容”的动作。也就是说，interaction phase 中发生的 create/update/delete 请求，仍先被 runtime 收集到 managed transactional buffer；进入 save sequence 后，runtime 不执行默认 managed write，而是调用 saver class 的 <code>save_modified</code>。开发者在这个方法里读取 <code>create</code>、<code>update</code>、<code>delete</code> 请求结构，调用复用代码或写入数据库。</p>
+<p>它也不是逃避 RAP 事务规则的后门。即使保存逻辑由项目接管，RAP 的 save sequence、point-of-no-return、消息语义、锁和 authorization 边界仍然存在。<code>save_modified</code> 不是随意提交的普通 utility method；它运行在 RAP 保存生命周期中，不能用 <code>COMMIT WORK</code> 或 <code>ROLLBACK WORK</code> 破坏外层事务。</p>
+<p>另一个边界是 <code>persistent table</code>。ABAP Keyword Documentation 对 managed BO 的持久表规则有重要例外：managed RAP BO 使用 <code>with unmanaged save</code> 时，BDEF 中 <strong>must not</strong> specify a <code>persistent table</code>。这不是风格建议，而是激活约束。原因很直观：如果框架不再负责默认写库，就不应该再让 BDEF 暗示 runtime 会根据 persistent table 自动保存。项目需要在 unmanaged save 逻辑中清楚写出实际持久化目标和映射。</p>
+<p>最后，它不等于“所有 legacy 保存逻辑都可以原封不动塞进去”。如果旧 function module 内部有自己的 <code>COMMIT WORK</code>、异步 update task、隐式编号、副作用或异常处理方式，就必须评估是否能适配 RAP save sequence。不能适配时，应该重构包装层，或者重新选择 unmanaged BO / additional save / side effect integration 等设计。</p>
+<h4 id="20-5-963e1289" class="semantic-heading semantic-mechanism">20.5 核心机制</h4>
+<p>第一层机制是 BDEF 保存选项。Managed implementation 可以声明 managed save、unmanaged save 或 additional save。<code>with unmanaged save</code> 表示默认 managed write 被项目实现替代。读者要特别注意：这里的 unmanaged 修饰的是 save，不是整个 BO implementation type。</p>
+<p>第二层机制是 managed interaction phase。Create、update、delete、read 等标准 operation 仍由 RAP provider framework 处理。字段控制、<code>%control</code>、managed buffer、determination、validation、lock 以及 projection/service 暴露的基本体验，仍然沿用 managed BO 的思路。开发者主要在非标准 operation、业务规则和保存扩展点里写代码。</p>
+<p>第三层机制是 saver class。Managed BO with unmanaged save 需要 behavior pool 中的 saver 继承 <code>CL_ABAP_BEHAVIOR_SAVER</code>，并实现 <code>save_modified</code>。SAP Help 的 unmanaged save 文档把这个方法称为保存处理入口：runtime 会把 managed buffer 中被修改的内容按 create/update/delete operation-specific table types 传给 <code>save_modified</code>。</p>
+<p>第四层机制是 BDEF-derived table types。<code>save_modified</code> 的 importing parameters 通常按 operation 区分为 <code>create</code>、<code>update</code>、<code>delete</code>，并使用 <code>TYPE TABLE FOR CREATE &lt;entity&gt;</code>、<code>TYPE TABLE FOR UPDATE &lt;entity&gt;</code>、<code>TYPE TABLE FOR DELETE &lt;entity&gt;</code> 这类派生表类型。它们让保存逻辑知道：哪些实例被创建、哪些被更新、哪些被删除、哪些字段发生变化。不要把这里误写成 EML <code>TYPE REQUEST FOR CHANGE</code> / <code>TYPE REQUEST FOR DELETE</code>；后者属于 EML request 场景，不是 <code>save_modified</code> 参数类型。</p>
+<p>第五层机制是 save sequence。与 fully unmanaged 的 <code>save()</code> 不同，managed BO with unmanaged save 的关键方法通常是 <code>save_modified</code>。Runtime 仍控制 save sequence 的整体流程，并在 late save phase 调用 <code>save_modified</code>。因此，开发者要把持久化逻辑写成“被 RAP 调用的一段保存实现”，而不是自己驱动提交。不要把前一节 fully unmanaged BO 的完整 saver sequence 模式机械搬过来；在 managed BO with unmanaged save 中，重点是 <code>save_modified</code>，而不是重新实现 <code>finalize()</code>、<code>check_before_save()</code>、<code>adjust_numbers()</code>、<code>save()</code> 等全部 saver 方法。</p>
+<p>第六层机制是映射和幂等。因为 BO entity 与数据库表可能不是一对一，<code>save_modified</code> 里经常要把 entity change 转换成 legacy API 的结构、多个表的 insert/update/delete、或一个已有保存函数的输入。这里必须明确 key mapping、字段变更、删除语义、重复调用风险和错误返回方式；update 场景还要正确处理 <code>%control</code>，不能把未修改字段误当成空值写回旧接口。否则，调试时会出现“前端保存成功但后台少写一张表”“重复保存导致重复明细”“删除只是 UI 消失但旧表仍有残留”等问题。</p>
+<p>第七层机制是错误处理。<code>save_modified</code> 处在 late save phase，不能像普通 handler 那样随意把业务错误留到最后才发现。大多数业务可校验规则应尽量在 validation / precheck / authorization 阶段提前处理；真正进入 <code>save_modified</code> 后，应该只处理与最终持久化相关的技术错误或不可避免的 legacy 保存错误。此时响应能力比 interaction phase 更受限制，不能指望像 handler 那样自由填充 <code>failed</code> / <code>mapped</code>；项目应尽量把可预见的业务拒绝前移。错误必须按照 RAP 消息和事务语义处理，不能用局部 commit 掩盖失败。</p>
+<p>第八层机制是作用域和与 additional save 的对照。<code>with unmanaged save</code> 可以在 BDEF header 中作为整个 BO 的保存选项，也可以作为 entity behavior property 作用于单个 entity；复合 BO 中只有某个 child entity 需要旧保存逻辑时，不一定要让整个 BO 都走同一个保存策略。Unmanaged save 负责主保存，additional save 负责附加保存。业务事件、审计日志、扩展表补写等常常更适合 additional save；替代主表写入、复用旧保存 API、处理非一对一持久化则更接近 unmanaged save。评审时先问一句：“如果删掉这段代码，主业务数据还会不会被框架保存？”如果答案是不会，多半是 unmanaged save；如果答案是会，只是少了附加动作，多半是 additional save。</p>
+<h4 id="20-6-d8daaadb" class="semantic-heading semantic-why">20.6 项目意义</h4>
+<p>在日本 SAP 项目里，这一模式常出现在“既存ロジックを活かしたい”“標準の managed save では既存テーブル構造に合わない”“拡張項目を既存保存処理に渡せない”这类讨论中。它不是初学者第一天就要写的模式，但必须能读懂，因为很多 S/4HANA 扩展、BTP ABAP、行业模板改造和迁移项目都会遇到类似保存边界。</p>
+<p>设计文档中，Managed BO with unmanaged save 应该写清楚四件事。第一，为什么标准 managed save 不够。第二，<code>save_modified</code> 里调用哪些保存逻辑，目标表或 API 是什么。第三，validation、authorization、lock、numbering、message 和 rollback 如何处理。第四，为什么不选择 fully unmanaged 或 additional save。</p>
+<p>代码 review 时，要重点看保存逻辑是不是只放在 late save phase 的 <code>save_modified</code>，handler 中是否出现直接 DB write、<code>COMMIT WORK</code>、<code>ROLLBACK WORK</code>、异步副作用或绕过 RAP buffer 的读取。测试时，要覆盖 create/update/delete 混合保存、保存失败回滚、重复点击保存、多个 child 变化、legacy API 返回错误、authorization 拒绝和并发锁冲突。</p>
+<p>对 Java/Python 背景学习者，可以把它类比成：“框架负责 request lifecycle、unit-of-work buffer 和标准 domain operation；项目只替换 unit-of-work flush 到数据库的实现。”但 SAP RAP 的差异在于：这个 flush 不是 ORM 的普通 hook，而是由 BDEF、behavior pool、save sequence、OData/EML、authorization 和 transport 共同约束的企业级契约。</p>
+<h4 id="20-7-example-7f684d7e" class="semantic-heading semantic-example">20.7 Example / 学习例子</h4>
+<p>假设项目要做一个 Travel BO。前端创建旅行订单、修改日期、删除 item 的交互都很普通，使用 managed runtime 足够；但保存时不能只写一张 <code>ztravel</code> 表，而必须调用一个已有的 <code>/LRN/xxx_SAVE_TRAVEL</code> 风格函数。这个函数会同时写 header、item、状态历史和接口 staging table，而且这些结构不是 CDS entity 与单表字段的一对一映射。</p>
+<p>如果使用标准 managed save，框架只知道 BDEF 中的 persistent table 和 field mapping，无法表达这个复杂保存动作。如果改成 fully unmanaged，项目又要自己实现 create/update/delete/read 和完整 buffer，成本太高。此时可以选择 managed BO with unmanaged save：让 RAP 管 interaction phase，让 <code>save_modified</code> 调旧保存逻辑。</p>
+<p>BDEF 层面可以理解为：</p>
+<pre><code class="language-abap">managed implementation in class zbp_i_travel unique;
+strict ( 2 );
+with unmanaged save;
+
+define behavior for ZI_Travel alias Travel
+  lock master
+  authorization master ( instance )
+{
+  create;
+  update;
+  delete;
+}</code></pre>
+<p>在 behavior pool 中，handler 仍主要处理 validations、determinations、actions；saver class 中的 <code>save_modified</code> 接收本次 transaction 的 create/update/delete 请求。实现时通常会把 <code>create-travel</code>、<code>update-travel</code>、<code>delete-travel</code> 转换成 legacy API 的输入结构，再统一调用保存函数。伪代码可以这样理解：</p>
+<pre><code class="language-abap">METHOD save_modified.
+  LOOP AT create-travel INTO DATA(created_travel).
+    &quot; Map TYPE TABLE FOR CREATE data to a legacy header/item structure.
+  ENDLOOP.
+
+  LOOP AT update-travel INTO DATA(updated_travel).
+    &quot; Map TYPE TABLE FOR UPDATE data and %control to a legacy change structure.
+  ENDLOOP.
+
+  LOOP AT delete-travel INTO DATA(deleted_travel).
+    &quot; Map TYPE TABLE FOR DELETE keys to a legacy delete request.
+  ENDLOOP.
+
+  &quot; Call a no-commit legacy save API or perform DB changes in the late save phase.
+ENDMETHOD.</code></pre>
+<p>初学时不需要马上写完整代码，但要能画出责任链：</p>
+<ol>
+<li>Fiori / EML 发起 create 或 update。</li>
+<li>RAP managed runtime 处理标准 operation，并把变化放入 managed transactional buffer。</li>
+<li>validation / determination / lock / authorization 在相应阶段执行。</li>
+<li>save sequence 开始后，runtime 把修改内容传给 <code>save_modified</code>。</li>
+<li><code>save_modified</code> 调用项目保存逻辑，把数据写入真正的持久层。</li>
+<li>consumer 仍通过 RAP/OData 看到统一的成功、失败和消息语义。</li>
+</ol>
+<p>最小练习：找一个已展开的 <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a> 示例，再写出“如果保存目标不是一张 persistent table，而是一个 legacy save API，代码应该从 managed save 改成什么”。进阶练习：在 SAP Help 的 unmanaged save 示例中找到 <code>save_modified</code>，标出 create、update、delete 三类请求如何被区分。</p>
+<h4 id="20-8-counterexample-failure-mode-0b62e15e" class="semantic-heading semantic-example">20.8 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 unmanaged save 当成 fully unmanaged。团队在 handler 里自己写 create/update/delete/read，又在 <code>save_modified</code> 里重复保存，结果 managed buffer 和项目 buffer 双轨运行。表面上是“更可控”，实际是两个事实来源，错误很难定位。</p>
+<p>第二个失败模式是把 unmanaged save 当成 additional save。项目以为框架仍会写主数据，只在 <code>save_modified</code> 里写了日志或事件，最后主业务数据没有落库。Unmanaged save 的核心是替代默认保存；如果主数据写入不在这里完成，保存就不完整。</p>
+<p>第三个失败模式是在 <code>save_modified</code> 中调用内部 <code>COMMIT WORK</code> 的旧 function module。这样会破坏 RAP transaction boundary：外层事务后续失败时，旧逻辑可能已经提交，导致前端看到失败但后台部分数据已写入。<code>COMMIT WORK</code>、<code>ROLLBACK WORK</code>、<code>PERFORM ON COMMIT</code>、<code>PERFORM ON ROLLBACK</code> 以及不适配 RAP 的 legacy exception pattern 都需要重点排查；在严格模式或运行时，它们可能导致 activation error 或 <code>BEHAVIOR_ILLEGAL_STATEMENT</code> 一类问题。正确做法是评估旧 API 是否能提供 no-commit 版本、拆出保存核心，或重新设计边界。</p>
+<p>第四个失败模式是没有处理删除和字段变更语义。Legacy API 只按“完整对象覆盖”设计，但 <code>save_modified</code> 收到的是 create/update/delete operation-specific tables 和 <code>%control</code>。若不看 delete 请求或字段变更信息，可能只会更新 header，不会删除明细；或者把未修改字段误写成初始值。</p>
+<p>第五个失败模式是错误发现太晚。可以在 validation 中发现的业务错误，拖到 <code>save_modified</code> 才让 legacy API 报错，会让消息定位、UI 行级提示和回滚解释都变差。保存阶段应该尽量保持技术性和最终持久化导向，业务规则尽量前移。</p>
+<p>第六个失败模式是没有说明为什么不用标准 managed save。若 BO 与持久表其实是一对一映射，却为了“可控”选择 unmanaged save，团队会失去框架默认保存能力，却没有获得真正价值。评审时应要求给出具体理由：legacy API、非一对一持久化、复杂保存依赖、不可改变的既有结构，或者扩展字段限制。</p>
+<h4 id="20-9-8207ee62" class="semantic-heading semantic-japan">20.9 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>managed BO with unmanaged save</code>、<code>アンマネージド保存</code>、<code>保存処理の差し替え</code>、<code>既存ロジックの再利用</code>、<code>save_modified メソッド</code>、<code>保存シーケンス</code>、<code>標準保存ではなく独自保存</code>。</li>
+<li>说明句：この BO は managed 実装ですが、保存フェーズでは unmanaged save を使い、RAP runtime の標準保存ではなく既存の保存ロジックを <code>save_modified</code> から呼び出します。</li>
+<li>设计评审句：標準の managed save で対応できない理由、<code>save_modified</code> で呼び出す既存ロジック、コミット制御、エラー時のロールバック方針を設計書に明記してください。</li>
+<li>风险提示句：既存汎用モジュールの内部で <code>COMMIT WORK</code> が実行される場合、RAP のトランザクション境界を壊す可能性があるため、そのまま呼び出せません。</li>
+<li>作用域句：<code>with unmanaged save</code> は BDEF ヘッダーで BO 全体に指定することも、エンティティ単位で指定することもできます。</li>
+<li>对比句：additional save は標準保存に処理を追加する方式ですが、unmanaged save は標準保存を置き換える方式です。</li>
+</ul>
+<h4 id="20-10-english-terms-9ebb3f5b" class="semantic-heading semantic-terms">20.10 English Terms</h4>
+<ul>
+<li>Official / search term: <code>managed business object with unmanaged save</code></li>
+<li>Official / search term: <code>RAP unmanaged save</code></li>
+<li>Official / search term: <code>with unmanaged save</code></li>
+<li>Official / search term: <code>save_modified</code></li>
+<li>Official / search term: <code>managed implementation scenario with unmanaged save</code></li>
+<li>Official / search term: <code>TYPE TABLE FOR CREATE</code></li>
+<li>Official / search term: <code>TYPE TABLE FOR UPDATE</code></li>
+<li>Official / search term: <code>TYPE TABLE FOR DELETE</code></li>
+<li>Official / search term: <code>BDEF-derived types</code></li>
+<li>Official / search term: <code>CL_ABAP_BEHAVIOR_SAVER</code></li>
+<li>Related terms: <code>additional save</code>, <code>managed save</code>, <code>save sequence</code>, <code>transactional buffer</code>, <code>point-of-no-return</code>, <code>COMMIT ENTITIES</code>, <code>behavior implementation options</code>.</li>
+</ul>
+<h4 id="20-11-1e5478d4" class="semantic-heading semantic-reference">20.11 参考资料入口</h4>
+<ul>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring Behavior Implementation Options</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/unmanaged-save" target="_blank" rel="noopener noreferrer">Unmanaged Save</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/integrating-unmanaged-save-in-managed-business-objects" target="_blank" rel="noopener noreferrer">Integrating Unmanaged Save in Managed Business Objects</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_SAVING.html" target="_blank" rel="noopener noreferrer">RAP - Saving Options</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRAP_UNMAN_SAVE_GLOSRY.html" target="_blank" rel="noopener noreferrer">RAP unmanaged save glossary</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRAP_MANAGED_UNM_SAVE_ABEXA.html" target="_blank" rel="noopener noreferrer">ABAP EML - TYPE REQUEST FOR in a Managed RAP BO with Unmanaged Save (EML consumer perspective)</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSAVE_MODIFIED_ADD_SAVE_ABEXA.html" target="_blank" rel="noopener noreferrer">Example for save_modified in a Managed RAP BO with Additional Save</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/implementing-save-handler-method" target="_blank" rel="noopener noreferrer">Implementing the Save Handler Method</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">RAP business object</span></li>
+<li><a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></li>
+<li><a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></li>
+<li><a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a></li>
+</ul>
+<h4 id="20-12-connections-f789ad7f">20.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></li>
+<li>Downstream: <a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a></li>
+<li>Related: <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></li>
+<li>Related: <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></li>
+<li>Related: <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li>Related: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="20-13-7582d823" class="semantic-heading semantic-practice">20.13 学习任务</h4>
+<ul>
+<li>用三句话区分 managed save、unmanaged save、additional save。</li>
+<li>在本节示例中标出：哪些责任仍由 managed runtime 处理，哪些责任转移到 <code>save_modified</code>。</li>
+<li>写出 <code>save_modified</code> 中 create/update/delete 三类 importing tables 分别适合用哪类 <code>TYPE TABLE FOR ...</code> 派生类型理解。</li>
+<li>用日语写一句设计评审说明：为什么此 BO 不能使用标准 managed save。</li>
+<li>找一页 SAP 官方资料，确认 <code>with unmanaged save</code> 与 <code>save_modified</code> 的关系。</li>
+<li>设计一个测试用例，验证 legacy save API 报错时 RAP consumer 能看到正确失败消息，并且没有部分提交。</li>
+</ul>
+<h4 id="20-14-confidence-next-action-d052f7c7" class="semantic-heading semantic-status">20.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。正文基于 SAP Learning、SAP Help 和 ABAP Keyword Documentation 整理，并结合前两节 Managed RAP / Unmanaged RAP 的 review 结论；2026-06-18 已重新访问官方资料入口，Joule 的必须修正已整合，Claude 初审和 follow-up 均返回 <code>Pass</code>，可作为 <code>expanded-review</code> 书稿正文使用。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a>，继续说明“替代主保存”和“追加保存逻辑”的边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-019-unmanaged-rap-21f0d377.html">Previous section</a><a href="section-03-021-additional-save-3fe37ede.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

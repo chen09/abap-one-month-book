@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP Platform 平台概念 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="3-abap-platform-d313dd08" class="chapter-title">3. ABAP Platform 平台概念</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 03</li><li>self-contained study note</li></ul><h4 id="3-1-23c07a04" class="semantic-heading semantic-concept">3.1 一句话结论</h4>
+<p>ABAP Platform 是 SAP 用来承载 ABAP-based solutions 的技术平台，不等于 <a class="wiki" href="section-01-004-sap-s-4hana-932c3511.html">SAP S/4HANA</a> 这个业务产品，也不等于 ADT 这个开发工具。学它的目的，是把前两节的 <a class="wiki" href="section-01-001-sap-system-landscape-e11c9fc6.html">SAP system landscape 系统环境分层</a> 和 <a class="wiki" href="section-01-002-application-server-abap-b0de96bf.html">Application Server ABAP 运行时基础</a> 放进更大的“产品 / 平台 / 运行时 / 开发模型”地图里。</p>
+<h4 id="3-2-0d21e1ed" class="semantic-heading semantic-concept">3.2 到底学什么</h4>
+<p>先抓一个边界：ABAP Platform 是“技术基盘”，不是“业务套件”。SAP Help 对 ABAP Platform 的基本定位是：它是 ABAP-based SAP solutions 的 foundation；在本书面向的 SAP S/4HANA / ABAP Cloud 语境下，它建立在 SAP HANA 的 database and data management platform 之上。也就是说，ABAP Platform 提供 ABAP 语言、repository、runtime、Dictionary、SQL/CDS、RAP、OData、authorization、jobs、logs、workflow 等技术能力；SAP S/4HANA 则是在这些平台能力之上交付业务流程、主数据、应用和行业功能的产品。</p>
+<p>这和 Java/Python 背景里的“语言 + runtime + framework + app”很像，但 SAP 的命名更容易混。Java 世界里，Java 语言、JVM、Spring、某个 ERP 应用通常不会被叫成同一个词；SAP 项目里，大家却经常把 SAP、S/4、ABAP、NetWeaver、ABAP Platform、ADT、ABAP Cloud 混在一句话里说。这里要特别记住：SAP NetWeaver AS ABAP 是旧项目资料里常见的说法，ABAP Platform 可以理解为较新命名体系中对 AS ABAP 技术平台的延续和现代化表述；两者不是两个完全分离的架构层。初学者如果不先分层，很容易以为“学 ABAP Platform”就是“学 SAP S/4HANA 业务”，或者以为“装了 ADT”就等于拥有平台。</p>
+<p>本节先学五个词的相对位置。第一，SAP S/4HANA 是业务产品 / business suite。第二，ABAP Platform 是技术平台 / foundation。第三，AS ABAP 是运行时和 application server layer。第四，ADT 是开发工具。第五，ABAP Cloud 是现代开发模型和规则集合，强调 released APIs、Clean Core、restricted language scope 和 ATC checks。它们有关联，但不能互相替代。</p>
+<p>还要学一个项目判断：ABAP Platform 能力和具体系统 release 有关。项目里不能只说“我们是 ABAP”，还要看实际 SAP S/4HANA release、ABAP Platform release、support package、software component 和系统部署形态。对开发者来说，ABAP Platform 通常是作为 SAP S/4HANA / SAP S/4HANA Foundation 等产品基础的一部分出现，不是自己单独下载、单独安装来承载生产业务的独立产品。某些语法、RAP 能力、released API、ADT 检查、cloud restriction，在不同 release 和产品形态下会不一样。</p>
+<p>对初学者来说，最重要的不是背产品名，而是避免把问题问错。客户说“在 S/4HANA 上加一个按钮”，这句话属于业务产品语境；开发者说“用 RAP 暴露 OData V4 service”，这属于 ABAP Platform 和开发模型语境；Basis 说“work process 满了”，这属于运行时和系统运维语境；架构师说“只能使用 released APIs”，这属于 Clean Core / ABAP Cloud 规则语境；开发者说“用 ADT 创建 behavior definition”，这属于工具和 repository 对象语境。五层分开，沟通才不会互相误解。</p>
+<p>本节可以作为后续所有章节的“坐标轴”。学 DDIC、CDS、RAP、OData、authorization、background job、application log 时，都要问：这是业务产品能力、平台技术能力、运行时行为、开发模型约束，还是工具操作？同一个词放错层，结论就会变形。</p>
+<h4 id="3-3-a0c10a31" class="semantic-heading semantic-why">3.3 为什么重要</h4>
+<p>如果不理解 ABAP Platform，后面的学习会在技术选型上失焦。看到一个需求时，初学者可能马上问“要不要写 ABAP class”，但真实项目会先问：标准功能能不能覆盖，是否有 released API 或 extension point，是否允许自定义 repository object，是否符合 Clean Core，目标系统的 release 是否支持对应能力。平台概念的价值，就是把“能写代码吗”提升成“在当前产品、平台、运行时和开发模型下，哪种实现方式可交付”。</p>
+<p>对项目交付来说，平台边界决定技术选型。一个需求能不能直接改表、能不能用 classic enhancement、能不能调用某个类、能不能建 RAP business object、能不能发布 OData V4 service、能不能进入 Public Edition，都不是单看 ABAP 语法能决定的。它取决于平台能力、开发模型、release、产品形态和 Clean Core 约束。平台概念学清楚，后面学 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a>、<a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a>、<a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a>、<a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a> 时才不会漂。</p>
+<p>对日本 SAP 项目来说，这一层也很实用。客户或上级可能问：<code>S/4HANA の標準機能ですか、それとも ABAP 側の拡張ですか</code>、<code>ABAP Cloud で実装できますか</code>、<code>リリース済み API はありますか</code>。如果只会说“我写 ABAP”，就无法回答它属于标准业务产品、平台技术、扩展模型还是交付治理。</p>
+<p>五层图还能帮助需求评审。评审一个需求时，可以按顺序问：</p>
+<pre><code class="language-text">Product:
+  Is this covered by SAP S/4HANA standard configuration or process?
+
+Platform:
+  Which ABAP Platform capabilities are needed: CDS, RAP, OData, jobs, logs, authorization?
+
+Runtime:
+  What runs synchronously, asynchronously, in dialog work process, background job, or service call?
+
+Development model:
+  Is classic ABAP allowed, or must it follow ABAP Cloud / Clean Core / released API rules?
+
+Tooling:
+  Which tools and checks prove it: ADT, ATC, transport, service preview, API test?</code></pre>
+<p>这不是形式主义。很多项目失败不是因为不会写代码，而是需求一开始没有分清“标准功能能不能配置”“是否允许扩展”“扩展在哪个系统里做”“调用哪个 released API”“谁来运行后台作业”。ABAP Platform 的学习价值，就是让这些问题在 Day 01 就有语言。</p>
+<h4 id="3-4-key-mechanism-31b23fbd" class="semantic-heading semantic-mechanism">3.4 Key mechanism / 核心机制</h4>
+<p>可以用一张五层图记住这节，后面的例子只是在把同一张图套到不同场景：</p>
+<pre><code class="language-text">Business product
+  SAP S/4HANA, SAP BW/4HANA, industry solutions
+
+Technology platform
+  ABAP Platform / ABAP Cloud development model / released APIs
+
+Runtime
+  Application Server ABAP, dispatcher, work processes, database interface
+
+Development model
+  Classic ABAP, RAP, ABAP Cloud, Clean Core rules
+
+Tooling
+  ADT, SAP GUI transactions, ATC, transport tools</code></pre>
+<p>第一层机制是 product decision vs platform capability。一个需求说“在 S/4HANA 里做”，下一句不应该立刻变成“写哪个程序”，而是先判断标准业务能力、配置、released API、extension point 和自定义对象边界。平台决定可用技术能力，产品决定业务语义和标准流程，两者合在一起才形成技术方案。</p>
+<p>第二层机制是 platform vs runtime。前一节 AS ABAP 讲的是程序运行时如何处理请求；ABAP Platform 的范围更广，还包括开发对象模型、Dictionary、ABAP SQL/CDS、RAP/OData、authorization、job/log/test/quality 相关基础能力。可以粗略理解为：AS ABAP 是平台中的运行时核心，ABAP Platform 是围绕 ABAP 开发和运行的一整套技术基础。</p>
+<p>第三层机制是 platform vs development model。ABAP Cloud 不是“另一个 ABAP Platform”，也不是“只在云上才需要关心”的口号，而是在 ABAP Platform 能力之上规定“应该怎样写可升级、云就绪、Clean Core 的 ABAP”。它可以出现在 SAP BTP ABAP environment、SAP S/4HANA Cloud Public Edition 中的 ABAP environment，也可以在较新的 SAP S/4HANA on-premise / SAP S/4HANA Cloud, private edition 系统中作为 Clean Core 导向的开发选项使用；具体可用性必须看 release。SAP Learning 对 released APIs 的说明强调，客户新开发和扩展开发应使用 public-released interfaces；在 ADT 中，ABAP Cloud development model 会通过 syntax checks 和 ATC checks 执行这些限制，例如 non-released APIs、SAP GUI-dependent 语句或不适合 cloud-ready extension 的对象会被限制或标红。</p>
+<p>第四层机制是 release dependency。平台能力不是抽象口号，而是版本相关事实。项目里要学会查看 <code>System -&gt; Status</code>、software component、SAP_BASIS / SAP_ABA / S4CORE 之类组件和 release 信息；读 SAP Help 时也要确认文档版本。不要把网上某个 ABAP 语法或 RAP 功能直接套到任何系统。</p>
+<p>第五层机制是 deployment caveat。在 SAP S/4HANA Cloud Public Edition 中，底层 ABAP Platform 由 SAP 托管，开发者不会像 on-premise / SAP S/4HANA Cloud, private edition 项目那样接触全部 AS ABAP 管理层。Public Edition 的扩展更强调 key user extensibility、developer extensibility、released APIs 和 ABAP Cloud development model；side-by-side 场景则常用 SAP BTP ABAP environment。Day 01 只要记住：同一个“ABAP Platform”词，在不同部署形态下给开发者开放的能力和边界不同。</p>
+<p>可以用一个对照表记住部署差异：</p>
+<div class="table-wrap"><table><thead><tr><th>部署/开发场景</th><th>开发者通常关心什么</th><th>常见误解</th></tr></thead><tbody><tr><td>SAP S/4HANA on-premise</td><td>classic ABAP、RAP、transport、system release、Basis 协作</td><td>以为任何旧式增强都适合未来升级</td></tr><tr><td>SAP S/4HANA Cloud, private edition</td><td>类似 on-premise，但更强调升级治理和 Clean Core</td><td>以为“私有云”就没有约束</td></tr><tr><td>SAP S/4HANA Cloud Public Edition</td><td>key user / developer extensibility、released APIs、ABAP Cloud</td><td>以为能像 on-premise 一样改所有对象</td></tr><tr><td>SAP BTP ABAP environment</td><td>side-by-side ABAP、ABAP Cloud、released APIs、service integration</td><td>以为它等同于客户 S/4HANA 后端</td></tr><tr><td>学习/POC sandbox</td><td>练习语法和对象关系</td><td>以为 POC 可用能力等于生产可交付能力</td></tr></tbody></table></div>
+<p>这张表只给方向，不替代 SAP Help 和项目架构约束。真正项目里，要看系统 landscape、contract、edition、release、extension policy 和客户治理。</p>
+<p>第六层机制是 evidence。平台判断不能只靠口头说法。设计书里应能指出：系统版本在哪里确认、目标 edition 是什么、使用的 API 是否 released、ATC/ABAP Cloud 检查是否通过、服务是否能 preview/test、transport 到 QAS 后是否仍可运行。没有这些证据，“平台支持”就只是猜测。</p>
+<h4 id="3-5-a2a6bc14" class="semantic-heading semantic-japan">3.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ABAPプラットフォーム</code>、<code>技術基盤</code>、<code>SAP S/4HANA基盤</code>、<code>アプリケーションサーバ</code>、<code>開発モデル</code>、<code>クリーンコア開発モデル</code>、<code>バージョン依存</code>、<code>リリースバージョン依存</code>、<code>リリース済みAPI</code>、<code>クリーンコア</code>、<code>拡張性</code>。</li>
+<li>说明句：SAP S/4HANA は業務アプリケーションであり、ABAP Platform はその ABAP 開発・実行を支える技術基盤です。</li>
+<li>说明句：この要件は ABAP Cloud の開発モデルで実装できるか、リリース済み API の有無を確認する必要があります。</li>
+<li>使用场景：基本设计、技术方案说明、Clean Core review、升级影响调查、开发规范说明、客户/上级技术边界说明。</li>
+<li>现场提醒：<code>基盤</code> 在日本项目里可能指基础设施、技术平台或 Basis 负责区域，语境很重要。说明时最好补一句是 <code>ABAP 開発・実行の技術基盤</code>，避免被理解成服务器/网络层。不要写 <code>基盤プラットフォーム</code> 这种重复表达。</li>
+</ul>
+<h4 id="3-6-english-terms-6f9275dd" class="semantic-heading semantic-terms">3.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP Platform</code></li>
+<li>Related terms: <code>ABAP-based SAP solutions</code>, <code>SAP NetWeaver AS ABAP</code>, <code>SAP S/4HANA Foundation</code>, <code>Application Server ABAP</code>, <code>AS ABAP</code>, <code>ABAP Cloud</code>, <code>ABAP for Cloud Development</code>, <code>released APIs</code>, <code>public-released interfaces</code>, <code>Clean Core</code>, <code>SAP BTP ABAP environment</code>, <code>ABAP environment in SAP S/4HANA Cloud</code>, <code>SAP S/4HANA Cloud, private edition</code>, <code>software component</code>, <code>SAP_BASIS</code>, <code>SAP_ABA</code>, <code>S4CORE</code></li>
+<li>Recommended search pattern: <code>ABAP Platform SAP Help foundation ABAP-based SAP solutions</code>, <code>ABAP platform cloud released APIs SAP Learning</code>, <code>ABAP Cloud released APIs ABAP Platform ADT</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="3-7-example-cf61cbc5" class="semantic-heading semantic-example">3.7 Example / 学习例子</h4>
+<p>假设项目要做一个新的审批应用。业务上，它运行在 SAP S/4HANA 的采购或销售流程附近；技术上，可能需要使用 ABAP Platform 提供的 repository、CDS、RAP、authorization、OData service、application log、background job 等能力；运行时，它会在 AS ABAP 的 work process 中被执行；开发时，开发者用 ADT 创建对象；架构约束上，项目可能要求 ABAP Cloud 和 released APIs。把这几层拆开，技术方案才不会混乱。</p>
+<p>再看一个典型误会。有人说“这个是 S/4HANA 项目，所以一定可以用最新 RAP 功能”。这句话不一定成立。是否能用某个 RAP feature，要看实际 release、support package、开发模型、系统形态和已释放 API，而不是只看产品名。另一个人说“我装了 ADT，所以可以做 ABAP Cloud”。这也不成立：ADT 是工具，ABAP Cloud 是开发模型，系统必须支持对应的检查、released objects 和 runtime 能力。</p>
+<p>最小练习：写五行对照表：<code>SAP S/4HANA = business product</code>，<code>ABAP Platform = technology platform</code>，<code>AS ABAP = runtime</code>，<code>ADT = development tool</code>，<code>ABAP Cloud = development model</code>。再把一个你见过的 POC 对象放进这五层里。</p>
+<p>AC0567C 风格的批量上传 POC 可以这样放进五层：</p>
+<pre><code class="language-text">Business product:
+  It supports an SAP S/4HANA business process, such as upload/validate/execute around business data.
+
+Technology platform:
+  It may use ABAP repository objects, DDIC, CDS/RAP, OData service binding, authorization, application log, background job.
+
+Runtime:
+  API request runs in AS ABAP service processing; long-running execution may move to background job.
+
+Development model:
+  New code should prefer Clean Core, released APIs, ABAP Cloud-compatible patterns where applicable.
+
+Tooling:
+  ADT for repository objects, ATC for checks, service preview/API client for OData, transport tools for DEV -&gt; QAS -&gt; PRD.</code></pre>
+<p>这能帮助读者把“一个上传按钮”拆成项目语言。它不是单纯“写一个 ABAP 程序”，也不是单纯“做一个 OData API”；它跨越产品语义、平台能力、运行时、开发模型和交付工具。</p>
+<h4 id="3-8-counterexample-failure-mode-5e79d0b6" class="semantic-heading semantic-example">3.8 Counterexample / Failure mode</h4>
+<ul>
+<li>把 SAP S/4HANA、ABAP Platform、AS ABAP、ADT、ABAP Cloud 都叫成“SAP 平台”，会导致设计说明和 review 无法定位问题。</li>
+<li>以为 ABAP Platform 等于 SAP S/4HANA，会把业务产品能力和技术平台能力混在一起。</li>
+<li>以为 ABAP Cloud 等于云环境，会忽略它也可以作为开发模型出现在不同 ABAP 环境中。</li>
+<li>以为 ADT 是平台，会误判工具、repository、runtime 和 release 的关系。</li>
+<li>只按网上示例写代码，不检查系统 release 和 released API，可能导致语法不可用、ATC 不通过、Clean Core review 失败。</li>
+<li>修正动作：回到 <span class="wiki unresolved">MOC SAP System Foundations</span>，把一个需求同时标注为 product / platform / runtime / tool / development model 五层。</li>
+<li>把 Public Edition、private cloud、on-premise、BTP ABAP environment 的开发边界混为一谈，会导致方案在目标系统不可实施。</li>
+<li>把 POC sandbox 里能跑的做法当成生产设计，会忽略 transport、authorization、ATC、released API、performance 和 operations。</li>
+<li>把 <code>基盤</code> 只理解成服务器/网络，会错过 ABAP Platform 作为开发与运行技术基础的含义。</li>
+</ul>
+<h4 id="3-9-d7c636cc" class="semantic-heading semantic-practice">3.9 思考问题</h4>
+<ul>
+<li>SAP S/4HANA 和 ABAP Platform 的区别是什么？</li>
+<li>AS ABAP 和 ABAP Platform 的关系是什么？为什么不能完全等同？</li>
+<li>ABAP Cloud 为什么更像 development model，而不是单独的产品名？</li>
+<li>为什么项目里要确认 release / software component，而不是只说“我们用 ABAP”？</li>
+<li>如果客户问 <code>リリース済み API はありますか</code>，这属于 product、platform、runtime、tool、development model 中哪一层的问题？</li>
+</ul>
+<h4 id="3-10-45252a2a" class="semantic-heading semantic-reference">3.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/b5670aaaa2364a29935f40b16499972d/48ba073157b85295e10000000a42189b.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Platform</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-extensibility-options" target="_blank" rel="noopener noreferrer">SAP Learning - Exploring Extensibility Options</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/exploring-released-apis_d80ce197-097e-4e7b-8696-b960738089c7" target="_blank" rel="noopener noreferrer">SAP Learning - Exploring Released APIs</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/implementing-sap-s-4hana-cloud-public-edition/using-developer-in-app-extensibility-in-sap-s-4hana-cloud-public-edition" target="_blank" rel="noopener noreferrer">SAP Learning - Using Developer In-App Extensibility in SAP S/4HANA Cloud Public Edition</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="3-11-connections-04dc4e41">3.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li><span class="wiki unresolved">MOC ADT Workflow</span></li>
+<li>Upstream: <a class="wiki" href="section-01-002-application-server-abap-b0de96bf.html">Application Server ABAP 运行时基础</a></li>
+<li>Downstream: <a class="wiki" href="section-01-004-sap-s-4hana-932c3511.html">SAP S/4HANA 业务套件定位</a></li>
+<li>Related: <a class="wiki" href="section-01-005-sap-btp-abap-environment-9f7f1d20.html">SAP BTP ABAP environment 云开发环境</a></li>
+<li>Related: <a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud 现代开发模型</a></li>
+<li>Related: <a class="wiki" href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Clean Core Extensibility Levels and Released API Dependency</a></li>
+<li>Related: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 01 - SAP 系统、AS ABAP、ABAP Platform</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="3-12-67a18a8b" class="semantic-heading semantic-practice">3.12 学习任务</h4>
+<ul>
+<li>画出五层图：business product / technology platform / runtime / development model / tooling。</li>
+<li>用 5 句话分别解释 SAP S/4HANA、ABAP Platform、AS ABAP、ADT、ABAP Cloud。</li>
+<li>补 1 个日语现场句子，必须包含 <code>技術基盤</code>、<code>開発モデル</code> 或 <code>リリース済み API</code>。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 ABAP Platform 或 released APIs 的定义。</li>
+<li>如果已经进入 Week 3/4，把 AC0567C POC 中任意一个对象标到 product / platform / runtime / tool / development model 五层里。</li>
+</ul>
+<h4 id="3-13-confidence-next-action-750d686d" class="semantic-heading semantic-status">3.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High；ABAP Platform / SAP S/4HANA / ABAP Cloud 的官方措辞会随产品形态和 release 演进，项目中应以当前系统 release、SAP Help 对应版本和 Clean Core 指南为准。</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-01-004-sap-s-4hana-932c3511.html">SAP S/4HANA 业务套件定位</a>，把“技术平台”连接到“业务套件产品”。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-003-abap-platform-fe67ad23.html">ABAP Platform 平台概念</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-002-application-server-abap-b0de96bf.html">Previous section</a><a href="section-01-004-sap-s-4hana-932c3511.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

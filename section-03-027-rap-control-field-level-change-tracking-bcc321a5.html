@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP %control field-level change tracking | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="27-rap-control-field-level-change-tracking-0a58f882" class="chapter-title">27. RAP %control field-level change tracking</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 27</li><li>self-contained study note</li></ul><h4 id="27-1-eb8299ea" class="semantic-heading semantic-concept">27.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">RAP %control field-level change tracking</a> 是 RAP EML / behavior implementation 中用来说明“本次修改请求到底要改哪些字段”的字段级标记机制；它避免 update/create 请求把未修改字段也当成修改内容，从而降低静默覆盖、错误派生和旧逻辑误判的风险。</p>
+<p>一句话记忆：字段值告诉 RAP “新值是什么”，<code>%control</code> 告诉 RAP “这个字段是不是本次请求要处理的字段”。没有 <code>%control</code>，很多 update 看起来有数据，实际上语义不完整。</p>
+<h4 id="27-2-596a7d21">27.2 概念说明</h4>
+<p>在普通 ABAP 里，一条结构体传进方法后，很难区分“字段被调用方故意传成 initial”还是“字段根本没有被修改，只是结构体默认 initial”。RAP 的 update / create 请求需要更精细的语义：如果 consumer 只改了 <code>Status</code>，就不应该把 <code>CustomerId</code>、<code>BeginDate</code>、<code>EndDate</code> 的 initial 值误当成要覆盖数据库的值。</p>
+<p><code>%control</code> 就是为了解决这个问题。它是 RAP derived type 中的特殊控制结构，通常出现在 <code>TYPE TABLE FOR CREATE</code>、<code>TYPE TABLE FOR UPDATE</code>、EML <code>MODIFY ENTITIES</code> 的输入数据，以及 unmanaged handler 的 create/update/import 参数里。注意：reported message 中常见的 <code>%element</code> 虽然也带字段名，但它用于消息字段定位，不是 <code>%control</code>。ABAP Keyword Documentation 明确说明，可用 <code>IF_ABAP_BEHV</code> 的结构化常量 <code>if_abap_behv=&gt;mk-on</code> 和 <code>if_abap_behv=&gt;mk-off</code> 来指定字段控制值。</p>
+<p>最常见的写法是：字段赋值后，同时把对应 <code>%control-&lt;field&gt;</code> 设为 <code>if_abap_behv=&gt;mk-on</code>：</p>
+<pre><code class="language-abap">DATA lt_create TYPE TABLE FOR CREATE zi_travel\Travel.
+
+APPEND VALUE #(
+  %cid = &#x27;Travel_001&#x27;
+  AgencyId = &#x27;070001&#x27;
+  CustomerId = &#x27;000123&#x27;
+  %control-AgencyId   = if_abap_behv=&gt;mk-on
+  %control-CustomerId = if_abap_behv=&gt;mk-on
+) TO lt_create.</code></pre>
+<p>这表示：本次 create 请求确实提供了 <code>AgencyId</code> 和 <code>CustomerId</code>。如果某个字段没有设置 <code>%control-... = mk-on</code>，RAP runtime 或 unmanaged handler 不应把它当成明确修改请求。</p>
+<h4 id="27-3-ffb5fce5" class="semantic-heading semantic-why">27.3 为什么重要</h4>
+<p><code>%control</code> 的重要性在 update 场景最容易看出来。假设前端只把 Travel 的 <code>OverallStatus</code> 从 Open 改成 Accepted。如果后端把整个结构体直接搬进旧 update function module，未修改字段里的 initial 值可能覆盖原数据。上线后表现可能是“审批后客户号没了”“日期被清空”“金额变 0”。这类问题很隐蔽，因为语法没错，数据库也确实更新了，只是更新语义错了。</p>
+<p>对 unmanaged RAP 来说，<code>%control</code> 更关键。Managed runtime 通常能根据请求和 BDEF 处理较多标准 update 语义；unmanaged handler / saver 里，项目代码要自己决定哪些字段传给旧逻辑、哪些字段不碰。忽略 <code>%control</code>，就等于把 PATCH 语义退化成“全量结构覆盖”。</p>
+<p>对项目交付来说，<code>%control</code> 影响四件事。第一，接口稳定性：OData PATCH / EML update 不应覆盖未请求字段。第二，审计和变更日志：只有被请求修改的字段才应进入字段级差异判断。第三，validation / determination：只对相关字段触发或解释规则，避免无关字段造成误报。第四，旧系统集成：调用 BAPI、function module 或 legacy class 时要把“要改哪些字段”翻译清楚。</p>
+<p>对 Java/Python 背景学习者，可以把 <code>%control</code> 类比成 JSON PATCH / partial update 中的 field mask 或 update mask。字段值本身像 payload，<code>%control</code> 像 mask：没有 mask，就无法可靠区分“不传”和“传空值”。</p>
+<h4 id="27-4-d40aef0a">27.4 边界</h4>
+<p>第一条边界：<code>%control</code> 不是 feature control。上一节 <a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a> 讲的是“字段或操作此刻能不能用”；本节 <code>%control</code> 讲的是“本次请求中哪些字段被标记为要修改/处理”。一个字段可以在 UI 上可编辑，但如果本次请求没改它，<code>%control</code> 就不应误标为 on。</p>
+<p>第二条边界：<code>%control</code> 不是 validation。它不判断字段值是否合法，只表达字段是否参与本次请求。字段值是否合法仍由 validation、precheck、authorization、action logic 或旧系统校验决定。</p>
+<p>第三条边界：<code>%control</code> 不是 change log。它告诉你请求里标记了哪些字段，但不等于数据库旧值和新值一定不同。用户可能把字段改成同一个值，也可能框架或 handler 又派生了其它字段。真正审计仍要比较旧值、新值、请求语义和保存结果。</p>
+<p>第四条边界：<code>%control</code> 不等于 <code>%element</code>。<code>%element-&lt;field&gt;</code> 常用于 reported message 中标记消息关联的字段，让 UI 高亮字段；<code>%control-&lt;field&gt;</code> 用于修改请求中标记字段是否被控制/请求处理。两者名字相似，但语义不同。</p>
+<p>第五条边界：field list 与 <code>%control</code> 有交集但不完全相同。<code>MODIFY ENTITIES ... UPDATE FIELDS ( ... ) WITH ...</code> 可以用 field list 指定更新字段；显式 <code>%control</code> 则常见于 derived type 数据结构、create/update table 和 unmanaged 场景。项目中要按语句变体和生成类型理解，不要混用成一套口号。</p>
+<h4 id="27-5-2411d61f" class="semantic-heading semantic-mechanism">27.5 核心机制</h4>
+<p>第一层机制是 derived type。RAP 的 <code>TYPE TABLE FOR CREATE</code>、<code>TYPE TABLE FOR UPDATE</code> 等派生类型，会包含业务字段和若干技术组件，例如 <code>%cid</code>、<code>%key</code>、<code>%tky</code>、<code>%is_draft</code>、<code>%control</code>。开发者不是手写一个普通结构体，而是使用 BDEF-derived type 让输入数据和 BO 契约一致。</p>
+<p>第二层机制是 mark constants。SAP Help 对 <code>%control</code> 的说明指出，可用 <code>if_abap_behv=&gt;mk-on</code> 和 <code>if_abap_behv=&gt;mk-off</code> 设置字段控制值。<code>mk-on</code> 表示字段被标记为参与当前请求；<code>mk-off</code> 表示没有标记或不参与。实际代码通常只显式写 on，未标记字段保持 off / initial。</p>
+<p>第三层机制是 create。Create 请求里，<code>%control</code> 表示哪些字段由 consumer 显式提供。即使 create 是新建对象，也不能简单认为所有字段都被提供了：有些字段可能由 numbering、determination、defaulting、managed runtime 或数据库默认值产生。Managed BO 中，标准 create/update 的持久化细节多由 runtime 按请求语义处理；unmanaged BO 中，项目代码更需要显式读取 <code>%control</code> 并把它翻译给旧逻辑。</p>
+<pre><code class="language-abap">DATA lt_create TYPE TABLE FOR CREATE zi_travel\Travel.
+
+lt_create = VALUE #(
+  ( %cid = &#x27;T001&#x27;
+    AgencyId = &#x27;070001&#x27;
+    CustomerId = &#x27;000123&#x27;
+    BeginDate = cl_abap_context_info=&gt;get_system_date( )
+    %control-AgencyId   = if_abap_behv=&gt;mk-on
+    %control-CustomerId = if_abap_behv=&gt;mk-on
+    %control-BeginDate  = if_abap_behv=&gt;mk-on ) ).</code></pre>
+<p>第四层机制是 update。Update 请求更依赖 <code>%control</code>。如果只修改状态，只应标记状态字段：</p>
+<pre><code class="language-abap">DATA lt_update TYPE TABLE FOR UPDATE zi_travel\Travel.
+
+lt_update = VALUE #(
+  ( %tky = ls_travel-%tky
+    OverallStatus = &#x27;A&#x27;
+    %control-OverallStatus = if_abap_behv=&gt;mk-on ) ).
+
+MODIFY ENTITIES OF zi_travel IN LOCAL MODE
+  ENTITY Travel
+  UPDATE FROM lt_update
+  FAILED DATA(ls_failed)
+  REPORTED DATA(ls_reported).</code></pre>
+<p>这段的重点不是 <code>OverallStatus = &#x27;A&#x27;</code>，而是只有 <code>OverallStatus</code> 的 <code>%control</code> 被打开。其它字段即使在结构体里是 initial，也不应被当成要更新。</p>
+<p>第五层机制是 unmanaged handler。Unmanaged update handler 中，输入参数里的实体结构通常带 <code>%control</code>。项目代码需要把 <code>%control</code> 翻译成旧逻辑能理解的 update mask、changed-field list 或逐字段赋值逻辑。安全写法是：</p>
+<ul>
+<li>先读取当前数据库或 application buffer 的旧值。</li>
+<li>对每个字段检查 <code>%control-&lt;field&gt; = if_abap_behv=&gt;mk-on</code>。</li>
+<li>只把标记为 on 的字段写入目标结构或调用 legacy API。</li>
+<li>未标记字段保留旧值，不用输入结构的 initial 覆盖。</li>
+</ul>
+<p>第六层机制是 EML field list。某些 EML 语句可以使用 <code>UPDATE FIELDS ( Field1 Field2 ) WITH ...</code> 这类 field list 变体，显式告诉 runtime 要尊重哪些字段。它和 <code>%control</code> 都服务于字段级修改语义。初学者可以先理解为：无论用 field list 还是 <code>%control</code>，目标都是避免“整行结构覆盖”的错误。</p>
+<p>第七层机制是 failed/reported 与 <code>%element</code>。当某个字段校验失败时，<code>reported</code> 中常用 <code>%element-Field = if_abap_behv=&gt;mk-on</code> 告诉 UI 这个消息关联哪个字段；<code>failed</code> 里也可能标记 <code>%update</code> / <code>%action-...</code> 等失败位置。这和 <code>%control</code> 不是同一个结构，但常一起出现在 handler 代码中。读代码时要分清：<code>%control</code> 是请求 mask，<code>%element</code> 是消息定位。</p>
+<h4 id="27-6-d816aa09" class="semantic-heading semantic-why">27.6 项目意义</h4>
+<p>设计评审时，<code>%control</code> 要回答：“这个接口是全量更新还是部分更新？”如果是部分更新，必须明确未传字段如何处理，字段被传成 initial 时是否表示清空，旧逻辑是否支持 field mask。没有这个说明，接口测试很容易只测 happy path，看不出静默覆盖。</p>
+<p>代码 review 时，重点看三类代码。第一，EML create/update 的输入是否正确设置 <code>%control</code> 或使用 <code>UPDATE FIELDS</code>。第二，unmanaged handler 是否按 <code>%control</code> 逐字段处理，而不是 <code>MOVE-CORRESPONDING</code> 到持久化结构。第三，legacy API 调用是否能区分“不改”和“改为空”。</p>
+<p>测试时，要专门设计 partial update 用例。比如先创建一条 Travel，填好 Customer、BeginDate、EndDate；然后只更新 Status；最后确认 Customer 和日期没有变化。还要测试“明确清空可选字段”的场景，确认 <code>%control</code> on 且值 initial 时，系统按业务规则清空，而不是被误判成没传。</p>
+<p>日本项目中，<code>%control</code> 常出现在 RAP unmanaged、BAPI 封装、OData PATCH 缺陷调查里。现场会问：<code>未変更項目が初期値で上書きされていませんか</code>、<code>%control を見て更新対象項目だけ処理していますか</code>、<code>空値に更新する場合と未指定の場合を区別していますか</code>。这些问题都在确认字段级变更语义。</p>
+<h4 id="27-7-example-85a42ad5" class="semantic-heading semantic-example">27.7 Example / 学习例子</h4>
+<p>以 Travel 的 Customer 和 Status 为例。用户只把 Status 从 Open 改成 Accepted，Customer 没动。正确的 update 请求应只标记 <code>OverallStatus</code>：</p>
+<pre><code class="language-abap">lt_update = VALUE #(
+  ( %tky = ls_travel-%tky
+    OverallStatus = &#x27;A&#x27;
+    %control-OverallStatus = if_abap_behv=&gt;mk-on ) ).</code></pre>
+<p>错误写法是把整条结构都搬过去，并把所有字段 <code>%control</code> 打开：</p>
+<pre><code class="language-abap">lt_update = VALUE #(
+  ( %tky = ls_travel-%tky
+    OverallStatus = &#x27;A&#x27;
+    CustomerId = &#x27;&#x27;
+    BeginDate = &#x27;00000000&#x27;
+    %control-OverallStatus = if_abap_behv=&gt;mk-on
+    %control-CustomerId    = if_abap_behv=&gt;mk-on
+    %control-BeginDate     = if_abap_behv=&gt;mk-on ) ).</code></pre>
+<p>这表示“我确实要把 CustomerId 清空、BeginDate 改成初始值”。如果这不是业务意图，就是严重 bug。最危险的是它看起来像普通结构默认值，不像明显错误。</p>
+<p>在 unmanaged handler 里，伪代码应更像这样：</p>
+<pre><code class="language-abap">IF entity-%control-OverallStatus = if_abap_behv=&gt;mk-on.
+  ls_legacy-status = entity-OverallStatus.
+ENDIF.
+
+IF entity-%control-CustomerId = if_abap_behv=&gt;mk-on.
+  ls_legacy-customer = entity-CustomerId.
+ENDIF.</code></pre>
+<p>这段不是完整可运行代码，而是强调“逐字段看 mask”。如果直接 <code>MOVE-CORRESPONDING entity TO ls_legacy</code>，就很可能把没有修改的字段也覆盖掉。</p>
+<h4 id="27-8-counterexample-failure-mode-14a986bc" class="semantic-heading semantic-example">27.8 Counterexample / Failure mode</h4>
+<p>第一个失败模式是全量覆盖。开发者把 update input 结构直接 <code>MOVE-CORRESPONDING</code> 到持久化结构，没有检查 <code>%control</code>。结果未传字段被 initial 值覆盖，生产数据被静默清空。</p>
+<p>第二个失败模式是无法清空字段。为了避免覆盖，开发者写了“initial 就不更新”。但如果业务允许用户把可选字段清空，initial 可能是合法新值。正确判断应看 <code>%control</code>：<code>%control</code> on 且值 initial，才表示明确清空。</p>
+<p>第三个失败模式是 create 时忘记 <code>%control</code>。Consumer 明明填了字段，但没有打开 <code>%control</code>，导致 runtime、handler 或旧逻辑没有按预期处理该字段，出现 defaulting、mandatory check 或 mapping 异常。</p>
+<p>第四个失败模式是把 <code>%element</code> 当 <code>%control</code>。开发者在 reported message 中设置了 <code>%element-Date = mk-on</code>，以为这能控制 update 字段。实际上 <code>%element</code> 只是消息字段定位，不是修改请求 mask。</p>
+<p>第五个失败模式是变更日志只看 <code>%control</code>。<code>%control</code> on 表示字段参与请求，不代表旧值和新值不同。审计日志如果只按 <code>%control</code> 记变更，可能记录“伪变化”；如果完全不看 <code>%control</code>，又可能漏掉显式清空字段。正确做法是结合 <code>%control</code>、旧值、新值和保存结果。</p>
+<p>第六个失败模式是 legacy API 不支持 partial update。即使 RAP handler 正确读取 <code>%control</code>，后面调用的 BAPI / function module 可能仍按全量结构覆盖。需要在适配层把 <code>%control</code> 转成旧 API 的 X-structure、change indicator 或逐字段更新参数。</p>
+<h4 id="27-9-54a10669" class="semantic-heading semantic-japan">27.9 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>項目単位の変更管理</code>、<code>変更対象項目</code>、<code>未変更項目</code>、<code>初期値上書き</code>、<code>部分更新</code>、<code>更新マスク</code>、<code>X構造</code>、<code>PATCH相当</code>。</li>
+<li>说明句：<code>%control</code> は、RAP の更新要求でどの項目が変更対象かを示すための制御情報です。</li>
+<li>Review 句：unmanaged update では <code>%control</code> を確認し、変更対象項目だけ旧ロジックへ渡してください。</li>
+<li>質問句：managed の場合、<code>%control</code> の確認はフレームワーク任せで問題ないですか。</li>
+<li>调查句：未変更項目が初期値で上書きされた場合、<code>%control</code> の設定と legacy API へのマッピングを確認します。</li>
+<li>区分句：<code>%element</code> はメッセージの項目紐付け、<code>%control</code> は更新要求の項目マスクとして分けて考えます。</li>
+</ul>
+<h4 id="27-10-english-terms-84244101" class="semantic-heading semantic-terms">27.10 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP %control</code></li>
+<li>Official / search term: <code>ABAP derived types %control</code></li>
+<li>Official / search term: <code>if_abap_behv=&gt;mk-on</code></li>
+<li>Official / search term: <code>if_abap_behv=&gt;mk-off</code></li>
+<li>Official / search term: <code>MODIFY ENTITIES UPDATE FIELDS</code></li>
+<li>Official / search term: <code>TYPE TABLE FOR UPDATE</code></li>
+<li>Official / search term: <code>field control structure</code></li>
+<li>Related term: <code>field mask</code></li>
+<li>Related term: <code>partial update</code></li>
+<li>Related term: <code>OData PATCH</code></li>
+<li>Related term: <code>X-structure</code></li>
+<li>Recommended search pattern: <code>ABAP RAP %control if_abap_behv mk-on SAP Help</code></li>
+<li>Recommended search pattern: <code>MODIFY ENTITIES UPDATE FIELDS RAP %control</code></li>
+</ul>
+<h4 id="27-11-59556c2b" class="semantic-heading semantic-reference">27.11 参考资料入口</h4>
+<ul>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPDERIVED_TYPES_CONTROL.html" target="_blank" rel="noopener noreferrer">%control</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapmodify_entity_entities.html" target="_blank" rel="noopener noreferrer">MODIFY ENTITY, ENTITIES</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPMODIFY_ENTITY_ENTITIES_FIELDS.html" target="_blank" rel="noopener noreferrer">MODIFY ENTITY, ENTITIES, field_spec</a> (accessed 2026-06-18)</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/08_EML_ABAP_for_RAP.md" target="_blank" rel="noopener noreferrer">ABAP for RAP: Entity Manipulation Language</a> (accessed 2026-06-18)</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/src/zbp_demo_abap_rap_ro_u.clas.locals_imp.abap" target="_blank" rel="noopener noreferrer">ABAP RAP behavior implementation examples</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="27-12-connections-c667216b">27.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li><a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a></li>
+<li><a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a></li>
+<li><a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></li>
+<li><a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li>Upstream: <a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a></li>
+<li>Downstream: <a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="27-13-5fc88593" class="semantic-heading semantic-practice">27.13 学习任务</h4>
+<ul>
+<li>用自己的中文解释 <code>%control</code> 和字段值本身的区别。</li>
+<li>写一个只更新 <code>OverallStatus</code> 的 EML update 示例，并只打开对应 <code>%control</code>。</li>
+<li>设计一个测试：只更新状态后，Customer、BeginDate、EndDate 不能被清空。</li>
+<li>用日语写一句 review comment：unmanaged update 必须检查 <code>%control</code>。</li>
+<li>说明 <code>%control</code>、<code>%element</code>、feature control 三者分别解决什么问题。</li>
+</ul>
+<h4 id="27-14-confidence-next-action-a8772add" class="semantic-heading semantic-status">27.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level <code>%control</code> semantics, <code>mk-on</code> / <code>mk-off</code>, partial update boundary, EML modify relation, unmanaged handler risk, <code>%element</code> distinction, and legacy X-structure analogy based on ABAP Keyword Documentation and SAP-samples evidence. 2026-06-18 已重新访问官方资料入口，Claude 初审 <code>Pass with fixes</code>、follow-up <code>Pass</code>。Release-specific field-list syntax and derived-type details still require target-system ADT syntax check because exact generated types depend on BO, operation, draft, projection, and ABAP release; Joule 因前序 timeout 未重试，已记录为后续可补充依赖。</li>
+<li>Review state: 已同步到 Chapter 03 与离线书稿；Claude initial review 返回 <code>Pass with fixes</code>，follow-up 返回 <code>Pass</code>；Joule 因前序 timeout / slow 状态未重试，已记录依赖。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a>，继续展开 RAP non-standard operation、action result、side effect 和保存边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">RAP %control field-level change tracking</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-026-rap-feature-control-ec5d5296.html">Previous section</a><a href="section-03-028-action-9e9b0bf1.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

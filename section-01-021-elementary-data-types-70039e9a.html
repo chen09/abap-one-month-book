@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Elementary data types 基础技术类型 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="21-elementary-data-types-5a91a630" class="chapter-title">21. Elementary data types 基础技术类型</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 21</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Elementary data types 基础技术类型 是 ABAP 里描述“一个值应该如何存放、显示、比较和转换”的最小技术类型单元。学这一节不是为了背类型表，而是为了在声明 <a class="wiki" href="section-01-020-abap-data-object-e568a611.html">ABAP data object 数据对象</a> 时知道：金额不能随手写成字符串，日期不是普通文本，<code>N</code> 不是可计算的数字，<code>P</code> 的小数位必须说清楚，错误的类型选择会一路影响 SQL、接口、测试和上线缺陷。</p>
+<p><strong>正文</strong></p>
+<p>在上一节里，数据对象被解释为程序运行时内存中的一块有类型的值。现在要继续追问：这个“类型”具体可以是什么？在 ABAP 入门阶段，最常见的答案就是 built-in elementary data types，也就是 ABAP 语言本身预定义的基础技术类型。SAP Learning 当前把这些用于简单 numeric、character-like、binary data object 的 built-in 类型概括为 14 个预定义数据类型；初学阶段不需要一次记死所有边角差异，但必须先建立分类。</p>
+<p>第一类是 numeric types 数值类型。常见的是 <code>i</code>、<code>int8</code>、<code>p</code>、<code>decfloat16</code>、<code>decfloat34</code> 和 <code>f</code>。<code>i</code> 适合普通整数，<code>int8</code> 适合更大的整数；<code>p</code> 是 packed number，项目里经常用于带小数位的金额、数量等十进制业务值；<code>decfloat16</code> 和 <code>decfloat34</code> 是十进制浮点；<code>f</code> 是二进制浮点，适合特定科学/近似计算，不适合作为金额字段的默认选择。Java/Python 背景的人常把 <code>float</code> 当成“有小数的数”，但 SAP 项目里的金额、税额、汇率、数量通常需要精确小数、货币或单位语义，不能只看“能不能存下小数”。</p>
+<p>第二类是 character-like types 字符型。<code>c</code> 是定长字符，<code>string</code> 是变长字符串，<code>n</code> 是 numeric text。这里最容易误解的是 <code>n</code>：它看起来像数字，其实是只允许数字字符的文本，适合保存编号、补零代码、外部 key 的一部分，不应当被当成算术数字来做金额或数量计算。</p>
+<p>第三类是 byte-like types 字节型。<code>x</code> 是定长 byte field，<code>xstring</code> 是变长 byte string。它们面向二进制内容、hash、raw key、技术协议字段等场景。初学者不需要马上写复杂二进制处理，但要知道 byte-like 和 character-like 不是一回事：一个字节序列不等于一段业务文本，不能因为“看起来都是一串东西”就混用。</p>
+<p>第四类可以先理解为 date/time/timestamp types 日期、时间和时间戳类型。<code>d</code> 是日期，<code>t</code> 是时间，<code>utclong</code> 可用于 long UTC timestamp / タイムスタンプ型。<code>d</code> 和 <code>t</code> 不是随便写的显示文本；它们有 ABAP 内部格式，输出格式再由环境、转换例程或 UI 层处理。日期、时间、时区和时间戳的完整规则会在后面的 SQL、接口和业务对象章节继续展开。</p>
+<p>还要特别理解 complete type 与 incomplete type 的区别。像 <code>i</code>、<code>int8</code>、<code>d</code>、<code>t</code>、<code>string</code>、<code>xstring</code>、<code>utclong</code>、<code>decfloat16</code>、<code>decfloat34</code> 这类类型在常见 <code>DATA ... TYPE ...</code> 声明中已经足够完整；而 <code>c</code>、<code>n</code>、<code>x</code>、<code>p</code> 常常需要补充长度，其中 <code>p</code> 还要补充 <code>DECIMALS</code> 小数位。比如 <code>DATA amount TYPE p LENGTH 8 DECIMALS 2.</code> 比只写 <code>TYPE p</code> 更接近项目代码标准；不写 <code>DECIMALS</code> 时默认 0 位小数，金额或数量可能被悄悄变成整数语义。某些版本资料还会提到 <code>b</code>、<code>s</code> 这类短整数类型；它们属于 SAP 文档中的内置类型知识，但不能直接写在普通 <code>DATA ... TYPE ...</code> 声明里。初学写项目代码时先按官方学习路径掌握常用类型即可，不要为了“类型表完整”过早引入低频细节。</p>
+<p>最后要把技术类型和业务语义分开看。<code>TYPE p LENGTH 8 DECIMALS 2</code> 只能说明这是一个 packed decimal 技术字段，并不自动说明它是 JPY、EUR 还是 USD，也不说明数量单位是 EA、KG 还是 H。真正进入 <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a>、<a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a>、数据库表、CDS、OData 和 RAP 时，金额通常需要 currency key，数量通常需要 unit，日期时间还要考虑时区和业务含义。这就是为什么本节放在 Day 03：先把单个值的技术形状看清楚，后面再把它放进 Dictionary、SQL、服务接口和业务对象。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li>类型决定了初始值、赋值、比较、排序、格式化和隐式转换的结果；同一个外观看起来像 <code>123</code> 的值，放在 <code>i</code>、<code>n</code>、<code>c</code>、<code>string</code>、<code>p</code> 里，项目意义完全不同。</li>
+<li>金额、数量、税率、日期、时间、编号这些字段一旦类型选错，问题不会只停在当前程序，后续 SQL 查询、接口 JSON、Fiori 显示、测试数据、迁移数据都可能被拖下水。</li>
+<li>ABAP 允许不少隐式转换，这让简单 demo 很容易“看起来能跑”；但真实项目里隐式转换可能造成截断、舍入、runtime error、short dump 或难以解释的测试差异。</li>
+<li>对 Java/Python 背景学习者来说，本节的关键不是寻找一一对应的 <code>int</code>、<code>str</code>、<code>float</code>，而是学会 SAP 项目里“技术类型 + 业务语义 + Dictionary/接口约束”一起判断。</li>
+</ul>
+<p><strong>核心机制</strong></p>
+<ul>
+<li>Built-in elementary type 是 ABAP 语言提供的基础技术类型；它不同于 DDIC data element/domain，也不同于结构、内表、引用类型。</li>
+<li>Numeric types 负责算术语义，但不同 numeric type 的范围、精度、舍入方式不同；业务十进制值优先考虑 <code>p</code>、十进制浮点或 DDIC 业务字段，而不是默认 <code>f</code>。</li>
+<li>Character-like types 负责字符表示；<code>n</code> 是 numeric text，适合补零编号，不等同于可以安全计算的 number。</li>
+<li>Byte-like types 负责二进制数据；<code>x</code>/<code>xstring</code> 不应和文本类型混用。</li>
+<li><code>c</code>、<code>n</code>、<code>x</code>、<code>p</code> 这类不完整类型在声明时通常要明确 length；<code>p</code> 还要明确 <code>DECIMALS</code>，否则默认 0 位小数，后续金额/数量缺陷很隐蔽。</li>
+<li><code>VALUE</code> 是起始值，<code>CLEAR</code> 回到类型特定 initial value；初始值和起始值不是同一个概念。</li>
+<li>隐式类型转换虽然方便，但要当作风险点审查：是否会截断、丢小数、补空格、去尾空格、转不成数字或输出格式变化。</li>
+</ul>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>基本データ型</code>、<code>組込みデータ型</code>、<code>技術型</code>、<code>数値型</code>、<code>文字型</code>、<code>バイト型</code>、<code>日付型</code>、<code>時刻型</code>、<code>タイムスタンプ型</code>。</li>
+<li>声明相关：<code>完全型</code>、<code>不完全型</code>、<code>LENGTH指定</code>、<code>DECIMALS句</code>、<code>小数点以下桁数</code>、<code>初期値</code>、<code>暗黙型変換</code>。</li>
+<li>业务字段相关：<code>パック数値</code>、<code>通貨項目</code>、<code>通貨キー</code>、<code>数量項目</code>、<code>単位</code>、<code>丸め誤差</code>、<code>桁あふれ</code>。</li>
+<li>说明句：金額項目は単なる文字列ではなく、通貨キーと小数点以下桁数を含めて型を確認する必要があります。</li>
+<li>Review 句：この項目は <code>N</code> 型なので数値計算には使わず、コード値またはゼロ埋め文字列として扱う前提でよいか確認してください。</li>
+<li>使用场景：基本設計の項目定義、詳細設計の型確認、コード review、単体テストデータ作成、移送前の影響調査。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>elementary data type</code></li>
+<li>Official / search term: <code>built-in ABAP type</code></li>
+<li>Official / search term: <code>numeric data types</code></li>
+<li>ABAP keywords: <code>DATA</code>, <code>TYPE</code>, <code>VALUE</code>, <code>CLEAR</code>, <code>LENGTH</code>, <code>DECIMALS</code></li>
+<li>ABAP types: <code>i</code>, <code>int8</code>, <code>p</code>, <code>decfloat16</code>, <code>decfloat34</code>, <code>f</code>, <code>c</code>, <code>n</code>, <code>d</code>, <code>t</code>, <code>string</code>, <code>x</code>, <code>xstring</code>, <code>utclong</code></li>
+<li>Recommended search pattern: <code>site:help.sap.com ABAP Keyword Documentation built-in ABAP type</code></li>
+</ul>
+<p><strong>例子</strong></p>
+<p>先看一段很小的 ABAP 代码：</p>
+<pre><code class="language-abap">DATA order_id     TYPE n LENGTH 10 VALUE &#x27;0000004711&#x27;.
+DATA quantity     TYPE p LENGTH 8 DECIMALS 3 VALUE &#x27;12.500&#x27;.
+DATA net_amount   TYPE p LENGTH 11 DECIMALS 2 VALUE &#x27;1980.00&#x27;.
+DATA currency     TYPE c LENGTH 3 VALUE &#x27;JPY&#x27;.
+DATA created_on   TYPE d VALUE &#x27;20260613&#x27;.
+DATA message_text TYPE string.
+
+message_text = |Order { order_id } amount { net_amount } { currency }|.</code></pre>
+<p>这里 <code>order_id</code> 用 <code>n</code>，是因为订单号需要保留前导零，重点是“编号显示和比较”，不是做加减乘除。<code>quantity</code> 和 <code>net_amount</code> 用 <code>p</code> 并写出 <code>DECIMALS</code>，是因为数量和金额通常要保留固定小数位。<code>currency</code> 这里只是一个演示字段，在真实项目中更常见的是 DDIC currency key 或 CDS/OData 语义关联。<code>created_on</code> 用 <code>d</code>，表示这是 ABAP 日期技术类型，而不是一段任意格式的文本。<code>message_text</code> 用 <code>string</code>，因为它只是输出消息，不承担金额、日期或数量的业务计算语义。</p>
+<p>最小练习：</p>
+<ol>
+<li>在 ADT 里创建一个实现 <code>IF_OO_ADT_CLASSRUN</code> 的练习类。</li>
+<li>分别把同一个值 <code>19891109</code> 放进 <code>string</code>、<code>d</code>、<code>c LENGTH 8</code>、<code>n LENGTH 8</code>、<code>p LENGTH 8 DECIMALS 2</code>。</li>
+<li>用 <code>out-&gt;write( )</code> 观察输出差异。</li>
+<li>思考：哪些类型适合显示，哪些适合计算，哪些只是技术上“能赋值”但项目上不合理。</li>
+</ol>
+<p>进阶练习：给一个金额字段写出三种错误声明，例如 <code>TYPE string</code>、<code>TYPE f</code>、<code>TYPE p</code> 但不写 <code>DECIMALS</code>，再说明每种写法可能造成什么测试缺陷。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>把金额写成 <code>string</code>：界面上可能能显示，但排序、加总、舍入、接口校验和货币小数位都会变成隐患。</li>
+<li>把编号写成 <code>i</code>：<code>0000004711</code> 会失去前导零，和外部系统、表 key、用户看到的编号不一致。</li>
+<li>把 <code>n</code> 当成普通 number：它是 numeric text，不是为了业务计算设计的算术类型。</li>
+<li>把所有小数都写成 <code>f</code>：二进制浮点可能带来舍入差异，金额/税额场景尤其危险。</li>
+<li><code>TYPE p</code> 不写 <code>DECIMALS</code>：代码短了，但默认 0 位小数，金额或数量可能被悄悄截成整数语义。</li>
+<li>只看本地变量，不看 DDIC/CDS/OData：同一个技术类型到了接口层还要考虑 label、conversion、currency/unit、precision/scale 和消费端显示。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>如果一个金额字段被声明为 <code>string</code>，单元测试、SQL 排序、接口输出分别可能出现什么问题？</li>
+<li><code>n LENGTH 10</code> 和 <code>i</code> 都能表达数字字符时，为什么订单号更常见地接近 <code>n</code> 或 DDIC 字符语义？</li>
+<li><code>p LENGTH 8 DECIMALS 2</code> 的 length 和 decimals 分别控制什么？不写 <code>DECIMALS</code> 会有什么 review 风险？</li>
+<li><code>d</code>/<code>t</code> 和 <code>string</code> 最大的区别是什么？为什么日期时间不应该只按显示格式理解？</li>
+<li>在日本项目里看到 <code>暗黙型変換</code>、<code>丸め誤差</code>、<code>桁あふれ</code> 时，应该回到哪几类类型风险？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/working-with-basic-data-objects-and-data-types_cf92dee2-85ec-4b9f-a778-1a7cfef70dad" target="_blank" rel="noopener noreferrer">SAP Learning - Working With Basic Data Objects and Data Types</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPDATA_SIMPLE.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DATA, TYPE abap_type</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENNUMBER_TYPES.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Numeric Data Types</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBUILTIN_ABAP_TYPE_GLOSRY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - built-in ABAP type glossary</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-021-elementary-data-types-70039e9a.html">Elementary data types 基础技术类型</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-020-abap-data-object-e568a611.html">Previous section</a><a href="section-01-022-type-vs-like-5da66ea5.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

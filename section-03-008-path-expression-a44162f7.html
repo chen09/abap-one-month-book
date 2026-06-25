@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Path expression 路径表达式 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="8-path-expression-87108315" class="chapter-title">8. Path expression 路径表达式</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 08</li><li>self-contained study note</li></ul><h4 id="8-1-51e02aee" class="semantic-heading semantic-concept">8.1 一句话结论</h4>
+<p>Path expression 路径表达式，是在 CDS 或 ABAP SQL 中沿着已暴露的 association 读取目标字段、继续导航到下一级 association，或在特定位置使用 association 作为数据源的语法。它不是普通的对象属性访问，也不是“免费取关联数据”；它是在消费 <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a>，并且在数据库层通常会落实成由 association 的 ON condition 派生出来的 join。</p>
+<p>本节最重要的结论是：path expression 是 association 从“模型关系”变成“当前消费”的那一刻。上一节 <a class="wiki" href="section-03-007-join-vs-association-d3fb9ff7.html">Join vs association 二者区别</a> 讲过，association 可以先定义和暴露而不立即取 target 字段；一旦写出 <code>_Customer.Name</code>、<code>_Department._Head.LastName</code> 或 ABAP SQL 中的 <code>\_Airline-Name</code>，消费者就明确要求沿着关系读取数据。项目上 review path expression，不能只看写法短不短，还要看 cardinality、to-many 行数变化、filter 是否改变语义、DCL/authorization 是否仍然生效、projection/service 是否真的应该暴露这个导航。</p>
+<h4 id="8-2-eb84a66a" class="semantic-heading semantic-concept">8.2 到底学什么</h4>
+<p>前两节已经建立了三个概念：association 定义关系，join 立即组合数据源，exposed association 把关系交给消费者。本节只回答一个问题：消费者如何沿着这个关系取字段？</p>
+<p>需要掌握八个判断点。</p>
+<ul>
+<li>CDS path expression：在 CDS view entity 里用 <code>_Association.Field</code> 或 <code>_Association._NextAssociation.Field</code> 读取关联目标字段。</li>
+<li>ABAP SQL path expression：在 ABAP SQL 里用反斜线 <code>\</code> 标记每个 association，用最后一个连字符 <code>-</code> 选择目标字段，例如 <code>\_Airline-Name</code> 或 chained path <code>\_Airline\_Currency-CurrencyISOCode</code>。</li>
+<li>Propagate association：只把 association 名称放进元素列表，让下游消费者继续看到这个关系。</li>
+<li>Use association：在当前 view / query 里沿着 association 取字段，此时会触发关联访问。</li>
+<li>Chained path：连续跨多个 association，例如 <code>_Department._Head.LastName</code>。</li>
+<li>To-one vs to-many：to-one path 通常保持当前行粒度；to-many path 可能放大结果行数，甚至在 WHERE 中被禁止。</li>
+<li>Filtered path：在 association 后用 <code>[...]</code> 给目标集合加过滤条件，过滤条件会影响生成 join 的 ON condition。</li>
+<li>Verification：在 ADT 中用 Data Preview 和 <code>Show SQL Create Statement</code> 观察 path expression 对结果集与生成 SQL 的影响。</li>
+</ul>
+<h4 id="8-3-0fa8ebcd" class="semantic-heading semantic-why">8.3 为什么重要</h4>
+<p>Path expression 重要，是因为它把“可导航关系”真正带入消费层。没有 path expression，association 只是模型中可见的一条关系；有了 path expression，当前 view、ABAP SQL、projection、service 或 OData consumer 才开始拿目标实体的字段。也就是说，path expression 是连接 CDS 语义模型和实际查询结果的桥。</p>
+<p>对 SAP 项目交付来说，这一层很容易出问题。比如部门 view 中沿着 <code>_Employee</code> 读取员工姓名，看起来只是多写了一个字段，但如果 <code>_Employee</code> 是 <code>[0..*]</code>，一个部门可能突然变成多行。再比如为了取文本写 <code>_Currency._Text.CurrencyName</code>，如果没有过滤语言，结果可能按语言数放大。又比如在 projection view 或 service 暴露前没有想清楚，外部 OData consumer 可能依赖某个导航关系，后续删除 association 就变成 API breaking change。</p>
+<p>对 Java/Python 背景学习者，可以把 path expression 粗略理解为“沿着 model relationship 取 related entity 的字段”，有点像 ORM 中的 <code>order.customer.name</code> 或 GraphQL selection path。但 SAP 里的差异更强：它不是内存对象导航，而是 CDS / ABAP SQL 语法；它受 association cardinality、DCL、activation、SQL generation、projection view、service definition、OData metadata 和数据库执行计划约束。写起来像点号访问，实际是在声明数据库访问和服务模型消费。</p>
+<h4 id="8-4-key-mechanism-4c750ebc" class="semantic-heading semantic-mechanism">8.4 Key mechanism / 核心机制</h4>
+<h5 id="8-4-1-propagate-association-use-association-b5a8c9f4">8.4.1 Propagate association 和 use association 要分开</h5>
+<p>SAP Learning 对 path expression 的第一组区分很关键：当一个 CDS view entity 读取另一个带有 exposed association 的 entity 时，可以选择传播 association，也可以选择使用 association。</p>
+<p>传播 association，是把 association 名称放进当前 view 的元素列表：</p>
+<pre><code class="language-abap">define view entity ZC_SalesOrder
+  as select from ZI_SalesOrder
+{
+  key SalesOrder,
+      CustomerId,
+      _Customer
+}</code></pre>
+<p>这里 <code>_Customer</code> 对 <code>ZC_SalesOrder</code> 的消费者可见，但当前 view 没有读取 customer 的字段。换句话说，它把导航关系继续交给下游。</p>
+<p>使用 association，是在 association 名称后加目标字段：</p>
+<pre><code class="language-abap">define view entity ZC_SalesOrder
+  as select from ZI_SalesOrder
+{
+  key SalesOrder,
+      CustomerId,
+      _Customer.CustomerName as CustomerName
+}</code></pre>
+<p>这里 <code>_Customer.CustomerName</code> 就是 path expression。当前 view 明确要求读取 association target 的 <code>CustomerName</code>。SAP Learning 说明，在数据库层 path expression 会被翻译成 source 和 target 之间的 join，join 的 ON condition 来源于 association 的 ON condition。</p>
+<p>所以读代码时，先问一句：这里是在 propagate association，还是 use association？只传播关系时，消费者看到的是“可以导航”；使用关系时，当前结果集已经包含目标字段。</p>
+<h5 id="8-4-2-path-expression-join-on-demand-b3c8c2f0">8.4.2 Path expression 是 join on demand 的触发点</h5>
+<p>Association 的一个核心特性是 <code>join on demand</code>。只定义 association、暴露 association、甚至让上层 view 继续传播 association，都不等于立刻生成目标表 join。只有当 association 被 path expression 消费，或者在服务导航等消费场景中被真正使用时，底层才需要访问目标。</p>
+<p>可以用三个小例子理解。</p>
+<p>第一，只定义 association：</p>
+<pre><code class="language-abap">association [0..1] to ZI_Customer as _Customer
+  on $projection.CustomerId = _Customer.CustomerId</code></pre>
+<p>这只是模型关系。</p>
+<p>第二，暴露 association：</p>
+<pre><code class="language-abap">{
+  key SalesOrder,
+      CustomerId,
+      _Customer
+}</code></pre>
+<p>这让消费者看到 <code>_Customer</code>，但没有取 customer 字段。</p>
+<p>第三，使用 path expression：</p>
+<pre><code class="language-abap">{
+  key SalesOrder,
+      CustomerId,
+      _Customer.CustomerName as CustomerName
+}</code></pre>
+<p>这时当前 view 要 customer name，数据库层需要相应访问。SAP-samples 的 CDS association 示例也用注释说明：只暴露 association 时，Data Preview 不显示 target 字段，<code>Show SQL Create Statement</code> 也不显示对应 join；当消费者通过 path expression 请求 target 字段时，才会执行 join。</p>
+<h5 id="8-4-3-cds-abap-sql-ce560c46">8.4.3 CDS 中用点号，ABAP SQL 中用反斜线和连字符</h5>
+<p>CDS DDL 里的 path expression 使用点号：</p>
+<pre><code class="language-abap">_Customer.CustomerName
+_Department._Head.LastName</code></pre>
+<p>第一个例子沿着 <code>_Customer</code> 取客户名。第二个例子是 chained path expression：先从员工到部门，再从部门到部门负责人，最后取负责人姓氏。SAP Learning 明确给出类似 <code>_Department._Head.LastName</code> 的例子，并说明复杂的多数据源 join 会自动生成。</p>
+<p>ABAP SQL 里的写法不同，因为 ABAP 语句用句点 <code>.</code> 结束语句，不能把点号当路径分隔符。ABAP SQL 使用反斜线标记 association，用连字符选择最终字段：</p>
+<pre><code class="language-abap">SELECT FROM ZI_SalesOrder
+       FIELDS SalesOrder,
+              CustomerId,
+              \_Customer-CustomerName AS CustomerName
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>如果要继续沿着下一层 association，仍然给每个 association 写反斜线前缀，association 名称直接相邻，最后才用连字符取最终字段：</p>
+<pre><code class="language-abap">SELECT FROM ZI_Employee
+       FIELDS EmployeeId,
+              \_Department\_Head-LastName AS DepartmentHeadName
+       INTO TABLE @DATA(lt_employees).</code></pre>
+<p>注意这里不是 <code>\_Department-\_Head-LastName</code>。ABAP SQL chained path 的 association 之间没有专门的分隔符；每个 association 名称自己带 <code>\</code>，最后一个连字符才把路径和目标字段分开。</p>
+<p>实际项目里常见误读是把 CDS 写法搬到 ABAP SQL，写成 <code>_Customer.CustomerName</code>。这在 ABAP SQL 中不是正确的 path expression 语法。教学时要让读者记住：CDS 是 <code>.</code>；ABAP SQL 中每个 association 都带自己的 <code>\</code> 前缀，association 名称之间没有额外分隔符，只有最后的 <code>-field</code> 选择目标字段。</p>
+<h5 id="8-4-4-to-many-path-expression-71e48f2b">8.4.4 To-many path expression 会改变结果行数</h5>
+<p>Path expression 最大的风险不是语法，而是结果集粒度变化。To-one association 通常表示一条 source 记录最多对应一条 target；to-many association 则可能让一条 source 记录对应多条 target。把 to-many association 放进 path expression，当前结果集就可能被放大。</p>
+<p>一个典型例子：</p>
+<pre><code class="language-abap">define view entity ZC_Department
+  as select from ZI_Department
+{
+  key DepartmentId,
+      DepartmentName,
+      _Employee.LastName as EmployeeLastName
+}</code></pre>
+<p>如果 <code>_Employee</code> 是 <code>[0..*]</code>，一个部门有 5 名员工，那么原本一行部门数据可能变成 5 行。SAP Learning 对这个点给得很明确：to-many association 在 CDS view definition 的 WHERE clause 中用作 path expression 不允许，会导致语法错误；在元素列表中允许，但编辑器会显示 warning，提醒这个 path expression 可能改变结果集数量。</p>
+<p>初学者要把 warning 当成设计问题，而不是“能激活就算通过”。项目 review 时要追问：</p>
+<ul>
+<li>当前 view 的粒度还是“每个部门一行”吗？</li>
+<li>消费方是否知道这个字段会把行数放大？</li>
+<li>是否应该从 employee 侧出发，用 to-one <code>_Department</code> 读取部门？</li>
+<li>是否应该使用 aggregation 和 GROUP BY，而不是直接暴露 to-many 字段？</li>
+<li>是否需要 filter 把目标集合收窄到 one row？</li>
+</ul>
+<h5 id="8-4-5-to-many-aggregation-8a5b878d">8.4.5 To-many 可以在 aggregation 或带明确过滤时被控制</h5>
+<p>To-many association 不是完全不能用。关键是要让结果集语义可解释。</p>
+<p>如果要从部门取员工数量，不应该直接把 <code>_Employee.LastName</code> 放进元素列表，而应该表达聚合：</p>
+<pre><code class="language-abap">define view entity ZC_DepartmentEmployeeCount
+  as select from ZI_Department
+{
+  key DepartmentId,
+      DepartmentName,
+      count( _Employee.EmployeeId ) as EmployeeCount
+}
+group by
+  DepartmentId,
+  DepartmentName</code></pre>
+<p>这里重点不是具体函数写法，而是思路：to-many 被 aggregation 吸收，结果仍然可以保持“一部门一行”。</p>
+<p>另一种方式是过滤目标集合。Path expression 可以在 association 后加方括号：</p>
+<pre><code class="language-abap">_Currency._Text[ 1: Language = &#x27;E&#x27; ].CurrencyName as CurrencyNameEn</code></pre>
+<p>SAP Learning 说明，filter condition 放在 <code>[...]</code> 中，位置紧跟 association 名称；类似 WHERE 条件，可以使用比较运算和布尔运算。技术上，filter condition 会被加入生成 join 的 ON condition。对于 to-many association，如果 filter 实际上保证只剩一条记录，可以在 CDS path expression 中用 <code>1:</code> 记录这个“过滤后按 to-one 使用”的意图，减少或避免相关 warning。</p>
+<p>需要注意：<code>1:</code> 是 CDS path expression 中的语法，用来声明过滤后按 to-one 使用并影响语法检查；它不是数据库唯一性约束，也不会替开发者验证数据真的唯一。ABAP SQL path expression 不使用 <code>1:</code>，而是使用 <code>MANY TO ONE WHERE</code>、<code>ONE TO ONE WHERE</code> 等关键字形式来表达相应语义。过滤条件、数据模型和测试证据必须真的支持“一条”；如果语言文本表里同一语言仍可能多条，<code>1:</code> 只是掩盖问题。</p>
+<h5 id="8-4-6-filter-condition-association-target-ed4672fa">8.4.6 Filter condition 的左侧必须来自 association target</h5>
+<p>过滤 path expression 时，不要把它当作随意写的 WHERE。SAP Learning 与 SAP-samples 都强调，path filter 的条件被加到 generated join 的 ON condition 中；SAP-samples 示例还说明，条件左侧 operand 必须是 association target 的字段。</p>
+<p>示意：</p>
+<pre><code class="language-abap">_Currency._Text[ 1: Language = &#x27;E&#x27; ].CurrencyName</code></pre>
+<p>这里 <code>Language</code> 是 <code>_Text</code> 目标中的字段。右侧可以是 literal、目标字段、函数等更灵活的表达式，具体可用范围要以当前 ABAP release 的 ABAP Keyword Documentation 为准。</p>
+<p>项目 review 时要看两个问题。</p>
+<ul>
+<li>filter 是在限制 association target，还是把业务筛选偷偷塞进关系里？</li>
+<li>filter 改变 cardinality 后，是否有测试数据证明它真的从 to-many 变成 to-one？</li>
+</ul>
+<p>如果 filter 用来表达“只取当前登录语言文本”，这通常是合理的模型消费；如果 filter 用来隐藏不想处理的业务状态，就可能让 CDS 模型变得难以解释。</p>
+<h5 id="8-4-7-path-expression-e5893f80">8.4.7 Path expression 可以出现在不同位置，但限制不同</h5>
+<p>Path expression 不只出现在元素列表。根据 ABAP CDS / ABAP SQL 的上下文，它可以出现在 SELECT list、WHERE、FROM、ORDER BY 或其他 operand position。不同位置限制不同，尤其是 to-many association。</p>
+<p>初学阶段不需要背完所有位置规则，但要记住三条安全原则。</p>
+<ul>
+<li>元素列表中使用 to-many path，要预期结果行数变化，并处理 warning。</li>
+<li>WHERE 中使用 to-many path，在 CDS view definition 场景不允许，会直接语法错误。</li>
+<li>FROM 中使用 association 作为数据源时，已经不是“取一个字段”，而是把 association target 作为当前查询的数据源之一，要单独 review 结果粒度和 join 语义。</li>
+</ul>
+<p>SAP-samples 的示例也提到，可以在 FROM clause 中通过 path expression 使用 association 作为 data source；这种用法适合后续进阶，不是本节初学主线。对初学者，本节重点是：先掌握元素列表和 ABAP SQL FIELDS 中最常见的字段读取，再理解 WHERE/to-many/filter 的风险。</p>
+<h5 id="8-4-8-path-expression-85e7da4c">8.4.8 Path expression 不替代授权、行为、锁和服务契约</h5>
+<p>Path expression 只是沿着 association 取数。它不会自动完成以下事情：</p>
+<ul>
+<li>不会替代 <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a> 或 DCL。</li>
+<li>不会替代 RAP global / instance authorization。</li>
+<li>不会替代 RAP behavior、validation、determination、locking、save sequence。</li>
+<li>不会自动把内部关系变成稳定 OData API。</li>
+<li>不会绕过 Clean Core / released API 要求。</li>
+</ul>
+<p>尤其在服务暴露场景，path expression 可能让字段进入 projection view 或 OData entity；exposed association 可能形成 navigation property；这会变成外部消费契约的一部分。后续删除字段、改名、收回 navigation，都可能影响前端或外部 API。因此，path expression 不是“我在 CDS 里方便拿个字段”的小事，而是模型消费和服务契约的一部分。</p>
+<h5 id="8-4-9-path-expression-evidence-checklist-0938c1eb">8.4.9 Path expression evidence checklist</h5>
+<p>Review path expression 时，至少保留下面几类证据，避免“看起来只是点一下关联”却改变结果或服务契约：</p>
+<div class="table-wrap"><table><thead><tr><th>Evidence</th><th>What it should prove</th></tr></thead><tbody><tr><td>Data Preview sample</td><td>path 字段值来自预期 target，空目标和重复目标行为可解释。</td></tr><tr><td>Cardinality check</td><td>to-one / to-many 与真实数据一致，结果行数没有意外放大。</td></tr><tr><td>Generated SQL / trace</td><td>path 被消费后生成的 join / access 方式可解释。</td></tr><tr><td>Filter review</td><td>filtered path 的条件确实作用在 association target 上，语言/有效期等过滤完整。</td></tr><tr><td>DCL / authorization check</td><td>source 与 target 数据都没有绕开应有授权边界。</td></tr><tr><td>Service metadata / API test</td><td>如果进入 OData/RAP service，字段或 navigation 是否成为外部 contract 已确认。</td></tr></tbody></table></div>
+<p>一个简单判断是：path expression 如果只用于内部派生字段，重点看结果和性能；如果进入 projection/service，重点还要看 metadata、authorization 和 consumer compatibility。</p>
+<h4 id="8-5-fdf0d549" class="semantic-heading semantic-japan">8.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>パス式</code>：path expression。</li>
+<li><code>アソシエーションを利用する</code>：使用 association。</li>
+<li><code>アソシエーションを公開する</code> / <code>公開アソシエーション</code>：expose / exposed association。</li>
+<li><code>関連先項目</code>：association target field / related target field。</li>
+<li><code>結合が生成される</code>：join is generated。</li>
+<li><code>件数が増える</code> / <code>結果件数が変わる</code>：row count increases / result count changes。</li>
+<li><code>to-many のアソシエーション</code>：to-many association。</li>
+<li><code>フィルタ条件</code>：filter condition。</li>
+<li><code>SQL CREATE Statement を確認する</code>：check generated SQL create statement。</li>
+<li><code>ナビゲーションプロパティ</code>：navigation property。</li>
+</ul>
+<p>项目说明句：</p>
+<ul>
+<li><code>パス式は、公開されたアソシエーションを利用して関連先の項目を取得するための書き方です。</code></li>
+<li><code>アソシエーションを公開しただけでは関連先項目は取得されません。パス式で項目を参照した時点で結合が生成されます。</code></li>
+<li><code>to-many のアソシエーションを要素一覧のパス式で使用すると結果件数が変わる可能性があります。WHERE句では構文エラーになるため、配置場所を確認してください。</code></li>
+<li><code>1: はCDSパス式の構文チェック上の宣言であり、データベースレベルで一意性を保証するものではありません。データ上も一意になることを確認してください。</code></li>
+<li><code>外部 API に出す項目やナビゲーションはサービス契約になるため、projection view と service definition の範囲を確認してください。</code></li>
+</ul>
+<p>使用场景：</p>
+<ul>
+<li>设计说明：说明为什么某个字段通过 association target 取得，而不是直接 join。</li>
+<li>代码 review：检查 to-many path、filter、cardinality、DCL 和 service boundary。</li>
+<li>单体测试：准备一对一、一对多、无 target、多语言文本等测试数据。</li>
+<li>性能调查：用 <code>Show SQL Create Statement</code>、SQL Trace 或 PlanViz 观察生成 join。</li>
+<li>API 设计：判断 path expression 字段是否应该进入 projection / OData 服务契约。</li>
+</ul>
+<h4 id="8-6-english-terms-d286d85f" class="semantic-heading semantic-terms">8.6 English Terms</h4>
+<ul>
+<li>Core terms: <code>path expression</code>, <code>CDS path expression</code>, <code>ABAP SQL path expression</code>, <code>SQL path expression</code>.</li>
+<li>Association terms: <code>exposed association</code>, <code>propagate association</code>, <code>use association</code>, <code>association target</code>, <code>association source</code>, <code>association cardinality</code>.</li>
+<li>Syntax terms: <code>association prefix</code>, <code>element selector</code>, <code>filter condition</code>, <code>cardinality specification</code>, <code>1:</code>, <code>MANY TO ONE WHERE</code>, <code>ONE TO ONE WHERE</code>, <code>LEFT OUTER JOIN</code>, <code>join on demand</code>.</li>
+<li>Risk terms: <code>to-many association</code>, <code>row multiplication</code>, <code>result set cardinality</code>, <code>syntax warning</code>, <code>syntax error</code>, <code>generated SQL</code>, <code>Show SQL Create Statement</code>.</li>
+<li>Service terms: <code>projection view</code>, <code>service definition</code>, <code>service binding</code>, <code>OData navigation property</code>, <code>OData $expand</code>, <code>Clean Core</code>, <code>released API</code>.</li>
+</ul>
+<p>Recommended search patterns:</p>
+<ul>
+<li><code>Using Associations in Path Expressions SAP Learning</code></li>
+<li><code>CDS View Entity path_expr ABAP Keyword Documentation</code></li>
+<li><code>ABAP SQL SQL Path Expressions SAP Help</code></li>
+<li><code>SAP-samples CDS associations path expressions Show SQL Create Statement</code></li>
+<li><code>CDS path expression to many association syntax warning</code></li>
+</ul>
+<h4 id="8-7-example-42e58012" class="semantic-heading semantic-example">8.7 Example / 学习例子</h4>
+<h5 id="8-1-cds-94445193">8.例 1：在 CDS 中读取客户名称</h5>
+<p>先有一个订单 interface view，暴露客户 association：</p>
+<pre><code class="language-abap">define view entity ZI_SalesOrder
+  as select from zso_header as Header
+  association [0..1] to ZI_Customer as _Customer
+    on $projection.CustomerId = _Customer.CustomerId
+{
+  key Header.sales_order as SalesOrder,
+      Header.customer_id as CustomerId,
+      Header.created_at  as CreatedAt,
+
+      _Customer
+}</code></pre>
+<p>再在消费 view 中读取客户名称：</p>
+<pre><code class="language-abap">define view entity ZC_SalesOrderList
+  as select from ZI_SalesOrder
+{
+  key SalesOrder,
+      CustomerId,
+      _Customer.CustomerName as CustomerName,
+      CreatedAt
+}</code></pre>
+<p>读者要能说清楚：<code>ZI_SalesOrder</code> 暴露 <code>_Customer</code>；<code>ZC_SalesOrderList</code> 使用 <code>_Customer.CustomerName</code>；生成 join 的位置是消费 target 字段的地方。</p>
+<h5 id="8-2-abap-sql-association-target-6fcdfb2c">8.例 2：在 ABAP SQL 中读取 association target 字段</h5>
+<pre><code class="language-abap">SELECT FROM ZI_SalesOrder
+       FIELDS SalesOrder,
+              CustomerId,
+              \_Customer-CustomerName AS CustomerName
+       WHERE CreatedAt &gt;= @lv_from_date
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这里的语法重点是：</p>
+<ul>
+<li><code>\_Customer</code>：ABAP SQL 中 association 前要用反斜线。</li>
+<li><code>-CustomerName</code>：ABAP SQL 中只在最终字段前用连字符；chained association 之间不要加连字符。</li>
+<li>这不是普通结构字段访问，而是 SQL path expression。</li>
+</ul>
+<h5 id="8-3-to-many-path-7c207e78">8.例 3：to-many path 的行数风险</h5>
+<pre><code class="language-abap">define view entity ZC_DepartmentEmployee
+  as select from ZI_Department
+{
+  key DepartmentId,
+      DepartmentName,
+      _Employee.LastName as EmployeeLastName
+}</code></pre>
+<p>如果 <code>_Employee</code> 是 <code>[0..*]</code>，这个 view 的粒度可能从“每个部门一行”变成“每个部门员工一行”。这可能是需求，也可能是 bug。正确动作不是忽略 warning，而是把粒度写进设计说明，并用测试数据验证。</p>
+<h5 id="8-4-576b467a">8.例 4：带语言过滤的文本读取</h5>
+<pre><code class="language-abap">define view entity ZC_CurrencyText
+  as select from ZI_Currency
+{
+  key Currency,
+      _Text[ 1: Language = &#x27;E&#x27; ].CurrencyName as CurrencyNameEn
+}</code></pre>
+<p>这个例子体现两个点：<code>_Text</code> 原本可能是 to-many，因为同一币种有多语言文本；filter 让当前消费只取英语文本；<code>1:</code> 是 CDS path expression 中声明过滤后按 to-one 使用的写法。项目上还要确认语言字段和数据唯一性，不要只因为 warning 消失就认为模型正确。若同样思想放到 ABAP SQL path expression，要改用 <code>MANY TO ONE WHERE</code> / <code>ONE TO ONE WHERE</code> 等关键字形式，而不是写 <code>1:</code>。</p>
+<h4 id="8-8-counterexample-failure-mode-ce0fb899" class="semantic-heading semantic-example">8.8 Counterexample / Failure mode</h4>
+<ul>
+<li>把 path expression 当普通属性访问：看到 <code>_Customer.Name</code> 就以为没有数据库代价，忽略生成 join。</li>
+<li>只暴露 association，却以为 target 字段已经被读取：Data Preview 中看不到 target 字段时误判为 association 失效。</li>
+<li>在 to-many association 上直接取字段：部门变多行、订单变多行、报表合计重复。</li>
+<li>在 WHERE 中使用 to-many path：在 CDS view definition 中不允许，会直接语法错误。</li>
+<li>用 <code>1:</code> 掩盖数据问题：filter 后并不唯一，却声明为 to-one。</li>
+<li>在 projection/service 中随手暴露 path 字段：外部 OData consumer 开始依赖该字段，后续变更困难。</li>
+<li>用 path expression 绕过模型边界：直接沿着内部 association 取未释放对象字段，违反 Clean Core / released API 约束。</li>
+<li>忘记 DCL/authorization：以为通过 association 取字段就自然有权限控制。</li>
+</ul>
+<p>修正动作：</p>
+<ul>
+<li>回到 association 定义，检查 source、target、ON condition、cardinality。</li>
+<li>用 ADT Data Preview 看实际结果行数。</li>
+<li>用 <code>Show SQL Create Statement</code> 看是否生成 join。</li>
+<li>为 to-many 准备至少 0、1、多条 target 的测试数据。</li>
+<li>如果是服务暴露字段，检查 projection view、service definition、service binding 和 OData metadata。</li>
+</ul>
+<h4 id="8-9-c542ca79" class="semantic-heading semantic-practice">8.9 思考问题</h4>
+<ul>
+<li>当前 path expression 是在 propagate association，还是 use association？</li>
+<li>这个 association 是 to-one 还是 to-many？如果是 to-many，当前结果集粒度会不会变化？</li>
+<li>如果加了 filter，filter 后真的只剩一条 target 吗？有什么数据证据？</li>
+<li>这个字段应该在 interface view 里取，还是应该留到 projection view / service 层？</li>
+<li>如果字段进入 OData 服务，是否会成为外部 API 契约？</li>
+<li>DCL、RAP authorization、AUTHORITY-CHECK 哪一层负责当前读取场景？</li>
+<li>在日本项目 review 中，应该用 <code>パス式</code>、<code>公開アソシエーション</code>、<code>to-many</code> 还是 <code>ナビゲーションプロパティ</code> 来说明问题？</li>
+<li>哪一个 SAP 官方页面可以证明 path expression 的语法、to-many 限制和 ABAP SQL 写法？</li>
+</ul>
+<h4 id="8-10-66868bc4" class="semantic-heading semantic-reference">8.10 参考资料入口</h4>
+<ul>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/using-associations-in-path-expressions_daff758b-a544-4613-9a6e-aa1a2df73a33" target="_blank" rel="noopener noreferrer">Using Associations in Path Expressions</a>（accessed 2026-06-18）</li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_PATH_EXPRESSION_V2.html" target="_blank" rel="noopener noreferrer">CDS DDL - CDS View Entity, path_expr</a>（accessed 2026-06-18）</li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_PATH.html" target="_blank" rel="noopener noreferrer">ABAP SQL - SQL Path Expressions</a>（accessed 2026-06-18）</li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSQL_PATH_EXPRESSION_GLOSRY.html" target="_blank" rel="noopener noreferrer">SQL path expression glossary</a>（accessed 2026-06-18）</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/src/zdemo_abap_cds_ve_assoc.ddls.asddls" target="_blank" rel="noopener noreferrer">CDS view entity association example</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="8-11-connections-2ed7021b">8.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li>Upstream: <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li>Upstream: <a class="wiki" href="section-03-007-join-vs-association-d3fb9ff7.html">Join vs association 二者区别</a></li>
+<li>Downstream: <a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a></li>
+<li>Downstream: <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li>Related: <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></li>
+<li>Related: <a class="wiki" href="section-03-047-odata-v4-expand-and-navigation-properties-28c33331.html">OData V4 expand and navigation properties</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 16 - CDS Association、Path 与 Projection</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="8-12-77486236" class="semantic-heading semantic-practice">8.12 学习任务</h4>
+<ul>
+<li>用自己的中文解释：association、exposed association、path expression 三者的差别。</li>
+<li>在 ADT 中找一个带 association 的 CDS view，分别观察 Data Preview 和 <code>Show SQL Create Statement</code>。</li>
+<li>写一个 to-one path expression 示例，再写一个 to-many path expression 风险说明。</li>
+<li>用日语写一句 review comment，指出 <code>to-many</code> path expression 可能改变结果件数。</li>
+<li>用 English Terms 找 1 个 SAP 官方链接，补充到自己的学习记录中。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span>，说明 POC 中哪些服务或 CDS 对象可能涉及导航或关联字段读取。</li>
+</ul>
+<h4 id="8-13-confidence-next-action-0787668d" class="semantic-heading semantic-status">8.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for tutorial use。本节已经完成 SAP Learning、ABAP Keyword Documentation、SAP-samples 复核；Joule review 返回 <code>Mostly Accurate</code> 并要求的 precision fixes 已集成，Claude file-based review 返回 non-blocking publish-ready verdict。实际项目仍需按具体 ABAP release、项目 CDS 对象和 ADT 语法检查确认细节。</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿格式同步；随后继续 <a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-008-path-expression-a44162f7.html">Path expression 路径表达式</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-007-join-vs-association-d3fb9ff7.html">Previous section</a><a href="section-03-009-root-view-entity-9a91965c.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

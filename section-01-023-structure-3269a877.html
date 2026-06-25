@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Structure 结构类型 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="23-structure-02ce1a63" class="chapter-title">23. Structure 结构类型</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 23</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Structure 结构类型 是 ABAP 里承载“一条有多个字段的业务记录”的基本形态：它不是数据库表，不是内表，也不是没有类型约束的 JSON/dict，而是一个有名字、有 structured type、由多个 named components 组成的 typed record。学会 structure，才看得懂后面的 <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a>、SQL <code>INTO</code> 结果、RAP payload、message/result 结构和项目里的字段设计。</p>
+<p><strong>正文</strong></p>
+<p>上一节讲了 <a class="wiki" href="section-01-022-type-vs-like-5da66ea5.html">TYPE vs LIKE 类型声明方式</a>：变量可以按独立类型声明，也可以照已有对象形状声明。现在要把“一个值”提升为“一条记录”。在 ABAP 里，structure 是一个 structured data object，它有一个 structured type，里面由多个 component 组成。每个 component 自己也有名字和类型，可以像普通变量一样读取、赋值、传参、参与 SQL <code>INTO</code> 或业务判断。</p>
+<p>最先掌握的是访问方式。ABAP 用 structure component selector <code>-</code> 访问结构组件，例如 <code>ls_connection-airport_from_id</code>。<code>-</code> 前后不能有空格。它也不是对象引用访问的 <code>-&gt;</code>，也不是静态类成员访问的 <code>=&gt;</code>。Java/Python 背景的人很容易写成 <code>ls_connection-&gt;airport_from_id</code>，但那会把普通结构误解成对象引用，语法层面就错了。</p>
+<p>Structure 的来源有几类。最基础的是本地结构类型：</p>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_connection,
+         carrier_id      TYPE /dmo/carrier_id,
+         connection_id   TYPE /dmo/connection_id,
+         airport_from_id TYPE /dmo/airport_from_id,
+         airport_to_id   TYPE /dmo/airport_to_id,
+       END OF ty_connection.
+
+DATA ls_connection TYPE ty_connection.</code></pre>
+<p>这里 <code>ty_connection</code> 是结构类型，<code>ls_connection</code> 是结构变量。类型定义描述“这条记录有哪些 component”；数据对象才保存运行时值。项目里还会看到 DDIC Structure repository object、database table / classic view 的行结构、CDS view entity 的行类型、global class/interface public type 等作为结构类型来源。新代码的判断顺序通常是：优先让 component 使用稳定业务类型，例如 <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a> 或经过设计的 public type；RAP/CDS 相关代码会逐步使用 CDS view entity 的 row type；如果只是普通程序内部组合字段，可用本地 <code>TYPES BEGIN OF ... END OF</code>；直接用数据库表名当结构类型虽然有效，但会让变量绑定到物理表定义，除非目标就是处理表行，否则新代码要谨慎。</p>
+<p>这里要把 database table、CDS view entity 和 structure 分清。Database table 是数据库持久化对象；把它放在 <code>TYPE</code> 后面时，ABAP 使用的是该表的行结构。CDS view entity 是现代建模对象，也可以在 ABAP 程序中作为结构化类型来源；这不等于它能在 ABAP Dictionary 中被当作 DDIC structure 使用。并且在 ABAP Cloud 或 Clean Core 语境下，还要看它是否有合适的 release contract / API 状态，不能把所有 CDS 都当成随便可用的公共类型。Structure 本身只是一条记录的形状，不负责保存多行数据，也不等于数据库表。</p>
+<p>结构组件应尽量带业务语义。<code>carrier_id TYPE /dmo/carrier_id</code> 比 <code>carrier_id TYPE c LENGTH 3</code> 更适合项目代码，因为 data element 不只带技术类型，还承载 label、语义和后续 UI/CDS/OData 复用可能。今天只是 Day 03，但要先养成习惯：如果一个结构以后可能被提升到 CDS projection、OData entity 或 RAP DTO，就不要把金额、数量、日期、key 都临时写成 <code>string</code> 或匿名 <code>c</code> 字段，否则后面重构成本很高。</p>
+<p>Structure 可以整体处理，也可以按 component 处理。<code>ls_connection = VALUE #( carrier_id = &#x27;LH&#x27; connection_id = &#x27;0400&#x27; ).</code> 是一种清晰的初始化方式；没有写到的 component 会保持类型特定 initial value，给已有结构重新赋 <code>VALUE #( ... )</code> 时也要意识到旧值会被覆盖。直接 <code>target = source</code> 只有在结构类型兼容时才安全；如果结构不同但组件同名，可以考虑 <code>CORRESPONDING #( source )</code>，但这不是“万能安全复制”。<code>CORRESPONDING #( )</code> 会按同名 component 复制，并在源/目标 component 类型不同时静默套用 ABAP 标准转换规则，可能发生截断、舍入或格式转换而没有明显警告。跨结构类型使用时，务必确认同名 component 的类型兼容；必要时用显式 component-by-component assignment，或者用 <code>MAPPING</code> / <code>EXCEPT</code> 把意图写清楚。</p>
+<p>最后建立 flat / nested / deep 的意识。只包含固定长度 elementary components 的结构通常可以理解为 flat structure；结构里面再包含结构，就是 nested structure，但如果里面仍然只有固定长度 elementary components，嵌套本身不一定让它变成 deep。只要直接或间接包含 <code>string</code>、<code>xstring</code>、internal table、reference variable 等 deep component，就要按 deep structure 认识。Day 03 不需要展开深拷贝、序列化、比较和性能细节，只要知道：deep structure 后面会和内表、引用、接口 payload 一起成为重要话题。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li>业务程序很少只处理一个标量值；订单行、航班连接、消息、校验结果、RAP failed/reported payload 都更接近 structure。</li>
+<li>Structure 是 internal table 的前置概念。多数业务内表的 row type 是结构：structure 解释“一行长什么样”，internal table 解释“多行如何存、查、循环、排序”。</li>
+<li>结构组件的类型选择会影响 SQL <code>INTO</code>、UI label、接口字段、金额/数量/日期语义和后续 RAP/CDS 映射。</li>
+<li><code>CORRESPONDING #( )</code>、direct assignment、component access 都是项目高频代码；如果结构不兼容，bug 往往不是语法错误，而是字段放错、静默转换、值被 initial 覆盖。</li>
+<li>对 Java/Python 背景学习者来说，structure 可以类比 typed record / dataclass / DTO，但 ABAP 的每个 component 都有静态类型和 Dictionary 语义，不能当成随意增删 key 的 dict。</li>
+</ul>
+<p><strong>核心机制</strong></p>
+<ul>
+<li><code>TYPES BEGIN OF ... END OF</code> 定义 structured type；<code>DATA var TYPE struct_type</code> 声明 structured data object。</li>
+<li><code>DATA BEGIN OF ... END OF</code> 可直接声明结构数据对象；入门先优先理解 type 与 object 的区别。</li>
+<li><code>structure-component</code> 用 <code>-</code> 访问组件；不要写空格，不要和 <code>-&gt;</code>、<code>=&gt;</code> 混淆。</li>
+<li><code>VALUE #( component = value ... )</code> 适合初始化或重建结构；没有指定的 component 会按类型特定 initial value 处理。</li>
+<li><code>CORRESPONDING #( )</code> 按同名 component 复制；跨结构类型时要警惕静默类型转换，必要时使用 <code>MAPPING</code>、<code>EXCEPT</code> 或显式赋值。</li>
+<li>DDIC Structure、database table row type、CDS view entity row type、local structured type 都可能成为结构类型来源；它们的生命周期、可见性和 Clean Core 风险不同。</li>
+<li>Flat / nested / deep 是后续内表、引用、序列化和接口处理的基础分类，本节先建立识别能力。</li>
+</ul>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>構造</code>、<code>構造型</code>、<code>構造変数</code>、<code>コンポーネント</code>、<code>項目</code>、<code>項目定義</code>、<code>同名項目</code>、<code>構造コンポーネント</code>。</li>
+<li>分类相关：<code>フラット構造</code>、<code>ネスト構造</code>、<code>ディープ構造</code>、<code>参照型コンポーネント</code>、<code>内部テーブル型コンポーネント</code>。</li>
+<li>操作相关：<code>ワークエリア</code>、<code>同名項目コピー</code>、<code>CORRESPONDING式</code>、<code>暗黙変換</code>、<code>桁落ち</code>、<code>丸め</code>、<code>初期値</code>。</li>
+<li>说明句：構造型は項目の並びと型を定義し、構造変数はその型に基づいて実行時の値を保持します。</li>
+<li>Review 句：この <code>CORRESPONDING</code> は同名項目コピーによる暗黙変換が発生する可能性があるため、対象項目の型互換性を確認してください。</li>
+<li>术语边界：機能設計書里常说 <code>項目</code>，開発標準書や技術設計書里更常说 <code>コンポーネント</code>；<code>ワークエリア</code> 通常特指内表处理时的一行缓冲结构，不是所有 structure 的通用别名。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>structure</code></li>
+<li>Official / search term: <code>structured data object</code></li>
+<li>Official / search term: <code>structured type</code></li>
+<li>Official / search term: <code>structure component selector</code></li>
+<li>Official / search term: <code>flat structure</code></li>
+<li>Official / search term: <code>deep structure</code></li>
+<li>Official / search term: <code>nested structure</code></li>
+<li>ABAP syntax: <code>TYPES BEGIN OF</code>, <code>TYPES END OF</code>, <code>DATA BEGIN OF</code>, <code>DATA END OF</code>, <code>VALUE #( )</code>, <code>CORRESPONDING #( )</code>, <code>MAPPING</code>, <code>EXCEPT</code></li>
+<li>Recommended search pattern: <code>ABAP Keyword Documentation structure component selector</code></li>
+</ul>
+<p><strong>例子</strong></p>
+<p>最小结构例子：</p>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_order_item,
+         travel_id TYPE /dmo/travel_id,
+         item_no     TYPE n LENGTH 6,
+         amount      TYPE p LENGTH 11 DECIMALS 2,
+         currency    TYPE c LENGTH 3,
+       END OF ty_order_item.
+
+DATA ls_item TYPE ty_order_item.
+
+ls_item = VALUE #(
+  travel_id = &#x27;0000004711&#x27;
+  item_no     = &#x27;000010&#x27;
+  amount      = &#x27;1980.00&#x27;
+  currency    = &#x27;JPY&#x27; ).
+
+out-&gt;write( ls_item-travel_id ).
+out-&gt;write( ls_item-amount ).</code></pre>
+<p>这里 <code>ty_order_item</code> 是结构类型，<code>ls_item</code> 是结构变量，<code>travel_id</code>、<code>item_no</code>、<code>amount</code>、<code>currency</code> 是 component。访问字段时使用 <code>ls_item-amount</code>，不能写 <code>ls_item -&gt; amount</code>，也不能写 <code>ls_item - amount</code>。</p>
+<p>再看 <code>CORRESPONDING</code> 的风险：</p>
+<pre><code class="language-abap">DATA ls_target TYPE ty_order_item.
+
+ls_target = CORRESPONDING #( ls_item ).</code></pre>
+<p>如果 <code>ls_item</code> 和 <code>ls_target</code> 类型完全一致，这段代码可读性很好。如果两边结构不同，但有同名 component，ABAP 会尝试按同名 component 复制；如果同名 component 类型不同，可能发生隐式转换。金额、数量、日期、编号字段尤其要小心。项目代码里跨类型使用 <code>CORRESPONDING #( )</code> 时，最好能解释为什么同名字段类型兼容，或者用显式赋值把关键字段写清楚。</p>
+<p>练习动作：</p>
+<ol>
+<li>定义一个 <code>ty_connection</code>，包含 departure airport、arrival airport、carrier、connection id。</li>
+<li>用 <code>VALUE #( )</code> 给结构变量赋值。</li>
+<li>用 <code>out-&gt;write( )</code> 分别输出整个结构和单个 component。</li>
+<li>故意把 <code>-</code> 写成 <code>-&gt;</code> 或在 <code>-</code> 两边加空格，观察语法错误。</li>
+</ol>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>把 structure 当数据库表：以为 <code>TYPE /dmo/travel</code> 就是在读表数据，忘了它只是表行结构，不包含任何数据库记录。</li>
+<li>把 structure 当 internal table：以为一条结构能装多行订单，结果后面无法循环、排序、按 key 查找。</li>
+<li>把 structure 当无类型 dict：临时用 <code>string</code>/<code>c</code> 拼字段，后面金额、日期、数量、key 的语义全部丢失。</li>
+<li>混淆 selector：把 <code>ls_data-field</code> 写成 <code>ls_data-&gt;field</code>，把普通结构误认为对象引用。</li>
+<li>过度相信 <code>CORRESPONDING #( )</code>：同名字段复制成功，但类型不同导致截断、舍入或格式变化。</li>
+<li>忽略 deep structure：结构里包含 <code>string</code>、内表或 reference 后，赋值、比较、序列化、接口输出会比 flat structure 更复杂。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>为什么说 structure 表示“一条记录”，internal table 表示“多条记录的集合”？</li>
+<li><code>TYPES BEGIN OF</code> 和 <code>DATA BEGIN OF</code> 分别更接近“定义类型”还是“声明对象”？</li>
+<li><code>ls_order-amount</code> 里的 <code>-</code> 和 <code>lo_object-&gt;method( )</code> 里的 <code>-&gt;</code> 有什么根本区别？</li>
+<li>如果一个结构 component 用 <code>TYPE string</code> 表示金额，后续 UI/CDS/OData 可能出现什么问题？</li>
+<li>什么时候 <code>CORRESPONDING #( )</code> 很方便？什么时候应该改成显式 component assignment？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/declaring-a-structured-data-object_cd245e79-eb25-4099-a5b4-9ad46b1659b6" target="_blank" rel="noopener noreferrer">SAP Learning - Declaring a Structured Data Object</a></li>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/working-with-structured-data-objects_ca4e0b14-57ad-4993-a83b-cca17980399c" target="_blank" rel="noopener noreferrer">SAP Learning - Working with Structured Data Objects</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPTYPES_STRUC.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - TYPES, BEGIN OF struct_type</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPDATA_STRUC.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DATA, BEGIN OF struc</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDATA_OBJECTS_STRUCTURE.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Structures</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenddic_structures.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Structures</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-023-structure-3269a877.html">Structure 结构类型</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-022-type-vs-like-5da66ea5.html">Previous section</a><a href="section-01-024-internal-table-60645cd5.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

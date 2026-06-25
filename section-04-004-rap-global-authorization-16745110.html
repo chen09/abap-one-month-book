@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP global authorization 全局授权 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="4-rap-global-authorization-ca9fdfd4" class="chapter-title">4. RAP global authorization 全局授权</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 04</li><li>self-contained study note</li></ul><h4 id="4-1-c4065a05" class="semantic-heading semantic-concept">4.1 一句话结论</h4>
+<p>RAP global authorization 是 RAP behavior 层的“操作级授权”入口：它回答的是“当前用户是否总体允许执行某类操作”，例如是否允许创建、更新、删除或执行某个 action，而不是回答“当前用户能看到哪些数据行”或“这一个具体实例是否可操作”。</p>
+<p>在授权地图里，它位于 <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control (DCL) 行级访问控制</a> 和 <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a> 之间。DCL 更偏读取结果过滤；global authorization 更偏操作入口许可；instance authorization 更偏某个业务对象实例上的许可。把这三层分清，才能避免“列表能看见但 action 不能点”“API 能查但不能改”“某些单据能 approve、某些不能 approve”这类问题混成一团。</p>
+<h4 id="4-2-8af53125" class="semantic-heading semantic-concept">4.2 到底学什么</h4>
+<p>本节学习 RAP global authorization 的项目定位，而不是背某个模板代码。</p>
+<p>第一，它控制操作类型。global authorization 通常用于判断当前用户对某个 business object 的某类操作是否总体允许，例如 create、update、delete、自定义 action、某些 function 或特定行为入口。它不依赖某一条具体业务数据的状态；如果判断需要看“这张单据是谁创建的、当前状态是什么、公司代码是什么”，通常就进入 instance authorization 或业务规则范围。</p>
+<p>第二，它属于 RAP behavior 层。它和 CDS DCL 不同：DCL 在读取时过滤行，global authorization 在行为执行前判断操作是否可用。它也和 classic <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a> 不同：classic check 是 ABAP 语句，global authorization 是 RAP business object 行为模型中的授权位置。项目中可以在 global authorization 的实现里调用合适的授权 API 或复用检查逻辑，但设计层次不能混淆。</p>
+<p>第三，它影响 UI 和 API。RAP 服务通过 OData 暴露后，global authorization 不只是 Fiori 按钮控制问题；API 直接调用同样应受到行为层授权约束。UI 可能根据元数据或运行时返回隐藏/禁用某些动作，但真正的安全边界必须在后端行为层成立。</p>
+<p>第四，它需要测试证据。只测试“有权限用户能成功”不够，还要测试无权限用户是否被拒绝、错误消息是否可理解、API 直接调用是否同样失败、失败时是否没有进入保存阶段或产生副作用。</p>
+<p>第五，它要和 <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a>、<a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a>、validation、feature control 分工。global authorization 可以很早回答“当前用户总体能不能调用这个 operation”；precheck 处理请求形状和早期失败；instance authorization 处理具体对象实例；validation 处理业务数据是否有效；feature control 是后端强制执行的操作可用性/业务状态控制，但它表达的不是“当前用户是否有权”，因此不能替代 authorization。</p>
+<p>第六，它要覆盖所有入口。RAP 服务一旦通过 OData 或 EML 被调用，就不能只考虑 Fiori 页面按钮。测试必须覆盖 UI、API 直调、批量请求、技术用户/communication user、后台或集成场景。否则“画面不能点，但接口能调”会成为生产风险。</p>
+<h4 id="4-3-b73ab4ba" class="semantic-heading semantic-why">4.3 为什么重要</h4>
+<p>RAP 把业务对象、行为、事务、服务暴露和错误反馈放到同一套模型里。global authorization 是这套模型中非常关键的闸门：它决定某类操作是否可以进入后续处理。如果这个闸门缺失，系统可能出现 UI 看起来受控、API 却能绕过；或者测试用户能执行所有 action，生产用户上线后才发现缺陷；再或者权限失败太晚发生，前面已经做了不该做的计算、副作用或外部调用。</p>
+<p>从 Java/Python 背景看，可以把 global authorization 类比成 service/controller 层的 operation guard。但 RAP 的差异在于：操作不是普通 HTTP handler 里的一个函数，而是 business object behavior 的一部分；授权、validation、determination、action、save sequence、failed/reported 消息和 OData 暴露会一起影响最终体验。</p>
+<p>项目交付中，global authorization 还承担沟通价值。设计书里不能只写“有权限检查”，而要说明哪些操作由 global authorization 控制，哪些由 instance authorization 控制，哪些只由 DCL 控制读取范围，哪些还需要 classic check 或底层业务 API 的授权。</p>
+<p>global authorization 的另一个价值是把“操作级权限”从业务细节中先分出来。比如一个用户完全没有执行 <code>execute</code> action 的资格，那么系统应尽早拒绝，不需要继续解析大量明细、读取实例状态、拿锁或进入 save sequence。这样做既减少资源浪费，也让错误原因更清楚。相反，如果用户总体允许 execute，但某一批次不属于他负责范围，那才进入 instance authorization 或业务规则。</p>
+<h4 id="4-4-key-mechanism-90b08552" class="semantic-heading semantic-mechanism">4.4 Key mechanism / 核心机制</h4>
+<p>可以把 RAP 授权分成三类问题：</p>
+<pre><code class="language-text">Can the user read these rows?
+  -&gt; CDS DCL / query condition / service exposure
+
+Can the user generally perform this operation?
+  -&gt; RAP global authorization
+
+Can the user perform this operation on this specific instance?
+  -&gt; RAP instance authorization / business rule
+
+Is this operation currently enabled for the current state?
+  -&gt; RAP feature control</code></pre>
+<p>global authorization 的重点是第二个问题。典型设计步骤如下：</p>
+<ol>
+<li>在 behavior definition 中明确哪些操作、action 或功能点需要授权控制。</li>
+<li>在 behavior implementation / handler 的授权入口中判断当前用户是否具备执行该操作的总体许可。</li>
+<li>对不允许的操作返回 RAP 框架可理解的失败信息，而不是继续执行后续 action 或 save logic。</li>
+<li>在 UI 和 API 两条路径上验证同一用户是否得到一致结果。</li>
+<li>把测试用户、操作类型、预期结果、错误消息和日志证据放入交付材料。</li>
+</ol>
+<p>这里要避免把 global authorization 写成万能检查。它不适合单独承担所有对象实例差异。例如“用户是否能 approve 所有采购申请”是 global 问题；“用户是否能 approve 当前这张采购申请，因为它属于自己的部门且状态为 submitted”通常是 instance authorization 或业务规则问题。换句话说，global authorization 是 blanket gate：对某个实体的某类操作，当前用户要么总体允许，要么总体拒绝；它不应该假装自己能根据每一条记录的 owner、company code、status 做精细判断。</p>
+<p>也要避免把 DCL 误用成操作权限。DCL 能让用户看不到某些数据，但用户能看到的数据是否可更新、可删除、可执行 action，还需要 RAP 行为层继续判断。</p>
+<p>实际读 RAP 代码时，可以先找这些实现钩子：</p>
+<div class="table-wrap"><table><thead><tr><th>位置</th><th>读者要找什么</th><th>交付含义</th></tr></thead><tbody><tr><td>Behavior definition</td><td><code>authorization master ( global )</code> 或相关 authorization 声明</td><td>没有声明，global authorization 方法可能根本不会按预期参与运行时</td></tr><tr><td>Behavior implementation</td><td><code>GET GLOBAL AUTHORIZATIONS</code> / <code>FOR GLOBAL AUTHORIZATION</code></td><td>这是实现操作级总体授权判断的入口</td></tr><tr><td>Requested authorizations</td><td><code>requested_authorizations</code> 中哪些 operation 被请求</td><td>不要每次无条件检查所有操作；高流量 API 下要按请求范围检查</td></tr><tr><td>Result assignment</td><td><code>if_abap_behv=&gt;auth-allowed</code> / <code>if_abap_behv=&gt;auth-unauthorized</code></td><td>每个被请求的操作都要有明确结果，不要让结果未赋值</td></tr><tr><td>Draft scenario</td><td>draft 的 <code>Edit</code> 常和 update 类操作一起考虑</td><td>草稿应用里，“进入编辑”本身也可能是敏感操作</td></tr><tr><td>Classic authorization check</td><td>与具体实例无关的字段用 <code>DUMMY</code> 等方式表达</td><td>不要把本来不是 instance-specific 的授权字段伪造成实例值</td></tr></tbody></table></div>
+<p>这些名字不是要求初学者马上背语法，而是提供 ADT / SAP Help / code review 的定位词。不同 ABAP Platform、RAP 生成模板和 strict 语法版本会有差异，项目中要以目标系统的 ADT quick assist 与官方文档为准。</p>
+<p>可以把 operation authorization matrix 写成这样：</p>
+<div class="table-wrap"><table><thead><tr><th>Operation / action</th><th>是否需要 global authorization</th><th>是否还需要 instance authorization</th><th>典型原因</th></tr></thead><tbody><tr><td>read list</td><td>通常不在 global authorization 解决</td><td>视场景而定，常看 DCL</td><td>读取可见性主要是 DCL/查询/服务暴露问题</td></tr><tr><td>create upload batch</td><td>需要</td><td>可能不需要，因实例尚未存在</td><td>用户是否总体允许创建上传批次；create 是典型 global-first 场景</td></tr><tr><td>validate batch</td><td>可能需要较低级别权限</td><td>可能需要组织/对象检查</td><td>validate 虽无正式写入，但可能暴露错误信息</td></tr><tr><td>execute batch</td><td>需要</td><td>通常需要</td><td>执行会产生正式业务影响</td></tr><tr><td>cancel batch</td><td>需要</td><td>通常需要</td><td>总体能取消，不代表能取消这一个批次</td></tr><tr><td>delete draft</td><td>需要</td><td>通常需要</td><td>删除风险高，且常受 owner/status 限制</td></tr></tbody></table></div>
+<p>设计时还要明确失败时机：</p>
+<pre><code class="language-text">Global authorization failure:
+  reject before operation handler/action logic, no lock, no save, no external side effect
+
+Instance authorization failure:
+  reject specific instance or whole request according to transaction design
+
+Validation failure:
+  report business-data/state issue, not permission issue
+
+Feature control:
+  backend-enforced operation availability/state control, not user authorization</code></pre>
+<p>这套分层能让错误消息更可维护。无权限用户调用 <code>execute</code> 应得到 authorization error；状态不允许执行应得到 business-state error；数据格式错误应得到 validation/input error。全部都叫 “action failed” 会让测试和调用方无法判断下一步。</p>
+<h4 id="4-5-89647ce4" class="semantic-heading semantic-japan">4.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>グローバル権限</code>、<code>操作権限</code>、<code>RAP authorization</code>、<code>アクション権限</code>、<code>更新権限</code>、<code>削除権限</code>、<code>権限エラー</code>、<code>API直接呼び出し</code>。</li>
+<li>设计说明：登録・更新・削除などの操作可否は RAP の global authorization で判定し、個別伝票の状態や担当者条件は instance authorization 側で判定します。</li>
+<li>Review 说法：画面上のボタン表示だけでなく、OData API から直接 action を呼び出した場合も同じ権限制御が効くか確認してください。</li>
+<li>测试说法：権限ありユーザ、権限なしユーザ、参照のみユーザで、create/update/delete/action の結果を比較します。</li>
+<li>缺陷调查：一覧表示は DCL、操作不可は RAP authorization、個別伝票だけ不可の場合は instance authorization または業務ルールを優先して切り分けます。</li>
+<li>设计书条目：操作ごとに global authorization、instance authorization、DCL、feature control の分担を一覧化します。</li>
+<li>API 说明：画面上ボタンが非表示でも、OData API 直接呼び出し時に後端で権限エラーになることを確認します。</li>
+<li>测试证据：権限なしユーザで action を直接呼び出し、保存処理・外部連携・ロック取得が発生していないことを確認します。</li>
+</ul>
+<h4 id="4-6-english-terms-77b56639" class="semantic-heading semantic-terms">4.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP global authorization</code></li>
+<li>Related terms: <code>RAP authorization</code>, <code>global authorization</code>, <code>authorization master (global)</code>, <code>GET GLOBAL AUTHORIZATIONS</code>, <code>FOR GLOBAL AUTHORIZATION</code>, <code>instance authorization</code>, <code>GET INSTANCE AUTHORIZATIONS</code>, <code>behavior definition</code>, <code>behavior implementation</code>, <code>business object</code>, <code>action</code>, <code>failed</code>, <code>reported</code>, <code>feature control</code>, <code>operation authorization matrix</code>, <code>OData action</code></li>
+<li>Recommended search pattern: <code>RAP global authorization SAP ABAP behavior definition</code></li>
+<li>注意：不同 ABAP platform / ABAP Cloud 版本中的模板和方法签名可能不同，学习时应以目标系统 ADT quick assist、SAP Help 和 SAP Learning 为准。</li>
+</ul>
+<h4 id="4-7-example-73b627ef" class="semantic-heading semantic-example">4.7 Example / 学习例子</h4>
+<p>假设一个上传 API 有三个行为：<code>validate</code>、<code>execute</code>、<code>cancel</code>。</p>
+<p>可以这样设计授权边界：</p>
+<ul>
+<li><code>validate</code>：允许较多用户执行，因为它只检查文件内容，不写入正式业务对象。</li>
+<li><code>execute</code>：需要更高操作权限，因为它会创建或更新业务数据。</li>
+<li><code>cancel</code>：可能只允许上传人、管理员或特定业务角色执行。</li>
+</ul>
+<p>global authorization 可以先回答：“当前用户是否总体允许执行 <code>execute</code> 这个 action？”如果答案是否，API 应在进入实际保存逻辑前拒绝请求。如果答案是，再由 instance authorization 或业务规则判断“这一批数据、这个状态、这个组织范围是否允许当前用户执行”。</p>
+<p>在 <span class="wiki unresolved">AC0567C POC Reading Map</span> 里，可以把 validate / execute / status 这类入口画成矩阵：行是操作，列是用户类型，单元格写预期允许/拒绝和错误消息。这样 review 时就能看出 global authorization 是否覆盖了所有敏感 action。</p>
+<p>一个更具体的矩阵如下：</p>
+<div class="table-wrap"><table><thead><tr><th>用户类型</th><th>validate</th><th>execute</th><th>cancel</th><th>status/read</th><th>说明</th></tr></thead><tbody><tr><td>Display_User</td><td>允许或只读范围内允许</td><td>拒绝</td><td>拒绝</td><td>允许</td><td>可查看结果但不能产生业务变更</td></tr><tr><td>Upload_User</td><td>允许</td><td>允许</td><td>只允许自己的 draft</td><td>允许</td><td>常见业务上传用户</td></tr><tr><td>Approver/Admin</td><td>允许</td><td>允许</td><td>允许更大范围</td><td>允许</td><td>更高操作权限，但仍可能受 instance rule 限制</td></tr><tr><td>No_Authorization_User</td><td>拒绝</td><td>拒绝</td><td>拒绝</td><td>可能拒绝或无数据</td><td>用于证明后端授权有效</td></tr><tr><td>Communication_User</td><td>按接口设计允许</td><td>按接口设计允许</td><td>通常受限</td><td>按接口设计允许</td><td>需要最小权限和审计证据</td></tr></tbody></table></div>
+<p>在这个矩阵里，global authorization 主要回答每个用户类型是否总体允许调用某个 action。比如 <code>No_Authorization_User</code> 调 <code>execute</code>，应该在进入正式处理前被拒绝；<code>Upload_User</code> 调 <code>execute</code> 通过后，还要看 instance authorization 判断这个 batch 是否属于他的组织范围和状态。<code>Communication_User</code> 不能因为是技术用户就默认拥有全部权限，而要根据通信场景、调用来源和审计要求限制。</p>
+<p>测试时至少要收集四类证据：API response、后台业务数据是否未变化、application log 是否没有误写成功、以及授权失败是否能由 SU53/trace/RAP failed/reported 或项目日志解释。只有 UI 按钮隐藏截图不足以证明 global authorization 可靠。</p>
+<h4 id="4-8-counterexample-failure-mode-bcfd32ee" class="semantic-heading semantic-example">4.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有九类。</p>
+<p>第一，只靠 UI 隐藏按钮。Fiori 上按钮不可见，但 API 直接调用 action 仍然成功。</p>
+<p>第二，把 global authorization 写成 instance authorization。代码为了判断操作许可读取大量实例状态，导致性能、职责和测试都变复杂；真正的实例级规则应放到 instance authorization 或业务规则位置。</p>
+<p>第三，把 DCL 当成修改权限。用户能看到的数据被 DCL 控制，但能不能修改或执行 action 仍未检查。</p>
+<p>第四，授权失败太晚。action 已经做了外部调用、编号消耗、临时数据写入，最后才报无权限，造成副作用难以回滚。</p>
+<p>第五，错误消息不可交付。只返回技术性失败，测试和业务无法判断是权限、状态、数据还是系统错误。</p>
+<p>第六，测试不覆盖 API 直调。只在 UI 上确认按钮显示/隐藏，没有用 HTTP/API 工具验证无权限调用是否被后端拒绝。</p>
+<p>第七，把 validate 当成完全无需授权。validate 可能不写正式数据，但仍可能读取敏感数据、暴露错误详情或消耗资源，因此至少要考虑基本 operation eligibility。</p>
+<p>第八，技术用户权限过宽。Communication user 或后台用户为了集成方便被授予过大权限，导致接口绕过普通业务用户限制。</p>
+<p>第九，operation matrix 缺失。设计书没有列出 create/update/delete/action/status/read 的授权分工，后续测试只能凭感觉补用例。</p>
+<p>修正动作：为每个 RAP action 建一张 operation authorization matrix，列出操作、所需权限、global/instance 分工、有权限用户、无权限用户、API 直调预期、错误消息和证据位置。</p>
+<h4 id="4-9-df9624f5" class="semantic-heading semantic-practice">4.9 思考问题</h4>
+<ul>
+<li>当前操作是 create、update、delete、action，还是只读查询？</li>
+<li>这个问题是“总体是否允许执行操作”，还是“某个实例是否允许执行操作”？</li>
+<li>如果用户绕过 UI 直接调用 OData action，后端是否仍会拒绝？</li>
+<li>授权失败是否发生在产生副作用之前？</li>
+<li>错误消息能否让测试人员区分权限失败、状态失败和数据校验失败？</li>
+<li>validate、execute、cancel、status/read 是否分别有明确授权策略？</li>
+<li>技术用户、后台用户、API 用户是否按最小权限设计？</li>
+<li>AC0567C POC 中哪些入口应该由 global authorization 保护？</li>
+</ul>
+<h4 id="4-10-4cc834b9" class="semantic-heading semantic-reference">4.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-control" target="_blank" rel="noopener noreferrer">SAP Help - Authorization Control</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-definition" target="_blank" rel="noopener noreferrer">SAP Help - Authorization Definition</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-implementation" target="_blank" rel="noopener noreferrer">SAP Help - Authorization Implementation</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/global-feature-control" target="_blank" rel="noopener noreferrer">SAP Help - Global Feature Control</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/instance-feature-control" target="_blank" rel="noopener noreferrer">SAP Help - Instance Feature Control</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="4-11-connections-0cf69b9c">4.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control (DCL) 行级访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Downstream: <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a></li>
+<li>Related: <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 22 - 授权检查与 Precheck</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="4-12-5e00a2ef" class="semantic-heading semantic-practice">4.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明 global authorization 和 instance authorization 的差异。</li>
+<li>为一个 RAP action 写出“有权限用户 / 无权限用户 / API 直调”的测试矩阵。</li>
+<li>判断一个修改动作是否只需要 DCL，还是还需要 RAP authorization。</li>
+<li>写一句日语 review 评论，要求确认 OData API 直调时的授权行为。</li>
+<li>在 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中标出 validate / execute / cancel / status 这些入口分别需要什么级别的授权。</li>
+</ul>
+<h4 id="4-13-confidence-next-action-2e7ea26e" class="semantic-heading semantic-status">4.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the operation-level authorization framing, global vs instance split, backend-enforced feature-control distinction, early rejection guidance, and UI/API direct-call risk; Joule 2026-06-17 provided usable SAP-specialist additions and Claude 2026-06-17 supported promotion after fixes. Medium-High for exact BDEF/method signatures and template names because they remain ABAP Platform / RAP release dependent.</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a>，把“总体允许执行操作”和“当前实例是否允许操作”分开理解；后续如 SAP Help 对 global authorization 拆出更细页面，再替换更细粒度引用。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-003-cds-access-control-dcl-e736fc1e.html">Previous section</a><a href="section-04-005-rap-instance-authorization-6183d5b9.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

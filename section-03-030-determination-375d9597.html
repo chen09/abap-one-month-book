@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Determination 派生逻辑 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="30-determination-f7bf49cc" class="chapter-title">30. Determination 派生逻辑</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 30</li><li>self-contained study note</li></ul><h4 id="30-1-212bd62d" class="semantic-heading semantic-concept">30.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-030-determination-375d9597.html">Determination 派生逻辑</a> 是 RAP business object 中由框架自动触发的派生处理，用来根据当前业务对象状态计算、补齐或更新字段值；它的典型用途是创建时设置默认状态、字段变化后重算金额、保存前补齐派生值，而不是检查错误、执行业务按钮或最终落库。</p>
+<p>一句话记忆：validation 问“这个数据能不能保存”，determination 问“系统能不能根据已有数据自动算出该有的值”。</p>
+<h4 id="30-2-1d334020">30.2 概念说明</h4>
+<p>SAP Learning 对 determination 的定义可以拆成四个关键词：business object behavior、trigger conditions、trigger time、EML。也就是说，determination 不是一个普通 helper method，而是 BDEF 中声明、behavior pool 的 local handler class 中实现、由 RAP runtime 按条件调用的 BO 行为。</p>
+<p>最小 BDEF 示例：</p>
+<pre><code class="language-abap">define behavior for ZI_Travel alias Travel
+{
+  determination determineStatus on modify { create; }
+  determination recalculateTotal on modify { field BookingFee, TotalPrice; }
+}</code></pre>
+<p>这段代码表达的是：</p>
+<ul>
+<li>新建 Travel 后，触发 <code>determineStatus</code>，例如把初始状态设成 <code>N</code>。</li>
+<li><code>BookingFee</code> 或 <code>TotalPrice</code> 被修改后，触发 <code>recalculateTotal</code>，例如重新计算总金额或派生字段。</li>
+</ul>
+<p>在 behavior pool 中，ADT quick fix 通常会生成类似方法：</p>
+<pre><code class="language-abap">CLASS lhc_travel DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+    METHODS determine_status FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR Travel~determineStatus.
+ENDCLASS.</code></pre>
+<p>实现时通常先用 local EML 读取 transactional buffer，再用 local EML 修改同一个 BO 的实例：</p>
+<pre><code class="language-abap">METHOD determine_status.
+  READ ENTITIES OF ZI_Travel IN LOCAL MODE
+    ENTITY Travel
+    FIELDS ( OverallStatus )
+    WITH CORRESPONDING #( keys )
+    RESULT DATA(travels).
+
+  DELETE travels WHERE OverallStatus IS NOT INITIAL.
+  IF travels IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  MODIFY ENTITIES OF ZI_Travel IN LOCAL MODE
+    ENTITY Travel
+    UPDATE FIELDS ( OverallStatus )
+    WITH VALUE #(
+      FOR travel IN travels
+      ( %tky          = travel-%tky
+        OverallStatus = &#x27;N&#x27; ) )
+    REPORTED DATA(reported_modify).
+ENDMETHOD.</code></pre>
+<p>这个示例的重点是：determination 通过 EML 改 BO buffer，而不是直接 <code>UPDATE ztable</code>；它让派生结果仍处在 RAP transaction 和 save sequence 管理之下。</p>
+<h4 id="30-3-4dda8394" class="semantic-heading semantic-why">30.3 为什么重要</h4>
+<p>没有 determination，很多项目会把默认值和重算逻辑散落在 UI、OData consumer、batch 程序、action handler 或数据库保存逻辑里。结果是：Fiori 新建时状态是 <code>New</code>，接口导入时状态为空；手工编辑时总额会重算，批处理更新时总额不变；一个字段改了，另一个依赖字段忘记同步。这类缺陷通常很难在单点代码里定位。</p>
+<p>Determination 把“能由系统自动得出的值”收回到 BO 行为层。只要触发条件一致，不管入口是 UI、OData 还是 <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a>，派生逻辑都应该表现一致。</p>
+<p>对项目交付来说，determination 直接影响数据一致性和用户体验。创建对象时自动设置初始状态、默认组织数据、重算合计、同步 header 和 item 状态，这些都属于业务对象自己应维护的一致性。写得好的 determination 会减少用户输入、减少重复代码，也让测试用例更稳定。</p>
+<p>对 Java/Python 背景学习者，可以把 determination 类比成 domain model 的 derived field updater、entity lifecycle hook 或 application service 中的 automatic recalculation。但 RAP 的差异是：触发时机和触发条件写在 BDEF 中，运行时由 RAP framework 调用，修改应通过 local EML 进入 transactional buffer，而不是随意直接改数据库。</p>
+<p>在日本 SAP 项目中，determination 往往对应设计书里的 <code>自動補完</code>、<code>自動設定</code>、<code>派生項目</code>、<code>再計算</code>。如果这类规则没有集中放在 BO 层，后续测试会不断出现“画面では入るが API では入らない”“明細変更後にヘッダ金額が再計算されない”之类的缺陷。</p>
+<h4 id="30-4-9cc66e59">30.4 边界</h4>
+<p>第一条边界：determination 不等于 <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a>。Validation 发现不合法时通过 <code>failed</code> / <code>reported</code> 阻止保存；determination 计算或补齐值，通常没有 <code>failed</code> 参数。SAP Learning 明确说明 determination handler 有 <code>reported</code>，但没有 <code>failed</code>。如果规则需要用户修正错误，优先考虑 validation；如果系统能自动算出正确值，才考虑 determination。</p>
+<p>第二条边界：determination 不等于 <a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a>。Action 通常由 consumer 显式触发，例如 approve、reject、cancel；determination 由 RAP runtime 在 create/update/delete/field change 或 save 时自动触发。用户点“重新计算”按钮可能是 action；用户改数量后系统自动重算金额，更像 determination。</p>
+<p>第三条边界：determination 不等于 numbering。Numbering 负责主键或编号生成，可能是 managed internal numbering、unmanaged early numbering 或 late numbering；determination 更偏向非 key 业务字段的派生。创建时设置初始状态是 determination；生成 TravelID 通常进入 numbering 设计。</p>
+<p>第四条边界：determination 不等于 saver。<code>FOR DETERMINE ON SAVE</code> 是 handler method，会在 save sequence 相关阶段触发；但最终持久化仍由 managed runtime 或 <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a> 负责。Determination 可以调整 BO buffer 中的值，不应直接 <code>COMMIT WORK</code> 或承担最终落库职责。</p>
+<p>第五条边界：determination 不应依赖固定执行顺序。SAP Learning 明确提醒：如果多个 determination 被同一条件触发，不能知道哪个先执行。若两个派生逻辑有先后依赖，应合并逻辑、调整触发条件，或把依赖关系设计清楚，而不是依赖“当前系统看起来先跑 A 再跑 B”。</p>
+<p>第六条边界：determination 不是无条件自动修复所有错误。比如用户输入负金额，系统不应该偷偷改成 0；这会隐藏业务错误。能自动推出且符合业务语义的值才适合 determination；有歧义或需要用户确认的内容，应该报错、action 或人工输入。</p>
+<p>第七条边界：determination 必须尽量幂等。所谓幂等，不是说方法只执行一次，而是说同一组输入反复触发时，最终派生结果仍然一致。金额重算应该按当前明细重新计算总额，而不是“在旧总额上再加一次”；默认状态应该只在字段为空时设置，而不是每次修改都覆盖用户已经推进的状态。RAP runtime 可能因为 create、field change、local EML 修改或 save sequence 再次触发相关逻辑，项目代码不能依赖“它只会跑一次”。</p>
+<p>第八条边界：determination 不应制造隐藏循环。一个 determination 修改字段 A，另一个 determination 因字段 A 又修改字段 B，如果 B 的修改再次触发第一个逻辑，就会出现难以解释的重复派生、性能问题或结果抖动。设计时要把触发字段收窄，避免无意义的全字段触发；如果两个派生值天然绑定，优先合并为一个清晰的 calculation block，而不是让多个 determination 互相追着跑。</p>
+<h4 id="30-5-key-mechanism-25d4e2ee" class="semantic-heading semantic-mechanism">30.5 Key mechanism / 核心机制</h4>
+<p>第一层机制是 trigger time。Determination 有两个主要触发时机：</p>
+<ul>
+<li><code>on modify</code>：数据进入 transactional buffer 后立即执行，派生结果在当前事务过程中可见。适合创建后默认值、字段变化后即时重算等场景。</li>
+<li><code>on save</code>：在事务末尾的 save sequence 中执行，适合保存前才需要统一计算的派生值。要注意它仍是 handler method，不是 saver method。</li>
+</ul>
+<p>第二层机制是 trigger condition。常见条件包括：</p>
+<ul>
+<li><code>create;</code>：实例创建时触发。</li>
+<li><code>update;</code>：实例更新时触发。</li>
+<li><code>delete;</code>：实例删除时触发。</li>
+<li><code>field Field1, Field2;</code>：指定字段被 create 或 update 改变时触发。</li>
+</ul>
+<p>多个条件组合时，逻辑上可以理解为 OR：满足任一条件就可能触发。初学者不要把 <code>field</code> 理解成“只看 UI 字段变化”，OData/EML 修改同样可能触发。</p>
+<p>第三层机制是 handler method 签名。<code>on modify</code> 对应 <code>FOR DETERMINE ON MODIFY</code>，<code>on save</code> 对应 <code>FOR DETERMINE ON SAVE</code>。如果 BDEF 中把 trigger time 从 <code>on modify</code> 改成 <code>on save</code>，behavior pool 的方法签名也必须相应调整，否则会出现语法错误。</p>
+<p>第四层机制是 local EML 修改。Determination 的目的就是修改 BO instance，因此实现中经常使用：</p>
+<pre><code class="language-abap">MODIFY ENTITIES OF ZI_Travel IN LOCAL MODE
+  ENTITY Travel
+  UPDATE FIELDS ( OverallStatus )
+  WITH ...
+  REPORTED DATA(reported).</code></pre>
+<p>这里的 <code>IN LOCAL MODE</code> 表示在当前 BO 内部操作 transactional buffer。它和直接 SQL update 的差异非常关键：SQL update 直接碰数据库，可能绕开 RAP lifecycle；local EML 仍由 RAP runtime 管理，并能和其他 validation、determination、action、save sequence 协同。</p>
+<p>第五层机制是 response。Determination 可以通过 <code>reported</code> 返回消息，但没有 <code>failed</code>。这意味着 determination 不应承担“判定失败并阻止保存”的主职责。如果派生过程中发现数据不合法，可以报告消息，但真正要阻止保存的规则通常应由 validation 负责。</p>
+<p>第六层机制是幂等性。一个好的 determination 应该尽量 idempotent：同样的输入状态，多执行一次不会造成不同结果。例如“如果状态为空则设为 N”比“每次触发都把状态改成 N”更安全；“根据 item 重新计算 total”比“在旧 total 上累加本次差额”更不容易重复触发出错。下一节 <a class="wiki" href="section-03-031-idempotent-determination-determination-4f4ee5d0.html">Idempotent determination 幂等 determination</a> 会专门展开这个原则。</p>
+<p>第七层机制是适用范围。SAP Learning 的课程材料提醒，determinations 在某些 unmanaged non-draft 场景中不可用或受限制。实际项目必须以当前 ABAP Platform / SAP BTP ABAP Environment 的文档和语法检查为准，不能只凭旧经验判断。初学者在 ADT 里写 BDEF 后，应该用 activation 和 quick fix 观察系统实际支持的语法。</p>
+<h5 id="30-determination-design-review-checklist-925de683">30.Determination design review checklist</h5>
+<p>评审 determination 时，第一步是确认它真的属于“系统可自动派生”。如果目标值必须由用户判断、业务上有多种可能，或者错误需要用户修正，就不应该偷偷自动改值。适合 determination 的规则通常满足两个条件：输入状态足够确定，派生结果对业务没有歧义。</p>
+<p>第二，确认 trigger time。<code>on modify</code> 适合希望当前事务中立即看到派生结果的场景，例如创建后默认状态、字段变化后重算金额；<code>on save</code> 适合保存前统一补齐、不需要在交互过程中立即显示的派生值。设计书里应写清为什么选这个时机，否则后续 UI、API 和测试都会产生不同期待。</p>
+<p>第三，确认 trigger condition 足够窄。只在 <code>create</code> 时需要设置默认状态，就不要写成所有 update 都触发；只在价格、数量、货币变化时重算金额，就不要让无关字段变化也触发昂贵计算。触发条件过宽会带来性能问题和隐藏循环；触发条件过窄又可能漏掉真实修改路径。</p>
+<p>第四，确认实现通过 local EML 修改 BO buffer。Determination 的修改应留在 RAP transactional buffer 中，让后续 validation、save sequence、draft 和 rollback 能统一处理。直接 <code>UPDATE</code> 数据库表不仅绕开框架，也会让测试难以解释“为什么 BO buffer 和数据库状态不一致”。</p>
+<p>第五，确认结果幂等。用当前明细全量重算总额，通常比在旧总额上增量累加更安全；只在状态为空时设置默认值，通常比每次触发都覆盖状态更安全。评审时可以故意问一句：如果这个 determination 在同一事务中被触发两次，最终结果是否仍然一样？</p>
+<p>第六，确认没有依赖多个 determination 的执行顺序。如果 A 必须先算出字段 X，B 才能算字段 Y，通常应该合并成一个清晰的派生块，或让 B 从完整当前状态重新计算，而不是依赖运行时“刚好先执行 A”。执行顺序依赖在结合测试和后续维护中很容易变成偶发缺陷。</p>
+<p>第七，确认副作用边界。Determination 不适合发送邮件、调用不可回滚外部 API、提交数据库事务或写入必须持久保留的外部审计记录。若派生后需要触发外部集成，应放到业务事件、保存后流程或专门的集成设计中，并额外说明幂等、失败重试和补偿策略。</p>
+<p>第八，确认测试覆盖多个入口。至少用 EML 或 service/API 场景证明派生值不依赖某个 Fiori 画面；如果 UI 需要立即看到派生结果，也要验证 <code>on modify</code> 的行为是否符合预期。对于金额、状态和 header/item 汇总这类规则，应增加“重复触发不重复累计”的测试。</p>
+<h4 id="30-6-6b2573e8" class="semantic-heading semantic-japan">30.6 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>派生処理</code>：派生处理，最接近 determination 的项目现场说法。</li>
+<li><code>自動設定</code>：自动设置，例如创建时自动设置初始状态。</li>
+<li><code>自動補完</code>：自动补全，例如根据用户或组织补默认值。</li>
+<li><code>再計算</code>：重新计算，例如明细变化后重算合计。</li>
+<li><code>保存時派生</code>：on-save determination 的说明性说法。</li>
+<li><code>変更時派生</code>：on-modify determination 的说明性说法。</li>
+</ul>
+<p>说明句：</p>
+<pre><code class="language-text">この項目はユーザ入力ではなく、RAP BO の determination で自動設定します。</code></pre>
+<p>意思是：这个字段不是用户输入，而是由 RAP BO 的 determination 自动设置。</p>
+<pre><code class="language-text">明細変更時にヘッダ金額を再計算するため、on modify の determination として実装します。</code></pre>
+<p>意思是：为了在明细变更时重算 header 金额，将其实现为 <code>on modify</code> determination。</p>
+<p>评审时可以这样问：</p>
+<pre><code class="language-text">この派生処理は何をトリガーにしますか。create、update、field 変更、on save のどれですか。</code></pre>
+<p>意思是：这个派生逻辑由什么触发？create、update、字段变化，还是 on save？</p>
+<p>缺陷分析时常见表达：</p>
+<pre><code class="language-text">派生処理の実行順序に依存していないか確認してください。</code></pre>
+<p>意思是：请确认是否依赖了派生处理的执行顺序。</p>
+<h4 id="30-7-english-terms-1e84653c" class="semantic-heading semantic-terms">30.7 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP determination</code></li>
+<li>ABAP syntax terms: <code>determination ... on modify</code>, <code>determination ... on save</code>, <code>FOR DETERMINE ON MODIFY</code>, <code>FOR DETERMINE ON SAVE</code>, <code>trigger condition</code>, <code>trigger time</code>, <code>reported</code></li>
+<li>Recommended search pattern: <code>ABAP RAP determination on modify on save EML</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="30-8-example-8b7ee7b5" class="semantic-heading semantic-example">30.8 Example / 学习例子</h4>
+<p>例子一：创建 Travel 时设置初始状态。</p>
+<p>业务规则：新建 Travel 时，如果 consumer 没有给状态，则状态默认为 <code>N</code>，表示 New。</p>
+<p>设计：</p>
+<pre><code class="language-abap">determination determineStatus on modify { create; }</code></pre>
+<p>实现思路：</p>
+<ol>
+<li>handler method 读取新建实例的 <code>OverallStatus</code>。</li>
+<li>删除已经有状态的实例，只处理空状态。</li>
+<li>用 <code>MODIFY ENTITIES ... IN LOCAL MODE</code> 把状态设成 <code>N</code>。</li>
+<li>不返回 <code>failed</code>，必要时通过 <code>reported</code> 给出非阻断消息。</li>
+</ol>
+<p>例子二：明细变化后重算 header total。</p>
+<p>业务规则：Booking item 的价格或数量变化后，Travel header 的总额要重新计算。</p>
+<p>设计思路：</p>
+<ul>
+<li>在 child entity 的字段变化后触发 determination。</li>
+<li>读取相关 item。</li>
+<li>汇总金额。</li>
+<li>用 local EML 更新 parent header 的 total。</li>
+</ul>
+<p>这里要注意幂等性：应该“重新按当前 item 计算总额”，而不是“在旧总额上加本次变化”。因为同一个 determination 可能在一个事务内被触发多次，基于旧值累加容易重复计算。</p>
+<p>例子三：保存前补齐技术字段。</p>
+<p>有些字段不需要每次 modify 后立即可见，但保存前必须由系统补齐，例如最后派生分类、汇总标志、规范化后的显示字段。这类场景可以考虑 <code>on save</code> determination。但如果该字段会影响当前 UI 立刻显示或后续 action 判断，<code>on modify</code> 往往更合适。</p>
+<p>在 AC0567C POC 或批量上传场景中，可以把 determination 思维迁移为“行解析后系统自动补齐可确定字段”：例如根据上传行的代码补齐显示名、根据项目配置补默认组织、根据明细重算合计。与 validation 的差异是：缺字段但系统能确定，就补齐；系统不能确定或有业务风险，就报错。</p>
+<h4 id="30-9-counterexample-failure-mode-cbe77f44" class="semantic-heading semantic-example">30.9 Counterexample / Failure mode</h4>
+<p>反例一：在 determination 里直接 <code>UPDATE ztable</code>。这样派生值绕开 RAP transactional buffer，后续 validation、save sequence、draft、rollback 都可能不一致。修正方式是用 local EML 修改 BO instance。</p>
+<p>反例二：把 validation 写成 determination。比如金额为负时自动改成 0。用户以为保存了负数，系统却悄悄改掉，后续业务争议很难解释。修正方式是：非法数据用 validation 报错；只有可确定且业务同意的补值才用 determination。</p>
+<p>反例三：依赖多个 determination 的执行顺序。比如 A 先算折扣，B 再算总价，但 B 偶尔先跑。修正方式是合并成一个 determination，或让 B 自己读取完整当前状态并重新计算，不依赖 A 的副作用顺序。</p>
+<p>反例四：不做幂等设计。每次触发都在旧合计上累加，导致同一事务内多次触发后金额翻倍。修正方式是从当前明细全量重算，或先判断目标字段是否已经处于正确值。</p>
+<p>反例五：用 determination 做不可回滚外部副作用，例如发邮件、调用外部 API、写审计系统。Determination 可能被触发多次，也可能事务最终失败。修正方式是把外部副作用放到更合适的保存后、事件或受控集成设计中，并明确幂等和失败处理。</p>
+<p>反例六：认为 on save determination 可以解决所有时机问题。如果 UI 在保存前就需要看到派生值，<code>on save</code> 太晚；如果派生值只对最终保存有意义，<code>on modify</code> 可能过早且频繁。修正方式是根据用户体验、性能和业务一致性选择 trigger time。</p>
+<h4 id="30-10-f643e88d" class="semantic-heading semantic-practice">30.10 思考问题</h4>
+<ul>
+<li>这个字段应该由用户输入、由 determination 自动补齐，还是由 numbering 生成？</li>
+<li>这条派生逻辑应该 <code>on modify</code> 还是 <code>on save</code>？如果选错，会影响什么？</li>
+<li>触发条件应该是 <code>create</code>、<code>update</code>、<code>delete</code>，还是 <code>field &lt;field&gt;</code>？</li>
+<li>如果 determination 被同一条件触发两次，结果是否仍然一致？</li>
+<li>这条逻辑是否错误地依赖另一个 determination 先执行？</li>
+<li>如果派生过程中发现输入不合法，是通过 <code>reported</code> 提示，还是应该拆到 validation？</li>
+<li>在日本项目设计书里，这个逻辑应写成 <code>自動設定</code>、<code>派生処理</code>、<code>再計算</code> 还是 <code>保存時チェック</code>？</li>
+</ul>
+<h4 id="30-11-e78dc52b" class="semantic-heading semantic-reference">30.11 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/setting-values-using-numbering-and-determinations" target="_blank" rel="noopener noreferrer">Setting Values Using Numbering and Determinations</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_DETERMINATIONS.html" target="_blank" rel="noopener noreferrer">RAP - determination</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapmethods_for_rap_behv.html" target="_blank" rel="noopener noreferrer">METHODS, FOR, RAP Handler Methods</a> (accessed 2026-06-18)</li>
+<li>SAP-samples RAP100: <a href="https://github.com/SAP-samples/abap-platform-rap100/blob/main/exercises/ex04/README.md" target="_blank" rel="noopener noreferrer">Exercise 4 - Enhance the BO Behavior - Determinations</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">Entity Manipulation Language (EML)</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="30-12-connections-1a673a6f">30.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li>Downstream: <a class="wiki" href="section-03-031-idempotent-determination-determination-4f4ee5d0.html">Idempotent determination 幂等 determination</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 20 - Action、Validation、Determination、Save Sequence</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="30-13-293dbe79" class="semantic-heading semantic-practice">30.13 学习任务</h4>
+<ul>
+<li>用中文说明 validation 和 determination 的区别，并各举一个 RAP 业务例子。</li>
+<li>写一个 <code>determineStatus on modify { create; }</code> 的触发说明：什么时候触发、改什么字段、为什么不用 validation。</li>
+<li>设计一个金额重算 determination，并说明如何保证幂等。</li>
+<li>补 1 个日语现场句子，说明“这个字段由 BO determination 自动设置，不由画面输入”。</li>
+<li>用 English Terms 找到 SAP Learning 或 ABAP Keyword Documentation 中 determination 的页面，补到自己的学习记录。</li>
+<li>如果已经进入 Week 4，把 AC0567C POC 的自动补值或行级派生逻辑映射到 determination 思维。</li>
+</ul>
+<h4 id="30-14-confidence-next-action-e35239a7" class="semantic-heading semantic-status">30.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for RAP determination concept, trigger time, trigger condition, local EML modification, transactional buffer, and no-<code>failed</code> boundary based on SAP Learning, ABAP Keyword Documentation, SAP-samples RAP100 evidence, and adjacent reviewed RAP sections. 2026-06-18 已重新访问官方资料入口。Claude and Joule did not return usable verdicts for this section in the current session; their deferred placeholders remain external review debt.</li>
+<li>Next action: 外部模型恢复后优先补一次 Determination 专项 review；在 ADT 中找一个 <code>determination ... on modify</code> 示例，用 quick fix 生成 <code>FOR DETERMINE ON MODIFY</code> 方法，观察 handler method 如何通过 local EML 修改 transactional buffer。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-030-determination-375d9597.html">Determination 派生逻辑</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-029-validation-44a4b013.html">Previous section</a><a href="section-03-031-idempotent-determination-determination-4f4ee5d0.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Idempotent determination 幂等 determination | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="31-idempotent-determination-determination-388548a2" class="chapter-title">31. Idempotent determination 幂等 determination</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 31</li><li>self-contained study note</li></ul><h4 id="31-1-0f32841f" class="semantic-heading semantic-concept">31.1 一句话结论</h4>
+<p>Idempotent determination 幂等 determination 指的是：同一个 RAP determination 即使因为相同输入或相同业务状态被触发多次，也应得到同样的业务对象结果，不应该产生重复累计、重复插入、重复消息或不可解释的副作用。</p>
+<p>好的 determination 像“根据当前状态重新计算正确结果”；坏的 determination 像“在旧结果上再加一次”。在 RAP 中，determination 可能在 create、update、draft、save 或字段变化时多次触发，所以幂等不是可选优化，而是稳定交付的基本要求。</p>
+<h4 id="31-2-dcb698b2" class="semantic-heading semantic-concept">31.2 到底学什么</h4>
+<p>第一，要学 determination 的触发不一定只发生一次。<code>on modify</code> determination 可能在同一个 RAP LUW 中因为 create、update 或字段变化被多次触发；<code>on save</code> determination 可能在保存序列中触发。开发者不能把“触发一次”当成设计前提。</p>
+<p>第二，要学幂等计算方式。安全的写法通常是从当前 BO 状态重新计算目标字段，例如 <code>total = sum(current_items)</code>；危险写法是基于旧值累计，例如 <code>total = total + changed_amount</code>。</p>
+<p>第三，要学补默认值和覆盖用户输入的边界。默认值 determination 应只在字段为空或符合条件时补值；如果用户或 consumer 已经明确传入字段，determination 不应无条件覆盖。</p>
+<p>第四，要学 determination 和 validation 的边界。Determination 负责派生、补值、计算；validation 负责阻止不合法保存。不要用 determination 偷偷修正所有错误，也不要让 determination 隐式吞掉业务问题。</p>
+<p>第五，要学 determination 和 API idempotency 的区别。Determination 幂等是 BO 内部派生逻辑稳定；API idempotency 是 request id / idempotency key 防止外部重复请求产生重复业务效果。两者相关，但不是同一个层次。</p>
+<h4 id="31-3-20e6a933" class="semantic-heading semantic-why">31.3 为什么重要</h4>
+<p>RAP determination 在 demo 中经常看起来很简单：填一个默认值，算一个总额，派生一个状态。但项目中同一对象可能被 Fiori draft、多次字段修改、OData consumer、EML 测试和后台批处理反复触发。如果 determination 不幂等，生产数据会出现“越保存越大”“重复生成消息”“用户输入被覆盖”“状态反复跳回默认值”等问题。</p>
+<p>对 AC0567C 这种 batch upload API 来说，幂等 determination 尤其重要。批量接口可能被重试，同一 batch 可能被 validate 多次，同一行可能被修正后再次提交。派生字段、error count、warning count、total amount、status summary 如果用累计写法，就会在重复执行后失真。</p>
+<p>对 Java/Python 背景读者来说，可以把幂等 determination 类比为纯函数式 derived calculation：<code>total = sum(items)</code> 比 <code>total += delta</code> 更安全。SAP/RAP 的特殊点是 transactional buffer、local EML、draft/save lifecycle 会让“同一逻辑被多次调用”变得很常见。</p>
+<h4 id="31-4-key-mechanism-92d54e2d" class="semantic-heading semantic-mechanism">31.4 Key mechanism / 核心机制</h4>
+<p>幂等 determination 可以用五条规则检查。</p>
+<p>第一，目标字段从当前事实重算。金额合计、行数、状态摘要、warning/error count，应尽量从当前 item、当前状态、当前 buffer 中重新计算，而不是在旧值上追加。</p>
+<p>第二，只在空值或明确条件下补默认值。例如 status 为空时设为 <code>New</code>；如果 status 已经是 <code>Submitted</code> 或 <code>Executed</code>，就不要无条件改回 <code>New</code>。</p>
+<p>第三，避免外部副作用。Determination 不适合发送 HTTP 请求、发邮件、写外部系统或制造不可回滚的副作用。副作用应放到明确的 save/additional save/outbox/business event 设计中。</p>
+<p>第四，使用当前 BO 状态。RAP determination 应尽量读取 transactional buffer 或当前 BO 语义，而不是直接查旧数据库状态后忽略本次未保存修改。必要时使用 local EML 观察当前上下文。</p>
+<p>第五，写重复触发测试。测试不只验证 happy path，还要验证同一字段修改两次、同一请求保存两次、draft activate、多 item 修改、重复 validate 后结果仍稳定。</p>
+<p>还要补一层官方机制边界。SAP Learning 对 determination 的描述强调：它属于 RAP business object behavior，定义在 behavior definition 中，实现通常在 local handler class 中；触发条件可以来自 create、update、delete 或字段变化，触发时机可以是 <code>on modify</code> 或 <code>on save</code>。Determination 可以通过 local EML 修改 entity instance，并通过 <code>reported</code> 返回消息，但没有 <code>failed</code> 参数，因此不适合承担“阻止保存”的职责；阻止不合法保存应交给 validation。官方资料还提醒：如果多个 determination 被同一条件触发，执行顺序不是固定保证，所以幂等 determination 不能依赖“另一个 determination 一定先跑完”。SAP Learning 课程中还给出 unmanaged non-draft 场景的 restriction；项目上要以当前目标系统 release、BDEF activation 和 ABAP Keyword Documentation 为准确认可用性。</p>
+<p>一个 review 表可以这样写：</p>
+<div class="table-wrap"><table><thead><tr><th>检查项</th><th>问题</th><th>风险信号</th></tr></thead><tbody><tr><td>输入来源</td><td>是否读取当前 transactional buffer？</td><td>直接 SELECT 旧状态</td></tr><tr><td>计算方式</td><td>是否从事实重算？</td><td><code>old_value + delta</code></td></tr><tr><td>默认值</td><td>是否只补空值？</td><td>无条件覆盖 consumer 输入</td></tr><tr><td>副作用</td><td>是否调用外部 API / 写日志 / 发事件？</td><td>determination 内有不可回滚副作用</td></tr><tr><td>重复触发</td><td>是否有重复执行测试？</td><td>只测一次 happy path</td></tr><tr><td>消息</td><td>是否重复追加 reported message？</td><td>每次触发都堆叠同一消息</td></tr></tbody></table></div>
+<h5 id="idempotency-evidence-checklist-513c6652">Idempotency evidence checklist</h5>
+<p>幂等 determination 不能只靠代码读起来“好像安全”，要有证据。最小证据可以从四类测试开始。</p>
+<p>第一类是重复触发测试。准备同一个 BO 实例，让同一字段变化触发 determination 两次，确认目标字段第二次不会继续变化。例如 header total 第一次算出 1000，第二次仍然是 1000，而不是 2000。</p>
+<p>第二类是用户输入保护测试。创建或更新时让 consumer 明确传入一个非空字段，确认默认值 determination 不会无条件覆盖它。这个测试可以防止“创建时默认状态”在后续 action 或 API 更新中把业务状态打回初始值。</p>
+<p>第三类是多入口一致性测试。用 Fiori/service preview、OData/API 或 EML 走不同入口，确认派生结果一致。若 determination 实际只依赖前端字段事件或 UI 默认值，就不是 BO 层稳定逻辑。</p>
+<p>第四类是 AC0567C / 批处理重放测试。对同一 batch 或同一行执行 validate / prepare / execute 两次，确认 error count、warning count、total amount、派生说明和 reported message 不重复累计。批量接口里，幂等 evidence 比单条 UI 保存更重要，因为真实调用方最常发生 timeout retry 和重复提交。</p>
+<div class="table-wrap"><table><thead><tr><th>证据场景</th><th>操作</th><th>期待结果</th></tr></thead><tbody><tr><td>重复字段变更</td><td>同一 item 金额修改两次并触发 header total 重算</td><td>total 等于当前 item 合计，不重复累加</td></tr><tr><td>默认值保护</td><td>consumer 已传入 status，再触发 determination</td><td>status 不被改回默认值</td></tr><tr><td>draft / save 重放</td><td>draft prepare 后再 activate</td><td>派生字段稳定，消息不重复堆叠</td></tr><tr><td>API retry</td><td>同一 batch request 重试</td><td>count / total / summary 不重复增加</td></tr><tr><td>多入口</td><td>UI、OData、EML 分别执行同一修改</td><td>派生结果一致</td></tr></tbody></table></div>
+<h4 id="31-5-abf4bb3b" class="semantic-heading semantic-japan">31.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>冪等性</code></li>
+<li><code>べき等性</code></li>
+<li><code>再実行</code></li>
+<li><code>再実行しても結果が変わらない</code></li>
+<li><code>累積加算</code></li>
+<li><code>再計算</code></li>
+<li><code>実行順序に依存しない</code></li>
+<li><code>重複実行</code></li>
+</ul>
+<p>review 时可以这样说：</p>
+<pre><code class="language-text">この determination は再実行されても同じ結果になるように、
+現在の明細からヘッダ金額を再計算します。</code></pre>
+<p>指出风险时可以这样说：</p>
+<pre><code class="language-text">旧値への累積加算ではなく、現在状態からの再計算にしてください。</code></pre>
+<p>测试要求可以这样说：</p>
+<pre><code class="language-text">この派生処理が重複実行された場合でも冪等であることをテストで確認します。</code></pre>
+<h4 id="31-6-english-terms-04fb4d04" class="semantic-heading semantic-terms">31.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP determination idempotency</code>.</li>
+<li>Related terms: <code>idempotent</code>, <code>idempotency</code>, <code>determination</code>, <code>on modify</code>, <code>on save</code>, <code>trigger condition</code>, <code>transactional buffer</code>, <code>local EML</code>, <code>reported</code>, <code>retry-safe</code>, <code>derived field</code>.</li>
+<li>Recommended search pattern: <code>SAP RAP determination execution order idempotent</code>, <code>SAP RAP determination on modify on save</code>.</li>
+<li>读官方资料时保留 <code>determination</code>, <code>trigger condition</code>, <code>transactional buffer</code>, <code>local EML</code> 等英文术语。</li>
+</ul>
+<h4 id="31-7-example-c91d1b78" class="semantic-heading semantic-example">31.7 Example / 学习例子</h4>
+<p>例子一：header total。</p>
+<p>安全写法：</p>
+<pre><code class="language-text">Read all current items.
+total = sum(item.amount)
+header.TotalAmount = total</code></pre>
+<p>危险写法：</p>
+<pre><code class="language-text">header.TotalAmount = header.TotalAmount + changed_item.amount</code></pre>
+<p>如果同一 item 修改两次、draft activate 重放一次、或 determination 被多个字段变化触发，危险写法会把金额越加越大。</p>
+<p>例子二：默认状态。</p>
+<p>安全写法：</p>
+<pre><code class="language-text">If OverallStatus is initial:
+  OverallStatus = &#x27;New&#x27;</code></pre>
+<p>危险写法：</p>
+<pre><code class="language-text">OverallStatus = &#x27;New&#x27;</code></pre>
+<p>如果用户或 action 已经把状态改成 <code>Submitted</code>，危险写法会把状态覆盖回默认值。</p>
+<p>例子三：AC0567C batch summary。</p>
+<p>安全写法：</p>
+<pre><code class="language-text">For each current upload line in transactional buffer:
+  derived_company_name = lookup_name(line.company_code)
+  derived_amount_group = classify(line.amount)
+  line.company_name = derived_company_name
+  line.amount_group = derived_amount_group
+
+batch.error_count = count(lines where severity = E)
+batch.warning_count = count(lines where severity = W)
+batch.total_amount = sum(lines.amount)</code></pre>
+<p>危险写法：</p>
+<pre><code class="language-text">batch.error_count = batch.error_count + new_errors
+batch.total_amount = batch.total_amount + current_line.amount
+append line message &quot;auto completed&quot;</code></pre>
+<p>第二种写法会在重复 validate 或重复保存时制造重复计数和重复消息。</p>
+<h4 id="31-8-counterexample-failure-mode-0b8cc6fe" class="semantic-heading semantic-example">31.8 Counterexample / Failure mode</h4>
+<p>第一，金额重复累计。用户修改 item 两次，header total 被加两次，最终金额大于真实 item 合计。</p>
+<p>第二，默认值覆盖用户输入。consumer 明确传入状态或字段，determination 每次触发都覆盖成默认值。</p>
+<p>第三，依赖执行顺序。<code>determineDiscount</code> 必须先于 <code>determineTotal</code>，但项目没有保证顺序；结果取决于触发时机。</p>
+<p>第四，重复 reported message。每次 determination 都追加同一条“已自动补全”消息，用户看到多条重复提示。</p>
+<p>第五，在 determination 中调用外部 API。重复触发导致外部系统重复通知或重复写入，RAP rollback 也无法撤销外部副作用。</p>
+<p>第六，直接读取数据库旧状态。忽略 transactional buffer 中尚未保存的 item 修改，导致派生值和用户当前编辑内容不一致。</p>
+<p>第七，把 API idempotency 放进 determination。request-level idempotency 应放在 action/service/save 语义更清楚的位置；determination 只应负责 BO 内部派生稳定。</p>
+<h4 id="31-9-59e02ab1" class="semantic-heading semantic-practice">31.9 思考问题</h4>
+<ul>
+<li>这段 determination 重复执行两次，目标字段会不会变化？</li>
+<li>它是从当前状态重算，还是在旧值上累计？</li>
+<li>它会不会覆盖用户明确输入的字段？</li>
+<li>它是否依赖另一个 determination 必须先执行？</li>
+<li>它是否通过 local EML 或 BO 语义读取当前 buffer，而不是直接读取旧数据库状态？</li>
+<li>它是否制造外部副作用？</li>
+<li>如何用一句日语说明这段 determination 具有 <code>冪等性</code>？</li>
+</ul>
+<h4 id="31-10-cfe5a34f" class="semantic-heading semantic-reference">31.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-03-030-determination-375d9597.html">Determination 派生逻辑</a></li>
+<li><a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li><a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+<li><a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li><a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/setting-values-using-numbering-and-determinations" target="_blank" rel="noopener noreferrer">Setting Values Using Numbering and Determinations</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_DETERMINATIONS.html" target="_blank" rel="noopener noreferrer">RAP - determination</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapmethods_for_rap_behv.html" target="_blank" rel="noopener noreferrer">METHODS, FOR, RAP Handler Methods</a> (accessed 2026-06-18)</li>
+<li>SAP-samples RAP100: <a href="https://github.com/SAP-samples/abap-platform-rap100/blob/main/exercises/ex04/README.md" target="_blank" rel="noopener noreferrer">Exercise 4 - Enhance the BO Behavior - Determinations</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">Entity Manipulation Language (EML)</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="31-11-connections-021b87c8">31.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-030-determination-375d9597.html">Determination 派生逻辑</a></li>
+<li>Downstream: <a class="wiki" href="section-03-032-numbering-42f19ede.html">Numbering 编号策略</a></li>
+<li>Related: <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li>Related: <a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 20 - Action、Validation、Determination、Save Sequence</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="31-12-9a88e70f" class="semantic-heading semantic-practice">31.12 学习任务</h4>
+<ul>
+<li>用中文解释“幂等 determination”和“普通 determination”的区别。</li>
+<li>写一个 header total 的伪代码，要求重复执行两次结果不变。</li>
+<li>找一个非幂等例子，例如旧值累计、重复插入、重复 reported message，并写出修正方案。</li>
+<li>用日语写一句 review 说明：この determination は再実行されても同じ結果になります。</li>
+<li>用 English Terms 找 1 个 SAP 官方 RAP determination 页面，补充触发条件或执行时机说明。</li>
+<li>为 AC0567C 写一张 determination 测试矩阵，覆盖重复保存、重复 validate、用户输入保护、draft activate 和 API retry。</li>
+</ul>
+<h4 id="31-13-confidence-next-action-b828356f" class="semantic-heading semantic-status">31.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the engineering principle and RAP relevance after official-source closure. 2026-06-18 已复核 SAP Learning <code>Setting Values Using Numbering and Determinations</code>、ABAP Keyword Documentation <code>RAP - determination</code> / <code>METHODS, FOR, RAP Handler Methods</code>、SAP-samples RAP100 determination exercise 和 SAP Help EML；正文已补 <code>on modify</code> / <code>on save</code>、trigger condition、local handler class、local EML、<code>reported</code>、无 <code>failed</code> 参数、执行顺序不固定和 unmanaged non-draft restriction 的边界。Claude 2026-06-18 真实调用失败并记录为 session expired；Joule review 仍 deferred，因此保留外部 review debt，但不再把本节停留在提纲草稿。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；继续强化 <a class="wiki" href="section-03-032-numbering-42f19ede.html">Numbering 编号策略</a>、<a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a>、<a class="wiki" href="section-03-034-rap-early-numbering-vs-late-numbering-05dccf21.html">RAP early numbering vs late numbering</a>，把幂等、编号策略、保存时序和 API 重试连接起来。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-031-idempotent-determination-determination-4f4ee5d0.html">Idempotent determination 幂等 determination</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-030-determination-375d9597.html">Previous section</a><a href="section-03-032-numbering-42f19ede.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

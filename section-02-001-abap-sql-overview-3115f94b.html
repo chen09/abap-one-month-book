@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP SQL overview | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="1-abap-sql-overview-844084dc" class="chapter-title">1. ABAP SQL overview</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 01</li><li>self-contained study note</li></ul><h4 id="1-1-82ea6961" class="semantic-heading semantic-concept">1.1 一句话结论</h4>
+<p>ABAP SQL 是 ABAP 程序访问 SAP 业务数据的主要语言：它不是直接把数据库厂商 SQL 写进程序，而是通过 ABAP 数据库接口，以相对数据库无关的方式访问 ABAP Dictionary 表、视图和 CDS 数据模型。初学者先要建立一个判断：看到 <code>SELECT</code> / <code>INSERT</code> / <code>UPDATE</code> / <code>DELETE</code> 时，不只是“在查数据库”，而是在 SAP 应用服务器、ABAP 类型系统、客户端处理、权限、事务和后续 RAP / Clean Core 约束之间工作。</p>
+<h4 id="1-2-fd5f4e62" class="semantic-heading semantic-concept">1.2 到底学什么</h4>
+<p>这一节不是要一次讲完 <code>SELECT</code> 的所有语法，而是建立 ABAP SQL 的总览地图。后面会分别展开 <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a>、<a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a>、<a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a>、<a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a> 和 <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a>；本节先回答“ABAP 程序为什么需要 ABAP SQL、它和普通 SQL 有什么不同、项目里容易在哪里犯错”。</p>
+<p>先看一个简化例子：</p>
+<pre><code class="language-abap">DATA lv_customer_id TYPE kunnr VALUE &#x27;1000001&#x27;.
+
+SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       ORDER BY created_at DESCENDING,
+                sales_order_id
+       INTO TABLE @DATA(lt_orders).
+
+IF sy-subrc = 0.
+  &quot; Process the selected orders.
+ENDIF.</code></pre>
+<p>这段代码里至少有六个 ABAP SQL 总览点。</p>
+<p>第一，<code>zsales_order</code> 不是一个随便拼出来的物理表名，而应该是 ABAP repository 世界里可被 ABAP SQL 访问的数据源，例如 ABAP Dictionary database table、classic view、CDS view entity 或项目允许使用的接口视图。第二，<code>lv_customer_id</code> 是 ABAP 程序里的数据对象，写进 SQL 条件时要用 <code>@</code> 标出 host variable。第三，<code>FIELDS</code> 只取需要的列，不把整行 <code>*</code> 当默认习惯。第四，<code>WHERE</code> 是性能、正确性和业务范围的第一道门。第五，<code>ORDER BY</code> 明确业务排序，不依赖数据库当前碰巧返回的顺序。第六，结果进入 ABAP 内表 <code>lt_orders</code>，后续由 ABAP 逻辑处理，同时还要检查 <code>sy-subrc</code>、<code>sy-dbcnt</code> 和异常路径。</p>
+<h4 id="1-3-4f8e3d65" class="semantic-heading semantic-why">1.3 为什么重要</h4>
+<p>ABAP 项目里大量业务逻辑都是“读出业务对象相关数据、判断、更新、记录消息、再交给事务边界提交”。ABAP SQL 是这个过程的入口。如果只把它当普通 SQL 学，很容易产生三类问题。</p>
+<p>第一类是正确性问题。没有 <code>ORDER BY</code> 却取“第一条”，在 HANA、不同索引、不同执行计划或数据量变化后可能得到不同业务结果。<code>SELECT SINGLE</code> 如果不是完整主键读取，也不能自然等同于“取最新一条”或“取业务上唯一一条”。只要业务语义里出现“最新、最大、优先级最高、第一条”，就应该问：排序条件在哪里，唯一性由谁保证？</p>
+<p>第二类是 SAP 边界问题。ABAP SQL 运行在 ABAP 运行时和数据库接口之上，有隐式客户端处理、ABAP 数据类型映射、Open SQL / ABAP SQL 语法演进、SAP LUW 与 database LUW 的边界。它不是 <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a>，不是权限框架，也不是事务提交语句。读取或更新数据时，仍然要结合 <a class="wiki" href="section-02-014-sap-transaction-boundary-and-luw-model-3b5ad622.html">SAP Transaction Boundary and LUW Model</a>、锁、<code>COMMIT WORK</code> / <code>ROLLBACK WORK</code>、异常处理和消息设计理解。</p>
+<p>第三类是交付风险。日本 SAP 项目里，经常会在代码 review、障害调查、性能调查、权限调查里追问：“このSELECTはどの条件で絞っていますか”“ソート順は保証されていますか”“権限チェックはどこで行っていますか”“本番データに直接アクセスしてよいオブジェクトですか”。学会 ABAP SQL overview，就是学会在写第一行 <code>SELECT</code> 之前先问这些问题。</p>
+<h4 id="1-4-key-mechanism-ae5db823" class="semantic-heading semantic-mechanism">1.4 Key mechanism / 核心机制</h4>
+<p>ABAP SQL 以前常被称为 Open SQL。现代官方文档更多使用 ABAP SQL 这个名称。它的核心价值是：ABAP 程序用统一的 ABAP SQL 语法写数据库访问，由 ABAP database interface 转换并发送到具体数据库。相比 Native SQL 或 SQLScript，ABAP SQL 追求的是 ABAP 集成、可移植性、DDIC/CDS 类型一致性和 SAP 平台约束下的可维护性。</p>
+<p>它的运行路径可以这样理解：</p>
+<ol>
+<li>ABAP 程序写 <code>SELECT</code> / <code>INSERT</code> / <code>UPDATE</code> / <code>MODIFY</code> / <code>DELETE</code> 等 ABAP SQL 语句。</li>
+<li>语句引用 ABAP Dictionary 或 CDS 世界中的数据源。</li>
+<li>程序变量通过 host variable 进入 SQL 语句，现代写法用 <code>@</code> 明确区分 ABAP 变量和 SQL 标识符。</li>
+<li>ABAP database interface 处理语法、类型映射、客户端处理、数据库连接和数据库相关转换。</li>
+<li>数据库执行后，结果回到 ABAP data object、work area、internal table 或 inline declaration。</li>
+<li>ABAP 程序继续处理 <code>sy-subrc</code>、<code>sy-dbcnt</code>、异常、锁、事务提交和业务消息。</li>
+</ol>
+<p>这里有几个初学者必须先放稳的边界。</p>
+<p><code>ABAP SQL</code> 不是 <code>Native SQL</code>。Native SQL 指通过 Native SQL interface 传递平台相关数据库语句，例如某些数据库专用 SQL；它会降低可移植性，也不适合作为初学者默认路径。<code>SQLScript</code> 是 SAP HANA 侧的数据库过程语言，也不是普通 ABAP 应用程序里写业务读取逻辑的默认工具。</p>
+<p><code>ABAP SQL</code> 不是权限。你能写 <code>SELECT</code> 访问某个数据源，不等于当前用户在业务上有权看这些数据。权限可能在 CDS DCL、RAP authorization、经典 <code>AUTHORITY-CHECK</code>、应用服务层逻辑或 UI/service 层共同实现。后续要连接 <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>、<a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a> 和 <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a>。</p>
+<p><code>ABAP SQL</code> 也不是事务边界。<code>UPDATE</code> 成功执行到数据库接口，不代表业务事务已经完整提交；同一个业务动作里还可能有 update task、BAPI、锁释放、应用日志和异常回滚。Week 2 会用 <a class="wiki" href="section-02-014-sap-transaction-boundary-and-luw-model-3b5ad622.html">SAP Transaction Boundary and LUW Model</a> 把这条线补齐。</p>
+<h4 id="1-5-94f69d54" class="semantic-heading semantic-japan">1.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>ABAP SQL</code></li>
+<li><code>Open SQL</code></li>
+<li><code>Native SQL</code></li>
+<li><code>SELECT文</code></li>
+<li><code>検索条件</code></li>
+<li><code>WHERE条件</code></li>
+<li><code>ホスト変数</code></li>
+<li><code>ソート順</code></li>
+<li><code>暗黙クライアント処理</code></li>
+<li><code>検索結果</code></li>
+<li><code>権限チェック</code></li>
+<li><code>トランザクション境界</code></li>
+<li><code>データベースインタフェース</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>このSELECT文は、ABAP SQLとしてデータベースインタフェース経由で実行されます。</li>
+<li>検索結果の順序を業務上保証する必要があるため、<code>ORDER BY</code> を明示します。</li>
+<li>このSQLはデータ取得のみであり、権限チェックは別途 DCL / RAP authorization / <code>AUTHORITY-CHECK</code> の設計を確認します。</li>
+<li>ABAP Cloud では、未リリースの永続化オブジェクトに直接アクセスしていないか確認が必要です。</li>
+<li><code>SELECT SINGLE</code> で取得する場合、主キー条件が完全か、または業務的に一意である根拠を確認してください。</li>
+</ul>
+<p>“Open SQL” 在日本项目老代码和老资料里仍然常见。写新教程时可以告诉读者：遇到 <code>Open SQL</code> 不要紧张，大多数上下文是在讲 ABAP SQL 的前身/旧称；但在现代 SAP 官方资料、ABAP Cloud、RAP 语境里，优先使用 <code>ABAP SQL</code>。</p>
+<h4 id="1-6-english-terms-477f77c7" class="semantic-heading semantic-terms">1.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP SQL</code></li>
+<li>Related term: <code>Open SQL</code></li>
+<li>Related term: <code>Native SQL</code></li>
+<li>Related term: <code>ABAP SQL interface</code></li>
+<li>Related term: <code>database interface</code></li>
+<li>Related term: <code>host variable</code></li>
+<li>Related term: <code>client handling</code></li>
+<li>Related term: <code>INTO target</code></li>
+<li>Related term: <code>ORDER BY</code></li>
+<li>Related term: <code>ABAP Cloud released API</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL SAP Help</code></li>
+<li><code>ABAP SQL host variables SAP Help</code></li>
+<li><code>ABAP SQL client handling SAP Help</code></li>
+<li><code>ABAP SQL ORDER BY SAP Help</code></li>
+<li><code>ABAP SQL Native SQL ABAP Keyword Documentation</code></li>
+</ul>
+<h4 id="1-7-example-0ce406e7" class="semantic-heading semantic-example">1.7 Example / 学习例子</h4>
+<p>把 ABAP SQL 想成“ABAP 程序和 SAP 数据模型之间的受控通道”。如果 Java/Python 程序直接用数据库 driver 拼 SQL，关注点通常是连接串、SQL dialect、ORM、事务和索引；ABAP 项目还要多看一层：这个数据源是不是 SAP 允许访问的 repository object？是否是 client-dependent？是否有 CDS DCL？是否符合 ABAP Cloud 语言版本？是否应该通过 released API、CDS view entity 或 RAP BO，而不是直接查底表？</p>
+<p>一个更接近 review 的例子：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+         AND status      = @lc_status_open
+       ORDER BY created_at DESCENDING,
+                sales_order_id
+       INTO TABLE @DATA(lt_open_orders).</code></pre>
+<p>读这段代码时，reviewer 不只问“能不能激活”，还会问：</p>
+<ul>
+<li><code>zsales_order</code> 是项目自有表、CDS view entity，还是不该直接访问的 SAP 标准持久化对象？</li>
+<li><code>customer_id</code>、<code>status</code> 的类型是否来自 data element / domain，而不是随便用 <code>string</code>？</li>
+<li><code>lv_customer_id</code>、<code>lc_status_open</code> 是否用 <code>@</code> 明确作为 host variable？</li>
+<li><code>WHERE</code> 是否足够限制数据量？</li>
+<li><code>ORDER BY</code> 是否表达了业务含义？</li>
+<li>读取结果为空时，<code>sy-subrc</code> / 空内表路径是否被处理？</li>
+<li>如果这段逻辑后面会更新数据，锁和事务边界在哪里？</li>
+<li>如果是服务/API 场景，权限在哪里执行？</li>
+</ul>
+<p>最小学习动作：找一段项目或 POC 里的 <code>SELECT</code>，用上述八个问题逐行批注。不要先追求写复杂 SQL，先训练“看懂一条 SELECT 背后的 SAP 约束”。</p>
+<h4 id="1-8-counterexample-failure-mode-6ea865e6" class="semantic-heading semantic-example">1.8 Counterexample / Failure mode</h4>
+<p>失败模式一：把 <code>SELECT SINGLE</code> 当成“随便拿一条就行”。如果 <code>WHERE</code> 不是完整主键，或者业务上并不唯一，数据库可以返回任意符合条件的行。今天测试数据少时看起来正确，明天生产数据多起来就可能取错订单、取错价格、取错状态。</p>
+<p>失败模式二：不写 <code>ORDER BY</code> 却依赖“当前看起来的顺序”。关系数据库不保证无排序结果集的业务顺序；执行计划、索引、并行度、数据库版本、过滤条件都可能改变返回顺序。在 ABAP SQL 里，只要后续逻辑依赖“第一条、最后一条、最新一条”，就必须把排序条件写出来。</p>
+<p>失败模式三：把 ABAP SQL 当权限。<code>SELECT</code> 能读到数据，只能说明技术访问路径存在，不能说明用户有业务权限。特别是从 table 直接读数据时，不要以为 CDS DCL 一定自动生效；DCL 的前提是通过带 access control 的 CDS 数据源访问，并且设计正确。</p>
+<p>失败模式四：在 ABAP Cloud / Clean Core 场景里直接查 SAP 标准底表。传统 on-premise 项目里能运行的表访问，不代表在 ABAP Cloud 或 S/4HANA Cloud extensibility 里允许。现代项目要优先确认 released API、released CDS view、RAP BO 或项目自有持久化对象。</p>
+<p>失败模式五：只关注 SQL 性能，不关注 LUW。性能当然重要，但 ABAP SQL 写操作还牵涉锁、提交、回滚、update task、BAPI commit pattern 和消息处理。只看 SQL 一行，会漏掉真正的业务一致性问题。</p>
+<h4 id="1-9-00290cac" class="semantic-heading semantic-practice">1.9 思考问题</h4>
+<ul>
+<li>这条 ABAP SQL 访问的数据源属于 DDIC table、classic view、CDS view entity，还是 released API 背后的接口视图？</li>
+<li>如果结果为空，业务上应该是正常情况、警告、错误，还是权限/配置问题？</li>
+<li>如果只取一行，唯一性由完整主键、唯一索引、业务规则，还是 <code>ORDER BY</code> 保证？</li>
+<li>如果读取多行，是否需要稳定排序？</li>
+<li>这条语句是否依赖 implicit client handling？有没有不该手写 <code>MANDT</code> 的地方？</li>
+<li>权限在哪里发生：DCL、RAP authorization、<code>AUTHORITY-CHECK</code>，还是完全缺失？</li>
+<li>后面是否有写操作？如果有，锁、SAP LUW、database LUW 和 commit/rollback 怎么处理？</li>
+<li>在 ABAP Cloud / Clean Core 审查下，这个数据源是否允许直接访问？</li>
+</ul>
+<h4 id="1-10-d051adf9" class="semantic-heading semantic-reference">1.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENDATABASE_ACCESS_GUIDL.html" target="_blank" rel="noopener noreferrer">Database Accesses</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_MANAGED_DB_OBJECTS_ASQL.html" target="_blank" rel="noopener noreferrer">ABAP SQL Access to ABAP-Managed Database Objects</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_HOST_VARIABLES.html" target="_blank" rel="noopener noreferrer">ABAP SQL - Host Variables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSELECT_INTO_TARGET.html" target="_blank" rel="noopener noreferrer">SELECT, INTO target</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_CLIENT_HANDLING.html" target="_blank" rel="noopener noreferrer">ABAP SQL - Client Handling</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPORDERBY_CLAUSE.html" target="_blank" rel="noopener noreferrer">SELECT, ORDER BY</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENNATIVE_SQL.html" target="_blank" rel="noopener noreferrer">Native SQL</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="1-11-connections-ef473a12">1.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a></li>
+<li>Downstream: <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></li>
+<li>Downstream: <a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a></li>
+<li>Downstream: <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></li>
+<li>Downstream: <a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a></li>
+<li>Downstream: <a class="wiki" href="section-02-014-sap-transaction-boundary-and-luw-model-3b5ad622.html">SAP Transaction Boundary and LUW Model</a></li>
+<li>Security line: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>, <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a>, <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Cloud line: <a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud 现代开发模型</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 08 - ABAP SQL 读取基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+</ul>
+<h4 id="1-12-256edcd1" class="semantic-heading semantic-practice">1.12 学习任务</h4>
+<ul>
+<li>找一条已有 <code>SELECT</code>，标出数据源、<code>WHERE</code>、host variables、结果接收对象和排序条件。</li>
+<li>写出一句中文说明：为什么 ABAP SQL 不是 Native SQL，也不是 SQLScript。</li>
+<li>写出一句日语 review 说明：このSELECT文では、検索条件とソート順を明示する必要があります。</li>
+<li>找一个没有 <code>ORDER BY</code> 却依赖顺序的例子，说明它为什么有风险。</li>
+<li>找一个直接访问底表的例子，判断在 ABAP Cloud / Clean Core 语境下是否应该改成 released API、CDS view entity 或 RAP 模型。</li>
+<li>用 SAP Help 的 <code>ABAP SQL - Host Variables</code> 页面确认 <code>@</code> 的作用，并补充到自己的学习笔记。</li>
+</ul>
+<h4 id="1-13-confidence-next-action-e6c33610" class="semantic-heading semantic-status">1.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-high for official-doc-backed draft. 本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 交叉校验核心结论。</li>
+<li>Review state: Joule 在常规版、短版、新对话极短版 prompt 下均返回 <code>問題が発生しました</code>，证据保存在 <code>90-Review/joule-abap-sql-overview-*-snapshot-2026-06-13.json</code>；本轮创建了 <code>90-Review/Claude ABAP SQL Overview Follow-up Review Prompt 2026-06-18.md</code>，但 Claude CLI 返回 session expired，错误记录在 <code>90-Review/Claude ABAP SQL Overview Follow-up Review 2026-06-18.err.txt</code>。</li>
+<li>Next action: 已同步到 Chapter 02 和整本离线书稿；后续如果 Claude/Joule 恢复，再对本节做补充复核。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-01-040-lock-object-c9c0e29f.html">Previous section</a><a href="section-02-002-select-statement-70a372d3.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

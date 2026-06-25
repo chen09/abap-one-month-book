@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Where-used list 影响分析 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="15-where-used-list-24cbb797" class="chapter-title">15. Where-used list 影响分析</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 15</li><li>self-contained study note</li></ul><p><strong>1) 一句话结论</strong></p>
+<p>Where-used list 影响分析，是在修改、删除、重命名或移送 ABAP development object 前，先查它被哪些对象静态引用的基础动作；本节要学的是：它是影响调查的入口，不是“全系统无风险保证书”。</p>
+<p><strong>2) 到底学什么</strong></p>
+<p>前面已经学过 <a class="wiki" href="section-01-013-activation-ff7e1caa.html">Activation 激活机制</a>：对象激活后才真正进入 active/runtime 世界。但对象一旦被别人引用，就不再只是“我自己这段代码”。一个 class 的 public method 可能被多个程序调用，一个 data element 可能被很多 table field 使用，一个 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a> 可能被 projection view、metadata extension、service definition、ABAP class、DCL role 和测试代码引用。改动前不查引用，就像在大型 Java 项目里直接改 public API 而不查 callers。</p>
+<p>Where-used list 就是 ABAP/ADT 提供的引用查询入口。它会从 ABAP repository 的索引中找出某个 development object 或 subobject 的使用位置，并在 Search view 中列出结果。SAP Learning 明确说明：可以从 Project Explorer、Outline view 或 source editor 触发 <code>Get Where-Used List</code>；也可以通过 toolbar、context menu 或 <code>Ctrl+Shift+G</code> 打开（默认快捷键，可在 Eclipse Keys 设置中查到或修改）。结果可以双击进入对应对象或代码位置。</p>
+<p>这里的关键词是“静态引用”。Where-used list 擅长回答：这个 table / data element / class / interface / method / attribute / message / CDS object 在哪些 repository objects 中被直接引用？它不擅长回答：运行时实际执行了哪条路径？外部系统有没有调用这个 OData API？某个对象名是不是通过字符串动态拼出来？后台 job 有没有间接触发？权限对象、customizing、UI 配置或客户运维脚本有没有依赖它？这些都需要其他工具和项目证据。</p>
+<p>初学者要把 where-used 当作“影响分析的第一步”。比如准备改一个 method signature，先查 callers；准备删除 DDIC field，先查 table/view/program/CDS 使用；准备改 CDS root view entity，先查 projection、metadata extension、service definition、service binding、behavior definition 和 ABAP code reference；准备 release transport request，先查 high-risk object 是否被多个 package 或团队共享。查完引用后，还要读高风险调用点、更新测试、做 syntax check / activation / ATC / unit test，并在设计说明或 code review 里写清 <code>影響範囲</code>。</p>
+<p>同时要知道它的局限。Where-used list 依赖系统索引。索引如果不完整、过旧，结果就可能不完整；升级、support package import、对象大量变更后尤其要谨慎。CDS / DDLS 相关结果还可能依赖专门的 DDLS RIS index。Day 02 不要求会重建索引，但要知道：如果一个结果“意外为空”，不能立刻当成 safe-to-change 证明，应该结合 ABAP Source Search、ATC、测试、项目文档、transport object list 和团队确认。</p>
+<p><strong>3) 为什么重要</strong></p>
+<p>Where-used list 是 SAP 项目里最基本的“改之前先看影响”的动作。SAP 系统通常是多年积累的 shared repository：一个 data element 可能影响几十张表，一个 table 可能被 CDS、classic report、batch job、interface、authorization object、search help、RAP BO 同时使用。只看当前编辑器里的对象，很容易低估变更范围。</p>
+<p>对 Java/Python 背景学习者来说，它相当于 IDE 的 <code>Find Usages</code> / <code>Find References</code>，但要带上 SAP 特有边界。Java 里改 method signature，IDE 可能能直接 refactor callers；ABAP 里改 repository object，影响可能跨 package、跨 client、跨 transport、跨 team，甚至跨 classic 和 RAP 世界。Where-used list 不是为了“证明可以改”，而是为了把隐藏依赖先变成可讨论的证据。</p>
+<p>对日本 SAP 项目来说，<code>影響調査</code> 和 <code>影響範囲</code> 是变更管理文件里的硬栏目。别人问 <code>影響範囲は確認済みですか</code>，不是只问你有没有编译通过，而是在问：引用对象查过没有，高风险使用点看过没有，是否涉及其他团队，是否影响単体テスト / 結合テスト / 移送順序 / 本番反映。会用 where-used，才能把技术改动翻译成项目可接受的说明。</p>
+<p>它也能减少“修一个点坏一片”的事故。比如改 data element 长度前先查 table fields 和 screens；改 class public method 前先查 callers；改 CDS view field alias 前先查 metadata extension、service binding、UI annotation 和 API consumer；改 message class 前先查 message usages。Where-used 不能覆盖所有风险，但它会快速暴露最容易被忽略的静态依赖。</p>
+<p><strong>4) Key mechanism / 核心机制</strong></p>
+<p>第一层机制是入口。ADT 中可以在 Project Explorer 选中对象，或在 source editor / Outline view 中把光标放在 class、method、attribute、table、field、message、CDS object 等标识符上，然后选择 <code>Get Where-Used List</code>，或使用 <code>Ctrl+Shift+G</code>（默认快捷键，可在 Eclipse Keys 设置中查到或修改）。结果显示在 Search view，通常可按对象类型、package、位置展开，并可双击跳转。</p>
+<p>第二层机制是 object / subobject。Where-used 不只针对 main object。它可以用于 ABAP class、interface、database table、message class 等 main-level development objects，也可以用于 method、attribute、table field、specific message、local variable、parameter、macro 等 subobjects，具体支持范围取决于对象类型和 ADT/后端版本。初学者要练习在不同层级触发，而不是只右键整个文件。</p>
+<p>第三层机制是 direct static usage。Where-used 的结果主要代表索引能识别到的静态引用：谁在源代码、DDIC、CDS 或相关 repository metadata 中直接使用了目标对象。它不是 runtime call stack，也不是数据流血缘图。若对象名通过动态字符串、customizing、external call、generated framework、job variant、UI/OData client、authorization mapping 间接使用，where-used 可能看不到。</p>
+<p>第四层机制是索引。where-used list 基于系统中维护的索引数据；索引不完整时，结果也不完整。SAP Note / SAP Help 对此有明确 caveat：升级或 support package import 后索引不一定自动更新；生产系统不一定维护 where-used 索引（该索引的构建是可选项）；customer cloud systems 中 SAP standard objects 的 where-used 支持也有限。Day 02 的结论很简单：empty result 不是绝对安全证明，必要时要问 Basis / senior ABAP developer 是否存在索引问题。</p>
+<p>第五层机制是 CDS / DDLS caveat。CDS view entity、DDL source、metadata extension、DCL、service definition 等对象的引用关系越来越重要，但它们的 where-used 结果也依赖相应索引。若 CDS 相关结果明显缺失，可能需要系统管理员处理 DDLS RIS index，而不是由初学者反复点击 Search。学习者只需记住：CDS/RAP 依赖链要查 where-used，但结果异常时要把“索引是否完整”作为排查项。</p>
+<p>第六层机制是 function module / include 结果。classic ABAP 中 function module 的实现代码存放在 function group includes 里，因此某些 where-used 结果可能显示 <code>L...U01</code> 这类 include 名（U 系列存放 function module 源代码），而不是你期待的 function module 名。这不是一定是工具坏了，而是 ABAP repository 的组织方式。看到 include 结果时，要回到 function group / function module 结构理解它。</p>
+<p>第七层机制是组合检查。一个可靠的影响分析通常包括：Where-used list 查静态引用；ABAP Source Search 查文本和动态命名线索；Open ABAP Development Object 快速打开目标；syntax check / activation 看编译与生成；ATC 看静态质量和 Clean Core；unit test / service preview / API test 看行为；debugger / trace 看运行时路径；transport object list 看本次变更集合。Where-used 是入口，不是终点。</p>
+<p><strong>5) 日本项目现场说法</strong></p>
+<ul>
+<li>常见日语：<code>使用箇所一覧</code>、<code>Where-usedリスト</code>、<code>参照元</code>、<code>参照先</code>、<code>静的参照</code>、<code>動的呼び出し</code>、<code>影響調査</code>、<code>影響範囲</code>、<code>変更影響</code>、<code>移送前確認</code>、<code>リリース前確認</code>。</li>
+<li>说明句：変更前に使用箇所一覧を確認し、影響範囲を設計書またはレビュー記録に記載してください。</li>
+<li>说明句：Where-used の結果が空でも、動的呼び出しや外部利用、索引不備の可能性があるため、追加確認が必要です。</li>
+<li>使用场景：设计说明、code review、単体テスト前确认、移送依頼 release 前确认、结合测试缺陷分析、删除对象或修改 public API 前的风险说明。</li>
+</ul>
+<p><strong>6) English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>Where-used list</code>, <code>Where-used search</code>, <code>Get Where-used List</code></li>
+<li>ADT terms: <code>Search view</code>, <code>Project Explorer</code>, <code>Outline view</code>, <code>source editor</code>, <code>ABAP Source Search</code></li>
+<li>Analysis terms: <code>static reference</code>, <code>dynamic call</code>, <code>impact analysis</code>, <code>usage</code>, <code>caller</code>, <code>dependency</code></li>
+<li>Recommended search pattern: <code>ABAP Development Tools Where-used list</code>, <code>Where-used Search SAP ABAP</code>, <code>CDS where-used list ADT</code></li>
+<li>读官方资料时优先保留 <code>Where-used list</code>、<code>Search view</code>、<code>Ctrl+Shift+G</code>、<code>static reference</code>、<code>development object</code>、<code>subobject</code> 等英文术语。</li>
+</ul>
+<p><strong>7) Example / 学习例子</strong></p>
+<ul>
+<li>在 ADT 中打开一个 class，把光标放在 public method 名称上，按 <code>Ctrl+Shift+G</code>，观察 Search view 里有哪些 callers。按 package / object type 粗分风险。</li>
+<li>找一个 DDIC table 或 data element，执行 where-used。观察结果里是否有 table fields、CDS views、ABAP classes 或 search help。思考：如果结果为空，是否一定代表可以删除？</li>
+<li>找一个 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a>，查它的 where-used，看是否能找到 projection view、metadata extension、service definition 或 ABAP code reference。再想一想：外部 OData client 是否一定会出现在 where-used 结果里？</li>
+<li>修改前练习 5 步：查 where-used；把使用点分成 high / medium / low risk；读 high-risk caller；运行 activation / ATC / unit test；用 3 行日语写 <code>影響範囲</code>。</li>
+<li>Week 3/4 后，把一个 <a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a> 相关对象作为目标，查 root view entity、behavior definition、service definition、service binding 之间的引用关系。</li>
+</ul>
+<p><strong>8) Counterexample / Failure mode</strong></p>
+<ul>
+<li>误区一：where-used 结果为空，就认为可以安全删除。实际可能是动态调用、外部调用、customizing、索引不完整或对象类型不支持。</li>
+<li>误区二：只查 main object，不查 method / attribute / field / message 等 subobject。结果看起来很少，但真正被调用的是子对象。</li>
+<li>误区三：把 where-used 当 runtime trace。它能告诉你“哪里静态引用”，不能告诉你“生产运行时实际执行了哪条路径”。</li>
+<li>误区四：忽略 CDS / DDLS 索引问题。CDS 依赖没有出现时，不要马上断定没有下游对象。</li>
+<li>误区五：看到 function group include 名就以为结果无用。classic ABAP 的 function module 实现经常以 include 形式出现，需要顺着 function group 结构理解。</li>
+<li>误区六：只把结果贴到 review 里，不做分类。影响分析要说明对象类型、package、负责人、测试影响、移送顺序，而不是只说“查过了”。</li>
+</ul>
+<p><strong>9) 思考问题</strong></p>
+<ul>
+<li>Where-used list 和普通全文搜索有什么区别？什么时候两者都要用？</li>
+<li>为什么 empty result 不是 safe-to-delete 证明？</li>
+<li>如果要改一个 public method signature，应先查 main class、method，还是调用方代码？为什么？</li>
+<li>CDS/RAP 场景下，哪些下游对象可能出现在 where-used 结果里，哪些可能需要额外查？</li>
+<li>在日本项目里，<code>影響調査</code> 和 <code>影響範囲</code> 的区别是什么？</li>
+<li>如果 reviewer 问 <code>動的呼び出しは確認しましたか</code>，应该怎样补充 where-used 之外的检查？</li>
+</ul>
+<p><strong>10) 参考资料入口</strong></p>
+<ul>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/where-used-function" target="_blank" rel="noopener noreferrer">SAP Help - Where-Used Search</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/opening-and-searching-development-objects" target="_blank" rel="noopener noreferrer">SAP Help - Opening and Searching Development Objects</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/opening-and-searching-cds-objects" target="_blank" rel="noopener noreferrer">SAP Help - Opening and Searching CDS Objects</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/learn-the-basics-of-abap-programming-on-sap-btp/searching-in-eclipse_b9adbc8a-bb51-4c7e-9e23-15abf0099684" target="_blank" rel="noopener noreferrer">SAP Learning - Searching in Eclipse</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/working-with-cds-view_c289f74d-675e-4084-9d90-5635958ec604" target="_blank" rel="noopener noreferrer">SAP Learning - Working with CDS Views</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-i-of-sap-s-4hana-and-sap-business-suite/accessing-and-editing-abap-repository-objects" target="_blank" rel="noopener noreferrer">SAP Learning - Accessing and Editing ABAP Repository Objects</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/improving-code-quality-using-abap-test-cockpit_dd1d868f-a539-49ee-8e49-e57563131058" target="_blank" rel="noopener noreferrer">SAP Learning - Improving Code Quality using ABAP Test Cockpit</a> (accessed 2026-06-13).</li>
+<li><a href="https://me.sap.com/notes/28022" target="_blank" rel="noopener noreferrer">SAP Note 28022 - Where-used list index caveats</a> (SAP login may be required; accessed 2026-06-13).</li>
+<li><a href="https://me.sap.com/notes/2541906" target="_blank" rel="noopener noreferrer">SAP Note 2541906 - Function module where-used include behavior</a> (SAP login may be required; accessed 2026-06-13).</li>
+<li><a href="https://me.sap.com/notes/2801600" target="_blank" rel="noopener noreferrer">SAP Note 2801600 - Where-used in production systems</a> (SAP login may be required; accessed 2026-06-13).</li>
+<li><a href="https://me.sap.com/notes/3759900" target="_blank" rel="noopener noreferrer">SAP Note 3759900 - CDS where-used index issue</a> (SAP login may be required; accessed 2026-06-13).</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>11) Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li><span class="wiki unresolved">MOC ADT Workflow</span></li>
+<li>Upstream: <a class="wiki" href="section-01-013-activation-ff7e1caa.html">Activation 激活机制</a></li>
+<li>Downstream: <a class="wiki" href="section-01-016-abap-debugger-05add8e6.html">ABAP debugger 调试器入口</a></li>
+<li>Related: <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a></li>
+<li>Related: <a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-01-031-runtime-error-and-short-dump-b6d3f032.html">Runtime error and short dump 运行时错误</a></li>
+<li>Related: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Related: <a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 02 - ADT 与 Repository Object 生命周期</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>12) 学习任务</strong></p>
+<ul>
+<li>用自己的中文解释 where-used、ABAP Source Search、debugger 三者的区别。</li>
+<li>在 ADT 中对一个 class method 和一个 DDIC/CDS object 分别执行 where-used，记录 Search view 中的对象类型。</li>
+<li>补 1 个日语现场句子，必须包含 <code>影響調査</code> 或 <code>影響範囲</code>。</li>
+<li>用 English Terms 找 1 个 SAP 官方链接，补充到自己的学习记录中。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到一个 CDS/RAP/service binding 改动前的影响分析清单。</li>
+</ul>
+<p><strong>13) Confidence &amp; Next Action</strong></p>
+<ul>
+<li>Confidence: High for Day 02 beginner scope；关键结论已用 SAP Help、SAP Learning、SAP Notes 和 Joule SAP accuracy review 交叉确认。</li>
+<li>Next action: 继续 <a class="wiki" href="section-01-016-abap-debugger-05add8e6.html">ABAP debugger 调试器入口</a>，让读者从静态影响分析进入运行时观察和缺陷排查。</li>
+</ul>
+<blockquote>Atomic note: <a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a></blockquote><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-014-abapgit-gcts-d16f46ae.html">Previous section</a><a href="section-01-016-abap-debugger-05add8e6.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

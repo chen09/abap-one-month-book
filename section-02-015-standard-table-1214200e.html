@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Standard table 标准表 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="15-standard-table-cb215304" class="chapter-title">15. Standard table 标准表</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 15</li><li>self-contained study note</li></ul><h4 id="15-1-ba1b3fa6" class="semantic-heading semantic-concept">15.1 一句话结论</h4>
+<p>Standard table 标准表，是 ABAP internal table 内部表的默认表类别：它用 primary table index 管理行，允许重复行，适合按顺序追加、遍历、临时承接查询结果和小规模处理；但如果主要需求是按 key 高频查找或保证唯一性，就要考虑 <a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a>、<a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a> 或 <a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a>。</p>
+<h4 id="15-2-f3791d7f" class="semantic-heading semantic-concept">15.2 到底学什么</h4>
+<p>先把 <code>standard table</code> 和数据库表分开。ABAP internal table 是运行在 ABAP 程序内存中的动态数据对象，用来临时保存多行同结构数据。它不是 DDIC database table，也不是 SAP HANA 上的真实持久化表。常见来源包括：</p>
+<pre><code class="language-abap">SELECT FROM zt_demo
+  FIELDS key_field, text
+  INTO TABLE @DATA(lt_demo).</code></pre>
+<p>这里的 <code>lt_demo</code> 是 ABAP 程序内存中的 internal table。它可能来自数据库查询结果，也可能来自接口输入、BAPI 返回表、ALV 数据、RAP EML response、手工构造的测试数据。学习 standard table，就是学习这类内存表的默认行为。</p>
+<p>ABAP internal table 有三种基本 table category：</p>
+<pre><code class="language-text">STANDARD TABLE
+SORTED TABLE
+HASHED TABLE</code></pre>
+<p>standard table 的特点可以先记成四句话：</p>
+<ul>
+<li>它有 primary table index，所以可以按行号访问，也可以按顺序 <code>LOOP AT</code>。</li>
+<li>它的 primary key 不唯一，允许重复行。</li>
+<li>它没有天然排序；行的顺序通常来自 append / insert / sort / select result 的处理过程。</li>
+<li>它用 primary key 读取时，对 standard table 通常是 linear search；大表高频 key lookup 可能会慢。</li>
+</ul>
+<p>因此，standard table 是“最顺手的默认容器”，不是“所有场景的最佳容器”。它像 Java 的 <code>ArrayList</code> 或 Python 的 <code>list</code>：追加和顺序遍历很自然，但如果你总是按 key 找对象，就要考虑 <code>Map</code> / <code>dict</code> 风格的数据结构。在 ABAP 里，这个选择通常对应 sorted table、hashed table 或 secondary key。</p>
+<h4 id="15-3-cca0b409" class="semantic-heading semantic-why">15.3 为什么重要</h4>
+<p>ABAP 项目里，internal table 几乎无处不在。<code>SELECT ... INTO TABLE</code>、BAPI 的 <code>TABLES</code> 参数、ALV 输出、批处理临时数据、RAP response、CSV 导入、接口 payload 转换，都会让你面对一张或多张 internal table。</p>
+<p>初学者常见写法是：</p>
+<pre><code class="language-abap">LOOP AT lt_header INTO DATA(ls_header).
+  READ TABLE lt_item INTO DATA(ls_item)
+    WITH KEY header_id = ls_header-header_id.
+ENDLOOP.</code></pre>
+<p>如果 <code>lt_item</code> 是很小的 standard table，这可能没问题。但如果 <code>lt_header</code> 和 <code>lt_item</code> 都有几万行，而 <code>READ TABLE ... WITH KEY</code> 每次都对 standard table 做线性搜索，就会形成典型的 nested-loop performance issue。项目上常说“跑得很慢”，很多时候不是数据库慢，而是 ABAP 内存表选型和访问方式不对。</p>
+<p>standard table 还影响可读性。<code>TYPE TABLE OF ...</code> 没写表类别时，通常就是 standard table；<code>SELECT ... INTO TABLE @DATA(...)</code> 的 inline declaration 也常产生 standard table，并且 key 可能是 empty key。代码如果没有明确写 <code>WITH EMPTY KEY</code>、<code>WITH NON-UNIQUE KEY ...</code> 或 secondary key，reviewer 很难判断作者是否真的考虑过 key 语义。</p>
+<p>对交付来说，standard table 学不好，会带来三类问题：</p>
+<ul>
+<li>性能问题：大表反复 <code>READ TABLE ... WITH KEY</code>，没有 sorted/hashed/secondary key。</li>
+<li>语义问题：以为 key 唯一，但 standard table 的 primary key 不能保证唯一。</li>
+<li>维护问题：默认 key / standard key 不清晰，排序、查找、去重逻辑让后续维护者猜。</li>
+</ul>
+<h4 id="15-4-key-mechanism-6f2207c2" class="semantic-heading semantic-mechanism">15.4 Key mechanism / 核心机制</h4>
+<h5 id="15-4-1-table-category-line-type-table-key-395d3d05">15.4.1 table category、line type、table key</h5>
+<p>一张 internal table 至少要理解三个维度：</p>
+<pre><code class="language-text">line type     每一行长什么样
+table category 行如何被内部管理：standard / sorted / hashed
+table key      用哪些字段作为查找语义</code></pre>
+<p>standard table 由 primary table index 管理。primary table index 给每一行一个顺序位置，所以 standard table 可以按 index 访问：</p>
+<pre><code class="language-abap">READ TABLE lt_demo INTO DATA(ls_demo) INDEX 1.</code></pre>
+<p>也可以顺序遍历：</p>
+<pre><code class="language-abap">LOOP AT lt_demo INTO DATA(ls_demo).
+  &quot; process line
+ENDLOOP.</code></pre>
+<p>这也是 standard table 非常常见的原因：很多业务处理就是先取得一组结果，再按顺序处理、输出、转换或汇总。</p>
+<h5 id="15-4-2-standard-table-key-eeed6bf4">15.4.2 standard table 的 key 不唯一</h5>
+<p>standard table 的 primary key 总是 non-unique。即使你写了：</p>
+<pre><code class="language-abap">TYPES ty_t_demo TYPE STANDARD TABLE OF ty_demo
+  WITH NON-UNIQUE KEY id.</code></pre>
+<p>这只是告诉 ABAP “这些字段组成 key 语义”，不是告诉 ABAP “不允许重复”。如果你需要主键唯一并且按 key 快速读取，应该优先考虑 hashed table；如果你需要有序并且按 key 范围或前缀读取，可以考虑 sorted table。</p>
+<h5 id="15-4-3-empty-key-default-key-aa6860c8">15.4.3 empty key 与 default key</h5>
+<p>standard table 可以有 empty key：</p>
+<pre><code class="language-abap">DATA lt_demo TYPE STANDARD TABLE OF ty_demo WITH EMPTY KEY.</code></pre>
+<p>empty key 表示 primary table key 不包含任何 key fields。它很适合“这张表只是顺序容器，不按 key 查找”的场景。显式写 <code>WITH EMPTY KEY</code> 的好处是让 reviewer 明白：作者知道这张表没有 key 语义。</p>
+<p>另一个常见写法是省略 key：</p>
+<pre><code class="language-abap">DATA lt_demo TYPE TABLE OF ty_demo.</code></pre>
+<p>省略不等于“没有 key”。在许多场景下，ABAP 会使用 standard key / default key。structured line type 的 standard key 通常由 character-like 和 byte-like 组件组成，这可能不是业务上真正想要的 key。项目里建议尽量显式写 key：要么 <code>WITH EMPTY KEY</code>，要么 <code>WITH NON-UNIQUE KEY ...</code>，不要让默认 key 替你做设计决定。</p>
+<h5 id="15-4-4-key-6a6fec1a">15.4.4 key 访问为什么可能慢</h5>
+<p>对 standard table 使用 primary key 访问时，关键点是：primary key lookup 不会像 hashed table 那样天然 O(1)，也不会像 sorted table 那样天然 binary search。标准表的 key 访问通常是 linear search，从前往后找。</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY material = lv_matnr.</code></pre>
+<p>如果 <code>lt_items</code> 是 standard table，这句在小表中很自然；但在大表中、尤其在外层循环里反复执行时，就可能成为性能瓶颈。解决方向通常有三个：</p>
+<pre><code class="language-text">只顺序处理
+  -&gt; standard table 足够
+
+频繁按唯一 key 读取
+  -&gt; hashed table
+
+频繁按有序 key / 范围读取
+  -&gt; sorted table
+
+已有 standard table 但还需要某种快速 key 读取
+  -&gt; secondary table key</code></pre>
+<h5 id="15-4-5-standard-table-72f7f5c3">15.4.5 standard table 没有天然排序</h5>
+<p>standard table 的行顺序来自你如何填充它。<code>APPEND</code> 通常加到末尾；<code>INSERT ... INDEX ...</code> 可以插入指定位置；<code>SORT</code> 会重排行顺序。不要把 <code>SELECT ... INTO TABLE</code> 的返回顺序当成业务排序，除非 SQL 里有明确 <code>ORDER BY</code>，并且后续 internal table 处理没有再次改变顺序。</p>
+<p>如果后续逻辑依赖顺序，要么明确 <code>ORDER BY</code>，要么在 internal table 上明确 <code>SORT BY ...</code>，并在注释或设计说明里写出排序目的。</p>
+<h5 id="15-4-6-standard-table-sy-tabix-3a2d9205">15.4.6 standard table 与 <code>sy-tabix</code></h5>
+<p>standard table 是 index table，很多 internal table 操作会让 <code>sy-tabix</code> 有意义。例如 <code>LOOP AT</code> 时，<code>sy-tabix</code> 通常表示当前行号；<code>READ TABLE ... INDEX</code> 读取成功时也能反映行号。后续学习 <code>READ TABLE</code> 和 <code>LOOP AT</code> 时会详细讲。</p>
+<p>但不要把 <code>sy-tabix</code> 当成业务 key。行号只是当前内存表状态下的位置；一旦 <code>SORT</code>、<code>DELETE</code>、<code>INSERT</code>，行号就会变化。业务关联应使用业务字段或显式 key。</p>
+<h4 id="15-5-9a14b3c5" class="semantic-heading semantic-japan">15.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>標準テーブル</code></li>
+<li><code>内部テーブル</code></li>
+<li><code>テーブル種別</code></li>
+<li><code>主キー</code></li>
+<li><code>標準キー</code></li>
+<li><code>空キー</code></li>
+<li><code>インデックスアクセス</code></li>
+<li><code>キーアクセス</code></li>
+<li><code>線形検索</code></li>
+<li><code>二次キー</code></li>
+<li><code>ソート済みテーブル</code></li>
+<li><code>ハッシュテーブル</code></li>
+<li><code>重複行</code></li>
+<li><code>順次処理</code></li>
+<li><code>性能劣化</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li>この内部テーブルは順次処理が中心なので、標準テーブルで問題ありません。</li>
+<li>キー検索を大量に行うため、標準テーブルのままだと線形検索になり性能劣化の恐れがあります。</li>
+<li>このテーブルはキーを使わない一時バッファなので、<code>WITH EMPTY KEY</code> を明示します。</li>
+<li>一意性が必要な場合は、標準テーブルではなくハッシュテーブルまたは一意の二次キーを検討します。</li>
+</ul>
+<p>review 里常见问法：</p>
+<ul>
+<li><code>この標準テーブルのキーは意図的に空キーですか。</code></li>
+<li><code>READ TABLE がループ内で大量に実行されますが、二次キーは不要ですか。</code></li>
+<li><code>この重複は許容される仕様ですか。</code></li>
+<li><code>ソート順に依存している場合、どこで SORT していますか。</code></li>
+</ul>
+<h4 id="15-6-english-terms-4e741cc0" class="semantic-heading semantic-terms">15.6 English Terms</h4>
+<ul>
+<li><code>standard table</code></li>
+<li><code>internal table</code></li>
+<li><code>table category</code></li>
+<li><code>line type</code></li>
+<li><code>primary table index</code></li>
+<li><code>primary table key</code></li>
+<li><code>standard key</code></li>
+<li><code>default key</code></li>
+<li><code>empty key</code></li>
+<li><code>non-unique key</code></li>
+<li><code>secondary table key</code></li>
+<li><code>sorted table</code></li>
+<li><code>hashed table</code></li>
+<li><code>linear search</code></li>
+<li><code>index access</code></li>
+<li><code>key access</code></li>
+<li><code>APPEND</code></li>
+<li><code>INSERT</code></li>
+<li><code>READ TABLE</code></li>
+<li><code>LOOP AT</code></li>
+<li><code>SORT</code></li>
+<li><code>sy-tabix</code></li>
+<li><code>sy-subrc</code></li>
+</ul>
+<p>Recommended search patterns:</p>
+<ul>
+<li><code>ABAP standard table internal table primary table index</code></li>
+<li><code>ABAP standard table linear search primary key</code></li>
+<li><code>ABAP internal table WITH EMPTY KEY DEFAULT KEY</code></li>
+<li><code>ABAP selecting table category standard sorted hashed</code></li>
+<li><code>SAP Samples ABAP internal tables standard table secondary key</code></li>
+</ul>
+<h4 id="15-7-example-22bf49a0" class="semantic-heading semantic-example">15.7 Example / 学习例子</h4>
+<h5 id="15-7-1-1-standard-table-dd764fcd">15.7.1 例 1：最常见的 standard table</h5>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_item,
+         id     TYPE i,
+         text   TYPE string,
+         amount TYPE p LENGTH 8 DECIMALS 2,
+       END OF ty_item.
+
+DATA lt_items TYPE STANDARD TABLE OF ty_item WITH EMPTY KEY.
+
+APPEND VALUE #( id = 1 text = `A` amount = &#x27;10.00&#x27; ) TO lt_items.
+APPEND VALUE #( id = 2 text = `B` amount = &#x27;20.00&#x27; ) TO lt_items.
+
+LOOP AT lt_items INTO DATA(ls_item).
+  &quot; 顺序处理
+ENDLOOP.</code></pre>
+<p>这张表没有 key 语义，只是按顺序保存一批数据。<code>WITH EMPTY KEY</code> 是一个很好的信号：这不是忘了设计 key，而是明确不需要 key。</p>
+<h5 id="15-7-2-2-non-unique-key-b4ae4612">15.7.2 例 2：显式 non-unique key</h5>
+<pre><code class="language-abap">DATA lt_items TYPE STANDARD TABLE OF ty_item
+  WITH NON-UNIQUE KEY id.
+
+APPEND VALUE #( id = 1 text = `A` amount = &#x27;10.00&#x27; ) TO lt_items.
+APPEND VALUE #( id = 1 text = `A2` amount = &#x27;15.00&#x27; ) TO lt_items.</code></pre>
+<p>这段代码允许两个 <code>id = 1</code> 的行同时存在。<code>WITH NON-UNIQUE KEY id</code> 帮助读者知道 <code>id</code> 是查找语义的一部分，但它并不保证唯一。</p>
+<h5 id="15-7-3-3-key-lookup-33d8ec6c">15.7.3 例 3：标准表 key lookup 的风险</h5>
+<pre><code class="language-abap">LOOP AT lt_headers INTO DATA(ls_header).
+  READ TABLE lt_items INTO DATA(ls_item)
+    WITH KEY header_id = ls_header-header_id.
+
+  IF sy-subrc = 0.
+    &quot; process item
+  ENDIF.
+ENDLOOP.</code></pre>
+<p>如果 <code>lt_items</code> 是 standard table，<code>READ TABLE ... WITH KEY</code> 可能每次都线性搜索。小数据量可以接受；大数据量时，应考虑把 <code>lt_items</code> 改成 sorted/hashed table，或给 standard table 加合适的 secondary key。</p>
+<h5 id="15-7-4-4-secondary-key-standard-table-ecb97808">15.7.4 例 4：用 secondary key 改善 standard table 查找</h5>
+<pre><code class="language-abap">TYPES ty_t_item TYPE STANDARD TABLE OF ty_item
+  WITH EMPTY KEY
+  WITH NON-UNIQUE SORTED KEY by_header COMPONENTS header_id.
+
+DATA lt_items TYPE ty_t_item.
+
+READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY by_header COMPONENTS header_id = lv_header_id.</code></pre>
+<p>这仍然是 standard table，但多了一个 secondary sorted key。它适合“主要还是按顺序处理，但某些场景需要按另一个 key 快速查找”的情况。代价是额外内存和 key 维护成本；小表或频繁修改的表不一定值得。</p>
+<h5 id="15-7-5-5-standard-table-b70b932d">15.7.5 例 5：不要把 standard table 当数据库表</h5>
+<pre><code class="language-abap">SELECT FROM zt_demo
+  FIELDS *
+  INTO TABLE @DATA(lt_demo).
+
+READ TABLE lt_demo INTO DATA(ls_demo)
+  WITH KEY key_field = lv_key.</code></pre>
+<p><code>zt_demo</code> 是数据库表；<code>lt_demo</code> 是 internal table。<code>READ TABLE</code> 只能读取 internal table，不能直接读 DDIC database table。数据库读取用 ABAP SQL <code>SELECT</code>，内存表读取用 <code>READ TABLE</code> / table expression / loop。</p>
+<h4 id="15-8-counterexample-failure-mode-3654cb2d" class="semantic-heading semantic-example">15.8 Counterexample / Failure mode</h4>
+<h5 id="15-8-1-1-key-key-8f08a675" class="semantic-heading semantic-failure">15.8.1 误区 1：省略 key 就以为没有 key</h5>
+<pre><code class="language-abap">DATA lt_items TYPE TABLE OF ty_item.</code></pre>
+<p>这通常会创建 standard table，但 key 语义可能来自 default / standard key。项目代码里最好显式写：</p>
+<pre><code class="language-abap">DATA lt_items TYPE STANDARD TABLE OF ty_item WITH EMPTY KEY.</code></pre>
+<p>或者：</p>
+<pre><code class="language-abap">DATA lt_items TYPE STANDARD TABLE OF ty_item
+  WITH NON-UNIQUE KEY id.</code></pre>
+<p>这样 reviewer 能看出你的意图。</p>
+<h5 id="15-8-2-2-standard-table-aac707fd" class="semantic-heading semantic-failure">15.8.2 误区 2：认为 standard table 会自动防重复</h5>
+<p>standard table 的 primary key 不唯一。即使你声明了 key，也不会因为重复而拒绝插入。如果业务不允许重复，需要用 hashed/sorted unique key、secondary unique key，或者在插入前显式检查。</p>
+<h5 id="15-8-3-3-standard-table-9f58e393" class="semantic-heading semantic-failure">15.8.3 误区 3：在大表循环里反复读 standard table</h5>
+<pre><code class="language-abap">LOOP AT lt_a INTO DATA(ls_a).
+  READ TABLE lt_b INTO DATA(ls_b)
+    WITH KEY id = ls_a-id.
+ENDLOOP.</code></pre>
+<p>这类代码在测试数据很少时看不出问题，上生产后可能变成性能缺陷。先问：<code>lt_b</code> 有多少行？这个 read 会执行多少次？能否改成 hashed table、sorted table 或 secondary key？</p>
+<h5 id="15-8-4-4-8dc8288b" class="semantic-heading semantic-failure">15.8.4 误区 4：依赖偶然顺序</h5>
+<p>standard table 的顺序不是业务保证。只要代码中有 <code>SORT</code>、<code>DELETE</code>、<code>INSERT INDEX</code> 或不同的 SELECT 来源，顺序都可能变化。需要顺序时要明确 <code>ORDER BY</code> 或 <code>SORT BY</code>。</p>
+<h5 id="15-8-5-5-internal-table-04029063" class="semantic-heading semantic-failure">15.8.5 误区 5：把 internal table 性能问题归咎于数据库</h5>
+<p>很多“程序慢”并不是 SQL 慢，而是已经把数据取到内存后，在 standard table 上做了低效搜索。性能分析时要分清 database time 和 ABAP processing time。</p>
+<h4 id="15-9-de455251" class="semantic-heading semantic-practice">15.9 思考问题</h4>
+<ul>
+<li>当前 internal table 是顺序处理为主，还是 key lookup 为主？</li>
+<li>这张表是否允许重复？如果不允许，standard table 能保证吗？</li>
+<li>代码是否显式写了 <code>WITH EMPTY KEY</code> 或 <code>WITH NON-UNIQUE KEY ...</code>？</li>
+<li><code>READ TABLE ... WITH KEY</code> 是否在循环里反复执行？</li>
+<li>如果这张表超过 1 万行，当前 table category 还合适吗？</li>
+<li>这张表的顺序是否有业务意义？如果有，排序在哪里保证？</li>
+<li>是否应该改成 <a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a>、<a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a> 或增加 <a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a>？</li>
+<li>用日语 review 时，如何说明 <code>標準テーブル</code>、<code>空キー</code>、<code>線形検索</code>？</li>
+</ul>
+<h4 id="15-10-b7d4be70" class="semantic-heading semantic-reference">15.10 参考资料入口</h4>
+<ul>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet</a></li>
+<li>SAP Samples Raw: <a href="https://raw.githubusercontent.com/SAP-samples/abap-cheat-sheets/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet Raw Markdown</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSTANDARD_TABLE_GLOSRY.html" target="_blank" rel="noopener noreferrer">standard table - Glossary</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-concepts/internal-table-setup" target="_blank" rel="noopener noreferrer">Technical Properties of Internal Tables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENITAB_DATA_TYPE.html" target="_blank" rel="noopener noreferrer">itab - Table Type</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENITAB_KEY_PRIMARY.html" target="_blank" rel="noopener noreferrer">itab - Primary Table Key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENITAB_EMPTY_KEY.html" target="_blank" rel="noopener noreferrer">itab - Empty Table Key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/LATEST/en-US/ABENITAB_STANDARD_KEY.html" target="_blank" rel="noopener noreferrer">itab - Standard Key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPREAD_TABLE_KEY.html" target="_blank" rel="noopener noreferrer">READ TABLE, table_key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENITAB_ACCESS.html" target="_blank" rel="noopener noreferrer">itab - Accessing Internal Tables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENSELECT_TABLE_TYPE_GUIDL.html" target="_blank" rel="noopener noreferrer">Selecting the Table Category</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-concepts/specifying-table-keys" target="_blank" rel="noopener noreferrer">Specifying Table Keys</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="15-11-connections-dd0b04d8">15.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li><a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></li>
+<li><a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a></li>
+<li><a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li><a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Upstream: <a class="wiki" href="section-02-014-sap-transaction-boundary-and-luw-model-3b5ad622.html">SAP Transaction Boundary and LUW Model</a></li>
+<li>Downstream: <a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 10 - 内部表类型与读取方式</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="15-12-a559b6a2" class="semantic-heading semantic-practice">15.12 学习任务</h4>
+<ul>
+<li>写出 <code>STANDARD TABLE WITH EMPTY KEY</code>、<code>STANDARD TABLE WITH NON-UNIQUE KEY ...</code> 两种声明，并说明差异。</li>
+<li>找一段 <code>LOOP AT</code> 里嵌套 <code>READ TABLE</code> 的代码，判断是否可能出现线性搜索性能问题。</li>
+<li>用日语写一句 review comment：这张 standard table 是否需要 secondary key。</li>
+<li>用 SAP Samples 的 Internal Tables cheat sheet 找到 standard / sorted / hashed 的对比表，并把结论用中文改写。</li>
+<li>预习 <a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a> 和 <a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a>，比较三者的适用场景。</li>
+</ul>
+<h4 id="15-13-confidence-next-action-0a1cc0fa" class="semantic-heading semantic-status">15.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。当前内容已用 SAP Help / ABAP Keyword Documentation 与 SAP Samples internal table / standard table / primary key / empty key / standard key / table access / table-category 资料复核；旧 Claude 与 Joule 记录均为工具不可用，本轮已创建 follow-up prompt，等待外部工具恢复后可补审。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a>，比较 standard table 的顺序容器语义和 sorted table 的自动排序、范围读取与 key lookup 语义。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-014-sap-transaction-boundary-and-luw-model-3b5ad622.html">Previous section</a><a href="section-02-016-sorted-table-2b234b33.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

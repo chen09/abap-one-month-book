@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>DDIC view 传统视图 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="37-ddic-view-369482b8" class="chapter-title">37. DDIC view 传统视图</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 37</li><li>self-contained study note</li></ul><h4 id="37-1-9ae1a002" class="semantic-heading semantic-concept">37.1 一句话结论</h4>
+<p>DDIC view 传统视图，是 ABAP Dictionary 里较早一代的 view 机制，用来把一个或多个 DDIC database tables 的列组合成面向应用的视图。它在遗留 ABAP、ECC、on-premise S/4HANA 和日本 brownfield 项目里仍然可能出现，但已经不是现代数据建模、RAP/Fiori/OData 服务设计的主路径。</p>
+<p>本节要学的是：看懂 classic DDIC view 在旧系统中的位置，能区分它和 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a>、CDS DDIC-based view、database table、<a class="wiki" href="section-01-036-ddic-structure-824eed18.html">DDIC structure 字典结构</a> 的边界，并形成一个实战判断：读旧系统时要认识 DDIC view，写新模型时要优先走 CDS view entity、service definition、service binding 和 RAP/CDS 元数据。</p>
+<h4 id="37-2-4f7dca9d" class="semantic-heading semantic-concept">37.2 到底学什么</h4>
+<p>先把名字说清楚。这里的 DDIC view，主要指 classic ABAP Dictionary view，尤其是 database view。SAP Keyword Documentation 对它的基本定义是：DDIC view 是把一个或多个 DDIC database tables 的列分组形成 application-specific view。它通常用来表达一段 join 或一个特定用途的读模型。它不像 database table 那样保存自己的业务数据，数据仍然来自底层表；view 激活后可以在数据库层有对应的 generated SQL view artifact，但不要把它理解成“又多了一张保存数据的表”。</p>
+<p>在 Standard ABAP 的 legacy 世界里，DDIC view 可以作为 ABAP SQL 的数据源，也可以像扁平结构一样作为 structured type 使用。也就是说，旧代码里可能看到类似：</p>
+<pre><code class="language-abap">SELECT * FROM zxx_legacy_v INTO TABLE @DATA(lt_result).
+
+DATA ls_view_line TYPE zxx_legacy_v.</code></pre>
+<p>第一句把 view 当作读数据源，第二句把 view name 当作结构类型名。这个能力会让初学者误以为 DDIC view 和 <a class="wiki" href="section-01-036-ddic-structure-824eed18.html">DDIC structure 字典结构</a> 很像。关键差异是：DDIC structure 只定义全局结构类型，不代表数据库读模型；DDIC database view 首要目的仍然是定义一个数据库视图式的数据访问对象，同时附带可作为 structured type 的效果。</p>
+<p>再看现代边界。SAP Learning 在 ABAP Dictionary 入门课里明确说明：过去 database views 由 ABAP Dictionary 处理，但这些 ABAP dictionary views 已经过时，应该使用 ABAP Core Data Services views。SAP-samples ABAP SQL cheat sheet 也把 classic DDIC views 归为 oldest form of views，说明它们不适用于 ABAP Cloud，且只能在 ABAP Workbench 里创建。这意味着本教程不应把 DDIC view 教成“新开发的推荐方式”，而应把它教成 legacy awareness：你需要能读懂、能影响分析、能迁移判断，但不要在现代 RAP/Fiori 项目里优先新建它。</p>
+<p>本节还要学会区分三组容易混淆的对象。</p>
+<p>第一组是 classic DDIC view 和 CDS view entity。classic DDIC view 是旧式 ABAP Dictionary view；CDS view entity 是现代 ABAP CDS 数据模型对象，用 <code>define view entity</code> 定义，没有旧式 <code>@AbapCatalog.sqlViewName</code> 所代表的 generated SQL view name。现代 RAP/OData 服务的数据模型通常应围绕 CDS view entity、projection view、metadata extension、behavior definition、service definition 和 service binding 展开。</p>
+<p>第二组是 CDS DDIC-based view 和 CDS view entity。CDS DDIC-based view 是旧 CDS V1 写法，通常用 <code>define view</code>，并通过 <code>@AbapCatalog.sqlViewName</code> 生成一个 CDS-managed DDIC view。SAP Help 把 CDS DDIC-based views 标成 obsolete，并说明 CDS view entities 是继任者。SAP Gateway 课程也说明，从 ABAP Platform 7.55 起，SAP 推荐使用 CDS view entities；view entity 不再有 SQL view 可以像旧 SEGW 流程那样导入。</p>
+<p>第三组是 DDIC database view、maintenance view、help view、projection view 和 external view。真实旧系统里，DDIC views 不只 database view。maintenance view 常和表维护、SM30 类流程有关；help view 常和 F4/search help 场景有关；classic projection view 是旧式 DDIC 视图子类型，不要和现代 CDS projection view 混为一谈；external view 是把外部 SAP HANA view 暴露给 ABAP 的 DDIC proxy 机制，也属于需要 legacy 判断的对象。初学阶段不需要掌握每一种创建细节，但必须知道“DDIC view”不是一个现代开发万能词。</p>
+<h4 id="37-3-2b0306f3" class="semantic-heading semantic-why">37.3 为什么重要</h4>
+<p>DDIC view 重要，不是因为新开发一定要写它，而是因为日本 SAP 项目经常不是一张白纸。很多项目是 ECC 维护、S/4HANA conversion、on-premise brownfield、旧 Gateway 服务改造或 Clean Core 评估。这样的系统里，旧 ABAP SQL、SE11/SE80 对象、SEGW import 记录、接口程序、报表程序、甚至设计书里都可能出现 DDIC view 或 generated SQL view name。</p>
+<p>如果初学者只学 CDS/RAP，而完全不认识 DDIC view，读旧代码时会卡在两个问题上。第一个问题是“这个对象到底是什么”。它看起来像表名，可以 <code>SELECT</code>；又看起来像结构名，可以 <code>TYPE</code>；但它不是业务主表，也不是纯结构。第二个问题是“该不该继续用”。如果只是维护旧报表或做影响分析，DDIC view 是必须识别的既存资产；如果是做新的 RAP/Fiori 服务，把它继续当主模型就会把项目带回旧技术栈。</p>
+<p>对 Java/Python 背景学习者，可以把 DDIC view 粗略类比成数据库 view 加一个全局结构类型名，但 SAP 里的差异更重。它受 ABAP Dictionary、activation、transport、client handling、ABAP SQL、where-used list、Cloud readiness、Clean Core 约束影响。你不能只按普通 SQL view 来处理，也不能绕过 AS ABAP 直接从数据库访问它。SAP 的设计原则是：ABAP-managed database objects 应通过 AS ABAP 的数据库接口访问，项目上也应优先通过 ABAP SQL、CDS、RAP 和官方 release contract 判断可用性。</p>
+<p>DDIC view 还关系到迁移风险。旧 CDS DDIC-based view 可能生成 SQL view name，老代码可能直接 <code>SELECT</code> 这个 SQL view name。后续迁移到 CDS view entity、ABAP Cloud 或更严格的语法检查时，这类访问会被视为 obsolete 或不兼容。一个合格的初学者不需要当天就会重构所有 legacy views，但要能在 review 时说清楚：这是 legacy artifact，当前只是保守维护；新增能力应寻找 CDS view entity 和 released API 方向。</p>
+<h4 id="37-4-key-mechanism-cd3d1268" class="semantic-heading semantic-mechanism">37.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 classic DDIC database view。它把底层 DDIC database table 的字段组合成应用视图，常见用途是读数据和表达 join。它不保存自己的业务数据；数据来自底层表。它的列形成一个 flat structure，所以在 classic ABAP 中也能作为 structured type 使用。写操作要特别谨慎：通过 classic DDIC view 写数据只有在 view 基于单个 database table 时才有支持空间，多表 view 应按 read-only legacy artifact 理解。</p>
+<p>第二层机制是创建与工具边界。classic DDIC views 属于旧式 ABAP Workbench / SE11 世界，不是 ABAP Cloud 里通过 ADT 新建的现代对象。SAP-samples 文档明确说 classic DDIC views 不适用于 ABAP Cloud，也只能在 ABAP Workbench 创建。学习时不要把“ADT 里写 CDS”与“SE11 里创建 DDIC view”混成一个动作。现代新建数据模型应从 CDS view entity 开始。</p>
+<p>第三层机制是 CDS V1 与 CDS view entity 的差异。旧 CDS DDIC-based view 通常长这样：</p>
+<pre><code class="language-abap">@AbapCatalog.sqlViewName: &#x27;ZXXSQLV&#x27;
+define view ZXX_CDS_V1
+  as select from zxx_table
+{
+  key field1,
+      field2
+}</code></pre>
+<p>现代 CDS view entity 的方向是：</p>
+<pre><code class="language-abap">define view entity ZXX_I_Invoice
+  as select from zxx_invoice
+{
+  key invoice_id,
+      company_code,
+      gross_amount
+}</code></pre>
+<p>注意两个重点：<code>define view entity</code> 不再使用 <code>@AbapCatalog.sqlViewName</code>；ABAP SQL 应面向 CDS entity / view entity 名称，而不是旧 generated SQL view name。SAP Learning 的 Gateway 课程也提醒：view entity 没有可供旧 SEGW “Import DDIC Structure from SQL view”流程导入的 SQL view。也就是说，旧 Gateway 技术里的导入路径不能原样套到现代 CDS view entity。</p>
+<p>第四层机制是 ABAP SQL access。classic DDIC view 可以被 ABAP SQL 读取，旧系统里也可能被 AMDP、Native SQL 或外部数据库接口看到。但教学上要强调推荐边界：在 SAP 项目里不要绕过 AS ABAP 数据库接口直接访问 ABAP-managed view，尤其不要把 direct database access 当成稳定集成方式。直接访问可能绕过 client handling、CDS access control、buffering 或 ABAP Dictionary 语义，给权限、数据一致性和升级带来风险。</p>
+<p>第五层机制是 ABAP Cloud / RAP 边界。ABAP Cloud 不支持 classic DDIC views 作为新开发对象；SEGW-based OData V2 生成也不是 ABAP Cloud 新开发路径。RAP/Fiori 中的 read model、value help、UI metadata、service exposure，应来自 CDS view entity、CDS projection view、metadata extension、service definition、service binding 和 behavior definition。DDIC view 在这里最多是迁移对象、遗留依赖或影响分析线索。</p>
+<p>第六层机制是 view subtype。database view 用来读数据；maintenance view 偏表维护场景；help view 偏 search help / F4 语境；classic projection view 是旧式 DDIC view 子类型；external view 偏旧 HANA view proxy。它们都可能在旧系统里叫 view，但 access rule、用途和迁移策略不同。项目调查时不要只看名字，要看对象类型、where-used list、调用程序、transport 历史和是否被服务或报表依赖。</p>
+<p>第七层机制是 Clean Core 判断。看到 DDIC view，不要立刻删除，也不要盲目继续扩展。正确动作是分三步：先确认是否仍被报表、接口、SEGW 服务、CDS V1、AMDP 或外部接口使用；再判断是否属于只读 legacy asset、需修复的 SQL view name access，还是应迁移到 CDS view entity；最后把新开发和旧资产维护分开管理。</p>
+<h4 id="37-5-97570abc" class="semantic-heading semantic-japan">37.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>DDICビュー</code>、<code>ディクショナリビュー</code>、<code>従来型DDICビュー</code>、<code>旧来ビュー</code>、<code>データベースビュー</code>、<code>メンテナンスビュー</code>、<code>ヘルプビュー</code>、<code>CDS DDICベースビュー</code>、<code>CDS V1ビュー</code>、<code>CDSビューエンティティ</code>、<code>SQLビュー名</code>、<code>生成ビュー</code>、<code>廃止済み</code>、<code>非推奨</code>、<code>移行対象</code>、<code>移行計画</code>、<code>既存資産</code>、<code>保守対象</code>、<code>使用箇所</code>、<code>影響調査</code>。</li>
+<li>说明句：この DDIC ビューは従来型のディクショナリビューであり、新規の RAP/Fiori データモデルとしては使用しません。</li>
+<li>影响分析句：この SQL ビュー名が ABAP SQL、SEGW、外部連携で直接参照されていないか、使用箇所を確認してください。</li>
+<li>迁移句：移行対象は従来型 DDIC ビューから CDS ビューエンティティへの置き換えです。移行計画と影響範囲を設計書に記録します。</li>
+<li>Review 句：CDSビューという表現だけでは曖昧です。CDS DDICベースビューなのか、CDSビューエンティティなのかを明記してください。</li>
+<li>Cloud 句：ABAP Cloud では従来型 DDIC ビューを新規開発の前提にせず、リリース済み API と CDS ビューエンティティを使用してください。</li>
+</ul>
+<p><code>廃止予定</code> 和 <code>非推奨</code> 在日语项目文档里语气不同。对 classic DDIC view 这种已经属于旧式/obsolete 边界的对象，写成 <code>廃止予定</code> 可能会让读者以为只是未来某天才会过时；更稳妥的表达是 <code>廃止済み</code>、<code>非推奨</code>、<code>旧来技術</code>，并说明“既存資産として保守するが、新規開発では使用しない”。</p>
+<h4 id="37-6-english-terms-f3458f1c" class="semantic-heading semantic-terms">37.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>DDIC view</code>, <code>ABAP Dictionary view</code>, <code>classic DDIC view</code>, <code>DDIC database view</code></li>
+<li>Modern contrast terms: <code>CDS view entity</code>, <code>CDS DDIC-based view</code>, <code>CDS-managed DDIC view</code>, <code>ABAP CDS</code>, <code>service definition</code>, <code>service binding</code></li>
+<li>Legacy / migration terms: <code>generated SQL view</code>, <code>SQL view name</code>, <code>SEGW</code>, <code>Gateway Service Builder</code>, <code>where-used list</code>, <code>ABAP Cloud readiness</code></li>
+<li>Recommended search patterns:</li>
+<li><code>DDIC view ABAP Keyword Documentation</code></li>
+<li><code>classic DDIC views ABAP Cloud</code></li>
+<li><code>CDS DDIC-based views obsolete SAP</code></li>
+<li><code>CDS view entity no SQL view SAP Gateway</code></li>
+</ul>
+<p>读官方资料时，要特别留意 <code>define view</code> 和 <code>define view entity</code> 的区别，也要留意 <code>@AbapCatalog.sqlViewName</code> 是否出现在示例里。出现 <code>@AbapCatalog.sqlViewName</code> 时，通常说明你正在读旧 CDS DDIC-based view / CDS V1 语境，不是现代 view entity 语境。</p>
+<h4 id="37-7-example-1cc04e25" class="semantic-heading semantic-example">37.7 Example / 学习例子</h4>
+<p>假设旧系统里有一个对象 <code>ZVSO_OLD_ORDER</code>，它把销售订单抬头表和项目表 join 到一起。你在旧报表中看到：</p>
+<pre><code class="language-abap">SELECT vbeln, posnr, matnr, netwr
+  FROM zvso_old_order
+  WHERE vbeln = @lv_vbeln
+  INTO TABLE @DATA(lt_order_items).</code></pre>
+<p>第一步，不要马上把 <code>ZVSO_OLD_ORDER</code> 当成普通 table。先在 ADT/SE11/where-used list 里确认它是 database table、DDIC database view、CDS-managed DDIC view，还是 CDS view entity。对象类型不同，迁移和 review 结论完全不同。</p>
+<p>第二步，确认它的用途。如果它只是 legacy report 的只读 join view，可以记录为 <code>既存資産 / 保守対象</code>，在修 bug 时谨慎维护。如果它被新 OData 服务继续引用，或者被 ABAP SQL 通过 generated SQL view name 访问，就要标出 Clean Core / migration risk。</p>
+<p>第三步，给新开发方向。新的 RAP/Fiori 功能不应继续扩展 <code>ZVSO_OLD_ORDER</code>。更合理的方向是建立 CDS view entity，例如 <code>ZI_SalesOrderItem</code>，再基于 projection view、metadata extension、behavior definition、service definition 和 service binding 暴露服务。旧 view 保持可读、可定位、可替换，新功能走现代模型。</p>
+<p>最小练习：找一个旧 view 名称，写出三行判断：</p>
+<pre><code class="language-text">对象类型：classic DDIC database view / CDS DDIC-based view / CDS view entity / 其他
+当前用途：legacy report / SEGW import / ABAP SQL source / external access / unknown
+建议动作：保守维护 / where-used 追加调查 / 迁移到 CDS view entity / 禁止新开发引用</code></pre>
+<h4 id="37-8-counterexample-failure-mode-c6e72c2a" class="semantic-heading semantic-example">37.8 Counterexample / Failure mode</h4>
+<p>第一类错误，是把 DDIC view 当成现代 CDS。看到“view”就以为可以直接用于 RAP service，是典型误判。classic DDIC view 不提供 CDS annotation、association、access control、metadata extension、behavior definition 等现代 RAP 需要的语义层。</p>
+<p>第二类错误，是把 CDS DDIC-based view 和 CDS view entity 混成一个词。旧 CDS V1 有 generated SQL view name；view entity 没有旧式 SQL view name。项目文档只写 <code>CDSビュー</code>，却不说明是哪一种，会让后续开发、测试和迁移判断全部变模糊。</p>
+<p>第三类错误，是直接使用 generated SQL view name。旧系统里这种写法可能存在，但在迁移和严格检查语境下会成为 obsolete usage。初学者应养成习惯：ABAP SQL 访问 CDS 时优先使用 CDS entity / view entity 名称，不要依赖 <code>@AbapCatalog.sqlViewName</code> 生成的 SQL view name。</p>
+<p>第四类错误，是绕过 AS ABAP 直接从数据库访问 DDIC view。普通数据库思维会觉得“既然有 SQL view，就直接查数据库”。SAP 项目里这会绕开 client handling、authorization、CDS access control、buffering、Dictionary 语义和升级兼容性，通常不是安全的集成方式。</p>
+<p>第五类错误，是把 legacy 识别等同于 legacy 推广。本节讲 DDIC view，不是为了鼓励新项目继续新建传统视图，而是为了让学习者能读懂旧资产、能做影响分析、能知道现代替代路径。</p>
+<h4 id="37-9-f0d5ecd7" class="semantic-heading semantic-practice">37.9 思考问题</h4>
+<ul>
+<li>这个对象是 classic DDIC view、CDS DDIC-based view，还是 CDS view entity？你用什么证据判断？</li>
+<li>如果一个旧报表 <code>SELECT</code> 了 generated SQL view name，迁移到 CDS view entity 时会遇到什么问题？</li>
+<li>为什么 SAP Learning 会说 ABAP Dictionary views 已经过时，而不是继续把它们作为新建数据模型主路径？</li>
+<li>在日本项目设计书里，<code>CDSビュー</code> 这个词为什么可能不够精确？</li>
+<li>如果一个 legacy DDIC view 仍被 SEGW 服务使用，新 RAP 服务应该继续复用它，还是重新建 CDS view entity？为什么？</li>
+<li>这个对象在 AC0567C POC 中能找到对应的 CDS / RAP 替代线索吗？</li>
+</ul>
+<h4 id="37-10-fe8575f7" class="semantic-heading semantic-reference">37.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/exploring-abap-dictionary_af8fdedf-0a10-43ab-aa1b-20abbece9d8b" target="_blank" rel="noopener noreferrer">SAP Learning - Exploring ABAP Dictionary</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENDDIC_VIEWS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Views</a></li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">SAP-samples ABAP SQL Cheat Sheet - Views</a></li>
+<li><a href="https://learning.sap.com/courses/building-odata-services-with-sap-gateway/mapping-cds-views-as-data-source" target="_blank" rel="noopener noreferrer">SAP Learning - Mapping CDS Views as Data Source</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abencds_v1_views.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - CDS DDIC-Based Views (Obsolete)</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abencds_v2_views.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - CDS View Entities</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="37-11-connections-29b19399">37.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-01-036-ddic-structure-824eed18.html">DDIC structure 字典结构</a></li>
+<li>Downstream: <a class="wiki" href="section-01-038-foreign-key-d4b87c24.html">Foreign key 外键关系</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 05 - ABAP Dictionary 核心对象</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="37-12-3a284310" class="semantic-heading semantic-practice">37.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明：classic DDIC view 为什么是 legacy awareness，而不是现代 RAP/Fiori 新开发主路径。</li>
+<li>写出 <code>define view</code>、<code>@AbapCatalog.sqlViewName</code>、<code>define view entity</code> 三者的关系。</li>
+<li>在一个旧系统或样例资料中找一个 view 名称，判断它是 database table、classic DDIC view、CDS DDIC-based view 还是 CDS view entity。</li>
+<li>补 1 句日语 review 表达，要求包含 <code>従来型DDICビュー</code>、<code>CDSビューエンティティ</code>、<code>移行対象</code> 中至少两个词。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，补到本节的参考资料入口或本项目的 <span class="wiki unresolved">SAP Official ABAP Sources</span>。</li>
+<li>如果进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span>：现有 POC 是否使用 CDS view entity，而不是 DDIC view？</li>
+</ul>
+<h4 id="37-13-confidence-next-action-8a7b6ced" class="semantic-heading semantic-status">37.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for direction, Medium-High for project wording。已结合 SAP Learning、ABAP Keyword Documentation、SAP-samples cheat sheets 和 Joule SAP review；但具体 SAP Note / ATC 检查结果仍应以目标系统和客户版本为准。</li>
+<li>Next action: 已同步到 Chapter 01 与离线书稿，并已通过 2026-06-18 Claude file-based review；后续如项目要求，可结合 SAP Note / ATC 结果补充具体 SQL view name 迁移清单。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-037-ddic-view-5437a298.html">DDIC view 传统视图</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-036-ddic-structure-824eed18.html">Previous section</a><a href="section-01-038-foreign-key-d4b87c24.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

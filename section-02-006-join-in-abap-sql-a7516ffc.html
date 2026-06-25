@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>JOIN in ABAP SQL | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="6-join-in-abap-sql-d64f17be" class="chapter-title">6. JOIN in ABAP SQL</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 06</li><li>self-contained study note</li></ul><h4 id="6-1-26e780dd" class="semantic-heading semantic-concept">6.1 一句话结论</h4>
+<p>JOIN 是 ABAP SQL 里把多个数据源按关系组合成一个结果集的机制。它的价值不是“写得更高级”，而是避免在 ABAP 应用层循环里手工拼表，让数据库按明确的 <code>ON</code> 条件完成关联读取。但 JOIN 也不是魔法：它会受数据模型 cardinality、外连接 null、权限边界、client handling、性能和 Clean Core 访问规则影响。</p>
+<h4 id="6-2-9d648b34" class="semantic-heading semantic-concept">6.2 到底学什么</h4>
+<p>在业务代码里，很少只读一张表。订单列表可能要带客户名称，明细行可能要带物料描述，库存数据可能要带工厂信息。初学者最容易写出这种模式：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id
+       WHERE created_at &gt;= @lv_from_date
+       INTO TABLE @DATA(lt_orders).
+
+LOOP AT lt_orders INTO DATA(ls_order).
+  SELECT SINGLE FROM zcustomer
+         FIELDS customer_name
+         WHERE customer_id = @ls_order-customer_id
+         INTO @DATA(lv_customer_name).
+ENDLOOP.</code></pre>
+<p>这就是典型的应用层手工拼表：先读订单，再循环订单逐条读客户。数据少时能跑，数据多时就变成 N+1 查询、性能差、错误路径分散、逻辑难 review。</p>
+<p>JOIN 的基本写法是把关系放进一条 ABAP SQL：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       INNER JOIN zcustomer AS cu
+          ON cu~customer_id = so~customer_id
+       FIELDS so~sales_order_id,
+              so~customer_id,
+              cu~customer_name,
+              so~created_at
+       WHERE so~created_at &gt;= @lv_from_date
+       ORDER BY so~created_at DESCENDING,
+                so~sales_order_id DESCENDING
+       INTO TABLE @DATA(lt_order_list).</code></pre>
+<p>这里 <code>AS so</code>、<code>AS cu</code> 是 alias；<code>so~customer_id</code>、<code>cu~customer_id</code> 用 column selector <code>~</code> 指定字段来自哪个数据源；<code>ON</code> 是 join condition，说明订单和客户如何匹配。读懂 JOIN，就是读懂这三个问题：从哪些数据源来、按什么条件匹配、匹配后的行数是否符合业务预期。</p>
+<h4 id="6-3-5404c50b" class="semantic-heading semantic-why">6.3 为什么重要</h4>
+<p>JOIN 重要，是因为 SAP 业务数据天然是关系型的。销售订单头、订单行、客户、物料、状态、配置、文本、组织结构，很少孤立存在。如果每次都在 ABAP 内表里循环查另一张表，代码会逐步变成“数据库只负责搬数据，业务关系全靠应用层拼”的样子。</p>
+<p>它的第一层价值是性能和可读性。数据库擅长按条件连接数据源；一条清楚的 JOIN 往往比循环中多次 <code>SELECT SINGLE</code> 更容易优化，也更容易让 reviewer 看出业务关系。</p>
+<p>第二层价值是减少隐藏 bug。手工拼表时，很容易忘记处理找不到右侧记录、重复匹配、多语言文本、有效期、组织范围、client 边界和权限边界。JOIN 把这些关系集中在 <code>FROM ... JOIN ... ON ...</code> 和 <code>WHERE</code> 附近，让问题更容易被发现。</p>
+<p>第三层价值是为 CDS/RAP 做准备。现代 SAP 项目中，很多关联关系会进入 CDS view entity、CDS association 或 RAP BO 模型。学习 ABAP SQL JOIN，不是为了永远直接 join 底表，而是为了看懂数据模型如何把业务关系表达成可查询的结构。</p>
+<h4 id="6-4-key-mechanism-a68122f0" class="semantic-heading semantic-mechanism">6.4 Key mechanism / 核心机制</h4>
+<h5 id="6-4-1-inner-join-5722bc93">6.4.1 Inner join：只保留匹配组合</h5>
+<p><code>INNER JOIN</code> 只保留两边都匹配的行：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       INNER JOIN zcustomer AS cu
+          ON cu~customer_id = so~customer_id
+       FIELDS so~sales_order_id,
+              cu~customer_name
+       WHERE so~status = @lc_status_open
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>如果某张订单的 <code>customer_id</code> 在 <code>zcustomer</code> 里找不到，这张订单不会出现在结果里。这个行为适合“没有右侧主数据就不应显示”的场景；但如果业务要显示订单并标记客户缺失，就不应该用 inner join。</p>
+<h5 id="6-4-2-left-outer-join-7854c85d">6.4.2 Left outer join：保留左侧行</h5>
+<p><code>LEFT OUTER JOIN</code> 会保留左侧数据源中的行，即使右侧没有匹配：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       LEFT OUTER JOIN zdelivery AS dlv
+          ON dlv~sales_order_id = so~sales_order_id
+       FIELDS so~sales_order_id,
+              so~status,
+              dlv~delivery_id
+       WHERE so~customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_order_delivery).</code></pre>
+<p>如果订单还没有交货单，左侧订单仍然会出现，右侧交货字段来自数据库 null。ABAP 目标字段接收 null 时要小心：有些场景会转成类型初始值，有些场景应使用 null indicator 或 <code>coalesce( )</code> 明确处理。教学阶段先记住一句：outer join 会制造“右侧不存在”的业务路径，不能把初始值直接当成真实业务值。</p>
+<h5 id="6-4-3-on-where-40d741cb">6.4.3 <code>ON</code> 和 <code>WHERE</code> 的边界</h5>
+<p><code>ON</code> 说明两边如何匹配；<code>WHERE</code> 说明最终结果集要过滤哪些行。inner join 场景下，两者的误用通常只是可读性和优化问题；left outer join 场景下，过滤右侧字段尤其危险：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       LEFT OUTER JOIN zdelivery AS dlv
+          ON dlv~sales_order_id = so~sales_order_id
+       FIELDS so~sales_order_id,
+              dlv~delivery_id
+       WHERE dlv~delivery_status = @lc_status_open
+       INTO TABLE @DATA(lt_rows).</code></pre>
+<p>这段代码在 <code>WHERE</code> 里要求右侧交货状态等于 open。右侧没有交货单的订单，本来 left outer join 会保留；但 <code>WHERE</code> 条件会把它们过滤掉。结果看起来就像 inner join。更稳的做法是先问清楚业务：是只要 open 交货单的订单，还是要所有订单并附带 open 交货信息？不同答案决定条件放在 <code>ON</code>、<code>WHERE</code>，还是拆成更清楚的数据模型。</p>
+<h5 id="6-4-4-cardinality-join-9ff55775">6.4.4 Cardinality：JOIN 会放大行数</h5>
+<p>JOIN 不是把两张表“横向粘在一起”这么简单。它会为所有满足 <code>ON</code> 条件的组合生成行。如果一个订单有 3 个联系人、一条物料有 5 条文本、一个业务对象有多条状态历史，JOIN 结果就会被放大。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       INNER JOIN zcustomer_contact AS cc
+          ON cc~customer_id = so~customer_id
+       FIELDS so~sales_order_id,
+              cc~contact_person
+       WHERE so~sales_order_id = @lv_sales_order_id
+       INTO TABLE @DATA(lt_contacts).</code></pre>
+<p>如果客户有多名联系人，一张订单会出现多行。这不是 JOIN 错了，而是数据模型告诉你“订单到联系人不是 1:1”。项目 review 要问 <code>多重度は1対1ですか、1対多ですか</code>。如果后续逻辑只想要一个联系人，就必须说明优先级、有效期、角色或排序规则。</p>
+<h5 id="6-4-5-alias-6161ea08">6.4.5 Alias 和字段前缀</h5>
+<p>多数据源 JOIN 很容易出现同名字段，例如 <code>customer_id</code>、<code>created_at</code>、<code>status</code>。使用 alias 和 <code>~</code> 是可读性基础：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       INNER JOIN zcustomer AS cu
+          ON cu~customer_id = so~customer_id
+       FIELDS so~sales_order_id AS order_id,
+              cu~customer_id    AS customer_id,
+              cu~customer_name  AS customer_name
+       INTO TABLE @DATA(lt_result).</code></pre>
+<p>不要让读者猜字段来自哪张表。尤其是 join 三张以上数据源时，alias 命名和 <code>FIELDS</code> 列表就是代码的说明书。</p>
+<h5 id="6-4-6-join-clean-core-819e1d79">6.4.6 JOIN 不是权限和 Clean Core 许可</h5>
+<p>能 join 两张表，不代表业务上允许直接读它们。直接 join SAP 标准底表，可能绕过 CDS DCL、released API、RAP authorization 或 Clean Core 限制。ABAP Cloud / S/4HANA Cloud 项目尤其要先确认 released CDS view、released API、RAP BO 或项目自有持久化对象。</p>
+<p>如果业务关系已经由 CDS view entity 或 CDS association 建模，应用代码往往应该优先使用那个 released data model，而不是在 ABAP SQL 中重复拼底表。学习 JOIN 是为了理解关系，不是鼓励所有场景都直接 join table。</p>
+<h4 id="6-5-d8161266" class="semantic-heading semantic-japan">6.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>JOIN</code></li>
+<li><code>内部結合</code></li>
+<li><code>外部結合</code></li>
+<li><code>左外部結合</code></li>
+<li><code>結合条件</code></li>
+<li><code>ON条件</code></li>
+<li><code>別名</code></li>
+<li><code>カラム指定</code></li>
+<li><code>多重度</code></li>
+<li><code>1対1</code></li>
+<li><code>1対多</code></li>
+<li><code>レコード増幅</code></li>
+<li><code>NULL値</code></li>
+<li><code>N+1問題</code></li>
+<li><code>アプリ側結合</code></li>
+<li><code>CDSアソシエーション</code></li>
+<li><code>直テーブルアクセス</code></li>
+<li><code>権限チェック</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>ループ内で <code>SELECT SINGLE</code> を繰り返すのではなく、JOIN で一括取得できるか確認します。</li>
+<li>この JOIN の <code>ON条件</code> は、業務上のキー関係を正しく表していますか。</li>
+<li>左外部結合の右側項目を <code>WHERE条件</code> に入れると、外部結合の意味が失われる可能性があります。</li>
+<li>この結合は 1対1 ですか、1対多ですか。レコード件数が増える前提で後続処理を確認してください。</li>
+<li>SAP標準テーブルを直接 JOIN してよいか、Released API / CDS View / RAP BO の有無を確認します。</li>
+</ul>
+<p>日本项目里，“N+1問題” 和 “アプリ側結合” 很好用。前者说明性能风险，后者说明把数据库擅长的关联计算搬到了 ABAP 循环里。</p>
+<h4 id="6-6-english-terms-da8dbe82" class="semantic-heading semantic-terms">6.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP SQL join</code></li>
+<li>Related term: <code>INNER JOIN</code></li>
+<li>Related term: <code>LEFT OUTER JOIN</code></li>
+<li>Related term: <code>RIGHT OUTER JOIN</code></li>
+<li>Related term: <code>CROSS JOIN</code></li>
+<li>Related term: <code>join condition</code></li>
+<li>Related term: <code>ON condition</code></li>
+<li>Related term: <code>alias</code></li>
+<li>Related term: <code>column selector ~</code></li>
+<li>Related term: <code>cardinality</code></li>
+<li>Related term: <code>null value</code></li>
+<li>Related term: <code>coalesce</code></li>
+<li>Related term: <code>CDS association</code></li>
+<li>Related term: <code>path expression</code></li>
+<li>Related term: <code>FOR ALL ENTRIES</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL JOIN SAP Help</code></li>
+<li><code>ABAP SQL INNER JOIN LEFT OUTER JOIN</code></li>
+<li><code>ABAP SQL join condition ON</code></li>
+<li><code>ABAP SQL outer join null coalesce</code></li>
+<li><code>ABAP SQL path expression CDS association join</code></li>
+</ul>
+<h4 id="6-7-example-93068947" class="semantic-heading semantic-example">6.7 Example / 学习例子</h4>
+<h5 id="6-7-1-1-3e090b23">6.7.1 例 1：订单带客户名称</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       INNER JOIN zcustomer AS cu
+          ON cu~customer_id = so~customer_id
+       FIELDS so~sales_order_id,
+              so~customer_id,
+              cu~customer_name,
+              so~created_at
+       WHERE so~status = @lc_status_open
+       ORDER BY so~created_at DESCENDING,
+                so~sales_order_id DESCENDING
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>读这段代码时，先看 <code>ON cu~customer_id = so~customer_id</code> 是否表达了业务关系，再看 <code>WHERE so~status = ...</code> 是过滤订单状态而不是客户状态。最后仍然要看 <code>ORDER BY</code>，JOIN 不会自动给结果稳定顺序。</p>
+<h5 id="6-7-2-2-28990545">6.7.2 例 2：订单可选交货单</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       LEFT OUTER JOIN zdelivery AS dlv
+          ON dlv~sales_order_id = so~sales_order_id
+       FIELDS so~sales_order_id,
+              so~status,
+              coalesce( dlv~delivery_id, &#x27;&#x27; ) AS delivery_id
+       WHERE so~customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_rows).</code></pre>
+<p>这里用 <code>LEFT OUTER JOIN</code>，是因为没有交货单的订单也要显示。<code>coalesce( )</code> 把右侧缺失时的 null 变成明确的默认值，避免后续把“无交货单”和“交货单号初始值”混成一件事。</p>
+<h5 id="6-7-3-3-join-2eec739f">6.7.3 例 3：JOIN 结果行数变多</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       INNER JOIN zsales_order_item AS item
+          ON item~sales_order_id = so~sales_order_id
+       FIELDS so~sales_order_id,
+              item~item_no,
+              item~material_id
+       WHERE so~sales_order_id = @lv_sales_order_id
+       INTO TABLE @DATA(lt_items).</code></pre>
+<p>一张订单有多行 item，因此结果多行是正常的。不要在后续逻辑里假设 <code>sales_order_id</code> 唯一；真正唯一的是订单号加行号。</p>
+<h4 id="6-8-counterexample-failure-mode-77361fee" class="semantic-heading semantic-example">6.8 Counterexample / Failure mode</h4>
+<p>失败模式一：循环里 SELECT。</p>
+<pre><code class="language-abap">LOOP AT lt_orders INTO DATA(ls_order).
+  SELECT SINGLE FROM zcustomer
+         FIELDS customer_name
+         WHERE customer_id = @ls_order-customer_id
+         INTO @DATA(lv_customer_name).
+ENDLOOP.</code></pre>
+<p>如果这只是为了给订单列表补客户名称，通常应该考虑 JOIN 或 CDS 模型，而不是每行打一次数据库。</p>
+<p>失败模式二：left outer join 被 WHERE 条件改坏。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       LEFT OUTER JOIN zdelivery AS dlv
+          ON dlv~sales_order_id = so~sales_order_id
+       FIELDS so~sales_order_id,
+              dlv~delivery_id
+       WHERE dlv~delivery_status = @lc_status_open
+       INTO TABLE @DATA(lt_rows).</code></pre>
+<p>右侧没有交货单的订单会被 <code>WHERE</code> 过滤掉。review 时要确认这是有意的，还是应该把条件放入 <code>ON</code>，或者拆成更明确的查询。</p>
+<p>失败模式三：忘记 cardinality。订单 join 行项目、客户 join 联系人、物料 join 文本，都可能从一行变多行。如果后续只取第一行，就是把数据模型问题藏起来。</p>
+<p>失败模式四：直接 join 标准底表。传统 on-premise 项目里可能常见，但 ABAP Cloud、S/4HANA Cloud、Clean Core、升级稳定性和权限语境下都要先问 released API / CDS view / RAP BO 是否存在。</p>
+<p>失败模式五：以为 JOIN 自动处理权限。JOIN 只是数据读取方式；权限仍然要看 CDS DCL、RAP authorization、<code>AUTHORITY-CHECK</code>、服务层和应用逻辑。直接 table join 不会自动继承某个 CDS view 的 DCL 语义。</p>
+<h4 id="6-9-bcb23b4a" class="semantic-heading semantic-practice">6.9 思考问题</h4>
+<ul>
+<li>这次 JOIN 的左侧和右侧数据源分别是什么？为什么这样放？</li>
+<li><code>ON</code> 条件是否表达真实业务关系，还是只是字段名相同？</li>
+<li>这个关系是 1:1、1:n，还是 n:m？结果行数会不会放大？</li>
+<li>用 inner join 时，右侧缺失的数据是否应该被丢弃？</li>
+<li>用 left outer join 时，右侧字段为 null/initial 的业务含义是什么？</li>
+<li>右侧过滤条件应该放在 <code>ON</code> 还是 <code>WHERE</code>？</li>
+<li>是否存在循环中 <code>SELECT SINGLE</code> 的 N+1 代码可以改成 JOIN、CDS association 或更好的数据模型？</li>
+<li>是否直接访问了 SAP 标准底表？有没有 released API、released CDS view 或 RAP BO？</li>
+<li>权限检查在哪里发生？是否误以为 JOIN 自动处理权限？</li>
+<li>JOIN 后是否仍然需要 <code>ORDER BY</code> 才能保证结果顺序？</li>
+</ul>
+<h4 id="6-10-da75c373" class="semantic-heading semantic-reference">6.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSELECT_JOIN.html" target="_blank" rel="noopener noreferrer">SELECT, FROM JOIN</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENJOINS_ABEXA.html" target="_blank" rel="noopener noreferrer">SELECT, Inner, Outer, and Cross Joins</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_CLIENT_HANDLING.html" target="_blank" rel="noopener noreferrer">ABAP SQL - Client Handling</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_PATH.html" target="_blank" rel="noopener noreferrer">SQL Path Expressions</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENWHERE_ALL_ENTRIES.html" target="_blank" rel="noopener noreferrer">SELECT, FOR ALL ENTRIES</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/15_CDS_View_Entities.md" target="_blank" rel="noopener noreferrer">CDS View Entities Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="6-11-connections-84e880f9">6.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a></li>
+<li>Upstream: <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></li>
+<li>Downstream: <a class="wiki" href="section-02-007-aggregate-functions-c767e82c.html">Aggregate functions 聚合函数</a></li>
+<li>Related: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Related concept: CDS association</li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 09 - ABAP SQL 写入、聚合与事务</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="6-12-3431a106" class="semantic-heading semantic-practice">6.12 学习任务</h4>
+<ul>
+<li>找一段循环中 <code>SELECT SINGLE</code> 的代码，判断它是否可以改成 JOIN 或 CDS 关系。</li>
+<li>写一个 inner join 例子，标出左侧数据源、右侧数据源、alias、<code>ON</code> 条件和 <code>FIELDS</code> 来源。</li>
+<li>写一句日语 review 说明：<code>このJOINの多重度は1対多なので、結果件数が増える前提で後続処理を確認します。</code></li>
+<li>找一个 left outer join，说明右侧不存在时业务上应该如何显示。</li>
+<li>检查一个 JOIN 是否直接访问 SAP 标准底表；如果是，尝试寻找 released CDS view、released API 或 RAP BO。</li>
+</ul>
+<h4 id="6-13-confidence-next-action-76285fbf" class="semantic-heading semantic-status">6.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 复核 <code>SELECT, FROM JOIN</code>、inner/outer/cross join 示例、column selector <code>~</code>、outer join null、<code>coalesce( )</code>、client handling、SQL path expressions 与 CDS view entity / association 背景；正文已覆盖 N+1、<code>ON</code>/<code>WHERE</code> 边界、cardinality 放大、outer join null、权限和 Clean Core / released API 边界。旧 Joule ultra-short prompt 返回通用错误，旧 Claude 输出为 session expired；2026-06-18 已创建新的 Claude follow-up prompt，但当前 Claude health check 在 180 秒内未返回，因此本轮按官方资料闭环并保留外部模型复核债务。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-007-aggregate-functions-c767e82c.html">Aggregate functions 聚合函数</a>，继续检查多行结果如何被分组、计数、求和，以及 <code>GROUP BY</code> / <code>HAVING</code> 与普通明细读取的边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-005-order-by-bff6433a.html">Previous section</a><a href="section-02-007-aggregate-functions-c767e82c.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

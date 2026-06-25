@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP instance authorization 实例授权 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="5-rap-instance-authorization-9d67038e" class="chapter-title">5. RAP instance authorization 实例授权</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 05</li><li>self-contained study note</li></ul><h4 id="5-1-a411fcaa" class="semantic-heading semantic-concept">5.1 一句话结论</h4>
+<p>RAP instance authorization 是 RAP behavior 层的“对象实例级授权”：它回答的是“当前用户是否允许对这一条具体业务对象实例执行某个操作”，例如某张单据、某个上传批次、某条申请、某个状态下的对象是否允许当前用户 update、delete、approve 或 cancel。</p>
+<p>它和 <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a> 的差异在于：global authorization 先判断用户是否总体具备某类操作资格；instance authorization 再结合具体实例的数据、状态、组织维度、责任人、锁定/生命周期等条件判断是否允许。一个用户可以总体拥有 approve 权限，但只能 approve 自己组织内、状态为 submitted、且尚未被其他人处理的单据。</p>
+<h4 id="5-2-cc66acf4" class="semantic-heading semantic-concept">5.2 到底学什么</h4>
+<p>本节学习 instance authorization 的设计判断，而不是背某个固定代码模板。</p>
+<p>第一，instance authorization 依赖具体实例。它通常需要读取当前业务对象实例的字段，例如 company code、plant、status、created by、responsible user、approval group、lock status 或业务阶段。没有实例数据，就无法判断“这一个对象是否允许当前用户操作”。</p>
+<p>第二，它控制的是行为许可，不是列表读取本身。读取列表时的行级可见性更常见于 <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>；instance authorization 更关注用户已经定位到某个对象后，是否允许对它执行更新、删除、action 或某些实例级行为。</p>
+<p>第三，它不是普通 <a class="wiki" href="section-03-029-validation-44a4b013.html">validation</a>。validation 关心数据是否业务有效，例如金额是否为空、日期是否合理、状态流转是否合法；instance authorization 关心当前用户是否有资格对这个实例做这件事。两者经常一起出现，但错误原因、测试用户和修复团队不同。</p>
+<p>第四，它需要和 feature control 区分。feature control 可以影响 UI 上按钮/字段是否可用，也可以表达某个实例当前是否处于可操作状态；但它不是用户授权边界。API 直接调用 action 时，后端 instance authorization 仍必须成立，不能用“按钮已经隐藏”来证明安全。</p>
+<p>第五，它需要和 <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a>、<a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a>、<a class="wiki" href="section-03-029-validation-44a4b013.html">validation</a> 分工。precheck 可以早期拒绝明显非法请求；locking 防止并发处理同一对象；validation 判断业务状态和输入是否有效；instance authorization 判断“这个用户对这个实例有没有资格”。这些机制经常在同一个 action 里连续出现，但错误分类、测试证据和修复 owner 不同。</p>
+<p>第六，它要考虑批量语义。RAP/EML/OData action 可能一次处理多条实例。instance authorization 不能只按“整个请求是否有权限”回答，还要能说明每一条实例是否允许、失败原因是什么、是否允许部分成功，以及这种部分成功是否符合事务边界和业务规则。</p>
+<h4 id="5-3-19e59331" class="semantic-heading semantic-why">5.3 为什么重要</h4>
+<p>很多真实 SAP 授权问题不是“用户有没有某个菜单权限”，而是“用户对这条业务数据有没有操作资格”。例如：采购申请只能由当前审批人批准；销售订单只能由所属销售组织维护；上传批次只能由创建人取消；已完成状态的单据任何人都不能再修改；跨公司代码的数据即使在列表中可见，也不能由非负责公司用户执行 release。</p>
+<p>如果只做 global authorization，这些差异会被抹平：有权限的人能操作所有实例，无权限的人一个也不能操作。实际项目往往不是这么简单。instance authorization 让 RAP business object 在行为层表达这种细粒度规则，使 UI、API、测试和错误反馈都围绕同一套业务对象逻辑。</p>
+<p>从 Java/Python 背景看，可以把它类比成 domain object / aggregate 上的 per-record policy check。但 RAP 的差异在于：这个判断发生在 behavior 模型里，和 EML、OData action、failed/reported 消息、save sequence、draft/active 状态、feature control 和 transaction behavior 紧密相关。</p>
+<p>instance authorization 的沟通价值偏“细节证据”。测试人员经常会问：“为什么同一个用户能取消 A 批次，不能取消 B 批次？”“为什么同一张列表里有些行按钮可用，有些不可用？”“API 一次传 10 条，为什么 6 条成功 4 条失败？”这些问题如果没有实例级授权矩阵，就会被误判成角色配置不稳定或系统随机失败。</p>
+<h4 id="5-4-key-mechanism-45f57026" class="semantic-heading semantic-mechanism">5.4 Key mechanism / 核心机制</h4>
+<p>可以用一张判断表理解 global 和 instance 的分工：</p>
+<pre><code class="language-text">Operation: approve purchase request
+
+Global authorization:
+  Does this user generally have approval authority?
+
+Instance authorization:
+  Is this purchase request in a state that can be approved?
+  Does it belong to the user&#x27;s company code / plant / approval group?
+  Is the current user the responsible approver or a delegated approver?
+  Has it already been approved, cancelled, locked, or completed?</code></pre>
+<p>instance authorization 的典型设计步骤如下：</p>
+<ol>
+<li>明确哪些 operation/action 需要实例级判断。</li>
+<li>找出判断所需的实例字段：状态、组织、责任人、创建人、金额、对象类型、生命周期阶段等。</li>
+<li>在 RAP 授权入口或相关行为实现中读取必要实例数据。</li>
+<li>对不允许的实例返回可理解的 failed/reported 信息，而不是静默跳过。</li>
+<li>验证批量场景：同一次请求里部分实例允许、部分实例拒绝时，响应是否清楚。</li>
+<li>记录测试矩阵：用户、实例状态、组织字段、预期结果、实际结果、错误消息。</li>
+</ol>
+<p>读代码时，可以先找这些实现钩子：</p>
+<div class="table-wrap"><table><thead><tr><th>位置</th><th>读者要找什么</th><th>交付含义</th></tr></thead><tbody><tr><td>Behavior definition</td><td><code>authorization master ( instance )</code> 或 <code>authorization master ( global, instance )</code></td><td>说明这个实体需要实例级授权；只做 global 不等于有实例级保护</td></tr><tr><td>Operation scope</td><td>update、delete、instance action、create-by-association</td><td>普通 create 和 static action 没有既有实例，不适合按普通 instance authorization 思路处理</td></tr><tr><td>Handler entry</td><td><code>GET INSTANCE AUTHORIZATIONS</code></td><td>这是按实例 key 判断授权的入口</td></tr><tr><td>State read</td><td><code>READ ENTITIES ... IN LOCAL MODE</code></td><td>在授权 handler 内部读取实例字段，避免为“判断权限所需的数据”再次触发递归授权</td></tr><tr><td>Authorization value</td><td><code>AUTHORITY-CHECK</code> 使用 company code、plant、owner、status 等具体实例值</td><td>和 global authorization 中常见的 instance-agnostic / <code>DUMMY</code> 检查不同</td></tr><tr><td>Result assignment</td><td><code>%tky</code>、<code>result</code>、<code>failed</code>、<code>reported</code>、<code>auth-allowed</code>、<code>auth-unauthorized</code></td><td>每个实例都要有明确结果；失败实例要有可测试、不过度泄露的消息</td></tr><tr><td>Security default</td><td>默认按 unauthorized 处理，只有检查通过才允许</td><td>fail-open 是严重安全缺陷</td></tr><tr><td>Child BO</td><td><code>authorization dependent by _ParentEntity</code> 等父子授权依赖</td><td>composition 子实体不能因为漏声明而绕过父对象授权策略</td></tr></tbody></table></div>
+<p>这里不要求初学者马上写完整模板代码，但要知道这些词在 ADT 和 SAP Help 中意味着什么。instance authorization 的 review 不是只看“有没有写 AUTHORITY-CHECK”，而是看它是否拿到了正确实例字段、是否按实例返回结果、是否默认安全失败、是否覆盖 OData/EML/批量调用。</p>
+<p>特别要注意批量请求。RAP/OData/EML 常常不是一次只处理一条数据。instance authorization 必须能说明多条实例混合时的行为：哪些实例成功、哪些失败、失败原因是什么、是否会产生部分成功、是否符合业务和事务边界设计。</p>
+<p>还要区分普通外部入口和内部 EML。一般 UI/OData/EML 调用应经过 RAP 授权控制；但在授权 handler 内部，为了读取“用于判断权限的实例状态”，常会看到 <code>READ ENTITIES ... IN LOCAL MODE</code>。这是避免递归授权检查的内部实现模式，不是给外部调用方绕过授权的通道。任何在 authorization、validation、determination 等框架指定内部位置之外使用 <code>IN LOCAL MODE</code> 或 <code>PRIVILEGED</code> 的生产代码，都需要安全理由和 review 证据。</p>
+<p>可以用下面的矩阵设计实例级规则：</p>
+<div class="table-wrap"><table><thead><tr><th>维度</th><th>示例字段</th><th>典型判断</th><th>不应混淆为</th></tr></thead><tbody><tr><td>组织范围</td><td>company code, plant, sales org</td><td>用户是否负责该组织的数据</td><td>只看 global action 权限</td></tr><tr><td>责任人</td><td>created by, approver, owner</td><td>当前用户是否是创建人/审批人/代理人</td><td>UI 按钮控制</td></tr><tr><td>状态</td><td>draft, submitted, executed, posted, cancelled</td><td>当前状态是否允许此用户执行 action</td><td>输入 validation 的全部</td></tr><tr><td>金额/风险等级</td><td>amount, risk level</td><td>超过阈值时需要更高角色或审批组</td><td>普通字段校验</td></tr><tr><td>对象类型</td><td>internal/external, standard/custom</td><td>不同对象类型有不同授权路径</td><td>单一 role 名称</td></tr></tbody></table></div>
+<p>一个实用的设计排查顺序是：</p>
+<pre><code class="language-text">1. global authorization:
+   user may generally call this operation?
+
+2. locking / latest-state check:
+   instance is locked and current enough for modify processing?
+
+3. instance authorization:
+   user may operate these specific instances?
+
+4. precheck:
+   request shape and cheap conditions are valid?
+
+5. validation / save sequence:
+   business data can be persisted consistently?</code></pre>
+<p>实际运行顺序由 RAP 框架和具体实现方式决定，项目中要以目标系统文档为准；但设计评审时至少要能解释这几层的责任。global authorization 是第一道总体 gate；global 通过后，instance authorization 才有机会按具体实例判断。若 instance authorization 拒绝某个实例，其他允许实例仍可能继续处理，具体是否 partial success 或 all-or-nothing 要由业务事务设计和 RAP 响应结构说明。</p>
+<h4 id="5-5-a88dbd55" class="semantic-heading semantic-japan">5.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>インスタンス権限</code>、<code>伝票単位の権限</code>、<code>オブジェクト単位の権限</code>、<code>担当者チェック</code>、<code>ステータスチェック</code>、<code>承認権限</code>、<code>組織別権限</code>。</li>
+<li>设计说明：操作自体の可否は global authorization で判定し、対象伝票の会社コード・ステータス・担当者条件は instance authorization で判定します。</li>
+<li>Review 说法：同じ action でも、対象インスタンスの状態や担当者によって許可・拒否が分かれるケースをテストしてください。</li>
+<li>测试说法：同一ユーザで、承認可能な伝票と承認不可の伝票を同時に API で呼び出し、成功・失敗の返却が明確か確認します。</li>
+<li>缺陷调查：全件不可なら global authorization、特定伝票だけ不可なら instance authorization または業務ルールを優先して確認します。</li>
+<li>设计书条目：インスタンス単位の判定項目として、会社コード、ステータス、担当者、金額条件、代理承認者を一覧化します。</li>
+<li>API 说明：複数インスタンスを一括処理する場合、許可された明細と拒否された明細の返却仕様を明確にします。</li>
+<li>边界说明：ボタンの活性制御は UX 上の補助であり、API 直接呼び出し時の後端権限制御を省略できる根拠にはなりません。</li>
+<li>证据要求：STAUTHTRACE、SU53、OData エラーログ、アプリケーションログ、テスト結果をそろえて、権限設計書とテスト仕様書に承認記録を残します。</li>
+</ul>
+<h4 id="5-6-english-terms-ec357e3b" class="semantic-heading semantic-terms">5.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP instance authorization</code></li>
+<li>Related terms: <code>global authorization</code>, <code>authorization for instances</code>, <code>GET INSTANCE AUTHORIZATIONS</code>, <code>READ ENTITIES IN LOCAL MODE</code>, <code>authorization dependent by</code>, <code>RAP behavior</code>, <code>business object</code>, <code>action</code>, <code>feature control</code>, <code>failed</code>, <code>reported</code>, <code>EML</code>, <code>partial failure</code>, <code>operation authorization matrix</code>, <code>STAUTHTRACE</code>, <code>/IWFND/ERROR_LOG</code></li>
+<li>Recommended search pattern: <code>RAP instance authorization SAP ABAP behavior implementation</code></li>
+<li>注意：具体 BDEF 语法、handler 方法名、返回结构和 action/operation 标识应以当前系统版本的 SAP Help、SAP Learning 和 ADT 模板为准。</li>
+</ul>
+<h4 id="5-7-example-43d2078e" class="semantic-heading semantic-example">5.7 Example / 学习例子</h4>
+<p>假设 AC0567C 类似的上传服务有一个 <code>cancel</code> action。业务规则如下：</p>
+<ul>
+<li>创建人可以取消自己的上传批次。</li>
+<li>管理员可以取消任何未执行批次。</li>
+<li>批次状态为 <code>EXECUTED</code> 或 <code>POSTED</code> 后不能取消。</li>
+<li>其他用户即使能看到批次，也不能取消。</li>
+</ul>
+<p>这里 global authorization 只回答“用户是否总体允许执行 cancel action”。instance authorization 还要读取每个上传批次的创建人、状态和可能的组织字段，逐条判断是否允许。</p>
+<p>测试时不要只测一条成功数据。应准备至少四条实例：自己的 draft 批次、别人的 draft 批次、自己的已执行批次、管理员操作别人的未执行批次。API 响应要能说明哪些被拒绝、为什么拒绝，并且不应因为一条无权限实例导致不该成功的实例被错误处理，除非业务事务设计明确要求 all-or-nothing。证据上要同时看 API response、<code>failed</code> / <code>reported</code> 语义、后台数据是否未误改、STAUTHTRACE / SU53 / <code>/IWFND/ERROR_LOG</code> / application log 是否能解释失败原因。</p>
+<p>可以把测试矩阵写得更具体：</p>
+<div class="table-wrap"><table><thead><tr><th>用户</th><th>实例</th><th>状态</th><th>关系/组织</th><th>action</th><th>预期</th></tr></thead><tbody><tr><td>Creator_A</td><td>Batch A</td><td>DRAFT</td><td>创建人，company code 1000</td><td>cancel</td><td>允许</td></tr><tr><td>Creator_A</td><td>Batch B</td><td>DRAFT</td><td>非创建人，company code 1000</td><td>cancel</td><td>拒绝，非 owner</td></tr><tr><td>Creator_A</td><td>Batch C</td><td>EXECUTED</td><td>创建人，company code 1000</td><td>cancel</td><td>拒绝，状态不允许</td></tr><tr><td>Admin_U</td><td>Batch B</td><td>DRAFT</td><td>管理员，company code 1000</td><td>cancel</td><td>允许</td></tr><tr><td>User_X</td><td>Batch D</td><td>DRAFT</td><td>company code 2000 无授权</td><td>cancel</td><td>拒绝，组织权限不足</td></tr></tbody></table></div>
+<p>在 AC0567C 风格的上传 API 中，<code>execute</code> 也可能需要 instance authorization。比如用户总体允许 execute，但只允许执行自己负责 company code 的 batch；或者只能执行状态为 <code>VALIDATED</code> 的 batch；或者超过金额阈值的 batch 需要管理员角色。这些规则不是 DCL 能完整解决的，因为 DCL 主要控制读取结果；也不是 precheck 能最终保证的，因为状态和责任人可能在请求到达后变化。</p>
+<p>批量请求的响应要设计清楚。若业务允许部分成功，返回中应能看到每个 batch id 的 <code>allowed</code> / <code>rejected</code>、原因和消息；若业务要求 all-or-nothing，也要明确“一条无权限导致整批拒绝”的规则，并说明不会产生部分副作用。无论哪种模式，测试都要验证数据库状态、application log 和 API response 是否一致。</p>
+<h4 id="5-8-counterexample-failure-mode-a4abd7b9" class="semantic-heading semantic-example">5.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十类。</p>
+<p>第一，只做 global authorization。只要用户拥有 action 权限，就能操作所有实例，导致跨组织或跨责任人越权。</p>
+<p>第二，把业务 validation 当成授权。状态不允许操作和用户无权操作是不同错误；混在一起会让测试、审计和用户沟通都变混乱。</p>
+<p>第三，只在 UI 上 disabled 按钮。API 直接调用仍然可能绕过实例级规则。</p>
+<p>第四，批量请求处理不清。多条实例中一部分无权限时，代码要么全部失败但不说明原因，要么静默跳过失败项，造成对账困难。</p>
+<p>第五，实例字段读取过多或过晚。授权判断需要必要字段，但不应为了授权把复杂业务计算提前塞进 handler；也不应在产生副作用后才判断实例权限。</p>
+<p>第六，错误消息泄露过多。无权限时需要可测试、可支持，但不能把其他组织的敏感字段、审批人或内部规则暴露给不应知道的用户。</p>
+<p>第七，只测一个实例。用一条自己有权限的数据测试成功，不能证明 instance authorization 有效；必须准备允许、拒绝、边界状态、跨组织、批量混合等实例。</p>
+<p>第八，把 instance authorization 写成复杂业务计算。授权判断需要必要字段，但不应承担整套定价、库存、会计校验或外部系统检查。复杂业务有效性应回到 <a class="wiki" href="section-03-029-validation-44a4b013.html">validation</a>、determination、<a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">save sequence</a> 或业务 API。</p>
+<p>第九，失败原因没有分层。用户无权、状态不允许、对象被锁、幂等重复、输入错误如果都返回“action failed”，调用方无法修正，也无法判断是不是权限缺陷。</p>
+<p>第十，读数据和执行 action 的权限不一致但未说明。用户可能能看到列表，但不能执行 action；这本身可以是正确设计，但必须在说明书和测试预期里写清楚。</p>
+<p>修正动作：为每个敏感 action 建一张 instance authorization matrix，列出实例状态、组织字段、责任人、用户类型、预期允许/拒绝、错误消息、API 响应和日志证据。</p>
+<h4 id="5-9-34c56216" class="semantic-heading semantic-practice">5.9 思考问题</h4>
+<ul>
+<li>这个规则需要看具体实例字段吗？如果需要，它可能是 instance authorization。</li>
+<li>需要哪些字段才能判断：状态、公司代码、工厂、创建人、审批人、金额、对象类型？</li>
+<li>同一个用户对不同实例的结果是否可能不同？</li>
+<li>批量请求里部分实例失败时，响应格式是否能解释清楚？</li>
+<li>错误消息是否区分“无权限”和“状态不允许”？</li>
+<li>如果用户能看到实例但不能执行 action，这是否是预期设计？</li>
+<li>同一批请求中允许和拒绝实例混合时，事务边界如何定义？</li>
+<li>AC0567C POC 中哪些 action 需要按批次实例状态或创建人判断？</li>
+</ul>
+<h4 id="5-10-d6b4b160" class="semantic-heading semantic-reference">5.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-control" target="_blank" rel="noopener noreferrer">SAP Help - RAP Authorization Control</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-definition" target="_blank" rel="noopener noreferrer">SAP Help - RAP Authorization Definition</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-implementation" target="_blank" rel="noopener noreferrer">SAP Help - RAP Authorization Implementation</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/instance-feature-control" target="_blank" rel="noopener noreferrer">SAP Help - RAP Instance Feature Control</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/global-feature-control" target="_blank" rel="noopener noreferrer">SAP Help - RAP Global Feature Control</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">SAP Help - Entity Manipulation Language EML</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPAUTHORITY-CHECK.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - AUTHORITY-CHECK OBJECT</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="5-11-connections-39430092">5.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Downstream: <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 22 - 授权检查与 Precheck</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="5-12-fc203173" class="semantic-heading semantic-practice">5.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明“操作级授权”和“实例级授权”的差异。</li>
+<li>为一个 approve/cancel action 设计 4 条实例测试数据，并写出预期允许/拒绝结果。</li>
+<li>写一句日语 review 评论，要求确认同一用户对不同实例的授权差异。</li>
+<li>设计一个 API 批量请求，包含允许实例和拒绝实例，说明响应应该如何表达。</li>
+<li>在 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中标出哪些批次状态需要 instance authorization 或业务规则保护。</li>
+</ul>
+<h4 id="5-13-confidence-next-action-aa80b2e8" class="semantic-heading semantic-status">5.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the per-instance authorization framing, global-vs-instance split, mixed-instance / partial-failure examples, fail-secure result assignment, and <code>IN LOCAL MODE</code> caveat; Joule 2026-06-17 and Claude 2026-06-17 follow-up both support <code>expanded-review</code>. Medium-High for exact BDEF syntax, handler method signatures, batch-response details, and ABAP Cloud constraints because they remain release-dependent.</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a>，把“是否有权操作实例”和“请求是否应该尽早拒绝”分开理解；后续如 SAP Help 拆出更细的 instance authorization 页面，再替换为更细粒度引用。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-004-rap-global-authorization-16745110.html">Previous section</a><a href="section-04-006-precheck-937e701e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

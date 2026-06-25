@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Classic integration interfaces awareness | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="33-classic-integration-interfaces-awareness-94dbb2ba" class="chapter-title">33. Classic integration interfaces awareness</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 33</li><li>self-contained study note</li></ul><h4 id="33-1-37f96719" class="semantic-heading semantic-concept">33.1 一句话结论</h4>
+<p>Classic integration interfaces awareness 是「棕地 SAP 项目识别能力」中的补充知识点；在本教程里要学的是：能识别 IDoc/ALE、RFC、Function Module、BAPI 等经典接口形态，并知道它们与 RAP/OData、Clean Core 和 released API 的边界。</p>
+<p>这一节的目标不是把 IDoc、RFC、BAPI 都学成开发专家，而是让读者在日本 SAP 项目现场看到“既存IF”“RFC連携”“IDocエラー”“BAPI呼出”“ファイル連携”“PI/PO経由”时，能判断它大概是什么接口形态、该去哪里查证据、事务提交在哪里、失败后如何重试，以及新方案是否应该转向 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a>、RAP/OData 或标准集成能力。</p>
+<p>现代 SAP 项目经常一边说 API、Clean Core、BTP、RAP/OData，一边还要维护十几年前留下的 IDoc、RFC、batch file、PI/PO、外部 job 和 Z function module。读不懂这些接口形态，就很难做接口迁移、RPA-to-API、障害調査、运维交接和上线前 hardening。</p>
+<h4 id="33-2-9d1cf32a" class="semantic-heading semantic-concept">33.2 到底学什么</h4>
+<p>第一，要学接口形态的边界。<code>API</code> 不是一个足够精确的项目说法。OData、REST、IDoc、RFC、BAPI、file interface、batch input、PI/PO/CPI integration、queue-based processing 的错误处理、事务边界、监控工具和运维方式都不同。</p>
+<p>第二，要学调查入口。IDoc 常看 WE02/WE05、status、control/data/status record；tRFC/qRFC 常看 SM58/SMQ1/SMQ2；bgRFC 另有自己的监控和配置入口，例如 SBGRFCMON / SBGRFCCONF；function module 和 BAPI 常看 SE37、参数、异常、commit pattern；OData/RAP 常看 service definition/binding、gateway log、HTTP payload；file interface 常看目录、文件命名、job log、application log；PI/PO/CPI 则要看 middleware message monitor。</p>
+<p>第三，要学事务和重试。接口失败后能不能重试、重试是否幂等、commit 在哪里发生、是否可能重复创建业务数据，是接口交付的核心问题。BAPI 经常和 <a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a> 关联；RAP 有自己的 save sequence 和 transaction model；IDoc 有 status 和 reprocessing；file interface 常依赖 job 与文件归档规则。</p>
+<p>第四，要学迁移判断。新需求不应默认新增 RFC function module，也不应把所有旧接口简单改成 OData。要根据消费方、同步/异步、数据量、事务要求、错误重试、标准 API 可用性、Clean Core 和运维能力选择目标方案。</p>
+<h4 id="33-3-369167f4" class="semantic-heading semantic-why">33.3 为什么重要</h4>
+<p>接口是 SAP 项目最容易低估的风险区。一个接口看似只是“传数据”，实际牵涉业务对象、授权、事务提交、锁、重试、错误日志、消息顺序、外部系统 SLA、运维监控和上线切换。接口设计不清，生产问题会非常难查。</p>
+<p>棕地项目尤其如此。既有系统里可能同时存在：销售订单 IDoc、主数据 BAPI、外部仓库 RFC、银行文件接口、批处理上传、PI/PO message、CPI iFlow、OData service、RAP API。新项目要迁移或替换接口，必须先识别旧接口是什么形态，否则无法估算影响。</p>
+<p>对 Java/Python 背景学习者来说，RFC 像 RPC，IDoc 像有状态的业务消息文档，BAPI 像标准业务函数接口，OData/REST 像 HTTP API，file interface 像批处理数据交换。但 SAP 的差异在于：每种接口都有自己的 SAP 工具入口、事务语义、错误状态和运维习惯。</p>
+<h4 id="33-4-key-mechanism-cc910be3" class="semantic-heading semantic-mechanism">33.4 Key mechanism / 核心机制</h4>
+<p>可以把 classic integration 先按同步/异步和业务语义分类。</p>
+<p>IDoc / ALE 偏向业务消息交换。IDoc 有 control record、data record、status record，适合跨系统传业务文档，例如主数据、订单、发货、发票等。调查时要看 message type、basic type、partner profile、port、status、错误消息和 reprocessing 方式。常见工具入口包括 WE02/WE05，以及与 ALE/partner profile 相关的配置入口。</p>
+<p>RFC / Function Module 偏向远程或本地过程调用。它可能是同步 RFC，也可能出现在 tRFC/qRFC/bgRFC 场景中。调查时要看 SE37 参数、exception、是否 remote-enabled、是否内部 commit、是否可重复调用、是否有 authorization check。tRFC/qRFC 问题还要看 SM58、SMQ1、SMQ2 等队列/事务状态；bgRFC 是后续演进出来的后台 RFC 机制，监控和配置通常要看 SBGRFCMON、SBGRFCCONF 等入口，不应把所有后台 RFC 问题都归到 SM58。</p>
+<p>BAPI 是 SAP 提供的标准业务 API 风格，通常围绕业务对象提供 create/change/get/list 等操作。很多 BAPI 不会自动提交，需要调用 <code>BAPI_TRANSACTION_COMMIT</code> 或 rollback；这和 RAP framework 管理事务的方式不同。BAPI 不是“永远现代”的同义词，仍要确认是否适用于目标系统和 Clean Core 约束。</p>
+<p>File interface / batch interface 常见于银行、仓库、EDI、旧外围系统、夜间批处理。重点不只是文件格式，而是目录权限、文件命名、编码、重复文件、归档、错误文件、job log、重处理和业务 cutoff time。</p>
+<p>PI/PO/CPI 或其他 middleware 负责消息路由、mapping、协议转换和监控。ABAP 侧看到的可能只是 proxy、IDoc、RFC、OData 或 file，但真正错误可能在 middleware message monitor、mapping、certificate、destination 或外部 endpoint。</p>
+<p>现代方案通常优先考虑 SAP 标准 released API、RAP/OData、event、communication scenario、SAP Business Accelerator Hub 上的官方 API 或 SAP Integration Suite 能力。但“现代”不等于自动更好，迁移时仍要确认同步/异步、数据量、事务一致性、重试和消费方能力。</p>
+<p>对初学者来说，最实用的学习方法不是背接口名，而是把接口拆成四个问题：谁调用谁、什么时候提交、失败在哪里留下证据、能不能安全重试。只要这四个问题能回答，接口设计和障害调查就不会停留在“API 不通”这种模糊表达上。</p>
+<div class="table-wrap"><table><thead><tr><th>接口形态</th><th>常见业务语义</th><th>证据入口</th><th>主要风险</th></tr></thead><tbody><tr><td>IDoc / ALE</td><td>跨系统业务消息、主数据或凭证传递</td><td>WE02/WE05、IDoc status、partner profile、message type</td><td>状态误判、重复处理、partner/profile 配置不一致</td></tr><tr><td>RFC / remote-enabled FM</td><td>同步调用、远程过程调用、旧系统点对点连接</td><td>SE37、SM59、SM58、SMQ1/SMQ2、caller log</td><td>调用方只看 return code、内部 commit、授权和 destination 问题</td></tr><tr><td>BAPI</td><td>标准业务对象操作，如 create/change/get</td><td>RETURN table、业务对象状态、application log、commit/rollback evidence</td><td>忘记检查 RETURN、误用 <code>BAPI_TRANSACTION_COMMIT</code>、重复调用</td></tr><tr><td>File interface</td><td>批量交换、银行/仓库/EDI/旧外围系统</td><td>file directory、archive/error folder、job log、application log</td><td>编码、重复文件、部分失败、重跑规则不清</td></tr><tr><td>PI/PO/CPI / Integration Suite</td><td>路由、mapping、协议转换、集中监控</td><td>middleware message monitor、iFlow log、endpoint/certificate evidence</td><td>只查 SAP 侧、不查 middleware；mapping 和通信错误被误判为 ABAP bug</td></tr><tr><td>RAP/OData/Web API</td><td>Fiori UI、外部 HTTP API、现代服务契约</td><td>service binding、HTTP status/payload、gateway/service log、authorization log</td><td>UI service 和 Web API 混用、错误语义不稳定、版本契约不清</td></tr></tbody></table></div>
+<p>上表里的 WE02、WE05、SE37、SM58、SMQ1、SMQ2、SM59 等入口主要属于 SAP GUI / on-premise / Private Edition / ECC 棕地语境。在 SAP S/4HANA Cloud Public Edition 或 ABAP Cloud 语境下，不能假设这些事务码可用；应改用 Fiori monitoring apps、Communication Management、service binding / communication scenario 相关工具，以及 SAP Integration Suite 的监控界面。</p>
+<p>还要再加一张同步/异步判断表。很多接口事故不是因为“技术不会”，而是需求一开始就把同步接口做成了应该异步的场景，或者把需要即时确认的业务做成了不可观察的批处理。</p>
+<div class="table-wrap"><table><thead><tr><th>判断问题</th><th>更偏同步</th><th>更偏异步</th></tr></thead><tbody><tr><td>调用方是否必须马上拿到业务结果</td><td>是，例如实时校验、即时创建后返回编号</td><td>否，只需要最终处理完成</td></tr><tr><td>数据量和处理时间</td><td>小数据、短事务、低等待时间</td><td>大批量、长处理、可排队</td></tr><tr><td>失败后的用户体验</td><td>调用方可立刻修正输入</td><td>需要后续监控、重试、人工处理</td></tr><tr><td>事务边界</td><td>调用期间能清楚控制一次业务提交</td><td>可能跨 job、queue、message 或 middleware</td></tr><tr><td>典型方案</td><td>RAP/OData action、BAPI、同步 RFC</td><td>IDoc、queue、event、file、Integration Suite flow</td></tr></tbody></table></div>
+<p>接口还必须有 transaction / retry / idempotency 视角。尤其在 RPA-to-API 或旧 RFC 替换项目里，不能只问“有没有可调用 API”，还要问“重复请求会发生什么”。</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>事务拥有者</th><th>重试前要确认</th><th>设计提示</th></tr></thead><tbody><tr><td>BAPI create/change</td><td>通常是 caller，按 BAPI 文档和 RETURN 决定 commit/rollback</td><td>是否已经创建对象、RETURN 是否含 error、是否有业务 key</td><td>不把 <code>BAPI_TRANSACTION_COMMIT</code> 写成无条件收尾；先判断错误和重复</td></tr><tr><td>RAP action / save</td><td>RAP framework / behavior implementation 的保存流程</td><td>action 是否幂等、failed/reported 是否清楚、锁是否覆盖对象</td><td>避免在 RAP handler 中调用会自行 commit 的 legacy FM</td></tr><tr><td>IDoc reprocessing</td><td>IDoc processing framework 与业务处理逻辑</td><td>status 原因、业务数据是否已部分过账、是否可重复入账</td><td>重发前先分析 status，不把 reprocessing 当万能修复</td></tr><tr><td>File re-run</td><td>background job / batch owner</td><td>文件是否归档、是否部分成功、是否有 processed marker</td><td>文件名、checksum、batch id、archive/error directory 要可追踪</td></tr><tr><td>Middleware retry</td><td>middleware flow owner + SAP endpoint owner</td><td>SAP 是否已接收、外部系统是否已确认、correlation id 是否一致</td><td>日志要能跨 SAP、middleware、外部系统串起来</td></tr></tbody></table></div>
+<p>接口也不能离开 authorization。外部系统调用 SAP 时，technical user、communication user、RFC user、batch user 或 middleware user 拥有什么权限，常常比画面用户更难追踪。RAP/OData 要检查 service exposure、role、DCL、behavior authorization 和 HTTP 错误语义；RFC/BAPI 要确认 function module 内部或调用前后有没有授权检查；IDoc/file/background job 要确认处理用户是否有业务对象权限、文件/目录权限和日志写入权限。只要接口绕过 UI，UI 按钮隐藏就不能算安全控制。</p>
+<p>这一节和 <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a> 的关系也很直接：classic integration awareness 用来读懂现状，Clean Core 用来决定未来。旧系统里存在 custom RFC 或 file interface 并不奇怪，但新开发时不能把它们当默认答案。特别是在 SAP S/4HANA Cloud、ABAP Cloud 或面向升级的私有云项目中，优先顺序通常应从标准能力、released API、communication scenario、SAP Business Accelerator Hub、RAP/OData、event 和 SAP Integration Suite 开始，再评估是否有必须保留 classic interface 的理由。</p>
+<p>在 Clean Core review 里，可以把接口也按风险层次看待。RAP service binding 暴露的 OData、基于 released API 的集成、官方 communication scenario 和受支持的 event 场景，通常更接近未来方向；SEGW/Gateway、BAPI via RFC、IDoc 和既有 middleware 可能在棕地项目中继续存在，但要说明部署限制、升级影响和监控方式；flat file、direct table access、自定义 RFC、未释放对象 wrapper 和无正式契约的点对点连接，通常要被视为高风险或 retirement candidate。这个分类不是让读者记一个绝对等级，而是训练一个问题：这个接口未来能不能通过升级、云化、审计和运维 review？</p>
+<p>一个可落地的接口调查模板可以这样写：</p>
+<pre><code class="language-text">Interface name:
+Business object / process:
+Current interface type: IDoc / RFC / BAPI / File / OData / Middleware / Other
+Consumer / provider:
+Synchronous or asynchronous:
+Transaction owner:
+Retry rule:
+Idempotency key or duplicate check:
+Monitoring evidence:
+Error owner: SAP / Middleware / External system / Business data
+Clean Core alternative:
+Decision: keep / wrap / replace / retire</code></pre>
+<p>如果团队能把每个重要接口都填成这张表，后续估算、迁移、测试、切换和运维交接会稳定很多。</p>
+<h4 id="33-5-e19745ac" class="semantic-heading semantic-japan">33.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>既存IF</code>、<code>インターフェース調査</code>、<code>RFC連携</code>、<code>汎用モジュール</code>、<code>BAPI呼出</code>、<code>IDoc連携</code>、<code>ファイル連携</code>、<code>非同期連携</code>、<code>同期連携</code>、<code>再処理</code>、<code>リトライ</code>、<code>障害調査</code>、<code>運用監視</code>、<code>切替</code>.</p>
+<p>接口调查中可以这样说：</p>
+<ul>
+<li>まず既存IFの方式がIDoc、RFC/BAPI、ファイル連携、ODataのどれに該当するかを確認します。</li>
+<li>失敗時の再処理手順とトランザクション境界を確認し、二重登録が発生しないかを確認します。</li>
+<li>新規開発ではリリース済みAPIまたは標準連携方式を優先し、既存RFCの継続利用は理由とリスクを整理します。</li>
+</ul>
+<p>障害调查中可以这样问：</p>
+<ul>
+<li>エラーはSAP側、ミドルウェア側、外部システム側のどこで発生していますか。</li>
+<li>IDocステータス、SM58/qRFCキュー、アプリケーションログのどれに証跡がありますか。</li>
+<li>リトライ可能なエラーですか。それともデータ修正が必要ですか。</li>
+</ul>
+<h4 id="33-6-english-terms-e2d17991" class="semantic-heading semantic-terms">33.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>IDoc</code>, <code>ALE</code>, <code>RFC</code>, <code>tRFC</code>, <code>qRFC</code>, <code>bgRFC</code>, <code>Function Module</code>, <code>BAPI</code>, <code>OData</code>, <code>SAP Integration Suite</code>.</li>
+<li>Related terms: <code>partner profile</code>, <code>message type</code>, <code>basic type</code>, <code>status record</code>, <code>SM58</code>, <code>SMQ1</code>, <code>SMQ2</code>, <code>SBGRFCMON</code>, <code>SBGRFCCONF</code>, <code>BAPI_TRANSACTION_COMMIT</code>, <code>Application Log</code>, <code>message monitoring</code>, <code>file interface</code>.</li>
+<li>Recommended search pattern: <code>SAP IDoc ALE status WE02</code>, <code>SAP RFC tRFC qRFC SM58</code>, <code>SAP bgRFC SBGRFCMON SBGRFCCONF</code>, <code>SAP BAPI transaction commit</code>, <code>SAP Integration Suite message monitoring</code>, <code>SAP Clean Core integration levels</code>.</li>
+<li>读官方资料时要特别注意 release 和产品差异：ECC、S/4HANA on-premise、Private Cloud、Public Cloud、ABAP Cloud 对传统接口和自定义 RFC 的限制不同。</li>
+</ul>
+<h4 id="33-7-example-d8ff311c" class="semantic-heading semantic-example">33.7 Example / 学习例子</h4>
+<p>假设客户说：“外部仓库系统传来的出库结果没有进 SAP。”不要马上说“API 有问题”。先要识别接口形态。</p>
+<pre><code class="language-text">Question 1: 这是同步还是异步？
+  - 如果外部系统实时调用 SAP，可能是 RFC/BAPI/OData。
+  - 如果外部系统发送消息，可能是 IDoc、middleware message、queue。
+  - 如果夜间批量处理，可能是 file + background job。
+
+Question 2: SAP 侧证据在哪里？
+  - IDoc: WE02/WE05 status、message type、partner profile。
+  - RFC/tRFC/qRFC: SE37、SM58、SMQ1/SMQ2、destination。
+  - BAPI: return table、commit/rollback、application log。
+  - OData/RAP: HTTP status、payload、gateway/service log、authorization。
+  - File: job log、file archive、error directory、application log。
+
+Question 3: 失败后如何处理？
+  - 是否可以重试？
+  - 重试是否会重复过账？
+  - 是否需要业务数据修正？
+  - 谁负责 SAP、middleware、外部系统各自的调查？</code></pre>
+<p>如果未来要把这个接口现代化，也不是简单把 RFC 改成 OData。要看外部仓库是否需要同步响应、数据量多大、失败是否可异步重试、SAP 是否有 released API、是否需要事件驱动、是否已有 Integration Suite 标准内容。</p>
+<p>再看一个 RPA-to-API 的例子。AC0567C POC 的思路是把原来可能依赖 SAP GUI/RPA 的操作，逐步改成稳定、可测试、可审计的 API 调用。这里最容易犯的错误，是把“不要点画面”理解成“随便找一个 function module 包起来”。正确顺序应该更像这样：</p>
+<pre><code class="language-text">Original operation:
+  SAP GUI / RPA executes a business process step.
+
+Replacement investigation:
+  1. Is there a standard released API or communication scenario?
+  2. Is there an official OData / SOAP / business event / Integration Suite option?
+  3. If using BAPI, what is the RETURN and commit pattern?
+  4. If using RAP/OData, who owns transaction and save sequence?
+  5. What is the idempotency key or duplicate-prevention rule?
+  6. What log proves success or failure in production?
+  7. Does the design pass Clean Core and upgrade-impact review?</code></pre>
+<p>如果最后确实只能调用 legacy BAPI 或 RFC，也要把这个决定写成例外，而不是隐藏在代码里。设计书里至少要说明：为什么没有 released API，调用对象是否稳定，是否需要 <code>BAPI_TRANSACTION_COMMIT</code>，错误消息如何转换，重试是否安全，后续是否有替代路线。</p>
+<p>第三个小例子是文件接口。客户说：“银行回传文件已经放到目录了，但 SAP 没有更新付款状态。”初学者可能先去看 ABAP 程序有没有 dump；更完整的调查顺序应该是：</p>
+<pre><code class="language-text">File received?
+  - directory, file name, timestamp, encoding, size
+
+Job executed?
+  - background job status, variant, executing user, authorization
+
+File parsed?
+  - application log, error file, partial success, line-level message
+
+Business updated?
+  - document status, duplicate check, commit evidence
+
+Can rerun?
+  - archive status, processed marker, idempotency / duplicate key</code></pre>
+<p>这类例子说明：classic interface 的难点不只是“接口怎么调用”，而是失败后团队能否从证据链还原事实。</p>
+<h4 id="33-8-counterexample-failure-mode-ea5a385c" class="semantic-heading semantic-example">33.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十三类。</p>
+<p>第一，把所有接口都叫 API。这样会导致监控工具、错误状态、事务边界和责任分界都说不清。</p>
+<p>第二，只看调用方返回码。SAP 侧可能有 IDoc status、tRFC/qRFC queue、application log、job log 或 middleware message，必须按接口形态查证据。</p>
+<p>第三，在 RAP action 中直接调用会 commit 的 legacy function module，破坏 RAP 事务语义和 save sequence。</p>
+<p>第四，BAPI 调用后忘记 commit/rollback pattern，或没有处理 return table 中的业务错误。</p>
+<p>第五，IDoc 错误只重发，不分析 status 和业务原因，导致同样错误反复进入队列。</p>
+<p>第六，file interface 没有处理重复文件、编码、归档和部分失败，生产运维很容易混乱。</p>
+<p>第七，接口迁移只改协议，不改运维。RFC 改 OData 后，如果没有日志、重试、监控和错误语义，质量不会自动提高。</p>
+<p>第八，新增接口默认做 custom RFC。Clean Core 和云化方向下，应优先查 released API、standard integration、RAP/OData 或 Integration Suite 方案。</p>
+<p>第九，只在开发机手工测试接口成功，不设计 QAS / PRD 的监控和重跑步骤。上线后第一次失败时，团队才发现没有人知道该看哪个 log。</p>
+<p>第十，把 middleware 当成黑盒。PI/PO/CPI 做了 mapping、routing、certificate、retry 和 endpoint 管理；SAP 侧成功或失败都不一定代表全链路成功。</p>
+<p>第十一，接口错误没有 correlation id。SAP、middleware、外部系统各自有日志，但无法用同一个业务 key、message id、request id 或 timestamp 串起来。</p>
+<p>第十二，迁移时只追求“功能等价”，没有重做接口契约。旧 RFC 可以被内部团队忍受的含糊返回码，换成 Web API 后就会变成外部系统无法稳定处理的契约问题。</p>
+<p>第十三，忽略授权上下文。外部技术用户通过 RFC/OData/file job 成功执行了业务动作，但没有和 dialog user 的权限模型对齐，最后在审计时解释不清“谁以什么权限做了什么”。</p>
+<h4 id="33-9-f6afeb52" class="semantic-heading semantic-practice">33.9 思考问题</h4>
+<ul>
+<li>当前接口是同步还是异步？是 IDoc、RFC/BAPI、file、OData/RAP，还是 middleware 转换后的组合？</li>
+<li>事务提交在哪里发生？失败后能否安全重试？</li>
+<li>SAP 侧、middleware 侧、外部系统侧分别有什么证据？</li>
+<li>新增需求是否真的需要 classic RFC/FM？有没有 released API、standard integration 或 RAP/OData 替代？</li>
+<li>AC0567C POC 如果要替换 RPA 操作，应优先用哪类 API/接口形态？</li>
+</ul>
+<h4 id="33-10-6628d9d5" class="semantic-heading semantic-reference">33.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/docs/abap-cloud" target="_blank" rel="noopener noreferrer">SAP Help Portal - ABAP Cloud</a></li>
+<li><a href="https://help.sap.com/docs/SAP_S4HANA_CLOUD" target="_blank" rel="noopener noreferrer">SAP Help Portal - SAP S/4HANA Cloud</a></li>
+<li><a href="https://api.sap.com/" target="_blank" rel="noopener noreferrer">SAP Business Accelerator Hub</a></li>
+<li>SAP Help Portal: search <code>IDoc</code>, <code>ALE</code>, <code>RFC</code>, <code>BAPI</code>, <code>tRFC</code>, <code>qRFC</code>, <code>Application Log</code>.</li>
+<li>SAP Learning / SAP Integration Suite documentation: search <code>message monitoring</code>, <code>integration flow</code>, <code>SAP Integration Suite</code>.</li>
+<li><a href="https://help.sap.com/docs/search?q=IDoc%20ALE" target="_blank" rel="noopener noreferrer">SAP Help search - IDoc ALE</a></li>
+<li><a href="https://help.sap.com/docs/search?q=RFC%20BAPI%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - RFC BAPI ABAP</a></li>
+<li><a href="https://help.sap.com/docs/search?q=transactional%20RFC%20queued%20RFC" target="_blank" rel="noopener noreferrer">SAP Help search - transactional RFC queued RFC</a></li>
+<li><a href="https://help.sap.com/docs/search?q=background%20RFC%20bgRFC" target="_blank" rel="noopener noreferrer">SAP Help search - background RFC bgRFC</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20Integration%20Suite%20message%20monitoring" target="_blank" rel="noopener noreferrer">SAP Help search - SAP Integration Suite message monitoring</a></li>
+<li><a href="https://learning.sap.com/search?query=SAP%20Integration%20Suite" target="_blank" rel="noopener noreferrer">SAP Learning search - SAP Integration Suite</a></li>
+</ul>
+<h4 id="33-11-connections-442d62c2">33.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a></li>
+<li>Downstream: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-032-classic-enhancement-options-awareness-fc045290.html">Classic enhancement options awareness</a></li>
+<li>Related: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Related: <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>Related: <a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li>Related: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Related: <a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+<li>Related: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 27 - Clean Core 与上线前加固</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+</ul>
+<h4 id="33-12-499ad404" class="semantic-heading semantic-practice">33.12 学习任务</h4>
+<ul>
+<li>用中文区分 IDoc、RFC、Function Module、BAPI、file interface、OData/RAP。</li>
+<li>写一张接口调查表：接口形态、同步/异步、事务边界、错误证据、重试方式、责任系统。</li>
+<li>用日语写 2 句：一句用于确认既有接口形态，一句用于确认新接口是否优先 released API。</li>
+<li>选一个 AC0567C POC 接口或未来接口，说明如果替代 RPA，应优先评估哪种接口形态。</li>
+<li>找 1 个 SAP 官方资料入口，补到 IDoc/RFC/BAPI/OData 的参考资料区。</li>
+</ul>
+<h4 id="33-13-confidence-next-action-f2f857cb" class="semantic-heading semantic-status">33.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High，classic integration 形态、调查入口和迁移判断框架稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态，Joule 也给出 <code>Pass with fixes</code> 并已集成 Clean Core integration 风险分层、授权上下文、Integration Suite 与高风险 flat file / custom RFC / point-to-point caveat。当前文本已补足 GUI 事务码与 Public Cloud / ABAP Cloud 可用性边界，以及 tRFC/qRFC 与 bgRFC 监控入口差异。具体事务码、配置路径、接口状态和工具可用性需要按 SAP 版本、部署模式、中间件和客户运维规范确认。</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-034-classic-reporting-forms-and-migration-awareness-8fcbd306.html">Classic reporting forms and migration awareness</a>，继续补棕地项目中的报表、表单、ALV、Smart Forms / Adobe Forms 等经典资产识别与迁移意识。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-033-classic-integration-interfaces-awareness-a838d9eb.html">Classic integration interfaces awareness</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-032-classic-enhancement-options-awareness-fc045290.html">Previous section</a><a href="section-04-034-classic-reporting-forms-and-migration-awareness-8fcbd306.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

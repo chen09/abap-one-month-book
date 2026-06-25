@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Secondary table key 二级键 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="18-secondary-table-key-89336ace" class="chapter-title">18. Secondary table key 二级键</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 18</li><li>self-contained study note</li></ul><h4 id="18-1-ce653676" class="semantic-heading semantic-concept">18.1 一句话结论</h4>
+<p>Secondary table key 二级键，是 internal table 内部表上的额外命名访问路径：在 primary table key 之外，再为同一张内存表声明 sorted key 或 hashed key，让代码可以按另一组字段高效 <code>READ TABLE</code>、table expression 或 <code>LOOP AT ... USING KEY</code>。它像“内存表索引”，但不是数据库索引；它能改善访问性能，也会带来内存和维护成本。</p>
+<h4 id="18-2-3dcfd1d7" class="semantic-heading semantic-concept">18.2 到底学什么</h4>
+<p>前面三节讲的是 primary table category：</p>
+<pre><code class="language-text">Standard table 标准表
+Sorted table 排序表
+Hashed table 哈希表</code></pre>
+<p>它们决定 internal table 的 primary key 和主要管理方式。但项目里常遇到一张表需要多个访问路径：</p>
+<pre><code class="language-text">主要用途：按顺序输出 ALV
+额外用途：按 material 快速读取
+额外用途：按 customer + date 范围处理</code></pre>
+<p>如果只用 standard table，每次 key lookup 可能线性搜索；如果改成 hashed table，又失去顺序/范围处理的自然语义；如果改成 sorted table，可能只优化了其中一个 key。secondary table key 就是为这种“一个表，多种访问路径”准备的。</p>
+<p>示意声明：</p>
+<pre><code class="language-abap">TYPES ty_t_item TYPE STANDARD TABLE OF ty_item
+  WITH EMPTY KEY
+  WITH NON-UNIQUE SORTED KEY by_order COMPONENTS order_id item_no
+  WITH UNIQUE HASHED KEY by_guid COMPONENTS item_guid.</code></pre>
+<p>这表示：</p>
+<pre><code class="language-text">primary key
+  -&gt; empty key，主用途是顺序容器
+
+secondary sorted key by_order
+  -&gt; 按 order_id item_no 排序/分组读取
+
+secondary hashed key by_guid
+  -&gt; 按 item_guid 唯一完整 key 快速读取</code></pre>
+<p>secondary key 的核心不是“写了就一定更快”，而是：<strong>当同一张 internal table 的主要表类型和实际访问方式不完全一致时，用命名 key 明确另一个访问路径。</strong></p>
+<h4 id="18-3-eb6da3d0" class="semantic-heading semantic-why">18.3 为什么重要</h4>
+<p>在 ABAP 项目里，性能优化不只发生在 SQL。很多程序已经把数据从数据库读到内存，然后在 internal table 中反复查找、过滤、合并、对账。此时数据库 SQL 已经结束，性能瓶颈可能在 ABAP 层。</p>
+<p>常见场景：</p>
+<pre><code class="language-abap">LOOP AT lt_orders INTO DATA(ls_order).
+  READ TABLE lt_items INTO DATA(ls_item)
+    WITH KEY order_id = ls_order-order_id.
+ENDLOOP.</code></pre>
+<p>如果 <code>lt_items</code> 是 standard table，这可能是线性搜索。如果不能把 <code>lt_items</code> 的 primary category 改成 sorted table，因为它还要按原始顺序输出，就可以考虑给 <code>lt_items</code> 加 secondary sorted key：</p>
+<pre><code class="language-abap">WITH NON-UNIQUE SORTED KEY by_order COMPONENTS order_id</code></pre>
+<p>然后读取时显式使用 key：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY by_order COMPONENTS order_id = ls_order-order_id.</code></pre>
+<p>这样代码意图更清楚：这不是随便 <code>READ TABLE</code>，而是作者明确希望使用 <code>by_order</code> 这个访问路径。</p>
+<p>对 Java/Python 背景学习者，可以把 secondary key 类比成“同一组对象上的额外索引”。一个 list 本身按插入顺序保存，但你额外维护一个 <code>Map&lt;guid, item&gt;</code> 或 <code>TreeMap&lt;order_id, items&gt;</code> 来支持快速访问。ABAP 把这个能力做进 internal table 类型声明中。</p>
+<h4 id="18-4-key-mechanism-40f927f9" class="semantic-heading semantic-mechanism">18.4 Key mechanism / 核心机制</h4>
+<h5 id="18-4-1-secondary-key-key-0d7fa367">18.4.1 secondary key 是命名 key</h5>
+<p>secondary table key 必须有名字。常见命名如：</p>
+<pre><code class="language-text">by_order
+by_material
+by_guid
+sk_order
+hk_guid</code></pre>
+<p>这个名字不是注释，而是后续读取时要用的 key name：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY by_guid COMPONENTS item_guid = lv_guid.</code></pre>
+<p>或在 loop 中使用：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item)
+  USING KEY by_order
+  WHERE order_id = lv_order_id.
+ENDLOOP.</code></pre>
+<p>table expression 也可以选择 key：</p>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[
+  KEY by_guid
+  COMPONENTS item_guid = lv_guid
+].</code></pre>
+<p>不同 ABAP release 的语法细节可能略有差异，实际写法以系统中的 ABAP Keyword Documentation 和 ADT syntax check 为准；本节重点是理解“显式指定 key name”。</p>
+<h5 id="18-4-2-secondary-sorted-key-secondary-hashed-key-4a03696a">18.4.2 secondary sorted key 与 secondary hashed key</h5>
+<p>secondary keys 主要有两类：</p>
+<pre><code class="language-text">secondary sorted key
+  -&gt; 可以 UNIQUE 或 NON-UNIQUE
+  -&gt; 适合有序、范围、前缀、分组读取
+
+secondary hashed key
+  -&gt; 必须 UNIQUE
+  -&gt; 适合完整 key 精确读取</code></pre>
+<p>示例：</p>
+<pre><code class="language-abap">DATA lt_items TYPE STANDARD TABLE OF ty_item
+  WITH EMPTY KEY
+  WITH NON-UNIQUE SORTED KEY by_order COMPONENTS order_id item_no
+  WITH UNIQUE HASHED KEY by_guid COMPONENTS item_guid.</code></pre>
+<p><code>by_order</code> 适合：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item)
+  USING KEY by_order
+  WHERE order_id = lv_order_id.
+ENDLOOP.</code></pre>
+<p><code>by_guid</code> 适合：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY by_guid COMPONENTS item_guid = lv_guid.</code></pre>
+<h5 id="18-4-3-secondary-key-primary-table-category-de3c2b34">18.4.3 secondary key 不改变 primary table category</h5>
+<p>如果 primary table 是 standard table，加了 secondary key 后，它仍然是 standard table。primary 的顺序、empty key、append 行为并不会消失。secondary key 是额外访问路径，不是把表“变成” sorted table 或 hashed table。</p>
+<p>这点很重要，因为项目上常见需求是：</p>
+<pre><code class="language-text">保留原始输入顺序
+  -&gt; primary: standard table WITH EMPTY KEY
+
+按 order_id 查明细
+  -&gt; secondary sorted key by_order
+
+按 guid 精确找一行
+  -&gt; secondary hashed key by_guid</code></pre>
+<p>这比创建三张独立 internal table 更集中，也比在循环里反复线性搜索更可解释。</p>
+<h5 id="18-4-4-secondary-key-3bf2fede">18.4.4 使用 secondary key 必须显式</h5>
+<p>声明 secondary key 不代表所有读取都会自动使用它。代码最好显式写出：</p>
+<pre><code class="language-abap">WITH TABLE KEY by_order COMPONENTS ...
+USING KEY by_order
+KEY by_guid COMPONENTS ...</code></pre>
+<p>如果只写：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY order_id = lv_order_id.</code></pre>
+<p>ABAP 是否选择某个 key，取决于语法、key 条件和优化规则；对初学者和 code review 来说，显式 key name 更清楚。</p>
+<h5 id="18-4-5-lazy-update-c64f46f1">18.4.5 维护成本与 lazy update</h5>
+<p>secondary key 不是免费优化。每个 secondary sorted key 都要维护额外 sorted index；secondary hashed key 要维护 hash administration。插入、删除、修改行时，这些 key 也可能需要更新。</p>
+<p>SAP Help 特别提醒：secondary key 的更新可能是 delayed / lazy 的，某些更新成本可能在后续 read access 时才发生。也就是说，给一张频繁变化的表加很多 secondary key，可能把成本推迟到你以为要优化的读取点上。</p>
+<p>因此，使用 secondary key 之前要问：</p>
+<ul>
+<li>表是否足够大？</li>
+<li>按 secondary key 读取是否频繁？</li>
+<li>表是否主要一次填充、多次读取？</li>
+<li>是否频繁修改 key 字段？</li>
+<li>是否真的需要多个访问路径？</li>
+</ul>
+<p>如果表只有几十行，或者只读一次、loop 一次，secondary key 可能让代码更复杂而不是更快。</p>
+<h5 id="18-4-6-unique-secondary-key-63fee52d">18.4.6 unique secondary key 的重复风险</h5>
+<p>unique secondary key 会带来约束：</p>
+<pre><code class="language-abap">WITH UNIQUE HASHED KEY by_guid COMPONENTS item_guid</code></pre>
+<p>如果插入或修改导致 <code>item_guid</code> 重复，secondary key 的 uniqueness 会被破坏，可能出现可捕获异常或运行时错误。这个错误不是“secondary key 小问题”，而是业务数据或设计假设冲突。</p>
+<p>如果业务允许重复，就不要声明 unique secondary key；可以改用 non-unique sorted key，并在读取时处理多行结果。</p>
+<h4 id="18-5-341d3467" class="semantic-heading semantic-japan">18.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>二次キー</code></li>
+<li><code>セカンダリキー</code></li>
+<li><code>内部テーブル</code></li>
+<li><code>ソート済み二次キー</code></li>
+<li><code>ハッシュ二次キー</code></li>
+<li><code>名前付きキー</code></li>
+<li><code>キー名</code></li>
+<li><code>アクセスパス</code></li>
+<li><code>追加インデックス</code></li>
+<li><code>キー保守コスト</code></li>
+<li><code>遅延更新</code></li>
+<li><code>遅延評価</code></li>
+<li><code>一意キー</code></li>
+<li><code>非一意キー</code></li>
+<li><code>重複キー</code></li>
+<li><code>性能改善</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li>この内部テーブルは順序保持が必要なため標準テーブルのままとし、検索用に二次キーを追加します。</li>
+<li><code>by_order</code> というソート済み二次キーを使用して、受注明細を order_id 単位で読み取ります。</li>
+<li>二次キーは保守コストがあるため、読み取り頻度とデータ件数を確認してから採用します。</li>
+<li>一意二次キーに違反する可能性があるため、重複キー発生時の処理を明確にします。</li>
+</ul>
+<p>review 里常见问法：</p>
+<ul>
+<li><code>この READ TABLE は二次キーを明示的に使用していますか。</code></li>
+<li><code>二次キーの保守コストはデータ件数に対して妥当ですか。</code></li>
+<li><code>標準テーブルをソート済みテーブルに変えるのではなく、二次キーにする理由は何ですか。</code></li>
+<li><code>この一意二次キーは業務的に本当に一意ですか。</code></li>
+</ul>
+<h4 id="18-6-english-terms-70fa8600" class="semantic-heading semantic-terms">18.6 English Terms</h4>
+<ul>
+<li><code>secondary table key</code></li>
+<li><code>secondary key</code></li>
+<li><code>named key</code></li>
+<li><code>primary table key</code></li>
+<li><code>secondary sorted key</code></li>
+<li><code>secondary hashed key</code></li>
+<li><code>UNIQUE SORTED KEY</code></li>
+<li><code>NON-UNIQUE SORTED KEY</code></li>
+<li><code>UNIQUE HASHED KEY</code></li>
+<li><code>COMPONENTS</code></li>
+<li><code>WITH TABLE KEY</code></li>
+<li><code>USING KEY</code></li>
+<li><code>table expression</code></li>
+<li><code>key name</code></li>
+<li><code>access path</code></li>
+<li><code>secondary table index</code></li>
+<li><code>hash administration</code></li>
+<li><code>delayed update</code></li>
+<li><code>lazy update</code></li>
+<li><code>administration costs</code></li>
+<li><code>duplicate key</code></li>
+<li><code>key uniqueness</code></li>
+</ul>
+<p>Recommended search patterns:</p>
+<ul>
+<li><code>ABAP secondary table key sorted hashed key</code></li>
+<li><code>ABAP internal table secondary key USING KEY</code></li>
+<li><code>ABAP secondary table key lazy update administration costs</code></li>
+<li><code>ABAP READ TABLE WITH TABLE KEY secondary key</code></li>
+<li><code>ABAP table expression KEY secondary key</code></li>
+</ul>
+<h4 id="18-7-example-b1f9a2b2" class="semantic-heading semantic-example">18.7 Example / 学习例子</h4>
+<h5 id="18-7-1-1-standard-table-secondary-sorted-key-507d44a3">18.7.1 例 1：standard table + secondary sorted key</h5>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_item,
+         order_id  TYPE i,
+         item_no   TYPE i,
+         item_guid TYPE sysuuid_x16,
+         text      TYPE string,
+       END OF ty_item.
+
+DATA lt_items TYPE STANDARD TABLE OF ty_item
+  WITH EMPTY KEY
+  WITH NON-UNIQUE SORTED KEY by_order COMPONENTS order_id item_no.
+
+LOOP AT lt_items INTO DATA(ls_item)
+  USING KEY by_order
+  WHERE order_id = lv_order_id.
+  &quot; process all items of this order
+ENDLOOP.</code></pre>
+<p>primary table 仍然是 standard table，用来保留输入顺序；<code>by_order</code> 是额外 sorted access path，用来按 order 分组处理。</p>
+<h5 id="18-7-2-2-secondary-hashed-key-guid-lookup-676f3bb6">18.7.2 例 2：secondary hashed key 做 GUID lookup</h5>
+<pre><code class="language-abap">DATA lt_items TYPE STANDARD TABLE OF ty_item
+  WITH EMPTY KEY
+  WITH UNIQUE HASHED KEY by_guid COMPONENTS item_guid.
+
+READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY by_guid COMPONENTS item_guid = lv_guid.</code></pre>
+<p>如果 <code>item_guid</code> 业务上唯一，这种 secondary hashed key 很适合快速定位一行。它比把 primary table 改成 hashed table 更灵活，因为 primary 顺序仍可以保留。</p>
+<h5 id="18-7-3-3-secondary-keys-8edaf01d">18.7.3 例 3：同时有两个 secondary keys</h5>
+<pre><code class="language-abap">DATA lt_items TYPE STANDARD TABLE OF ty_item
+  WITH EMPTY KEY
+  WITH NON-UNIQUE SORTED KEY by_order COMPONENTS order_id item_no
+  WITH UNIQUE HASHED KEY by_guid COMPONENTS item_guid.</code></pre>
+<p>同一张表可以支持两种访问方式：按订单读取多行，或按 GUID 读取单行。不要滥用很多 key；每个 key 都要有真实读取场景。</p>
+<h5 id="18-7-4-4-table-expression-named-key-0e03696d">18.7.4 例 4：table expression 使用 named key</h5>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[
+  KEY by_guid
+  COMPONENTS item_guid = lv_guid
+].</code></pre>
+<p>table expression 找不到行时可能抛出异常。实际项目可以配合 <code>line_exists</code>、<code>OPTIONAL</code> 或异常处理。</p>
+<h5 id="18-7-5-5-unique-secondary-key-31e87b1e">18.7.5 例 5：unique secondary key 违反示意</h5>
+<pre><code class="language-abap">DATA lt_items TYPE STANDARD TABLE OF ty_item
+  WITH EMPTY KEY
+  WITH UNIQUE HASHED KEY by_guid COMPONENTS item_guid.
+
+&quot; 如果两个输入行具有同一个 item_guid，by_guid 的唯一性就会被破坏。</code></pre>
+<p>这不是性能问题，而是业务 key 假设失败。要么数据应该报错，要么 key 不应该声明为 unique hashed key。</p>
+<h4 id="18-8-counterexample-failure-mode-73e29dc5" class="semantic-heading semantic-example">18.8 Counterexample / Failure mode</h4>
+<h5 id="18-8-1-1-secondary-key-4a0c8963" class="semantic-heading semantic-failure">18.8.1 误区 1：声明了 secondary key 但读取不用它</h5>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY order_id = lv_order_id.</code></pre>
+<p>如果代码没有显式 <code>WITH TABLE KEY by_order COMPONENTS ...</code>，reviewer 很难确定是否真的使用了你设计的 secondary key。教程中建议初学者先写清楚 key name。</p>
+<h5 id="18-8-2-2-key-939a76b7" class="semantic-heading semantic-failure">18.8.2 误区 2：给小表加很多 key</h5>
+<p>一张几十行的小表，如果只 loop 一次，加 secondary key 可能没有收益。它增加类型复杂度、内存、维护成本和认知负担。</p>
+<h5 id="18-8-3-3-key-8369b9ca" class="semantic-heading semantic-failure">18.8.3 误区 3：频繁修改 key 字段</h5>
+<p>如果一张表在循环中不断插入、删除、修改 secondary key 字段，secondary key 的维护成本会变高。此时要重新评估数据结构和处理流程。</p>
+<h5 id="18-8-4-4-unique-secondary-key-8f583bd0" class="semantic-heading semantic-failure">18.8.4 误区 4：unique secondary key 与业务重复冲突</h5>
+<p>如果业务上同一个 <code>order_id</code> 有多行，不能把 <code>order_id</code> 声明成 unique hashed secondary key。应该用 non-unique sorted key，或重新定义业务唯一 key。</p>
+<h5 id="18-8-5-5-secondary-key-0c50b370" class="semantic-heading semantic-failure">18.8.5 误区 5：把 secondary key 当数据库索引</h5>
+<p>secondary table key 只存在于 ABAP internal table 的内存结构中。它不会优化数据库 <code>SELECT</code>。数据库读取慢，要看 SQL、数据库索引、CDS、where 条件和执行计划；内存表查找慢，才考虑 internal table key。</p>
+<h4 id="18-9-5e45eb3f" class="semantic-heading semantic-practice">18.9 思考问题</h4>
+<ul>
+<li>这张 internal table 的 primary category 为什么不能直接改成 sorted/hashed？</li>
+<li>secondary key 对应的真实读取代码在哪里？</li>
+<li>读取时是否显式写了 <code>WITH TABLE KEY keyname COMPONENTS ...</code> 或 <code>USING KEY keyname</code>？</li>
+<li>这个 secondary key 是 sorted 还是 hashed？为什么？</li>
+<li>key 是否需要 unique？业务上真的唯一吗？</li>
+<li>表是否一次填充、多次读取？还是频繁修改？</li>
+<li>secondary key 维护成本是否比线性搜索成本更低？</li>
+<li>这个性能问题发生在数据库层，还是 ABAP internal table 层？</li>
+<li>用日语 review 时，能否说明 <code>二次キーの保守コスト</code> 和 <code>アクセスパス</code>？</li>
+</ul>
+<h4 id="18-10-c76bb8d4" class="semantic-heading semantic-reference">18.10 参考资料入口</h4>
+<ul>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet</a></li>
+<li>SAP Samples Raw: <a href="https://raw.githubusercontent.com/SAP-samples/abap-cheat-sheets/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet Raw Markdown</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENITAB_KEY_SECONDARY.html" target="_blank" rel="noopener noreferrer">itab - Secondary Table Key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSECONDARY_TABLE_KEY_GLOSRY.html" target="_blank" rel="noopener noreferrer">secondary table key - Glossary</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPTYPES_SECONDARY_KEY.html" target="_blank" rel="noopener noreferrer">TYPES, secondary_key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENSECONDARY_KEY_GUIDL.html" target="_blank" rel="noopener noreferrer">Secondary Key Guidelines</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENITAB_KEY_SECONDARY_USAGE.html" target="_blank" rel="noopener noreferrer">Using Secondary Keys</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenitab_key_secondary_update.html" target="_blank" rel="noopener noreferrer">Updating Secondary Table Keys</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPREAD_TABLE_KEY.html" target="_blank" rel="noopener noreferrer">READ TABLE, table_key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-concepts/how-to-specify-table-keys-in-table-types-and-internal-tables" target="_blank" rel="noopener noreferrer">Specifying Table Keys</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-concepts/specifying-table-keys" target="_blank" rel="noopener noreferrer">Specifying Table Keys - ABAP Concepts</a></li>
+<li>SAP Help: <a href="https://help.sap.com/saphelp_scm700_ehp02/helpdata/en/45/782c02aa7e6975e10000000a114a6b/content.htm" target="_blank" rel="noopener noreferrer">Secondary Keys for Table Types</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="18-11-connections-0c254e53">18.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li><a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li><a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></li>
+<li><a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li><a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li><a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Upstream: <a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></li>
+<li>Downstream: <a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 10 - 内部表类型与读取方式</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="18-12-a2deb854" class="semantic-heading semantic-practice">18.12 学习任务</h4>
+<ul>
+<li>写一个 standard table，同时声明一个 non-unique sorted secondary key 和一个 unique hashed secondary key。</li>
+<li>把一段 <code>READ TABLE ... WITH KEY</code> 改写成显式 <code>WITH TABLE KEY keyname COMPONENTS ...</code>。</li>
+<li>用中文解释 secondary key 与数据库 index 的区别。</li>
+<li>找一个小表场景，说明为什么不值得加 secondary key。</li>
+<li>用日语写一句 review comment：当前 secondary key 是否真的被读取代码使用。</li>
+</ul>
+<h4 id="18-13-confidence-next-action-3d757be2" class="semantic-heading semantic-status">18.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容已用 SAP Samples <code>01_Internal_Tables.md</code> 与 SAP Help / ABAP Keyword Documentation 的 secondary table key、<code>TYPES ... secondary_key</code>、using secondary keys、updating secondary table keys、<code>READ TABLE ... table_key</code>、table-key specification 与 secondary-key guidelines 校准；旧 Joule 尝试返回通用 UI error，旧 Claude / 当前 Claude health check 超时，因此已创建 2026-06-18 Claude follow-up prompt 作为外部 review debt。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a>，把 primary key、secondary key、free key、table expression 和 not-found 处理统一到一个读取决策框架里。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-017-hashed-table-2689ed7d.html">Previous section</a><a href="section-02-019-read-table-c16660cd.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

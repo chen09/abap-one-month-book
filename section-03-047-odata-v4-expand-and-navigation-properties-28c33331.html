@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>OData V4 expand and navigation properties | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="47-odata-v4-expand-and-navigation-properties-86d8a2c7" class="chapter-title">47. OData V4 expand and navigation properties</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 47</li><li>self-contained study note</li></ul><h4 id="47-1-5990b77f" class="semantic-heading semantic-concept">47.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-047-odata-v4-expand-and-navigation-properties-28c33331.html">OData V4 expand and navigation properties</a> 讲的是：CDS/RAP 中的 association 或 composition 经过 projection、service definition、service binding 暴露后，会在 OData V4 metadata 中形成 navigation property；消费者可以用 <code>$expand</code> 在一次请求中带出关联对象。它不是“随便把 join 结果塞进 JSON”，而是 metadata-driven 的导航契约。</p>
+<p>一句话记忆：association 是模型里的关系，navigation property 是 OData metadata 里的关系入口，<code>$expand</code> 是消费者沿着这个入口取关联数据的请求方式。</p>
+<h4 id="47-2-aba8a8de" class="semantic-heading semantic-concept">47.2 到底学什么</h4>
+<p>前面学过 CDS association、path expression、projection view、service definition 和 OData V4。现在要把它们连起来。一个 Travel root entity 可能关联 Booking item。CDS 里写 <code>_Booking</code> association；projection view 决定是否暴露这条关系；service definition / binding 决定它是否进入服务；OData metadata 中出现 navigation property；消费者才能请求 <code>Travel?$expand=_Booking</code>。</p>
+<p>这不是单纯 SQL join。Join 是服务端建模时把表按条件合并；navigation property 是服务 contract 中公开“可沿着关系导航”的能力。<code>$expand</code> 是消费者选择在这次请求里把关联对象一起取回。它们背后的 SQL 可能由 runtime 优化生成，但设计语义不同。</p>
+<p>本节要学三个判断。第一，为什么 metadata 中有无 navigation property，取决于 CDS/projection/service 暴露。第二，<code>$expand</code> 很方便，但可能带来性能、权限和 payload 变大的风险。第三，Fiori object page、list/detail、外部 API 读取父子数据，常常都依赖 navigation 和 expand，因此要把它纳入 API 测试。</p>
+<p>第四，要学会把 <code>$expand</code> 当成“消费者选择读取关系”的语法，而不是服务端默认行为。一个服务可以在 metadata 中声明 navigation property，但消费者每次请求是否展开、展开到哪一层、是否配合 <code>$select</code> / <code>$filter</code>，仍然是 API contract 和调用方责任。项目上不能只说“有 association”，还要说“哪些 navigation 支持 expand、推荐怎样调用、哪些场景不允许深度展开”。</p>
+<p>第五，要学会从 <code>$metadata</code> 反推问题。遇到 expand 失败，不要马上改 ABAP handler。先看 metadata：entity type 里有没有 <code>NavigationProperty</code>，entity set 是否存在，目标 entity 是否被 service definition 暴露，navigation 名称是否和请求 URL 完全一致，cardinality 是否符合预期。很多问题其实是暴露链断了，而不是 runtime 出错。</p>
+<h4 id="47-3-83a44c2f" class="semantic-heading semantic-why">47.3 为什么重要</h4>
+<p>这个知识点重要，是因为很多 Fiori 和 API 问题表面看是“页面没有子表”“接口读不到明细”“expand 失败”，实际根因在 CDS association、projection 暴露、service metadata、DCL/RAP authorization 或性能边界。</p>
+<p>如果 navigation 没有进 metadata，前端就没有稳定方式从 header 导航到 item。开发者可能用手写 URL 或额外接口绕开，结果接口契约混乱。反过来，如果把所有 association 都暴露，外部消费者可能读到不该公开的关系，payload 变大，权限边界模糊，性能也可能变差。</p>
+<p>对交付来说，navigation/expand 是 API contract 的一部分。设计书应该说明哪些 entity 之间允许导航、cardinality 是什么、是否支持 expand、是否受权限过滤、是否有 payload 限制、是否需要分页或限制层级。测试证据也要包括 <code>$metadata</code> 中的 navigation property 和实际 <code>$expand</code> 响应。</p>
+<p>对 Java/Python 背景学习者，可以把 navigation property 类比成资源关系或 GraphQL field selection，但 OData 的不同是它由 metadata 明确声明，且和 CDS association、RAP BO composition、Fiori metadata 和 authorization runtime 绑定。</p>
+<h4 id="47-4-key-mechanism-076aee36" class="semantic-heading semantic-mechanism">47.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 CDS association/composition。CDS view entity 中定义 association，RAP BO 中可能还有 composition parent-child 关系。它们表达模型关系，不等于消费者一定能看到。</p>
+<p>第二层机制是 projection exposure。Projection view 可以暴露、重命名或隐藏 association。如果 projection 层没有公开这条关系，service metadata 中通常也不会出现对应 navigation。</p>
+<p>第三层机制是 service metadata。Service binding 发布后，OData V4 <code>$metadata</code> 中会出现 entity type、entity set、navigation property。是否能 <code>$expand</code>，首先看 metadata 中有没有这个 navigation property。</p>
+<p>第四层机制是 <code>$expand</code> 请求。消费者可以请求类似：</p>
+<pre><code class="language-text">GET /Travel?$select=TravelID,Status&amp;$expand=_Booking</code></pre>
+<p>这表示读取 Travel 时一并展开 <code>_Booking</code>。也可以结合 <code>$select</code> 限制字段，避免 payload 过大。</p>
+<p>第五层机制是权限过滤。Expand 出来的 child data 仍然要符合授权设计。DCL、RAP authorization、service 层权限可能影响 parent 或 child。不能因为 parent 可见，就默认所有 child 都可见。</p>
+<p>第六层机制是性能。Expand 可能触发更多 join、更多查询或更大响应。对一对多关系，尤其要注意数据量、分页、过滤、嵌套 expand 和网络 payload。API 设计不能把无限层级关系全部开放给消费者。</p>
+<p>第七层机制是 Fiori 消费。Object page 的子表、facet、navigation、line item 展开常依赖 navigation property 和 annotation。页面缺子对象时，要同时检查 CDS association、projection、metadata extension、service definition、binding 和 authorization。</p>
+<p>第八层机制是 URL 组合。OData V4 的 <code>$expand</code> 通常和 <code>$select</code>、<code>$filter</code>、<code>$orderby</code>、<code>$top</code>、<code>$skip</code> 等 system query option 一起设计。初学者最容易写成：</p>
+<pre><code class="language-text">GET /Travel?$expand=_Booking</code></pre>
+<p>这能说明方向，但生产 API 更常需要限制字段和数据量：</p>
+<pre><code class="language-text">GET /Travel?$select=TravelID,Status&amp;$expand=_Booking($select=BookingID,Status)</code></pre>
+<p>含义是：Travel 只返回 <code>TravelID</code>、<code>Status</code>，展开的 Booking 也只返回 <code>BookingID</code>、<code>Status</code>。这样既保留 parent-child 关系，又避免把所有字段和所有明细无节制地传给消费者。</p>
+<p>第九层机制是 expand depth。一级 expand 已经可能带来很大 payload；多层 expand 例如 header -&gt; item -&gt; schedule line -&gt; text，会把 API 从“读取一个对象”变成“读取一棵对象树”。有些服务或网关会限制 expand 层级、结果大小或查询复杂度。设计书中应写清推荐层级和不支持场景，而不是让消费者自由试探。</p>
+<p>第十层机制是 parent-child 语义。RAP composition 里的 child entity 往往天然适合 object page 子表或 header-item API，但“适合导航”不等于“适合一次 expand 全取”。如果 child 数据量大、权限复杂、或需要独立分页，最好设计单独的 child entity set 查询或带过滤的 navigation，而不是强迫所有消费者用一个巨大 expand。</p>
+<p>可以把技术链路写成下面的调试顺序：</p>
+<pre><code class="language-text">CDS association/composition
+  -&gt; projection exposes association
+  -&gt; service definition exposes source and target
+  -&gt; service binding is published/refreshed
+  -&gt; $metadata contains NavigationProperty
+  -&gt; consumer sends $expand with the exact navigation name
+  -&gt; authorization and data volume checks pass
+  -&gt; response contains expected child collection/entity</code></pre>
+<p>其中任意一环断掉，最终都会表现为“expand 不工作”。这就是为什么 OData 问题不能只看 URL，也不能只看 CDS。</p>
+<h5 id="expand-contract-checklist-ac44f989"><code>$expand</code> contract checklist</h5>
+<p>把 navigation property 暴露给消费者之前，建议把 <code>$expand</code> 当成 API contract 逐项确认。尤其是外部 Web API，一旦消费者开始依赖 navigation 名称和返回结构，后续重命名、隐藏、改变 cardinality 或改变 child 字段都会变成 breaking change。</p>
+<div class="table-wrap"><table><thead><tr><th>Check</th><th>要确认什么</th><th>风险</th></tr></thead><tbody><tr><td>Navigation name</td><td>metadata 中的 <code>NavigationProperty</code> 名称是否稳定</td><td>改名会直接破坏消费者 URL</td></tr><tr><td>Source / target</td><td>source entity 和 target entity 是否都在 service definition 中按预期暴露</td><td>target 未暴露时 expand 不可用或 metadata 不完整</td></tr><tr><td>Cardinality</td><td><code>[0..1]</code>、<code>[0..*]</code> 等语义是否真实</td><td>错误 cardinality 会误导 UI/API consumer</td></tr><tr><td>Field scope</td><td>child entity 是否需要 <code>$select</code> 限制字段</td><td>payload 过大或泄漏内部字段</td></tr><tr><td>Expand depth</td><td>是否只支持一级 expand，是否禁止深层对象树</td><td>深层 expand 会导致性能和响应大小失控</td></tr><tr><td>Authorization</td><td>parent 和 child 权限是否分别验证</td><td>parent 可见不代表 child 可见</td></tr><tr><td>Empty result</td><td>无 child 时返回空集合还是按约定返回 null/缺省</td><td>consumer 解析逻辑不一致</td></tr><tr><td>Performance</td><td>大 parent、大 child、多 child 场景是否测过</td><td>测试数据少时正常，上线后超时</td></tr><tr><td>Versioning</td><td>navigation 改名、隐藏、字段变化是否有版本策略</td><td>外部系统无预警失败</td></tr></tbody></table></div>
+<p>这张 checklist 也适合调试。遇到 <code>$expand</code> 失败，不要只看 HTTP status；先保存 <code>$metadata</code>、请求 URL、当前用户、parent key、child 数据量、权限结果和响应 payload，再判断是暴露链、权限、数据、性能还是消费者 URL 写错。</p>
+<h4 id="47-5-5cb40105" class="semantic-heading semantic-japan">47.5 日本项目现场说法</h4>
+<ul>
+<li><code>ナビゲーションプロパティ</code>：navigation property。</li>
+<li><code>$expand</code> / <code>展開</code>：expand。</li>
+<li><code>アソシエーション</code>：association。</li>
+<li><code>親子関係</code>：parent-child relationship。</li>
+<li><code>明細展開</code>：item/detail expansion。</li>
+<li><code>メタデータ</code>：metadata。</li>
+<li><code>ペイロード肥大化</code>：payload becoming too large。</li>
+</ul>
+<p>この association は OData の navigation property として公開されていますか。</p>
+<p>意思是：这条 association 是否作为 OData navigation property 被公开了？</p>
+<p>明細を <code>$expand</code> で取得する場合、権限と性能の影響を確認してください。</p>
+<p>意思是：如果用 <code>$expand</code> 取得明细，请确认权限和性能影响。</p>
+<p>メタデータに navigation property が出ていない場合、projection view と service definition の公開範囲を確認します。</p>
+<p>意思是：如果 metadata 中没有 navigation property，要确认 projection view 和 service definition 的暴露范围。</p>
+<h4 id="47-6-english-terms-a644568b" class="semantic-heading semantic-terms">47.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>OData V4 expand and navigation properties</code></li>
+<li>Related terms: <code>$expand</code>, <code>navigation property</code>, <code>association</code>, <code>composition</code>, <code>entity set</code>, <code>$metadata</code>, <code>$select</code>, <code>$filter</code>, <code>cardinality</code>, <code>parent-child</code>, <code>object page</code>, <code>payload</code>, <code>authorization filtering</code></li>
+<li>Recommended search pattern: <code>SAP RAP OData V4 expand navigation property association</code></li>
+<li>API terms to keep in English: <code>$expand</code>, <code>$select</code>, <code>$filter</code>, <code>$metadata</code>, <code>NavigationProperty</code>, <code>EntitySet</code></li>
+</ul>
+<h4 id="47-7-example-21c8a6ea" class="semantic-heading semantic-example">47.7 Example / 学习例子</h4>
+<p>假设 Travel 有多个 Booking：</p>
+<pre><code class="language-text">CDS root/projection:
+  Travel
+    association/composition _Booking
+
+OData metadata:
+  EntitySet Travel
+  NavigationProperty _Booking
+
+HTTP request:
+  GET /Travel?$select=TravelID,Status&amp;$expand=_Booking</code></pre>
+<p>一个最小测试证据要包含：</p>
+<pre><code class="language-text">1. `$metadata` 中有 Travel entity set。
+2. Travel entity type 中有 `_Booking` navigation property。
+3. `$expand=_Booking` 返回 booking 明细。
+4. 无权限用户不能通过 expand 看到不该看的 child data。
+5. 大数据量 parent 不会返回不可控 payload。</code></pre>
+<p>如果 metadata 中没有 <code>_Booking</code>，不要先怪前端。先检查 CDS association 是否存在，projection 是否暴露，service definition 是否暴露相关 entity，binding 是否重新 publish，metadata cache 是否更新。</p>
+<p>更完整的请求/响应设计可以这样写：</p>
+<pre><code class="language-text">Request:
+  GET /Travel?$select=TravelID,Status
+      &amp;$expand=_Booking($select=BookingID,BookingDate,Status)
+
+Expected response shape:
+  TravelID
+  Status
+  _Booking: [
+    { BookingID, BookingDate, Status },
+    ...
+  ]
+
+Checks:
+  Parent key is stable.
+  Child collection name matches metadata.
+  Unauthorized child rows are not leaked.
+  Empty child collection returns clearly.
+  Large child collections are limited or paged by design.</code></pre>
+<p>如果 AC0567C 有 upload batch header 和 upload item，可以把 header -&gt; item 关系作为 navigation 候选。API 设计时要问：状态查询是否需要一次带出全部 item？错误明细是否应该用 <code>$expand</code> 返回？大批量文件的 item 数量是否太多，应该改成单独查询 <code>Items?$filter=batch_id eq ...</code>？这类问题比“能不能 expand”更接近项目交付。</p>
+<p>一个 AC0567C 风格测试矩阵如下：</p>
+<div class="table-wrap"><table><thead><tr><th>测试</th><th>请求</th><th>预期</th></tr></thead><tbody><tr><td>metadata contract</td><td><code>GET /$metadata</code></td><td>Batch entity 有 <code>_Items</code> navigation property</td></tr><tr><td>normal expand</td><td><code>GET /Batches(&#x27;&lt;id&gt;&#x27;)?$expand=_Items</code></td><td>返回 header 和 item collection</td></tr><tr><td>field-limited expand</td><td><code>$expand=_Items($select=ItemNo,Status)</code></td><td>child 只返回允许字段</td></tr><tr><td>empty child</td><td>batch 无 item</td><td><code>_Items</code> 是空集合或按服务约定返回</td></tr><tr><td>authorization</td><td>无权限用户 expand</td><td>parent/child 按授权过滤，不泄漏明细</td></tr><tr><td>large payload</td><td>大批量 item</td><td>返回受控、分页或设计上拒绝深度展开</td></tr></tbody></table></div>
+<h4 id="47-8-counterexample-failure-mode-019fc785" class="semantic-heading semantic-example">47.8 Counterexample / Failure mode</h4>
+<p>反例一：把 <code>$expand</code> 当 join。开发者以为 expand 只是后端 join，于是无节制开放所有关系。修正方式是把 navigation 当 API contract 管理。</p>
+<p>反例二：projection 没暴露 association。CDS interface 有 <code>_Item</code>，但 projection/service metadata 没有，前端无法 expand。修正方式是检查 projection 和 service 暴露链。</p>
+<p>反例三：expand 泄漏 child 数据。Parent 可见，child 应该按权限过滤却全部返回。修正方式是确认 DCL/RAP authorization/service 层权限。</p>
+<p>反例四：payload 过大。一个 header expand 出几千条 item，页面和网络都慢。修正方式是限制 expand、分页、过滤或设计专用查询。</p>
+<p>反例五：metadata 变了但消费者没同步。外部系统仍按旧 navigation 名称调用。修正方式是把 navigation 名称作为 API contract 管理。</p>
+<p>反例六：只测 expand 成功，不测无权限、空 child、多 child、性能。修正方式是补 API testing workflow。</p>
+<p>反例七：把 deep expand 当成免费功能。header 一次展开 item、schedule、log、message、text，测试数据少时很快，上线后 payload 巨大。修正方式是限制层级、字段和结果数量，必要时拆成专用查询。</p>
+<p>反例八：navigation 名称随手改。外部系统已经依赖 <code>_Items</code>，projection 重命名或隐藏后没有版本策略，导致消费者失败。修正方式是把 navigation property 名称纳入 API contract。</p>
+<p>反例九：只在开发者权限下测试。开发者能 expand 出 child，不代表业务用户、技术用户、外部 OAuth client 也应该看到同样数据。修正方式是用目标角色测试 parent 和 child 授权。</p>
+<h4 id="47-9-94ad7e69" class="semantic-heading semantic-practice">47.9 思考问题</h4>
+<ul>
+<li>哪些 association 应该暴露成 navigation property？哪些不应该？</li>
+<li><code>$metadata</code> 中是否能看到预期 navigation？</li>
+<li><code>$expand</code> 的数据量是否可控？</li>
+<li>Parent 和 child 的授权过滤分别在哪里发生？</li>
+<li>是否需要 <code>$select</code> 限制字段？</li>
+<li>Fiori object page 缺子表时，应检查哪些层？</li>
+<li>AC0567C POC 中是否存在适合用 navigation/expand 表达的 header-item 关系？</li>
+</ul>
+<h4 id="47-10-8b9650a1" class="semantic-heading semantic-reference">47.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://docs.oasis-open.org/odata/odata/v4.01/odata-v4.01-part2-url-conventions.html" target="_blank" rel="noopener noreferrer">OASIS OData V4.01 - URL Conventions</a></li>
+<li><a href="https://docs.oasis-open.org/odata/odata/v4.01/odata-v4.01-part1-protocol.html" target="_blank" rel="noopener noreferrer">OASIS OData V4.01 - Protocol</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-binding" target="_blank" rel="noopener noreferrer">SAP Help - Service Binding</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-definition" target="_blank" rel="noopener noreferrer">SAP Help - Service Definition</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/using-service-binding-editor-for-odata-v4-service" target="_blank" rel="noopener noreferrer">SAP Help - Using Service Binding Editor for OData V4 Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-an-odata-ui-service" target="_blank" rel="noopener noreferrer">SAP Learning - Defining OData UI Services</a> (accessed 2026-06-18)</li>
+<li><a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li><a class="wiki" href="section-03-008-path-expression-a44162f7.html">Path expression 路径表达式</a></li>
+<li><a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="47-11-connections-98fcb7ef">47.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">CDS metadata extension and UI annotations</a></li>
+<li>Downstream: <a class="wiki" href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">RAP %control field-level change tracking</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="47-12-de286a92" class="semantic-heading semantic-practice">47.12 学习任务</h4>
+<ul>
+<li>找一个 OData V4 <code>$metadata</code>，记录 1 个 navigation property。</li>
+<li>写一个 <code>$expand</code> 请求，并解释 parent 和 child 分别是什么。</li>
+<li>补 2 个日语 review 句子：一条确认 navigation 暴露，一条确认 expand 权限/性能。</li>
+<li>设计 expand 测试：无 child、多 child、无权限 child、大数据量。</li>
+<li>如果进入 Week 4，把 AC0567C POC 中可能的对象关系画成 navigation 候选图。</li>
+</ul>
+<h4 id="47-13-confidence-next-action-feff79f5" class="semantic-heading semantic-status">47.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-facing OData navigation / <code>$expand</code> contract after official-source closure。正文已补并于 2026-06-18 复核 OASIS OData V4.01 URL conventions / protocol 入口、SAP Help <code>Service Binding</code>、SAP Help <code>Service Definition</code>、ADT OData V4 service binding editor 和 SAP Learning <code>Defining OData UI Services</code>。这些资料支撑 <code>$expand</code>、navigation property、service definition / binding 暴露链与 metadata-driven contract。当前内容已覆盖 association/composition -&gt; projection -&gt; service definition -&gt; service binding -&gt; <code>$metadata</code> -&gt; <code>$expand</code> 的暴露链、navigation 名称作为 API contract、parent/child authorization、payload/performance 风险和 expand test checklist。具体 expand 支持、分页、权限过滤和性能行为需按当前 RAP release、binding type 和系统测试确认。</li>
+<li>Review status: prior Joule / Claude review artifacts for this section are deferred or timed out and explicitly state that no usable verdict was obtained；2026-06-18 Claude CLI 当前 session expired，外部 review debt 保留。由于本节已完成官方资料闭环和 <code>$expand</code> contract checklist 说明，不再停留在提纲草稿状态。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；下一节继续 <a class="wiki" href="section-03-048-rap-business-events-fd3eab08.html">RAP business events</a>，重点检查 event timing、payload、transaction boundary 和异步集成边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-047-odata-v4-expand-and-navigation-properties-28c33331.html">OData V4 expand and navigation properties</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-046-cds-table-function-vs-cds-view-entity-048e0553.html">Previous section</a><a href="section-03-048-rap-business-events-fd3eab08.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

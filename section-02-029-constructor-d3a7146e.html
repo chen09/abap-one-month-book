@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Constructor 构造方法 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="29-constructor-c4860f20" class="chapter-title">29. Constructor 构造方法</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 29</li><li>self-contained study note</li></ul><h4 id="29-1-0f073d41" class="semantic-heading semantic-concept">29.1 一句话结论</h4>
+<p>Constructor 构造方法是 OO ABAP 中对象或 class 被初始化时由 runtime 自动调用的特殊 method。<code>METHODS constructor</code> 是 instance constructor，用来把一个 object instance 建成“可用且状态一致”的对象；<code>CLASS-METHODS class_constructor</code> 是 class constructor，用来初始化 class-level static state。</p>
+<p>初学者最重要的判断是：constructor 应该建立对象的初始状态和必要依赖，不应该把主业务流程、数据库更新、远程调用、commit、权限判断或复杂副作用塞进去。一个好的 constructor 像“上车前检查座位和安全带”，不是“开完整趟车”。在 SAP 项目里，constructor 设计不好，常见后果是 ABAP Unit 难写、依赖难替换、RAP/服务逻辑生命周期不清、错误发生在对象创建阶段而不是业务动作阶段。</p>
+<h4 id="29-2-4f6a98cd" class="semantic-heading semantic-concept">29.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-028-static-vs-instance-e9b8f033.html">Static vs instance 静态与实例</a> 已经区分了 object instance 与 class-level static state。本节继续问：对象刚创建出来时，哪些事情应该发生？哪些事情不应该发生？</p>
+<p>本节要掌握七个边界：</p>
+<ul>
+<li><code>METHODS constructor</code> 声明 instance constructor；创建对象时由 runtime 自动调用。</li>
+<li>instance constructor 的接口只能用于接收创建对象所需的输入和异常处理；不要期待它有 <code>EXPORTING</code>、<code>CHANGING</code> 或 <code>RETURNING</code> 结果。</li>
+<li>constructor 可以接收必要输入或依赖，常见用途是初始化 instance attribute；用于 testability 时，依赖应优先声明成 interface reference，而不是具体 class。</li>
+<li>现代 ABAP 常用 <code>NEW lcl_service( ... )</code> 创建对象；经典代码里也可见 <code>CREATE OBJECT lo_service EXPORTING ...</code>，但 ABAP Cloud / ABAP for Cloud Development 中应使用 <code>NEW</code>，不要把 <code>CREATE OBJECT</code> 当成新代码默认写法。</li>
+<li>constructor 不是普通业务 method，不能把它当作 <code>lo_obj-&gt;constructor( )</code> 这样的普通 instance method 手工调用。</li>
+<li><code>CLASS-METHODS class_constructor</code> 声明 class constructor；class 第一次被使用前由 runtime 自动调用，用来初始化 static state；它不能有参数，也不能声明异常。</li>
+<li>constructor injection 是把外部依赖通过 constructor 传入对象，常用于让逻辑可测试、可替换、可解释。</li>
+<li>constructor 和 class constructor 都不应承担业务副作用；主业务动作应放在明确命名的 public method 中。</li>
+</ul>
+<p>最小例子：</p>
+<pre><code class="language-abap">CLASS lcl_price_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING iv_currency TYPE string.
+
+    METHODS get_currency
+      RETURNING VALUE(rv_currency) TYPE string.
+
+  PRIVATE SECTION.
+    DATA mv_currency TYPE string.
+ENDCLASS.
+
+CLASS lcl_price_service IMPLEMENTATION.
+  METHOD constructor.
+    mv_currency = iv_currency.
+  ENDMETHOD.
+
+  METHOD get_currency.
+    rv_currency = mv_currency.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>调用者创建对象：</p>
+<pre><code class="language-abap">DATA(lo_service) = NEW lcl_price_service( iv_currency = &#x27;JPY&#x27; ).</code></pre>
+<p>创建完成后，<code>lo_service</code> 代表一个已经知道 currency 的 price service。constructor 的职责是“初始化对象状态”，不是马上读数据库、生成会计凭证或提交事务。</p>
+<h4 id="29-3-dbf9bea8" class="semantic-heading semantic-why">29.3 为什么重要</h4>
+<p>constructor 是对象生命周期的入口。入口设计清楚，后面的 method 才容易读；入口设计混乱，对象会带着隐形状态和隐形副作用进入系统。</p>
+<p>在项目里，constructor 常见问题包括：</p>
+<ul>
+<li>constructor 里做数据库更新或远程调用，只是创建对象就产生业务副作用。</li>
+<li>constructor 里读取大量 customizing 或缓存，导致 ABAP Unit 慢、测试结果受环境影响。</li>
+<li>constructor 参数太多，说明 class 职责可能太大。</li>
+<li>constructor 没有接收依赖，而是在内部直接调用 static helper、数据库、系统日期，导致 test double 很难注入。</li>
+<li>class constructor 中初始化可变 static cache，测试顺序或运行上下文改变后结果不稳定。</li>
+<li>对象创建失败时抛出异常，但调用方没有意识到 <code>NEW</code> 本身可能失败。</li>
+</ul>
+<p>Java/Python 背景学习者会觉得 constructor 很熟悉，但 ABAP 项目还要多想几层：class 是 repository object，global class 可能被很多对象通过 where-used 调用；对象创建可能发生在 dialog、background、RAP handler、unit test、service call 等不同 runtime context；constructor 的副作用会在这些上下文里一起出现。</p>
+<h4 id="29-4-key-mechanism-070c3046" class="semantic-heading semantic-mechanism">29.4 Key mechanism / 核心机制</h4>
+<h5 id="29-4-1-instance-constructor-initializes-one-object-a09f07db">29.4.1 instance constructor initializes one object</h5>
+<p>instance constructor 用 <code>METHODS constructor</code> 声明，用 <code>METHOD constructor. ... ENDMETHOD.</code> 实现。它属于对象创建流程的一部分：</p>
+<pre><code class="language-abap">CLASS lcl_range DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING iv_from TYPE i
+                iv_to   TYPE i.
+
+    METHODS contains
+      IMPORTING iv_value         TYPE i
+      RETURNING VALUE(rv_result) TYPE abap_bool.
+
+  PRIVATE SECTION.
+    DATA mv_from TYPE i.
+    DATA mv_to   TYPE i.
+ENDCLASS.
+
+CLASS lcl_range IMPLEMENTATION.
+  METHOD constructor.
+    mv_from = iv_from.
+    mv_to   = iv_to.
+  ENDMETHOD.
+
+  METHOD contains.
+    rv_result = xsdbool( iv_value &gt;= mv_from AND iv_value &lt;= mv_to ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>调用：</p>
+<pre><code class="language-abap">DATA(lo_range) = NEW lcl_range(
+  iv_from = 10
+  iv_to   = 20 ).
+
+IF lo_range-&gt;contains( 15 ) = abap_true.
+  &quot; inside the range
+ENDIF.</code></pre>
+<p><code>lo_range</code> 创建出来后，<code>mv_from</code> 和 <code>mv_to</code> 已经有值。<code>contains</code> 不需要每次都重新传 from/to，这就是 constructor 初始化 instance state 的价值。</p>
+<h5 id="29-4-2-constructor-is-a-contract-too-e0b7e2c1">29.4.2 constructor is a contract too</h5>
+<p>constructor 不是普通 implementation detail，它也是调用者必须理解的 contract。调用者看到 constructor 参数时，会知道“创建这个对象必须提供哪些东西”。</p>
+<p>好的 constructor 参数通常具备这些特征：</p>
+<ul>
+<li>数量少，表达对象成立所必需的输入。</li>
+<li>类型清楚，最好用 DDIC type、interface reference 或明确 value object。</li>
+<li>不混入业务动作参数，例如 <code>iv_do_posting</code>、<code>iv_commit_now</code>、<code>iv_send_mail</code>。</li>
+<li>不把可以由普通 method 输入的临时值提前塞进对象状态。</li>
+</ul>
+<p>如果 constructor 参数很多，经常说明 class 做了太多事。可以考虑拆 class、引入 <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a>、使用配置对象，或把一次性业务输入移到业务 method。</p>
+<h5 id="29-4-3-constructor-injection-26b31442">29.4.3 constructor injection</h5>
+<p>constructor injection 是把依赖通过 constructor 传进对象，而不是在对象内部硬编码创建依赖。它是让 ABAP 业务逻辑变得可测试的关键技巧之一。</p>
+<p>例子：price service 需要一个 discount reader。不要在 service 内部直接 new 一个具体 reader，也不要直接 static call 某个全局工具；更好的做法是依赖 interface：</p>
+<pre><code class="language-abap">INTERFACE lif_discount_reader.
+  METHODS get_rate
+    IMPORTING iv_customer_id TYPE string
+    RETURNING VALUE(rv_rate) TYPE decfloat34.
+ENDINTERFACE.
+
+CLASS lcl_price_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING io_discount_reader TYPE REF TO lif_discount_reader.
+
+    METHODS calculate
+      IMPORTING iv_customer_id     TYPE string
+                iv_amount          TYPE decfloat34
+      RETURNING VALUE(rv_amount)   TYPE decfloat34.
+
+  PRIVATE SECTION.
+    DATA mo_discount_reader TYPE REF TO lif_discount_reader.
+ENDCLASS.
+
+CLASS lcl_price_service IMPLEMENTATION.
+  METHOD constructor.
+    mo_discount_reader = io_discount_reader.
+  ENDMETHOD.
+
+  METHOD calculate.
+    DATA(lv_rate) = mo_discount_reader-&gt;get_rate( iv_customer_id ).
+    rv_amount = iv_amount * ( 1 - lv_rate ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这样，生产代码可以传真实 reader，ABAP Unit 可以传 test double。constructor 的职责只是接收 interface-typed dependency，并保存到 private instance attribute。真正的业务计算仍然在 <code>calculate</code>。</p>
+<p>真实项目里还要检查 <code>io_discount_reader</code> 是否 bound；如果依赖缺失，应使用项目约定的 exception class 或 factory 规则处理。本节先看结构，不把异常设计提前展开。</p>
+<p>还有一种常见变体是 fallback implementation：constructor 参数设为 optional，如果调用者没有注入依赖，就在 constructor 内部创建默认实现。这个模式能兼顾调用方便和测试替换，但要保证默认实现不隐藏重业务副作用。</p>
+<h5 id="29-4-4-new-and-create-object-a4c57563">29.4.4 NEW and CREATE OBJECT</h5>
+<p>现代 ABAP 中常见写法是 constructor expression：</p>
+<pre><code class="language-abap">DATA(lo_service) = NEW lcl_price_service(
+  io_discount_reader = lo_reader ).</code></pre>
+<p>classic 旧代码或老项目里也常见：</p>
+<pre><code class="language-abap">DATA lo_service TYPE REF TO lcl_price_service.
+
+CREATE OBJECT lo_service
+  EXPORTING
+    io_discount_reader = lo_reader.</code></pre>
+<p>两种写法都表达“创建对象并调用 constructor”。本教程优先使用 <code>NEW</code>，因为它更短、更接近表达式风格，也更符合现代 ABAP / ABAP Cloud 的方向；读旧代码时要能认出 <code>CREATE OBJECT</code>，但不要在新代码里优先模仿它。</p>
+<h5 id="29-4-5-class-constructor-initializes-class-level-state-0e82d9de">29.4.5 class constructor initializes class-level state</h5>
+<p>class constructor 用 <code>CLASS-METHODS class_constructor</code> 声明，用 <code>METHOD class_constructor.</code> 实现。它不是创建某个对象时调用，而是在 class 第一次被使用前由 runtime 触发。更精确地说，它通常在当前 internal session 中每个 class 执行一次，触发点可能是第一次创建实例、第一次调用 static method、第一次访问 public static attribute 等。</p>
+<p><code>class_constructor</code> 是特殊 static constructor：不能有 importing/exporting/changing/returning 参数，也不能声明异常。初学者如果尝试给它加参数或 <code>RAISING</code>，应把它理解成语法层面的错误，而不是风格问题。</p>
+<p>适合 class constructor 的场景通常很小，例如初始化不可变 lookup table：</p>
+<pre><code class="language-abap">CLASS lcl_status_text DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+
+  PRIVATE SECTION.
+    TYPES:
+      BEGIN OF ty_status_text,
+        status TYPE string,
+        text   TYPE string,
+      END OF ty_status_text,
+      tt_status_text TYPE HASHED TABLE OF ty_status_text WITH UNIQUE KEY status.
+
+    CLASS-DATA gt_status_text TYPE tt_status_text.
+
+    CLASS-METHODS class_constructor.
+ENDCLASS.
+
+CLASS lcl_status_text IMPLEMENTATION.
+  METHOD class_constructor.
+    gt_status_text = VALUE #(
+      ( status = &#x27;O&#x27; text = &#x27;Open&#x27; )
+      ( status = &#x27;C&#x27; text = &#x27;Closed&#x27; ) ).
+  ENDMETHOD.
+
+  METHOD get_text.
+    READ TABLE gt_status_text WITH TABLE KEY status = iv_status INTO DATA(ls_text).
+    rv_text = COND #( WHEN sy-subrc = 0 THEN ls_text-text ELSE &#x27;Unknown&#x27; ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这个 class constructor 只做轻量、确定、可解释的 static 初始化。它不读业务数据库、不发 HTTP 请求、不提交事务、不发消息、不根据当前用户做复杂分支。</p>
+<h5 id="29-4-6-creation-control-belongs-to-class-design-c57a09e5">29.4.6 creation control belongs to class design</h5>
+<p>在 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a> 中已经提过，ABAP class 可以通过 class options 控制实例化，例如 <code>CREATE PUBLIC</code>、<code>CREATE PROTECTED</code>、<code>CREATE PRIVATE</code>。这和 constructor 一起决定“谁能创建对象”。</p>
+<p>常见策略：</p>
+<ul>
+<li><code>CREATE PUBLIC</code>：外部可以直接 <code>NEW zcl_service( )</code>。</li>
+<li><code>CREATE PROTECTED</code>：只允许受保护范围内创建，通常和继承或受控扩展一起出现。</li>
+<li><code>CREATE PRIVATE</code>：外部不能随意创建，通常配合 factory method。</li>
+<li>factory method：把复杂对象创建规则集中在一个清楚入口，例如 <code>zcl_service=&gt;create( )</code>。</li>
+</ul>
+<p>典型 factory method 长这样：</p>
+<pre><code class="language-abap">CLASS-METHODS create
+  RETURNING VALUE(ro_instance) TYPE REF TO zcl_price_service.</code></pre>
+<p>初学阶段先掌握 <code>CREATE PUBLIC</code> + 简单 constructor；看到 <code>CREATE PRIVATE</code>、<code>CREATE PROTECTED</code> 或 factory pattern 时，理解为“项目想控制对象创建入口”，不要把它当成神秘技巧。</p>
+<h5 id="29-4-7-constructor-and-exceptions-88a215f4">29.4.7 constructor and exceptions</h5>
+<p>constructor 如果发现对象无法被正确创建，可以通过项目约定的 class-based exception 报错。调用者要意识到：<code>NEW</code> 本身也可能进入 <code>TRY...CATCH</code>。</p>
+<p>示意：</p>
+<pre><code class="language-abap">TRY.
+    DATA(lo_service) = NEW lcl_price_service(
+      io_discount_reader = lo_reader ).
+  CATCH zcx_price_config_error INTO DATA(lx_error).
+    &quot; handle construction failure
+ENDTRY.</code></pre>
+<p>但不要把 constructor 设计成“大量业务校验 + 复杂异常分支”的地方。对象创建失败应该是“依赖或初始配置不满足”，不是“业务流程执行失败”。业务流程失败更适合发生在 <code>calculate</code>、<code>post</code>、<code>save</code>、<code>validate</code> 等明确业务 method 中。</p>
+<p>如果 constructor 抛出异常，对象创建不会完成，调用者也不应假设已经拿到了可用实例。这个语义很重要：constructor exception 是“对象没有被正确创建”的信号，不是“对象已经创建但业务结果失败”的返回方式。</p>
+<h5 id="29-4-8-constructor-review-checklist-7ffa6231">29.4.8 constructor review checklist</h5>
+<p>在 code review 里，可以用下面这张表判断某段逻辑是否应该放在 constructor 中。核心原则是：constructor 建立“对象能成立”的前提，业务 method 执行“对象要做的动作”。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Constructor is acceptable when...</th><th>Move to normal method when...</th></tr></thead><tbody><tr><td>Is this required for object validity?</td><td>没有它对象就无法保持一致状态</td><td>只是某次业务动作才需要的输入</td></tr><tr><td>Does it have business side effects?</td><td>只保存 dependency / initial value</td><td>会写 DB、发消息、commit、调用外部系统</td></tr><tr><td>Can it fail?</td><td>依赖缺失、配置缺失、输入不合法导致对象不能创建</td><td>业务规则失败、审批失败、过账失败</td></tr><tr><td>Is it fast and deterministic?</td><td>只做轻量初始化或不可变 lookup</td><td>读取大量 customizing、远程调用、等待锁</td></tr><tr><td>Can tests replace dependencies?</td><td>依赖通过 interface reference 注入</td><td>constructor 内部硬编码 <code>NEW</code> 具体 class 或 static call</td></tr><tr><td>Is lifecycle clear?</td><td>对象创建后可预测、可重复、无隐藏动作</td><td>仅引用 class 或创建对象就触发业务流程</td></tr></tbody></table></div>
+<p>如果 review 中看到 <code>NEW zcl_service( )</code> 就发送邮件、更新状态、写 application log、调用 BAPI 或执行 <code>COMMIT WORK</code>，通常应该要求重构。更好的设计是：constructor 接收必要依赖和初始配置，public method 例如 <code>send( )</code>、<code>post( )</code>、<code>save( )</code>、<code>execute( )</code> 执行业务动作，并让调用者清楚看到副作用发生在哪里。</p>
+<h4 id="29-5-8692de7d" class="semantic-heading semantic-japan">29.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>コンストラクタ</code>、<code>インスタンスコンストラクタ</code>、<code>クラスコンストラクタ</code>、<code>初期化処理</code>、<code>依存性注入</code>、<code>副作用</code>、<code>生成制御</code>。</li>
+<li>设计说明句：このクラスでは、必要な依存オブジェクトをコンストラクタで受け取り、業務処理は <code>calculate</code> メソッド側に分離しています。</li>
+<li>Review 指摘句：コンストラクタ内でDB更新や外部API呼び出しを行うと、オブジェクト生成だけで副作用が発生するため避けるべきです。</li>
+<li>Class constructor 指摘句：クラスコンストラクタは軽量な静的初期化に限定し、ユーザ依存・トランザクション依存の処理を入れない方針にします。</li>
+<li>ABAP Cloud 指摘句：新規開発では <code>CREATE OBJECT</code> ではなく <code>NEW</code> を使い、クラウド開発で許可される構文に揃えます。</li>
+<li>使用场景：class 设计说明、ABAP Unit testability review、factory method 设计、RAP handler/service 依赖管理、障害调查中确认对象创建时点。</li>
+</ul>
+<p>日本项目里常说 <code>初期化</code>，但要追问“初始化什么”。初始化对象自己的稳定状态是 constructor 的职责；执行审批、保存、发送、commit，不应伪装成初始化。</p>
+<h4 id="29-6-english-terms-00551468" class="semantic-heading semantic-terms">29.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>constructor</code>, <code>class constructor</code>, <code>METHODS constructor</code>, <code>CLASS-METHODS class_constructor</code>, <code>NEW</code>, <code>CREATE OBJECT</code>, <code>constructor injection</code>, <code>factory method</code></li>
+<li>Related syntax: <code>METHODS constructor IMPORTING ...</code>, <code>METHOD class_constructor</code>, <code>NEW lcl_class( ... )</code>, <code>CREATE OBJECT</code>, <code>CREATE PUBLIC</code>, <code>CREATE PROTECTED</code>, <code>CREATE PRIVATE</code>, <code>CLASS-METHODS create</code></li>
+<li>Review terms: <code>initialization</code>, <code>dependency injection</code>, <code>side effect</code>, <code>business side effects</code>, <code>object creation</code>, <code>factory</code>, <code>test double</code></li>
+<li>读官方资料时优先保留英文关键字：<code>constructor</code> 和 <code>class_constructor</code> 是特殊 method 名，不要翻译成普通函数名。</li>
+</ul>
+<h4 id="29-7-example-46aaaea0" class="semantic-heading semantic-example">29.7 Example / 学习例子</h4>
+<h5 id="29-7-1-1-constructor-3d09ccc0">29.7.1 例 1：constructor 初始化对象状态</h5>
+<pre><code class="language-abap">CLASS lcl_user_context DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING iv_user_id TYPE string.
+    METHODS get_user_id
+      RETURNING VALUE(rv_user_id) TYPE string.
+
+  PRIVATE SECTION.
+    DATA mv_user_id TYPE string.
+ENDCLASS.
+
+CLASS lcl_user_context IMPLEMENTATION.
+  METHOD constructor.
+    mv_user_id = iv_user_id.
+  ENDMETHOD.
+
+  METHOD get_user_id.
+    rv_user_id = mv_user_id.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>iv_user_id</code> 是对象成立所需的初始信息，放进 constructor 合理。后续 method 不需要每次重复传 user id。</p>
+<h5 id="29-7-2-2-constructor-injection-745a27f6">29.7.2 例 2：constructor injection 让测试更容易</h5>
+<pre><code class="language-abap">DATA(lo_service) = NEW lcl_price_service(
+  io_discount_reader = lo_test_reader ).</code></pre>
+<p>在 ABAP Unit 中，<code>lo_test_reader</code> 可以是一个实现 <code>lif_discount_reader</code> 的 local test double。这样测试不需要真实数据库、远程服务或复杂 customizing。constructor 的价值不是“多写一个 method”，而是把依赖关系显式放到对象创建入口。</p>
+<h5 id="29-7-3-3-constructor-a22856c6">29.7.3 例 3：不要把业务动作塞进 constructor</h5>
+<p>不建议：</p>
+<pre><code class="language-abap">METHOD constructor.
+  mv_order_id = iv_order_id.
+  update_order_status( iv_order_id ).
+  COMMIT WORK.
+ENDMETHOD.</code></pre>
+<p>这样只是 <code>NEW lcl_order_service( ... )</code> 就会更新订单并提交事务。调用者很难预期，测试也很难控制。</p>
+<p>更合理：</p>
+<pre><code class="language-abap">METHOD constructor.
+  mv_order_id = iv_order_id.
+ENDMETHOD.
+
+METHOD approve.
+  update_order_status( mv_order_id ).
+ENDMETHOD.</code></pre>
+<p>对象创建和业务动作分开，调用者可以明确知道什么时候真正执行审批。</p>
+<h5 id="29-7-4-4-class-constructor-21c8950c">29.7.4 例 4：class constructor 只做轻量初始化</h5>
+<p>适合：</p>
+<pre><code class="language-abap">METHOD class_constructor.
+  gt_status_text = VALUE #(
+    ( status = &#x27;O&#x27; text = &#x27;Open&#x27; )
+    ( status = &#x27;C&#x27; text = &#x27;Closed&#x27; ) ).
+ENDMETHOD.</code></pre>
+<p>不适合：</p>
+<pre><code class="language-abap">METHOD class_constructor.
+  call_remote_service( ).
+  update_custom_table( ).
+  COMMIT WORK.
+ENDMETHOD.</code></pre>
+<p>class constructor 由 runtime 在 class 首次使用时触发，调用者很难从业务代码上看出它何时执行。因此越轻越好，越确定越好。</p>
+<h4 id="29-8-counterexample-failure-mode-ec1eeb52" class="semantic-heading semantic-example">29.8 Counterexample / Failure mode</h4>
+<h5 id="29-8-1-1-constructor-6d610d74" class="semantic-heading semantic-failure">29.8.1 误区 1：constructor 做主业务流程</h5>
+<p>constructor 里直接审批、保存、发送、commit，会让对象创建和业务动作混在一起。</p>
+<p>修正动作：constructor 只初始化状态和依赖；主业务动作放进清楚命名的 public method。</p>
+<h5 id="29-8-2-2-constructor-8807f8ca" class="semantic-heading semantic-failure">29.8.2 误区 2：constructor 参数无限膨胀</h5>
+<p>如果 constructor 有十几个参数，class 多半承担了太多职责，或缺少配置对象 / context object / interface。</p>
+<p>修正动作：拆分 class，提取 value object，或用 interface 表达外部依赖。</p>
+<h5 id="29-8-3-3-class-constructor-61466b2c" class="semantic-heading semantic-failure">29.8.3 误区 3：class constructor 读取环境相关业务数据</h5>
+<p>class constructor 中按当前用户、日期、client、customizing、远程系统状态做复杂初始化，会让首次使用 class 的行为变得不可预测。</p>
+<p>修正动作：class constructor 只做轻量、稳定、幂等的 static 初始化；环境相关逻辑放在显式 method 中。</p>
+<h5 id="29-8-4-4-constructor-injection-new-static-call-41e949a8" class="semantic-heading semantic-failure">29.8.4 误区 4：不用 constructor injection，依赖全靠内部 new/static call</h5>
+<p>业务 service 内部自己创建所有依赖，测试时就很难替换数据库、远程 API、日期、用户或 customizing reader。</p>
+<p>修正动作：对不稳定依赖使用 interface + constructor injection；简单纯函数 helper 可以保持 static。</p>
+<h5 id="29-8-5-5-constructor-exception-209ffb79" class="semantic-heading semantic-failure">29.8.5 误区 5：把 constructor exception 当普通业务失败</h5>
+<p>constructor exception 表示对象无法正确创建。不要把“订单审批失败”“保存失败”“业务校验失败”都塞进对象创建阶段。</p>
+<p>修正动作：创建失败和业务执行失败分开；前者在 constructor / factory，后者在业务 method。</p>
+<h4 id="29-9-f96bd247" class="semantic-heading semantic-practice">29.9 思考问题</h4>
+<ul>
+<li>创建这个对象时，哪些信息是对象成立所必需的？</li>
+<li>哪些参数只是某次业务动作的输入，不应该放进 constructor？</li>
+<li>这个 constructor 是否有数据库更新、远程调用、commit、message、authorization 等副作用？</li>
+<li>依赖对象是否通过 interface 传入，还是在内部硬编码创建？</li>
+<li>如果写 ABAP Unit，能不能传入 test double？</li>
+<li>class constructor 是否只做轻量静态初始化？是否依赖当前用户、日期、client 或数据库状态？</li>
+<li>对象创建失败和业务执行失败是否区分清楚？</li>
+<li>在日本项目里 review 时，应说 <code>初期化処理</code>，还是应指出 <code>業務副作用がコンストラクタに入っている</code>？</li>
+</ul>
+<h4 id="29-10-4346e56b" class="semantic-heading semantic-reference">29.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPMETHODS_CONSTRUCTOR.html" target="_blank" rel="noopener noreferrer">METHODS, constructor</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCLASS-METHODS_CONSTRUCTOR.html" target="_blank" rel="noopener noreferrer">CLASS-METHODS, class_constructor</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCLASS-METHODS.html" target="_blank" rel="noopener noreferrer">CLASS-METHODS</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASS_METHODS.html" target="_blank" rel="noopener noreferrer">Methods of Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCLASS_OPTIONS.html" target="_blank" rel="noopener noreferrer">CLASS, class options</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASSES.html" target="_blank" rel="noopener noreferrer">ABAP Objects - Classes</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+</ul>
+<h4 id="29-11-connections-fbfc1704">29.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-028-static-vs-instance-e9b8f033.html">Static vs instance 静态与实例</a></li>
+<li>Downstream: <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a></li>
+<li>Related: <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li>Related: <a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a></li>
+<li>Related: <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 11 - OO ABAP 类与方法基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="29-12-6256c50f" class="semantic-heading semantic-practice">29.12 学习任务</h4>
+<ul>
+<li>写一个 <code>lcl_range</code>，用 constructor 接收 <code>iv_from</code> / <code>iv_to</code>，再用 <code>contains</code> 判断数字是否在范围内。</li>
+<li>把一个“constructor 里做业务动作”的坏例子改成 constructor + public business method。</li>
+<li>写一个 interface + constructor injection 的最小例子，并说明 ABAP Unit 为什么更容易写。</li>
+<li>用 5 行中文解释 instance constructor 与 class constructor 的区别。</li>
+<li>用日语写一句 review comment，指出 constructor 里有业务副作用。</li>
+<li>打开 SAP Help 的 <code>METHODS, constructor</code> 页面，确认 constructor 的语法入口。</li>
+<li>如果已经进入 Week 3/4，观察 RAP handler / saver / behavior class 中哪些对象由 framework 管理生命周期，不要随意假设 constructor 调用时点。</li>
+</ul>
+<h4 id="29-13-confidence-next-action-3df21819" class="semantic-heading semantic-status">29.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容已用 SAP Help / ABAP Keyword Documentation 的 <code>METHODS, constructor</code>、<code>CLASS-METHODS, class_constructor</code>、class methods、class options 和 ABAP Objects 页面校准，并已按 Joule <code>Pass with fixes</code> 补入 instance constructor 只能接收输入、不能直接调用、<code>CREATE OBJECT</code> 的 ABAP Cloud caveat、<code>class_constructor</code> 无参数/无异常、per internal session、constructor injection 与 factory/creation-control 边界。</li>
+<li>Next action: 已完成官方资料与 Joule 证据闭环并同步到 Chapter 02 与离线书稿；Claude 2026-06-13 超时且当前 Claude CLI 仍有 credentials provider 问题，后续恢复后可做补充复核。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-028-static-vs-instance-e9b8f033.html">Previous section</a><a href="section-02-030-interface-95651eea.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

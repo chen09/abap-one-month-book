@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>MODIFY statement 修改语义 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="11-modify-statement-535adc4e" class="chapter-title">11. MODIFY statement 修改语义</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 11</li><li>self-contained study note</li></ul><h4 id="11-1-fda20dd2" class="semantic-heading semantic-concept">11.1 一句话结论</h4>
+<p>ABAP SQL 的 <code>MODIFY</code> 用来把来源行写入可写数据库对象：目标主键不存在时插入，目标主键已存在时覆盖既有行。它接近 upsert 语义，但不能把它理解成“省事版 UPDATE”。学习重点是确认业务是否真的允许“有则覆盖、无则新增”，来源结构是否完整可信，实际处理了几行，事务、锁、权限、Clean Core 和 RAP save sequence 是否都在正确边界内。</p>
+<h4 id="11-2-aca8e8cd" class="semantic-heading semantic-concept">11.2 到底学什么</h4>
+<p>先把边界说清楚：本节讲的是 ABAP SQL <code>MODIFY</code>，也就是对数据库持久化对象执行插入或覆盖；它不是内部表 <code>MODIFY</code>，也不是 RAP EML 的 <code>MODIFY ENTITIES</code>。内部表 <code>MODIFY</code> 只是改 ABAP 内存；ABAP SQL <code>MODIFY</code> 会进入数据库写入路径；<code>MODIFY ENTITIES</code> 则属于 <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML</a> 和 RAP business object 的事务模型。</p>
+<p>一个最小的 ABAP SQL <code>MODIFY</code> 示例长这样：</p>
+<pre><code class="language-abap">DATA(ls_state) = VALUE zrequest_state(
+  request_id = lv_request_id
+  status     = lc_status_processed
+  changed_by = sy-uname
+  changed_at = lv_changed_at ).
+
+MODIFY zrequest_state FROM @ls_state.
+
+DATA(lv_modify_subrc) = sy-subrc.
+DATA(lv_processed)    = sy-dbcnt.</code></pre>
+<p>读这段代码时，不要只看“执行成功没有”。要先问：<code>request_id</code> 是否就是唯一业务 key？如果这行已经存在，是否允许用 <code>ls_state</code> 的内容覆盖它？如果这行不存在，是否允许创建新行？如果 <code>ls_state</code> 里某些非 key 字段是 initial，会不会把数据库里原本有值的字段覆盖成空？这几个问题回答不清楚，就不应该轻易使用 <code>MODIFY</code>。</p>
+<p>多行写入使用内表：</p>
+<pre><code class="language-abap">MODIFY zrequest_state FROM TABLE @lt_state.</code></pre>
+<p>这行看起来简洁，但风险更集中：<code>lt_state</code> 每一行都会按 key 被插入或覆盖；<code>sy-dbcnt</code> 反映处理件数；如果唯一索引冲突、来源内表里有重复 key、或部分行无法处理，就必须有日志和错误策略。批量 <code>MODIFY</code> 不应该只是“把内表丢给数据库”，而应该是一个经过校验的 upsert 批处理。</p>
+<h4 id="11-3-9442929f" class="semantic-heading semantic-why">11.3 为什么重要</h4>
+<p><code>INSERT</code>、<code>UPDATE</code>、<code>DELETE</code> 的意图相对清楚：新增、更新、删除。<code>MODIFY</code> 最危险的地方，正是它把“新增”和“更新”合在一个语句里。这个合并在接口幂等、状态同步、缓存刷新、主数据导入、日志 upsert 等场景里很有价值；但在订单创建、财务过账、审批流、库存移动、标准业务数据修正等场景里，也可能隐藏严重业务差异。</p>
+<p>它的第一层价值是表达 upsert。比如外部系统重复推送同一个 request id，本系统希望记录“最后一次处理状态”。如果同一 request id 不存在就创建，存在就覆盖状态，这就是合理的 <code>MODIFY</code> 候选场景。</p>
+<p>第二层价值是防止误用。初学者常因为不想处理 <code>INSERT</code> 的重复 key，也不想处理 <code>UPDATE</code> 的 0 件，于是直接换成 <code>MODIFY</code>。这会把“重复创建”“目标不存在”“并发覆盖”这些本该暴露出来的问题变成静默覆盖。代码看似更短，业务语义反而更模糊。</p>
+<p>第三层价值是字段覆盖意识。<code>MODIFY ... FROM @wa</code> 不是“只改 wa 里我关心的字段”。如果目标行已存在，它会用来源行覆盖既有行的非 key 字段。来源结构不完整、字段默认 initial、从旧数据读出后又被别人修改过，都可能导致 lost update。</p>
+<p>第四层价值是事务边界。<code>MODIFY</code> 成功不等于业务已经提交。它仍然属于当前 <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW</a> / <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW</a> 的一部分，最终是否永久生效取决于 <code>COMMIT WORK</code>、<code>ROLLBACK WORK</code> 或框架事务。可复用方法里随手提交，会破坏调用方的事务设计。</p>
+<p>第五层价值是 Clean Core。能写 <code>MODIFY mara ...</code> 这类语法，不代表项目允许直接覆盖 SAP 标准表。SAP S/4HANA、ABAP Cloud、RAP 和 Clean Core 语境下，要优先使用 released API、BAPI、RAP BO、业务事务、扩展点或项目认可的持久化对象。</p>
+<h4 id="11-4-key-mechanism-ab839579" class="semantic-heading semantic-mechanism">11.4 Key mechanism / 核心机制</h4>
+<h5 id="11-4-1-modify-insert-or-overwrite-8948e6ee">11.4.1 <code>MODIFY</code> 的语义：insert or overwrite</h5>
+<p>SAP Help 对 ABAP SQL <code>MODIFY</code> 的核心定义是：把来源行插入目标可写数据库对象，或覆盖已经存在的行。换成项目语言，就是：</p>
+<pre><code class="language-text">如果 key 不存在：insert
+如果 key 已存在：overwrite / update existing row</code></pre>
+<p>所以 <code>MODIFY</code> 不是普通 <code>UPDATE</code>。<code>UPDATE</code> 在目标行不存在时不会创建新行；<code>MODIFY</code> 会。<code>MODIFY</code> 也不是普通 <code>INSERT</code>。<code>INSERT</code> 在同主键行已存在时应暴露冲突；<code>MODIFY</code> 会尝试覆盖既有行。</p>
+<p>学习时可以把三者放在一张小表里：</p>
+<pre><code class="language-text">INSERT  : 期望目标行不存在；已存在通常是冲突。
+UPDATE  : 期望目标行已存在；不存在通常是异常。
+MODIFY  : 明确允许不存在则插入、存在则覆盖。</code></pre>
+<p>这张表比语法更重要。写入语句首先表达业务意图，然后才是数据库操作。</p>
+<h5 id="11-4-2-modify-from-wa-key-73157e40">11.4.2 <code>MODIFY ... FROM @wa</code>：按 key 处理单行</h5>
+<p>单行 <code>MODIFY</code> 的来源通常是一个结构：</p>
+<pre><code class="language-abap">DATA(ls_pref) = VALUE zuser_pref(
+  user_id    = sy-uname
+  pref_key   = &#x27;DEFAULT_PLANT&#x27;
+  pref_value = lv_plant
+  changed_at = lv_changed_at ).
+
+MODIFY zuser_pref FROM @ls_pref.
+
+IF sy-subrc &lt;&gt; 0 OR sy-dbcnt &lt;&gt; 1.
+  &quot; Handle unexpected persistence result.
+ENDIF.</code></pre>
+<p>这个例子里，<code>user_id</code> 和 <code>pref_key</code> 可以共同构成偏好设置的 key。如果记录不存在，创建一条偏好；如果已经存在，覆盖偏好值。这种语义通常是合理的，因为“同一个用户同一个偏好键只有一条当前值”。</p>
+<p>但如果业务是“创建订单备注”，就不一定合理。创建备注时，同一个 <code>note_id</code> 已经存在往往是冲突，不应该静默覆盖原备注。此时 <code>INSERT</code> 更清楚：</p>
+<pre><code class="language-abap">INSERT zorder_note FROM @ls_note.
+
+IF sy-subrc = 4.
+  &quot; Duplicate key: this is a business conflict, not a silent upsert.
+ENDIF.</code></pre>
+<p>如果业务是“只允许修改已存在备注”，则 <code>UPDATE</code> 更清楚：</p>
+<pre><code class="language-abap">UPDATE zorder_note
+   SET note_text  = @lv_note_text,
+       changed_by = @sy-uname,
+       changed_at = @lv_changed_at
+ WHERE note_id = @lv_note_id.
+
+IF sy-dbcnt &lt;&gt; 1.
+  &quot; Expected exactly one existing row.
+ENDIF.</code></pre>
+<h5 id="11-4-3-modify-from-table-itab-upsert-880bf737">11.4.3 <code>MODIFY ... FROM TABLE @itab</code>：批量 upsert</h5>
+<p>批量 <code>MODIFY</code> 看起来像批量同步：</p>
+<pre><code class="language-abap">MODIFY zrequest_state FROM TABLE @lt_state.
+
+DATA(lv_processed) = sy-dbcnt.
+
+IF sy-subrc &lt;&gt; 0 OR lv_processed &lt;&gt; lines( lt_state ).
+  &quot; Log the failed or unexpected rows according to the batch design.
+ENDIF.</code></pre>
+<p>这种写法适合“来源系统给出一批当前状态，本系统按 key 做覆盖同步”的场景。比如接口状态表、临时统计表、用户偏好、可重算缓存、幂等请求状态等。</p>
+<p>批量场景要多问三件事：</p>
+<ul>
+<li><code>lt_state</code> 里是否有重复 key？如果有，哪一条应该获胜？</li>
+<li>覆盖既有行时，来源行是否包含所有必须保留的非 key 字段？</li>
+<li>如果只有部分行处理成功，日志、重试、回滚和告警怎么做？</li>
+</ul>
+<p>如果答案是“失败一行就整批回滚”，要确保当前事务边界能做到；如果答案是“成功多少算多少”，就必须把失败行记录到 application log 或接口返回里。不要只靠一行 <code>MODIFY ... FROM TABLE</code> 结束设计。</p>
+<h5 id="11-4-4-sy-subrc-sy-dbcnt-689a554f">11.4.4 <code>sy-subrc</code> 与 <code>sy-dbcnt</code></h5>
+<p><code>MODIFY</code> 会设置 <code>sy-subrc</code> 和 <code>sy-dbcnt</code>。初学者可以先记住三个常用判断：</p>
+<pre><code class="language-text">sy-subrc = 0 : 单行已插入/修改；多行全部处理；或者来源内表为空。
+sy-subrc = 4 : 行未处理，或多行中并非全部处理。
+sy-dbcnt    : 已处理的行数。</code></pre>
+<p>来源内表为空时，<code>sy-subrc</code> 仍可能是 0，<code>sy-dbcnt</code> 是 0。因此批量处理不能只写：</p>
+<pre><code class="language-abap">IF sy-subrc = 0.
+  &quot; All good?
+ENDIF.</code></pre>
+<p>更好的写法是把件数和业务预期一起检查：</p>
+<pre><code class="language-abap">DATA(lv_expected)  = lines( lt_state ).
+DATA(lv_processed) = sy-dbcnt.
+
+IF lv_expected = 0.
+  &quot; Nothing to persist. Decide whether this is allowed.
+ELSEIF sy-subrc &lt;&gt; 0 OR lv_processed &lt;&gt; lv_expected.
+  &quot; Not all rows were processed.
+ENDIF.</code></pre>
+<p>另外，如果变更会造成 unique secondary index 的重复，目标行可能不会被处理，<code>sy-subrc</code> 会反映失败。也就是说，主键不是唯一性规则的全部；表上定义的唯一索引、数据模型约束和业务 key 都要一起看。</p>
+<h5 id="11-4-5-modify-where-3e9c6ec4">11.4.5 <code>MODIFY</code> 没有业务条件版的 <code>WHERE</code></h5>
+<p>这是 <code>MODIFY</code> 和 <code>UPDATE ... SET ... WHERE ...</code> 的一个关键差异。<code>UPDATE</code> 可以把业务条件写进 <code>WHERE</code>：</p>
+<pre><code class="language-abap">UPDATE zsales_order
+   SET status = @lc_status_released
+ WHERE sales_order_id = @lv_sales_order_id
+   AND status         = @lc_status_checked
+   AND changed_at     = @lv_old_changed_at.</code></pre>
+<p>这段代码表达的是：只有订单仍处于预期状态、并且没有被别人改过，才允许更新。如果条件不满足，<code>sy-dbcnt</code> 会是 0，调用方可以报告并发冲突或状态不合法。</p>
+<p><code>MODIFY</code> 则主要靠来源行的 key 决定目标行。它适合明确 upsert，不适合表达“只有当前状态仍为 X 才覆盖”的业务规则。遇到状态流转、乐观锁、ETag、版本号、审批状态、库存扣减等场景，通常要优先考虑 <code>UPDATE ... WHERE ...</code>、<a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">lock object</a>、RAP lock / ETag 或业务 API，而不是直接 <code>MODIFY</code>。</p>
+<h5 id="11-4-6-b821cb52">11.4.6 覆盖不是局部更新</h5>
+<p>下面这个例子很危险：</p>
+<pre><code class="language-abap">DATA(ls_note) = VALUE zorder_note(
+  note_id   = lv_note_id
+  note_text = lv_note_text ).
+
+MODIFY zorder_note FROM @ls_note.</code></pre>
+<p>如果 <code>zorder_note</code> 还有 <code>sales_order_id</code>、<code>created_by</code>、<code>created_at</code>、<code>changed_by</code>、<code>status</code> 等字段，而 <code>ls_note</code> 使用的是完整表类型，那么未赋值字段可能是 initial。目标行已存在时，这些字段可能被覆盖成空或默认值。项目 review 里看到这种写法，要立刻问：这是完整行覆盖，还是误把 upsert 当成局部字段更新？</p>
+<p>如果只是改一个字段，用 <code>UPDATE ... SET ... WHERE ...</code> 更清楚。如果确实要覆盖整行，先从可信来源构造完整行，并说明字段来源和覆盖规则。</p>
+<h5 id="11-4-7-sap-lock-47a895a7">11.4.7 数据库锁、SAP lock 与提交边界</h5>
+<p>ABAP SQL 写入会在数据库层参与锁和事务，官方文档也提示 <code>MODIFY</code> 会设置数据库锁直到下一次 database commit 或 rollback。但数据库锁不是 SAP 业务锁。它通常只覆盖数据库操作和当前 database LUW，不能自动表示“这个业务对象正在被用户编辑”。</p>
+<p>SAP 项目里保护业务对象通常还需要 <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">SAP logical lock</a>、RAP lock、号码段、状态检查、版本字段或 ETag。比如两个用户都读出同一行，然后分别构造完整结构执行 <code>MODIFY</code>，后保存的人可能覆盖先保存人的字段。<code>MODIFY</code> 自身不会解决 lost update。</p>
+<h5 id="11-4-8-clean-core-8dd5bb01">11.4.8 Clean Core 与标准表边界</h5>
+<p><code>MODIFY</code> 能操作 writable database object，但“技术上可写”不等于“项目上可写”。尤其是 SAP 标准表、标准业务对象底表、缓存表、聚合表、状态表，直接覆盖可能绕过：</p>
+<ul>
+<li>标准业务校验</li>
+<li>授权检查</li>
+<li>变更文档</li>
+<li>派生逻辑</li>
+<li>缓存刷新</li>
+<li>锁和状态机</li>
+<li>升级兼容性</li>
+</ul>
+<p>因此，真实项目里要优先确认 released API、BAPI、RAP BO、业务事务、扩展点或项目自有表。对 SAP 标准表直接 <code>MODIFY</code>，通常应视为高风险修复动作，而不是普通开发习惯。</p>
+<h5 id="11-4-9-rap-modify-modify-entities-33549ae1">11.4.9 RAP 中不要混淆 <code>MODIFY</code> 与 <code>MODIFY ENTITIES</code></h5>
+<p>RAP 里常见的修改入口是 EML：</p>
+<pre><code class="language-abap">MODIFY ENTITIES OF zi_sales_order
+  ENTITY SalesOrder
+  UPDATE FIELDS ( Note )
+  WITH lt_update
+  FAILED   DATA(lt_failed)
+  REPORTED DATA(lt_reported).</code></pre>
+<p>这和 ABAP SQL <code>MODIFY ztable FROM @wa</code> 不是一回事。<code>MODIFY ENTITIES</code> 进入 RAP business object 的 behavior、authorization、validation、determination、lock、save sequence 和消息返回模型；直接 ABAP SQL <code>MODIFY</code> 底表则可能绕过这些机制。</p>
+<p>在 RAP handler、validation、determination 或 action 里，如果为了“赶快落库”直接 <code>MODIFY ztable</code>，再配合随手 <code>COMMIT WORK</code>，通常是高风险设计。相关边界要和 <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a>、<a class="wiki" href="section-03-038-rap-action-handler-anti-pattern-direct-insert-7325d509.html">RAP action handler 直写反模式</a>、RAP saver 和 EML 一起学习。</p>
+<h4 id="11-5-a906f8a1" class="semantic-heading semantic-japan">11.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>登録または更新</code></li>
+<li><code>登録／更新</code></li>
+<li><code>Upsert</code></li>
+<li><code>既存行の上書き</code></li>
+<li><code>主キー</code></li>
+<li><code>重複キー</code></li>
+<li><code>更新件数</code></li>
+<li><code>冪等性</code></li>
+<li><code>トランザクション境界</code></li>
+<li><code>直テーブル更新</code></li>
+</ul>
+<p>设计说明里可以这样说：</p>
+<pre><code class="language-text">この処理では、同一リクエストIDの状態を登録または更新するため、MODIFY文を使用します。</code></pre>
+<p>代码 review 里可以这样问：</p>
+<pre><code class="language-text">MODIFY文は既存行を上書きする可能性があるため、業務上 upsert でよいか確認してください。</code></pre>
+<p>如果担心字段覆盖，可以说：</p>
+<pre><code class="language-text">入力構造に未設定の項目がある場合、既存行の値を初期値で上書きしないか確認してください。</code></pre>
+<p>如果担心标准表直写，可以说：</p>
+<pre><code class="language-text">SAP標準テーブルを直接 MODIFY せず、Released API / BAPI / RAP BO / 業務トランザクションの利用可否を確認します。</code></pre>
+<h4 id="11-6-english-terms-5c654faa" class="semantic-heading semantic-terms">11.6 English Terms</h4>
+<ul>
+<li><code>ABAP SQL MODIFY</code></li>
+<li><code>MODIFY writable_obj</code></li>
+<li><code>MODIFY writable_obj FROM wa</code></li>
+<li><code>MODIFY writable_obj FROM TABLE itab</code></li>
+<li><code>insert or overwrite</code></li>
+<li><code>upsert</code></li>
+<li><code>writable database object</code></li>
+<li><code>processed rows</code></li>
+<li><code>sy-subrc</code></li>
+<li><code>sy-dbcnt</code></li>
+<li><code>unique secondary index</code></li>
+<li><code>database commit</code></li>
+<li><code>database rollback</code></li>
+<li><code>MODIFY ENTITIES</code></li>
+<li><code>RAP save sequence</code></li>
+<li><code>Clean Core</code></li>
+</ul>
+<p>Recommended search patterns:</p>
+<ul>
+<li><code>ABAP SQL MODIFY writable_obj sy-dbcnt</code></li>
+<li><code>ABAP MODIFY FROM TABLE sy-subrc</code></li>
+<li><code>SAP ABAP MODIFY insert overwrite</code></li>
+<li><code>ABAP RAP MODIFY ENTITIES save sequence</code></li>
+</ul>
+<h4 id="11-7-example-452ebc7f" class="semantic-heading semantic-example">11.7 Example / 学习例子</h4>
+<h5 id="11-7-1-1-upsert-a35f7b7b">11.7.1 例 1：合理的 upsert - 请求状态表</h5>
+<p>接口处理里经常会有一个请求状态表。外部系统可能重复发送同一个 request id，本系统希望记录最后处理状态：</p>
+<pre><code class="language-abap">DATA(ls_state) = VALUE zrequest_state(
+  request_id   = lv_request_id
+  status       = lc_status_processed
+  payload_hash = lv_payload_hash
+  changed_by   = sy-uname
+  changed_at   = lv_changed_at ).
+
+MODIFY zrequest_state FROM @ls_state.
+
+IF sy-subrc &lt;&gt; 0 OR sy-dbcnt &lt;&gt; 1.
+  &quot; Persisting the request state did not match the expected single-row upsert.
+ENDIF.</code></pre>
+<p>这里使用 <code>MODIFY</code> 的理由可以写清楚：同一个 <code>request_id</code> 只保留一条当前状态；重复请求可以覆盖状态；调用方关心最终状态，而不是每次重复请求都生成新记录。</p>
+<h5 id="11-7-2-2-modify-dc671f7f">11.7.2 例 2：不该用 <code>MODIFY</code> 的新增场景</h5>
+<p>如果业务是创建订单备注，重复 key 应该暴露为冲突：</p>
+<pre><code class="language-abap">INSERT zorder_note FROM @ls_note.
+
+IF sy-subrc = 4.
+  &quot; Duplicate note id. Report a conflict instead of overwriting silently.
+ENDIF.</code></pre>
+<p>这里改成 <code>MODIFY zorder_note FROM @ls_note</code> 会隐藏重复创建的问题。短期看少写了错误处理，长期看会让审计和问题追踪变困难。</p>
+<h5 id="11-7-3-3-modify-11b719a8">11.7.3 例 3：不该用 <code>MODIFY</code> 的状态流转</h5>
+<p>如果业务要求“只有 checked 状态才能 release”，要把当前状态写进条件：</p>
+<pre><code class="language-abap">UPDATE zsales_order
+   SET status     = @lc_status_released,
+       changed_by = @sy-uname,
+       changed_at = @lv_changed_at
+ WHERE sales_order_id = @lv_sales_order_id
+   AND status         = @lc_status_checked.
+
+IF sy-dbcnt &lt;&gt; 1.
+  &quot; The order is missing or not in the expected status.
+ENDIF.</code></pre>
+<p>这种语义不适合直接 <code>MODIFY</code>，因为 <code>MODIFY</code> 主要按 key 插入或覆盖，不能自然表达“只有旧状态为 checked 才允许变更”。</p>
+<h5 id="11-7-4-4-modify-key-a106ff60">11.7.4 例 4：批量 <code>MODIFY</code> 前先定义重复 key 策略</h5>
+<pre><code class="language-abap">&quot; lt_state_to_upsert must already be validated:
+&quot; - one row per request_id
+&quot; - complete non-key fields
+&quot; - explicit rule for retry and overwrite
+MODIFY zrequest_state FROM TABLE @lt_state_to_upsert.
+
+DATA(lv_expected)  = lines( lt_state_to_upsert ).
+DATA(lv_processed) = sy-dbcnt.
+
+IF sy-subrc &lt;&gt; 0 OR lv_processed &lt;&gt; lv_expected.
+  &quot; Write an application log entry and let the transaction owner decide rollback.
+ENDIF.</code></pre>
+<p>这段代码的重点不在语法，而在注释里的前提。批量 upsert 必须先决定重复 key、覆盖字段、失败行、日志和事务策略。</p>
+<h4 id="11-8-counterexample-failure-mode-4940758f" class="semantic-heading semantic-example">11.8 Counterexample / Failure mode</h4>
+<p>失败模式一：为了躲开 <code>INSERT</code> 重复 key，直接换成 <code>MODIFY</code>。这会把“重复创建”静默变成“覆盖既有数据”。</p>
+<p>失败模式二：本来只想更新已存在行，却用 <code>MODIFY</code>。目标行不存在时，它可能创建新行，导致系统出现不该存在的业务数据。</p>
+<p>失败模式三：用不完整结构执行 <code>MODIFY ... FROM @wa</code>。既有行被覆盖时，未赋值字段可能变成 initial 或旧值，造成数据丢失。</p>
+<p>失败模式四：用 <code>MODIFY</code> 表达状态流转。状态流转通常需要 <code>WHERE status = ...</code>、版本号、ETag、lock 或 RAP validation，而不是简单 key upsert。</p>
+<p>失败模式五：批量 <code>MODIFY</code> 前不处理重复 key。来源内表里同一业务 key 出现多次时，最终结果可能无法从业务上解释。</p>
+<p>失败模式六：只看 <code>sy-subrc</code> 不看 <code>sy-dbcnt</code>。来源内表为空、部分处理、或处理件数不符合预期时，业务仍可能需要报错。</p>
+<p>失败模式七：混淆 ABAP SQL <code>MODIFY</code>、内部表 <code>MODIFY</code> 和 RAP <code>MODIFY ENTITIES</code>。三者语法相似，语义和事务边界完全不同。</p>
+<p>失败模式八：直接 <code>MODIFY</code> SAP 标准表。即使技术上可执行，也可能绕过标准业务逻辑、授权、变更文档、缓存、锁和升级稳定性。</p>
+<h4 id="11-9-d61818fa" class="semantic-heading semantic-practice">11.9 思考问题</h4>
+<ul>
+<li>这段代码需要的是 <code>INSERT</code>、<code>UPDATE</code>，还是明确的 upsert？</li>
+<li>如果目标 key 已存在，覆盖既有行是否符合业务规则？</li>
+<li>如果目标 key 不存在，创建新行是否符合业务规则？</li>
+<li>来源结构是否包含完整且可信的非 key 字段？</li>
+<li><code>sy-dbcnt</code> 应该是多少？0、1、大于 1 分别代表什么业务含义？</li>
+<li>当前方法是否拥有事务边界？谁负责 <code>COMMIT WORK</code> 或 rollback？</li>
+<li>是否需要 lock object、RAP lock、ETag、版本号或状态条件来防止 lost update？</li>
+<li>是否直接写了 SAP 标准表？有没有 released API、BAPI、RAP BO 或正式扩展点？</li>
+<li>在 RAP 中，这里应该是 ABAP SQL <code>MODIFY</code>，还是 EML <code>MODIFY ENTITIES</code> / saver 逻辑？</li>
+</ul>
+<h4 id="11-10-48a0e5c8" class="semantic-heading semantic-reference">11.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMODIFY_DBTAB.html" target="_blank" rel="noopener noreferrer">MODIFY writable_obj</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPMODIFY_SOURCE.html" target="_blank" rel="noopener noreferrer">MODIFY writable_obj, source</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPIUMD_TARGET.html" target="_blank" rel="noopener noreferrer">INSERT, UPDATE, MODIFY, DELETE, target</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPIUMD_OPTIONS.html" target="_blank" rel="noopener noreferrer">INSERT, UPDATE, MODIFY, DELETE writable_obj, OPTIONS</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/17_SAP_LUW.md" target="_blank" rel="noopener noreferrer">SAP LUW Cheat Sheet</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT.html" target="_blank" rel="noopener noreferrer">COMMIT WORK</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPINVALID_STMTS_IN_RAP_METHODS.html" target="_blank" rel="noopener noreferrer">Restrictions in RAP Handler and Saver Methods</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="11-11-connections-2a93bf4a">11.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-02-010-delete-statement-dc415594.html">DELETE statement 删除数据</a></li>
+<li>Related: <a class="wiki" href="section-02-008-insert-statement-0beac323.html">INSERT statement 新增数据</a></li>
+<li>Related: <a class="wiki" href="section-02-009-update-statement-ab212d9f.html">UPDATE statement 更新数据</a></li>
+<li>Related: <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a></li>
+<li>Related: <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Downstream: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 09 - ABAP SQL 写入、聚合与事务</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="11-12-cee61cb4" class="semantic-heading semantic-practice">11.12 学习任务</h4>
+<ul>
+<li>用 5 行中文解释 <code>INSERT</code>、<code>UPDATE</code>、<code>MODIFY</code> 的语义差异。</li>
+<li>写一个“合理使用 <code>MODIFY</code>”的场景，例如用户偏好、请求状态或可重算缓存。</li>
+<li>写一个“不应该使用 <code>MODIFY</code>”的场景，例如订单创建、状态流转或财务过账。</li>
+<li>为一个 <code>MODIFY ... FROM TABLE</code> 示例补充重复 key、失败行、日志和事务策略。</li>
+<li>写一句日语 review 说明：<code>MODIFY文は既存行を上書きする可能性があるため、業務上 upsert でよいか確認します。</code></li>
+<li>对照 RAP 章节，说明 ABAP SQL <code>MODIFY</code> 与 EML <code>MODIFY ENTITIES</code> 的差异。</li>
+</ul>
+<h4 id="11-13-confidence-next-action-768d6820" class="semantic-heading semantic-status">11.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。核心语义、writable database object、<code>sy-subrc</code> / <code>sy-dbcnt</code>、事务边界和 RAP 限制已用 SAP Help / ABAP Keyword Documentation 与 SAP Samples 复核；旧 Claude 记录为 timeout，旧 Joule 记录为通用 UI 错误，本轮已创建 follow-up prompt，等待外部工具恢复后可补审。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a>，把 <code>INSERT</code> / <code>UPDATE</code> / <code>MODIFY</code> / <code>DELETE</code> 放到 commit、rollback、update task 与事务 owner 的完整链路中理解。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-011-modify-statement-e9a9a916.html">MODIFY statement 修改语义</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-010-delete-statement-dc415594.html">Previous section</a><a href="section-02-012-sap-luw-704da272.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

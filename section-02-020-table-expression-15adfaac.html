@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Table expression 表表达式 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="20-table-expression-82835c88" class="chapter-title">20. Table expression 表表达式</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 20</li><li>self-contained study note</li></ul><h4 id="20-1-232d0dd2" class="semantic-heading semantic-concept">20.1 一句话结论</h4>
+<p>Table expression 表表达式，是现代 ABAP 用 <code>itab[ ... ]</code> 直接访问 internal table 某一行的表达式写法：它可以替代很多 <code>READ TABLE</code> 读取场景，也可以出现在赋值、构造表达式、<code>line_exists</code>、<code>line_index</code>、写位置中；但普通 table expression 不设置 <code>sy-subrc</code>，未找到行时通常会抛出 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>。如果把 table expression 放在 <code>ASSIGN</code> 的源位置，这是重要例外：not-found 通过 <code>sy-subrc</code> 表达。其余场景必须用 <code>OPTIONAL</code>、<code>DEFAULT</code>、<code>line_exists</code> 或异常处理明确处理 not-found。</p>
+<h4 id="20-2-71b037f2" class="semantic-heading semantic-concept">20.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a> 的经典写法是：</p>
+<pre><code class="language-abap">READ TABLE lt_material INTO DATA(ls_material)
+  WITH TABLE KEY matnr = lv_matnr.
+
+IF sy-subrc = 0.
+  ...
+ENDIF.</code></pre>
+<p>table expression 的现代写法是：</p>
+<pre><code class="language-abap">DATA(ls_material) = lt_material[ matnr = lv_matnr ].</code></pre>
+<p>看起来只是短了几行，但语义不同。<code>READ TABLE</code> 是 statement，结果状态主要通过 <code>sy-subrc</code> 表达；table expression 是 expression，可以嵌入更大的表达式里，但未找到行时通常抛异常，不会给你一个 <code>sy-subrc</code> 分支。</p>
+<p>本节要学的核心问题：</p>
+<ul>
+<li><code>itab[ index ]</code>、<code>itab[ key = value ]</code>、<code>itab[ KEY keyname COMPONENTS ... ]</code> 分别怎么理解？</li>
+<li>table expression 与 <code>READ TABLE</code> 的 not-found 处理有什么不同？</li>
+<li><code>line_exists</code>、<code>line_index</code>、<code>OPTIONAL</code>、<code>DEFAULT</code> 分别适合什么场景？</li>
+<li>table expression 是否更快？答案是：不一定，性能仍取决于 table category 和 key。</li>
+<li>table expression 能否修改表内行？可以用于 write position，但要理解 key 字段和 not-found 风险。</li>
+</ul>
+<h4 id="20-3-07512a76" class="semantic-heading semantic-why">20.3 为什么重要</h4>
+<p>现代 ABAP 代码大量使用 table expression。RAP、CDS helper、unit test、mapping、value construction、inline declaration 中都常见：</p>
+<pre><code class="language-abap">DATA(lv_text) = lt_texts[ langu = sy-langu ]-text.</code></pre>
+<p>这种代码可读性很高，但如果没有处理 not-found，就可能在生产中抛 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>。很多初学者把 table expression 当成“新语法 READ TABLE”，结果写出下面这种错误心智模型：</p>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[ item_id = lv_item_id ].
+IF sy-subrc = 0.
+  ...
+ENDIF.</code></pre>
+<p>table expression 不按这个方式工作。它让代码更短，也更要求作者明确“找不到行是否是异常”。如果找不到就是程序错误，用异常语义没问题；如果找不到是业务正常分支，就应该用安全写法。</p>
+<p>对 Java/Python 背景学习者，可以类比：</p>
+<pre><code class="language-text">dict[key]
+  -&gt; key 不存在可能报错
+
+dict.get(key, default)
+  -&gt; key 不存在返回默认值</code></pre>
+<p>ABAP table expression 也要区分“必须存在”和“可能不存在”。</p>
+<h4 id="20-4-key-mechanism-09b53684" class="semantic-heading semantic-mechanism">20.4 Key mechanism / 核心机制</h4>
+<h5 id="20-4-1-key-access-cedef7d2">20.4.1 基本 key access</h5>
+<p>最常见形式：</p>
+<pre><code class="language-abap">DATA(ls_material) = lt_material[ matnr = lv_matnr ].</code></pre>
+<p>这和按 free key / key condition 读取一行类似。表类型仍然重要：</p>
+<pre><code class="language-text">standard table
+  -&gt; 如果没有合适 key，可能线性搜索
+
+sorted table
+  -&gt; 如果使用 key 的 leading part，可利用排序结构
+
+hashed table
+  -&gt; 完整 unique key 查找是主场
+
+secondary key
+  -&gt; 应显式指定 KEY keyname</code></pre>
+<p>table expression 不是性能魔法。把 <code>READ TABLE</code> 改成 <code>itab[ ... ]</code>，如果 table category 和 key 没改，性能问题可能仍然存在。</p>
+<h5 id="20-4-2-by-index-c8dee4b1">20.4.2 by index</h5>
+<p>按 index 读取：</p>
+<pre><code class="language-abap">DATA(ls_first) = lt_items[ 1 ].</code></pre>
+<p>这适合 index table，例如 standard table 和 sorted table。不要对 hashed table 建立“第 N 行”的业务模型；对静态已知的 hashed table，<code>itab[ 1 ]</code> 这类 index 访问本身就不是可用语义，语法检查或运行时都会阻止你把 hash table 当成有稳定行号的表来读。</p>
+<h5 id="20-4-3-named-key-5a33673d">20.4.3 named key</h5>
+<p>如果 internal table 有 secondary key，建议显式写 key name：</p>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[
+  KEY by_guid
+  COMPONENTS item_guid = lv_guid
+].</code></pre>
+<p>这与 <code>READ TABLE ... WITH TABLE KEY by_guid COMPONENTS ...</code> 的意图一致：告诉 reader 和 syntax check，你想使用哪个访问路径。</p>
+<h5 id="20-4-4-not-found-ec44da41">20.4.4 not-found：异常是默认风险</h5>
+<p>如果 table expression 找不到行，通常会抛出 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>：</p>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[ item_id = lv_item_id ].</code></pre>
+<p>如果 <code>item_id</code> 不存在，这不是 <code>sy-subrc = 4</code>，而是异常。只有在特定上下文中，系统提供了安全语义，例如：</p>
+<pre><code class="language-abap">IF line_exists( lt_items[ item_id = lv_item_id ] ).
+  ...
+ENDIF.</code></pre>
+<p>或：</p>
+<pre><code class="language-abap">DATA(ls_item) = VALUE ty_item(
+  lt_items[ item_id = lv_item_id ] OPTIONAL ).</code></pre>
+<p>或：</p>
+<pre><code class="language-abap">DATA(ls_item) = VALUE ty_item(
+  lt_items[ item_id = lv_item_id ] DEFAULT VALUE #( item_id = lv_item_id status = &#x27;NEW&#x27; ) ).</code></pre>
+<h5 id="20-4-5-line-exists-e0eb4170">20.4.5 <code>line_exists</code></h5>
+<p><code>line_exists</code> 只判断是否存在：</p>
+<pre><code class="language-abap">IF line_exists( lt_items[ item_id = lv_item_id ] ).
+  &quot; exists
+ENDIF.</code></pre>
+<p>它适合替代：</p>
+<pre><code class="language-abap">READ TABLE lt_items TRANSPORTING NO FIELDS
+  WITH KEY item_id = lv_item_id.
+IF sy-subrc = 0.
+  ...
+ENDIF.</code></pre>
+<p>但 <code>line_exists</code> 不返回行内容，也不设置 <code>sy-tabix</code>。如果后续需要行内容，避免写成“先 <code>line_exists</code> 再同样 key 读一次”的重复 lookup；可以用 <code>VALUE ... OPTIONAL</code>、<code>ASSIGN</code>、<code>READ TABLE</code> 或异常处理。</p>
+<h5 id="20-4-6-line-index-9829867a">20.4.6 <code>line_index</code></h5>
+<p><code>line_index</code> 可以取得 table expression 匹配行的 index：</p>
+<pre><code class="language-abap">DATA(lv_index) = line_index( lt_items[ item_id = lv_item_id ] ).</code></pre>
+<p><code>line_index</code> 不会在 not-found 时抛 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>。如果找不到行，它返回 <code>0</code>；如果找到的行是通过 hashed table 或 hashed secondary key 访问的，因为没有可表达的表索引，返回 <code>-1</code>。因此，只有在 index table 或 sorted key 场景里，<code>lv_index &gt; 0</code> 才能被理解为“拿到了可用行号”。业务逻辑里不要把 index 当成长期稳定 key。</p>
+<h5 id="20-4-7-optional-default-d5994ef0">20.4.7 <code>OPTIONAL</code> 和 <code>DEFAULT</code></h5>
+<p>如果找不到行是正常业务分支，<code>OPTIONAL</code> 很有用：</p>
+<pre><code class="language-abap">DATA(ls_item) = VALUE ty_item(
+  lt_items[ item_id = lv_item_id ] OPTIONAL ).</code></pre>
+<p>找不到时返回 <code>ty_item</code> 的 initial value。</p>
+<p>如果需要业务默认值：</p>
+<pre><code class="language-abap">DATA(ls_item) = VALUE ty_item(
+  lt_items[ item_id = lv_item_id ]
+  DEFAULT VALUE #( item_id = lv_item_id status = &#x27;NEW&#x27; ) ).</code></pre>
+<p><code>OPTIONAL</code> 和 <code>DEFAULT</code> 让“找不到怎么办”写在表达式里，比吞掉异常或事后检查不可靠状态更清楚。</p>
+<h5 id="20-4-8-assign-field-symbol-641add25">20.4.8 <code>ASSIGN</code> 与 field symbol</h5>
+<p>如果想安全地指向一行并修改它：</p>
+<pre><code class="language-abap">ASSIGN lt_items[ item_id = lv_item_id ]
+  TO FIELD-SYMBOL(&lt;ls_item&gt;).
+
+IF sy-subrc = 0.
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+ENDIF.</code></pre>
+<p>在 <code>ASSIGN</code> 语句中使用 table expression 时，未找到可以通过 <code>sy-subrc</code> 判断。这是 table expression 的重要例外之一：普通读取位置的 table expression 不设置 <code>sy-subrc</code>，但 <code>ASSIGN itab[ ... ] TO &lt;fs&gt;</code> 这个模式会把 not-found 转成可检查的 <code>sy-subrc</code>。经典 <code>READ TABLE ... ASSIGNING FIELD-SYMBOL(&lt;fs&gt;)</code> 是同一类“命中后直接指向行”的写法，下一节 field symbol 会继续展开。</p>
+<h5 id="20-4-9-write-position-40e2f846">20.4.9 write position</h5>
+<p>table expression 可以出现在写位置：</p>
+<pre><code class="language-abap">lt_items[ item_id = lv_item_id ]-status = &#x27;X&#x27;.</code></pre>
+<p>这很简洁，但风险也明显：</p>
+<ul>
+<li>找不到行会抛异常。</li>
+<li>对 sorted/hashed table 的 key 字段不能随意修改。</li>
+<li>如果表达式太长，可读性会下降。</li>
+</ul>
+<p>不要把 table expression 当成“就地修改 key 的通道”。如果业务上真的要改变 key 值，通常要先删除旧行、再插入新行，或重新构造目标 internal table；否则很容易破坏 sorted/hashed table 的内部一致性。</p>
+<p>复杂修改时，<code>ASSIGN ... TO FIELD-SYMBOL</code> 往往更清楚：</p>
+<pre><code class="language-abap">ASSIGN lt_items[ item_id = lv_item_id ]
+  TO FIELD-SYMBOL(&lt;ls_item&gt;).
+
+IF sy-subrc = 0.
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+  &lt;ls_item&gt;-changed_by = sy-uname.
+ENDIF.</code></pre>
+<h5 id="20-4-10-chaining-ac84d02a">20.4.10 chaining</h5>
+<p>table expression 可以链式访问深层数据：</p>
+<pre><code class="language-abap">DATA(lv_text) = lt_orders[ order_id = lv_order_id
+                         ]-items[ item_no = lv_item_no
+                         ]-text.</code></pre>
+<p>这种写法很强，但不要为了炫技牺牲可读性。链越长，not-found 位置越难定位，异常处理也更复杂；初学阶段不用深究求值顺序，只要记住任一层 table expression 找不到行，都可能让整个表达式中断。教程建议：如果初学者看不清，就拆成两步。</p>
+<h4 id="20-5-dbe3c440" class="semantic-heading semantic-japan">20.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>テーブル式</code></li>
+<li><code>内部テーブルアクセス</code></li>
+<li><code>キー指定</code></li>
+<li><code>存在チェック</code></li>
+<li><code>未検出時の例外</code></li>
+<li><code>OPTIONAL</code></li>
+<li><code>DEFAULT</code></li>
+<li><code>line_exists</code></li>
+<li><code>line_index</code></li>
+<li><code>READ TABLE との違い</code></li>
+<li><code>sy-subrc を設定しない</code></li>
+<li><code>例外処理</code></li>
+<li><code>書込位置</code></li>
+<li><code>フィールドシンボル</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li>テーブル式は <code>READ TABLE</code> と異なり、通常は <code>sy-subrc</code> を設定せず、未検出時に例外が発生します。</li>
+<li>未検出が業務上あり得る場合は、<code>OPTIONAL</code>、<code>DEFAULT</code>、<code>line_exists</code>、または例外処理を明示します。</li>
+<li>二次キーを使う意図がある場合は、テーブル式でも <code>KEY</code> 指定を明確にします。</li>
+<li>変更処理が複数項目に及ぶ場合は、テーブル式の書込位置より <code>ASSIGN</code> の方が読みやすい場合があります。</li>
+</ul>
+<p>review 里常见问法：</p>
+<ul>
+<li><code>このテーブル式で該当行が存在しない場合、例外は問題ありませんか。</code></li>
+<li><code>OPTIONAL または DEFAULT を使うべきケースではありませんか。</code></li>
+<li><code>sy-subrc をチェックしていますが、この式では設定されません。</code></li>
+<li><code>該当行が無い場合に CX_SY_ITAB_LINE_NOT_FOUND が発生します。sy-subrc は設定されないため、業務上未検出があり得るなら OPTIONAL / DEFAULT / line_exists、または例外処理で明示してください。</code></li>
+<li><code>二次キーを使う意図なら KEY 名を指定してください。</code></li>
+</ul>
+<h4 id="20-6-english-terms-9489632a" class="semantic-heading semantic-terms">20.6 English Terms</h4>
+<ul>
+<li><code>table expression</code></li>
+<li><code>internal table</code></li>
+<li><code>itab[ ... ]</code></li>
+<li><code>key access</code></li>
+<li><code>index access</code></li>
+<li><code>KEY keyname</code></li>
+<li><code>COMPONENTS</code></li>
+<li><code>line_exists</code></li>
+<li><code>line_index</code></li>
+<li><code>OPTIONAL</code></li>
+<li><code>DEFAULT</code></li>
+<li><code>CX_SY_ITAB_LINE_NOT_FOUND</code></li>
+<li><code>READ TABLE</code></li>
+<li><code>sy-subrc</code></li>
+<li><code>sy-tabix</code></li>
+<li><code>ASSIGN</code></li>
+<li><code>field symbol</code></li>
+<li><code>write position</code></li>
+<li><code>read position</code></li>
+<li><code>table line</code></li>
+<li><code>secondary table key</code></li>
+<li><code>standard table</code></li>
+<li><code>sorted table</code></li>
+<li><code>hashed table</code></li>
+</ul>
+<p>Recommended search patterns:</p>
+<ul>
+<li><code>ABAP table expression CX_SY_ITAB_LINE_NOT_FOUND</code></li>
+<li><code>ABAP table expression OPTIONAL DEFAULT</code></li>
+<li><code>ABAP table expression line_exists line_index</code></li>
+<li><code>ABAP table expression KEY COMPONENTS secondary key</code></li>
+<li><code>ABAP table expression write position</code></li>
+</ul>
+<h4 id="20-7-example-7f684d7e" class="semantic-heading semantic-example">20.7 Example / 学习例子</h4>
+<h5 id="20-7-1-1-8d574900">20.7.1 例 1：必须存在时直接读取</h5>
+<pre><code class="language-abap">DATA(ls_material) = lt_material[ matnr = lv_matnr ].</code></pre>
+<p>如果业务语义是“这行必须存在，否则就是程序错误”，这种写法可以接受。但如果找不到是正常分支，就要换安全写法。</p>
+<h5 id="20-7-2-2-optional-b83e114b">20.7.2 例 2：可能不存在，用 <code>OPTIONAL</code></h5>
+<pre><code class="language-abap">DATA(ls_material) = VALUE ty_material(
+  lt_material[ matnr = lv_matnr ] OPTIONAL ).
+
+IF ls_material IS INITIAL.
+  &quot; not found or initial line; be careful if initial line is meaningful
+ENDIF.</code></pre>
+<p><code>OPTIONAL</code> 避免异常，但返回 initial value。要小心 initial line 本身是否有业务意义。</p>
+<h5 id="20-7-3-3-default-6eb0a0af">20.7.3 例 3：可能不存在，用 <code>DEFAULT</code></h5>
+<pre><code class="language-abap">DATA(ls_material) = VALUE ty_material(
+  lt_material[ matnr = lv_matnr ]
+  DEFAULT VALUE #( matnr = lv_matnr mtart = &#x27;UNKN&#x27; ) ).</code></pre>
+<p><code>DEFAULT</code> 更适合有明确 fallback 值的场景。</p>
+<h5 id="20-7-4-4-16105b1c">20.7.4 例 4：只判断存在</h5>
+<pre><code class="language-abap">IF line_exists( lt_material[ matnr = lv_matnr ] ).
+  &quot; exists
+ENDIF.</code></pre>
+<p>不要再写 <code>IF sy-subrc = 0</code>，因为 <code>line_exists</code> 不设置 <code>sy-subrc</code>。</p>
+<h5 id="20-7-5-5-secondary-key-a8cc5e0e">20.7.5 例 5：使用 secondary key</h5>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[
+  KEY by_guid
+  COMPONENTS item_guid = lv_guid
+].</code></pre>
+<p>如果存在 named secondary key，显式写 key name 可以让访问路径清楚。</p>
+<h5 id="20-7-6-6-ab5fd48d">20.7.6 例 6：修改表内一行</h5>
+<pre><code class="language-abap">lt_items[ item_id = lv_item_id ]-status = &#x27;X&#x27;.</code></pre>
+<p>简单修改可以这样写；复杂修改建议：</p>
+<pre><code class="language-abap">ASSIGN lt_items[ item_id = lv_item_id ]
+  TO FIELD-SYMBOL(&lt;ls_item&gt;).
+
+IF sy-subrc = 0.
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+  &lt;ls_item&gt;-changed_at = cl_abap_context_info=&gt;get_system_date( ).
+ENDIF.</code></pre>
+<h5 id="20-7-7-7-0dec821f">20.7.7 例 7：不要把表达式链写到不可读</h5>
+<pre><code class="language-abap">DATA(lv_text) = lt_orders[ order_id = lv_order_id
+                         ]-items[ item_no = lv_item_no
+                         ]-texts[ langu = sy-langu ]-text.</code></pre>
+<p>这很短，但异常点可能有三个。初学和项目代码 review 中，必要时拆开并分别处理 not-found。</p>
+<h4 id="20-8-counterexample-failure-mode-0b62e15e" class="semantic-heading semantic-example">20.8 Counterexample / Failure mode</h4>
+<h5 id="20-8-1-1-table-expression-sy-subrc-eb755855" class="semantic-heading semantic-failure">20.8.1 误区 1：table expression 后检查 <code>sy-subrc</code></h5>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[ item_id = lv_item_id ].
+IF sy-subrc = 0.
+  ...
+ENDIF.</code></pre>
+<p>这是错误心智模型。普通读取位置的 table expression 不按 <code>READ TABLE</code> 方式设置 <code>sy-subrc</code>；把 table expression 放进 <code>ASSIGN</code> 源位置时才是例外。</p>
+<h5 id="20-8-2-2-not-found-bd238b4a" class="semantic-heading semantic-failure">20.8.2 误区 2：忽略 not-found 异常</h5>
+<pre><code class="language-abap">DATA(lv_status) = lt_items[ item_id = lv_item_id ]-status.</code></pre>
+<p>如果找不到行，会抛 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>。如果这是正常业务分支，要使用 <code>OPTIONAL</code>、<code>DEFAULT</code>、<code>line_exists</code> 或异常处理。</p>
+<h5 id="20-8-3-3-line-exists-key-0d3da7ce" class="semantic-heading semantic-failure">20.8.3 误区 3：先 <code>line_exists</code> 再同样 key 读一次</h5>
+<pre><code class="language-abap">IF line_exists( lt_items[ item_id = lv_item_id ] ).
+  DATA(ls_item) = lt_items[ item_id = lv_item_id ].
+ENDIF.</code></pre>
+<p>这会做两次 lookup。小表没关系，大表或复杂 key 下要考虑 <code>ASSIGN</code>、<code>VALUE ... OPTIONAL</code> 或一次性异常处理。</p>
+<h5 id="20-8-4-4-secondary-key-cef1db82" class="semantic-heading semantic-failure">20.8.4 误区 4：隐藏 secondary key</h5>
+<p>如果 table type 已经有 <code>by_guid</code>，但表达式只写：</p>
+<pre><code class="language-abap">DATA(ls_item) = lt_items[ item_guid = lv_guid ].</code></pre>
+<p>reviewer 不容易确认访问路径。性能敏感处应显式写 <code>KEY by_guid COMPONENTS ...</code>。</p>
+<h5 id="20-8-5-5-319375f5" class="semantic-heading semantic-failure">20.8.5 误区 5：表达式过长</h5>
+<p>现代语法不是越短越好。如果一行 table expression 混合多层读取、fallback、转换、方法调用，读者很难判断 not-found 和异常边界。书写时优先可读性。</p>
+<h4 id="20-9-79e37626" class="semantic-heading semantic-practice">20.9 思考问题</h4>
+<ul>
+<li>找不到行是程序错误，还是正常业务分支？</li>
+<li>如果找不到是正常分支，应该用 <code>OPTIONAL</code>、<code>DEFAULT</code>、<code>line_exists</code> 还是 <code>READ TABLE</code>？</li>
+<li>这个 table expression 是否依赖 secondary key？是否显式写了 <code>KEY keyname</code>？</li>
+<li>这个表达式是否会在循环中大量执行？table category 是否合适？</li>
+<li>是否有人在 table expression 后检查 <code>sy-subrc</code>？</li>
+<li>是否需要修改表内行？<code>ASSIGN</code> 是否更清楚？</li>
+<li>expression chain 是否太长，是否应该拆成多个步骤？</li>
+<li>用日语 review 时，如何说明 <code>未検出時の例外</code> 和 <code>OPTIONAL</code> 的必要性？</li>
+</ul>
+<h4 id="20-10-444c73a3" class="semantic-heading semantic-reference">20.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abentable_expressions.html" target="_blank" rel="noopener noreferrer">itab - Table Expressions</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENTABLE_EXP_ITAB_LINE.html" target="_blank" rel="noopener noreferrer">table_exp - itab_line</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenline_exists_function.html" target="_blank" rel="noopener noreferrer">line_exists</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENLINE_INDEX_FUNCTION.html" target="_blank" rel="noopener noreferrer">line_index</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenvalue_constructor_params_itab.html" target="_blank" rel="noopener noreferrer">VALUE, Internal Tables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapread_table.html" target="_blank" rel="noopener noreferrer">READ TABLE itab</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/8132142fd1a144a59303663a03a7c2d4/01327ff1196344c28982615fbd4dfe7f.html" target="_blank" rel="noopener noreferrer">Reading Single Lines</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet</a></li>
+<li>SAP Samples Raw: <a href="https://raw.githubusercontent.com/SAP-samples/abap-cheat-sheets/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet Raw Markdown</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="20-11-connections-09e55b5f">20.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li><a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a></li>
+<li><a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a></li>
+<li><a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Upstream: <a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li>Downstream: <a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 10 - 内部表类型与读取方式</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="20-12-a5f84a55" class="semantic-heading semantic-practice">20.12 学习任务</h4>
+<ul>
+<li>把一个 <code>READ TABLE ... INTO ... IF sy-subrc = 0</code> 改写成 table expression，并说明 not-found 处理方式。</li>
+<li>写出 <code>line_exists</code>、<code>OPTIONAL</code>、<code>DEFAULT</code> 三种安全读取例子。</li>
+<li>找一个 table expression 后检查 <code>sy-subrc</code> 的反例，说明为什么错。</li>
+<li>用日语写一句 review comment：这个 table expression 找不到行时会抛异常。</li>
+<li>预习 <a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a>，比较 table expression write position 和 <code>ASSIGN ... TO FIELD-SYMBOL</code> 的可读性。</li>
+</ul>
+<h4 id="20-13-confidence-next-action-962c4a0d" class="semantic-heading semantic-status">20.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容已用 SAP Help 与 SAP Samples 的 table expression、line_exists、line_index、READ TABLE 资料校准，并通过 Joule <code>Pass with fixes</code> 与 Claude follow-up <code>Pass</code> 审查。</li>
+<li>Next action: 继续学习下一节 <a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a>，重点比较 table expression write position、<code>ASSIGN itab[ ... ] TO &lt;fs&gt;</code> 与 <code>READ TABLE ... ASSIGNING</code> 的可读性和 not-found 处理差异。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-019-read-table-c16660cd.html">Previous section</a><a href="section-02-021-field-symbol-201aafdf.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Domain 域对象 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="35-domain-575d5f4d" class="chapter-title">35. Domain 域对象</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 35</li><li>self-contained study note</li></ul><h4 id="35-1-b52171ad" class="semantic-heading semantic-concept">35.1 一句话结论</h4>
+<p>Domain 域对象，是 ABAP Dictionary 中给 data element 复用的底层类型和值域基础。它不是字段的业务说明书，也不是可以直接写在 ABAP <code>DATA</code> 或 database table field 后面的类型名；它更像“这个字段在技术上长什么样、允许哪些小范围取值、显示/转换时有什么规则”的共享定义。</p>
+<p>本节要学的是：读懂 field -&gt; <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a> -&gt; domain 这条链路，知道 domain 负责 data type、length、decimals、output length、fixed values、intervals、value table、conversion routine 等属性，并能判断什么时候适合用 domain fixed values，什么时候应该改用 check table、CDS value help、RAP validation 或 customizing 设计。</p>
+<h4 id="35-2-d0fc479f" class="semantic-heading semantic-concept">35.2 到底学什么</h4>
+<p>先把位置摆正。Domain 是一个 standalone ABAP Dictionary object，它位于 DDIC 元数据层，不是 ABAP 程序里的 local type，也不是 database table 自身。table field 通常引用 data element；data element 可以引用 domain；domain 再定义这个 data element 继承的底层 technical / semantic properties。用一句项目语言说，就是“字段业务名字和 UI label 看 data element，字段技术形状和值域基础看 domain”。</p>
+<p>SAP Learning 对 domain 的入门定位是：domain 的主要用途是指定 table field 的 technical properties。比如一个付款状态字段，在 table 里可能叫 <code>payment_status</code>，data element 可能叫 <code>zxx_payment_status</code>，domain 可能叫 <code>zxx_payment_status_dom</code>。domain 里真正关心的是：它是不是 <code>CHAR</code>、长度是不是 1、输出长度是多少、是否有固定值 <code>N/P/C</code>，以及是否有 conversion routine 或 value table 等规则。</p>
+<p>但“主要是技术属性”不等于“只有技术属性”。ABAP Keyword Documentation 和 SAP-samples 的 ABAP Dictionary cheat sheet 都把 domain 描述为 elementary data type 的 technical and semantic properties。这里的 semantic 不等同于 data element 的 field label 或业务文档，而是偏值域层面的语义：fixed values、intervals、value table、conversion routine 等。初学者要学会把两层语义分开：data element 让字段有业务名字、label 和说明；domain 让多个 data element 共享同一套技术和值域基础。</p>
+<p>最容易踩的边界是“domain 不能直接当类型用”。在 ABAP 程序里写：</p>
+<pre><code class="language-abap">DATA lv_status TYPE zxx_payment_status_dom.</code></pre>
+<p>如果 <code>zxx_payment_status_dom</code> 是 domain，这不是“风格不好”，而是语法错误。source-based Dictionary DDL 里也不能把 domain 直接写成字段类型：</p>
+<pre><code class="language-abap">define table zxx_invoice {
+  key client      : abap.clnt not null;
+  key invoice_id  : zxx_invoice_id not null;
+  payment_status : zxx_payment_status_dom;
+}</code></pre>
+<p>正确路径应是让字段或 ABAP 变量引用 data element：</p>
+<pre><code class="language-abap">define table zxx_invoice {
+  key client      : abap.clnt not null;
+  key invoice_id  : zxx_invoice_id not null;
+  payment_status : zxx_payment_status;
+}
+
+DATA lv_status TYPE zxx_payment_status.</code></pre>
+<p>其中 <code>zxx_payment_status</code> 是 data element，data element 再引用 <code>zxx_payment_status_dom</code> 这个 domain。这个方向很重要：data element references domain，而不是 domain references data element。</p>
+<p>本节还要学会设计判断。domain fixed values 适合很小、稳定、全局一致的 code list，例如状态 <code>N/P/C</code> 或类别 <code>A/B/C</code>。如果值会按 client、公司代码、国家、语言、客户流程变化，或者需要业务用户维护，就不要把它硬编码成 domain fixed values；应考虑 customizing table、check table、CDS value help、RAP validation 或业务配置对象。domain 是共享基础，不是把所有业务规则都塞进去的地方。</p>
+<h4 id="35-3-8d0cefb5" class="semantic-heading semantic-why">35.3 为什么重要</h4>
+<p>domain 重要，是因为它经常决定一个字段能不能和别的字段安全比较、能不能统一显示、能不能被 UI 或框架识别为同一种值域。Java/Python 背景开发者容易把字段理解为“数据库列 + 程序类型”，但 SAP 项目里，一个字段背后常常还有 data element、domain、conversion routine、fixed values、search/value help、foreign key、CDS annotation 和 RAP validation 等层。domain 是这串链路里最底层、也最容易被忽略的一环。</p>
+<p>举一个很典型的项目问题：两个表里都有 <code>status</code> 字段，一个字段长度是 <code>CHAR(1)</code>，固定值是 <code>N/P/C</code>；另一个字段被开发者随手写成 <code>abap.char(2)</code>，允许值没有统一定义。短期看程序也许能跑，长期就会出现比较条件奇怪、接口值不一致、UI 下拉值不同、测试数据解释不清的问题。如果这两个字段本来就代表同一类业务状态，使用同一个 domain 可以让它们共享 technical shape 和 value range，再由不同 data element 承载不同字段 label 或业务上下文。</p>
+<p>domain 还关系到影响分析。一个被多个 data element 复用的 domain，如果修改 data type、length、decimals、fixed values 或 conversion routine，影响可能扩散到 table fields、structures、screens、CDS views、OData metadata、接口映射、测试数据和 transport。日本项目里这不是“小改一个字段”，而是要用 ADT / SE11 的 Where-Used List 做 <code>使用箇所</code>、<code>影響調査</code>、<code>影響範囲</code> 确认的变更。</p>
+<p>对交付来说，domain 的价值不只是“字段定义更漂亮”。它能减少重复定义，提升字段比较的一致性，让设计书、ADT 对象、代码、UI 和测试说明围绕同一套基础属性沟通。对初学者来说，学会追踪 domain，就等于学会从字段名背后看到 SAP 的元数据治理方式。</p>
+<h4 id="35-4-key-mechanism-add17db2" class="semantic-heading semantic-mechanism">35.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 field -&gt; data element -&gt; domain。database table field 是表里的字段；data element 是字段可复用的语义类型入口；domain 是 data element 复用的技术和值域基础。field 不能直接引用 domain，ABAP <code>DATA</code> / <code>TYPES</code> 也不能直接引用 domain。可以记成一句：domain 是 foundation，不是 public type name。</p>
+<p>第二层机制是 technical properties。常见属性包括 dictionary data type、length、decimals、output length。<code>CHAR</code>、<code>NUMC</code>、<code>DEC</code>、<code>CURR</code>、<code>QUAN</code>、<code>DATS</code>、<code>TIMS</code> 等不是随便挑的字符串，而是影响存储、显示、SQL、ABAP 类型映射和框架行为的 DDIC 类型。<code>length</code> 是存储/值的长度语义；<code>output length</code> 偏显示宽度，可能和实际存储长度不同。比如日本项目的设计书里常见 <code>桁数 / 出力長</code> 两列，它们不是重复字段。</p>
+<p>第三层机制是 value range。domain 可以定义 fixed values 和 intervals。它们适合小而稳定的值集合，例如 <code>N = Not paid</code>、<code>P = Paid</code>、<code>C = Cancelled</code>。但 fixed values 不会自动替代 ABAP 语句中的业务判断，也不等于 RAP save validation。SAP-samples 的 cheat sheet 特别提醒：domain value ranges 典型用于 classic ABAP UI input checks；它们对 ABAP statements 没有效果，在 CDS 场景可以用于 value help。进入 RAP/Fiori 后，不能假设 domain fixed values 会自动挡住非法保存。</p>
+<p>第四层机制是 value table。value table 和 fixed values 不同。fixed values 是 domain 自己列出允许值；value table 是 domain 上维护的一个表级参考，表达“引用这个 domain 的字段通常应对照某个表”。但 value table 本身不要被误读成 database foreign key 或 RAP validation。真实项目里，如果字段需要参照检查，应继续看 foreign key/check table、CDS value help、behavior validation 或服务层校验。</p>
+<p>第五层机制是 conversion routine。domain 可以关联 conversion routine，用于 internal format 和 external/display format 之间的转换。最常见的直觉例子是前导零：内部值可能保存为固定长度，外部显示或输入时看起来不同。初学者如果不看 domain，就会以为“数据库里值不对”或“接口把零吞了”，实际可能是 conversion routine 在工作。</p>
+<p>第六层机制是 modern ABAP / ABAP Cloud 边界。CDS enumerated types 在支持的 ABAP release / ABAP language version 中可以用于 CDS data model 的固定值场景，SAP 文档也把它们描述为固定值定义的现代选择之一；但具体是否可用要按目标系统确认，也不能据此说 DDIC domains 已经过时。DDIC database table field 和 data element 的设计仍然会遇到 domain。写 RAP/Fiori 时，domain fixed values 只能作为元数据和设计背景之一，真正的值帮助和保存校验还要看 CDS annotation、value help definition、behavior validation、DCL/authorization 和业务规则。</p>
+<p>第七层机制是 amount / quantity。domain 使用 <code>CURR</code> 或 <code>QUAN</code> 可以定义金额或数量字段的数值技术属性，但金额字段还需要 currency code reference，数量字段还需要 unit reference。也就是说，domain 不能单独表达“这个金额是哪种货币”或“这个数量是什么单位”。在 table/CDS 定义里仍要通过相应 reference field 或 annotation 表达这层关系。</p>
+<h4 id="35-5-46450a64" class="semantic-heading semantic-japan">35.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ドメイン</code>、<code>データ型</code>、<code>技術属性</code>、<code>桁数</code>、<code>小数点以下桁数</code>、<code>出力長</code>、<code>固定値</code>、<code>値域</code>、<code>値範囲</code>、<code>値テーブル</code>、<code>変換ルーティン</code>、<code>データエレメント参照</code>、<code>使用箇所</code>、<code>影響調査</code>、<code>影響範囲</code>、<code>有効化</code>、<code>移送対象</code>。</li>
+<li>设计句：この項目は同じ値域を共有するため、既存のドメインを再利用できるか確認します。</li>
+<li>Review 句：ドメインはデータエレメントから参照されます。テーブル項目や ABAP 変数でドメインを直接型指定することはできません。</li>
+<li>影响分析句：このドメインは複数のデータエレメントから参照されているため、桁数や固定値を変更する前に使用箇所と影響範囲を確認してください。</li>
+<li>影响分析句：変更前に ADT または SE11 の Where-Used List で使用箇所を確認してください。</li>
+<li>RAP/Fiori 句：RAP/Fiori では、ドメイン固定値だけで入力チェックが完結するとは限りません。値ヘルプや保存時チェックは CDS と Behavior 定義も確認してください。</li>
+<li>使用场景：DDIC 设计书、字段定义 review、テーブル定義書、移送前确认、影响调查、RAP/Fiori value help 缺陷分析、接口字段长度不一致调查。</li>
+</ul>
+<h4 id="35-6-english-terms-41d74e6a" class="semantic-heading semantic-terms">35.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>DDIC domain</code>, <code>ABAP Dictionary domain</code></li>
+<li>Recommended search pattern: <code>ABAP Dictionary domain fixed values value table conversion routine</code></li>
+<li>Related terms: <code>data element</code>, <code>fixed values</code>, <code>value range</code>, <code>interval</code>, <code>value table</code>, <code>conversion routine</code>, <code>output length</code>, <code>CDS enumerated type</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="35-7-example-e2d79d2b" class="semantic-heading semantic-example">35.7 Example / 学习例子</h4>
+<p>例子 1：付款状态。</p>
+<p>项目要在发票明细表里保存付款状态。字段叫 <code>payment_status</code>，data element 叫 <code>zxx_payment_status</code>，domain 叫 <code>zxx_payment_status_dom</code>。domain 设计可以这样读：</p>
+<pre><code class="language-text">Domain: zxx_payment_status_dom
+Data Type: CHAR
+Length: 1
+Output Length: 1
+Fixed Values:
+  N = Not paid
+  P = Paid
+  C = Cancelled</code></pre>
+<p>table field 不写 domain，而写 data element：</p>
+<pre><code class="language-abap">define table zxx_invoice_i {
+  key client       : abap.clnt not null;
+  key invoice_id   : zxx_invoice_id not null;
+  key item_no      : abap.numc(6) not null;
+  payment_status  : zxx_payment_status;
+}</code></pre>
+<p>读这个字段时，顺序是：先知道 <code>payment_status</code> 是表字段；再跳到 <code>zxx_payment_status</code> 看 label、description、documentation；最后跳到 <code>zxx_payment_status_dom</code> 看它是 <code>CHAR(1)</code>，并且固定值是 <code>N/P/C</code>。这就是 field -&gt; data element -&gt; domain 的读法。</p>
+<p>例子 2：员工编号。</p>
+<p>员工编号常常需要固定长度和前导零。domain 可能定义为 <code>NUMC</code> 长度 6，并带有适合项目的 output length；<code>NUMC</code> 本身表达“固定长度数字文本”的补零语义，conversion routine 则是另一类 internal / external 显示或输入转换机制。这样多个字段或 data element 使用同一套技术规则，就不会出现一个表用 <code>NUMC(6)</code>、另一个表用 <code>CHAR(8)</code>、接口又按字符串随便截断的情况。</p>
+<p>例子 3：不要把业务配置塞进 fixed values。</p>
+<p>如果 <code>payment_status</code> 只有三个稳定状态，domain fixed values 可以帮助学习和小范围设计。但如果状态由客户配置、不同公司代码不同、需要日语/英语多语言描述、上线后业务用户会维护，那么 fixed values 就不是好位置。更合理的方向通常是配置表或 check table，加上 CDS value help 和 RAP validation。</p>
+<p>最小练习：打开一个已有 table field，追踪到 data element，再追踪到 domain，写下四件事：</p>
+<ul>
+<li>这个 domain 的 data type、length、decimals / output length 是什么？</li>
+<li>它有没有 fixed values、intervals、value table 或 conversion routine？</li>
+<li>它被几个 data element / table field 复用？</li>
+<li>如果改它，会影响哪些对象和测试？</li>
+</ul>
+<h4 id="35-8-counterexample-failure-mode-4bdb2e5d" class="semantic-heading semantic-example">35.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把 domain 当成 ABAP 类型名。</li>
+<li>错误写法：<code>DATA lv_status TYPE zxx_payment_status_dom.</code></li>
+<li>问题：domain 不能用于 ABAP <code>DATA</code> / <code>TYPES</code> 声明。</li>
+<li>修正：声明 data element：<code>DATA lv_status TYPE zxx_payment_status.</code></li>
+<li>误区 2：把 domain 直接写成 table field type。</li>
+<li>错误写法：<code>payment_status : zxx_payment_status_dom;</code></li>
+<li>问题：source-based Dictionary DDL 字段类型应使用 built-in dictionary type 或 data element，不应使用 domain。</li>
+<li>修正：<code>payment_status : zxx_payment_status;</code></li>
+<li>误区 3：以为 fixed values 会自动完成所有校验。</li>
+<li>问题：domain fixed values 不等于 RAP validation，不等于 authorization check，不等于 database foreign key，也不会让所有 ABAP statements 自动拒绝非法值。</li>
+<li>修正：RAP/Fiori 中确认 <code>@Consumption.valueHelpDefinition</code>、behavior validation、check table / foreign key、UI/service 层规则。</li>
+<li>误区 4：把 value table 当成真正 foreign key。</li>
+<li>问题：value table 是 domain 的参考属性，不应被当作数据库层外键约束或 RAP 层保存校验。</li>
+<li>修正：需要参照完整性时，看 foreign key/check table；需要 Fiori value help 时，看 CDS value help；需要保存时阻止非法值时，看 RAP validation。</li>
+<li>误区 5：随便修改复用 domain 的 length 或 fixed values。</li>
+<li>问题：多个 data element 和字段可能共用同一个 domain，修改会带来广泛影响。</li>
+<li>修正：先做 where-used / 使用箇所検索，再记录 <code>影響範囲</code>，并确认 table adjustment、transport、测试数据和接口影响。</li>
+</ul>
+<h4 id="35-9-678d9d89" class="semantic-heading semantic-practice">35.9 思考问题</h4>
+<ul>
+<li>为什么 SAP 不建议把每个业务字段都直接写成 <code>abap.char(...)</code>？</li>
+<li>field、data element、domain 三者分别负责什么？哪一个能在 ABAP <code>DATA ... TYPE</code> 里使用？</li>
+<li>fixed values、value table、foreign key、RAP validation 的边界分别是什么？</li>
+<li>如果一个 domain 被 20 个 data element 复用，修改 length 前要做哪些影响调查？</li>
+<li><code>桁数</code> 和 <code>出力長</code> 有什么区别？为什么日本项目设计书可能同时出现这两列？</li>
+<li>CDS enumerated type 能否让 DDIC domain 过时？为什么不能简单这么说？</li>
+<li>在 RAP/Fiori 应用中，domain fixed values 能不能替代 value help 和 validation？</li>
+</ul>
+<h4 id="35-10-c4de88b5" class="semantic-heading semantic-reference">35.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/defining-domains-and-data-elements_b65b511a-4ad1-4437-80f5-5ad689cab833" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Domains and Data Elements</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDIC_DOMAINS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Domains</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDIC_DOMAINS_SEMA.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Semantic Properties of Domains</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/26_ABAP_Dictionary.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP Dictionary Cheat Sheet</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="35-11-connections-e95447e3">35.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a></li>
+<li>Downstream: <a class="wiki" href="section-01-036-ddic-structure-824eed18.html">DDIC structure 字典结构</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 05 - ABAP Dictionary 核心对象</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="35-12-25509aac" class="semantic-heading semantic-practice">35.12 学习任务</h4>
+<ul>
+<li>用 6-8 行中文解释 field -&gt; data element -&gt; domain 的方向，并说明为什么 domain 不能直接当类型用。</li>
+<li>找一个已有 data element，追踪它引用的 domain，记录 data type、length、output length、fixed values / value table / conversion routine。</li>
+<li>写一句日语 review comment：指出某个字段应该复用既有 domain，或指出修改 domain 前要做影响调查。</li>
+<li>把 fixed values 和 RAP validation 的区别写成 3 条 bullet。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span>，尤其关注状态字段、金额/数量字段和 value help。</li>
+</ul>
+<h4 id="35-13-confidence-next-action-f55c41f0" class="semantic-heading semantic-status">35.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for SAP basics after SAP Learning / ABAP Keyword Documentation / SAP Samples / Joule review; Medium for project-specific naming and release-dependent CDS enum guidance, because actual availability must be checked against the target system release and ABAP Cloud rules.</li>
+<li>Next action: 已同步到 Chapter 01 与离线书稿，并已通过 2026-06-18 Claude file-based review / final follow-up review；后续如目标系统 release 或 ABAP Cloud 规则不同，再按项目环境补充版本限定。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-034-data-element-d9e0093a.html">Previous section</a><a href="section-01-036-ddic-structure-824eed18.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

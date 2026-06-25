@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Authority Check Test Helper | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="22-authority-check-test-helper-b8d725bd" class="chapter-title">22. Authority Check Test Helper</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 22</li><li>self-contained study note</li></ul><h4 id="22-1-738a6b42" class="semantic-heading semantic-concept">22.1 一句话结论</h4>
+<p>Authority Check Test Helper 是把授权相关分支设计成可测试逻辑的辅助层；在本教程里要学的是：真实授权要由 SAP 角色、授权对象、DCL、RAP authorization 和系统 trace 验证，但服务逻辑中“有权限/无权限时应该怎么处理”也必须能用 ABAP Unit 稳定回归。</p>
+<p>授权测试常见误区是只准备一个“有权限用户”点通画面，或者只在 UI 隐藏按钮。这样不能证明 API、后台 job、OData、RAP action 或批处理入口是安全的。另一个误区是单元测试试图完全模拟 SAP 授权系统，这也不现实。Authority Check Test Helper 的位置在两者之间：把授权判断封装成可替换依赖或 helper，让服务逻辑在测试中能稳定走到授权成功、授权失败、组织值不匹配等分支。</p>
+<p>可以这样理解：<a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a>、PFCG、DCL、RAP authorization 是真实安全控制；Authority Check Test Helper 是测试设计手段，用来验证业务代码面对这些控制结果时的行为是否正确。例如无权限时是否提前拒绝、是否不写数据库、是否返回 <code>AUTHORIZATION_FAILED</code>、是否记录合适日志、是否避免泄露敏感数据。</p>
+<p>初学者要先分清两个问题：第一，用户在真实 SAP 系统中有没有权限；第二，程序收到“无权限”这个判断后会不会正确停止。前者属于安全配置和系统验证，后者属于业务代码质量。Authority Check Test Helper 主要解决第二个问题。它让 ABAP Unit 可以稳定制造 allowed、denied、wrong organization、checker error 等结果，从而验证服务逻辑是否真的把权限失败当成硬停止，而不是继续保存、继续调用外部系统或返回误导性的业务错误。</p>
+<p>这类 helper 的价值在 API 和后台处理里尤其明显。画面按钮隐藏只能保护 UI 路径，外部 OData、RAP action、job、RFC 或批处理入口仍可能直接执行。如果授权判断散落在各处，测试很难覆盖；如果授权判断被封装成明确依赖，测试就能把“权限失败路径”写成可回归证据。</p>
+<h4 id="22-2-5b8f1860" class="semantic-heading semantic-concept">22.2 到底学什么</h4>
+<p>第一，要学它不是什么。它不是绕过授权，不是伪造生产权限，不是替代 PFCG 角色测试，也不是替代 <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a>。真实用户是否有权限，仍然要靠 SAP 授权对象、角色、DCL、RAP global/instance authorization、测试用户和 trace 证明。</p>
+<p>第二，要学它解决什么。服务逻辑经常需要根据授权结果分支：允许执行、拒绝执行、只允许某组织范围、只允许读取不允许修改、只允许特定对象状态下操作。单元测试如果必须依赖真实用户角色，就会难以稳定覆盖这些分支。helper 或接口可以把“授权检查结果”变成可控输入。</p>
+<p>第三，要学设计方式。常见做法是定义一个授权检查接口，例如 <code>zif_authority_checker</code>，生产实现内部调用 <code>AUTHORITY-CHECK</code> 或 RAP/DCL 相关机制，测试实现则返回指定结果。service class 依赖这个接口，不直接在深层逻辑到处写授权检查。这样测试可以模拟有权限、无权限、组织值不匹配、检查器异常等场景。</p>
+<p>第四，要学分层证据。ABAP Unit 证明“服务逻辑在授权失败时不会继续执行”；权限测试证明“真实用户角色确实会导致授权失败”；SU53/trace 证明“系统拒绝的具体授权对象/字段/值是什么”。这些证据互补，不能互相替代。</p>
+<p>第五，要学副作用清单。授权失败时，哪些事情绝对不应该发生，必须在测试里断言。比如不写业务表、不创建 batch、不注册 update task、不调用 BAPI、不发外部 HTTP、不写“成功开始处理”的 application log、不返回可重试业务错误、不泄露对象存在性或敏感字段。只断言 error code 还不够，要断言危险动作没有被调用。</p>
+<p>第六，要学测试命名和证据表达。测试名最好直接说出风险，例如 <code>denied_user_does_not_create_batch</code>、<code>wrong_company_code_returns_authorization_error</code>、<code>checker_error_does_not_call_external_api</code>。这样测试报告本身就能成为 review 证据。</p>
+<h4 id="22-3-6d08c99b" class="semantic-heading semantic-why">22.3 为什么重要</h4>
+<p>授权问题是 SAP 项目中最常见、也最容易误判的问题之一。用户说“我不能执行”，可能是角色缺失、组织值不对、DCL 过滤、RAP instance authorization、UI action enablement、业务状态不允许，也可能是程序自己判断错了。如果服务逻辑没有可测试授权分支，开发者只能靠手工用户测试反复确认。</p>
+<p>对交付而言，授权不只是安全问题，也影响用户体验和错误消息。无权限时应该返回清楚的错误，而不是技术 dump；应该在早期拒绝，避免产生部分副作用；应该避免告诉用户不该知道的敏感对象详情。Authority Check Test Helper 可以把这些行为写成单元测试，防止后续改动破坏。</p>
+<p>对 AC0567C 这类 API/批处理场景，授权测试尤其重要。外部系统可能用技术用户调用 API，内部还要按 company code、业务对象、动作类型检查权限。单元测试可以验证：当授权 helper 返回失败时，execute 不会创建 batch，不会提交业务更新，不会返回可重试的业务错误，而是返回明确的 authorization error。</p>
+<p>更进一步，授权 helper 能帮助团队避免“错误分类”混乱。无权限不是 payload validation error，不是 lock conflict，也不是 idempotency duplicate，更不是系统异常。错误分类错了，外部系统可能重试，用户可能找错团队，运维可能去查 job 或数据库。把授权分支单独测试出来，可以让 API response、message code、application log 和 incident triage 更稳定。</p>
+<h4 id="22-4-key-mechanism-031f953e" class="semantic-heading semantic-mechanism">22.4 Key mechanism / 核心机制</h4>
+<p>Authority Check Test Helper 的核心机制是“封装授权判断、控制测试结果、断言业务反应”。</p>
+<p>第一，封装授权判断。不要在服务逻辑各处散落硬编码授权判断，而是把授权相关逻辑集中到 helper、policy 或 checker 中。它可以包装 classic <code>AUTHORITY-CHECK</code>，也可以包装项目内自定义授权 API，或者把 DCL 过滤后的可见性转成业务判断。注意：RAP 的 global / instance authorization 由 RAP runtime 在 behavior 实现中强制执行；helper 模式更直接适用于自定义服务逻辑中的 classic 授权检查，对 RAP 场景主要用于测试业务代码如何响应授权结果。</p>
+<p>第二，控制测试结果。在 ABAP Unit 中，用 <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a> 或手写 fake 实现授权 checker，让它返回 allowed / denied / not applicable / error。这样可以稳定覆盖异常系，不需要每次准备真实 PFCG 角色。</p>
+<p>第三，断言业务反应。测试不只是断言“授权检查被调用”，更要断言结果：无权限时不调用 repository save、不写业务数据、不进入外部接口、不返回成功、不泄露敏感字段，并返回合适的 <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a>。</p>
+<p>第四，保留真实授权测试。helper 测试通过之后，还要用测试用户、SU53、authorization trace、RAP service 测试、CDS/DCL 场景验证真实权限配置。单元测试覆盖代码分支，系统测试覆盖 SAP 安全配置。</p>
+<p>一个常见设计形态如下：</p>
+<pre><code class="language-text">Service class
+  -&gt; calls zif_authority_checker-&gt;can_execute( user, company_code, action )
+  -&gt; if denied: return authorization error and stop
+  -&gt; if allowed: continue precheck / lock / save
+
+Production checker
+  -&gt; wraps AUTHORITY-CHECK or project authorization API
+  -&gt; maps SAP result to allowed / denied / error
+
+Test checker
+  -&gt; returns controlled result for each test case
+  -&gt; records whether it was called with expected action and organization value</code></pre>
+<p>测试时至少断言三类内容：</p>
+<div class="table-wrap"><table><thead><tr><th>断言对象</th><th>例子</th></tr></thead><tbody><tr><td>授权输入</td><td>checker 收到 action、company code、business key</td></tr><tr><td>业务停止</td><td>repository save、external API、commit owner 没被触发</td></tr><tr><td>错误契约</td><td>response code、message target、retryable flag、log id 合理</td></tr></tbody></table></div>
+<p>还要注意 checker 的抽象粒度。不要把 PFCG object/value 全部泄漏到业务 service 的 public API 里，否则业务逻辑会和授权对象配置强耦合。更好的方式是让业务层说“can_execute_upload(company_code)”或“can_read_batch(batch_id)”，由 checker 实现把它映射到具体授权机制。这样将来从 classic <code>AUTHORITY-CHECK</code> 调整到 RAP authorization 或组合策略时，业务 service 不需要大改。</p>
+<p>对于 DCL，需要特别谨慎。DCL 的效果可能体现为“读不到数据”，而不是显式返回 denied。单元测试可以模拟 reader 返回空结果，然后验证 service logic 如何解释空结果；但不能轻易断言这就是权限失败。真实项目里要把“数据不存在”“被 DCL 过滤”“无权执行 action”分开设计。</p>
+<h4 id="22-5-ca68aa36" class="semantic-heading semantic-japan">22.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>権限チェック</code>、<code>認可チェック</code>、<code>権限テスト</code>、<code>テストユーザ</code>、<code>権限不足</code>、<code>組織値</code>、<code>権限オブジェクト</code>、<code>SU53</code>、<code>権限トレース</code>、<code>単体テスト</code>。</p>
+<p>设计或 review 中可以这样说：</p>
+<ul>
+<li>権限チェック結果をサービスロジックから切り出し、単体テストではテストダブルで許可・拒否の分岐を確認します。</li>
+<li>単体テストは権限分岐のロジック確認であり、PFCGロールやDCLの実設定確認を置き換えるものではありません。</li>
+<li>権限エラー時は後続処理を実行せず、明確なエラーコードとメッセージを返却します。</li>
+</ul>
+<p>缺陷分析中可以这样问：</p>
+<ul>
+<li>このエラーはロール設定不足ですか、それともプログラム側の権限判定ロジックの問題ですか。</li>
+<li>SU53 または権限トレースの証跡はありますか。</li>
+<li>権限なしのケースは単体テストで回帰確認されていますか。</li>
+</ul>
+<p>测试设计中还可以这样说：</p>
+<ul>
+<li>権限NG時にDB更新、外部IF呼出、ジョブ起動が行われないことを単体テストで確認します。</li>
+<li>権限チェックの戻り値をテストダブルで制御し、許可・拒否・組織値不一致の分岐を網羅します。</li>
+<li>実ロールの確認は別途、テストユーザ、SU53、権限トレース、API応答証跡で確認します。</li>
+<li>権限エラーは入力チェックエラーや業務エラーと区別し、メッセージコードを固定します。</li>
+</ul>
+<h4 id="22-6-english-terms-3b1eee5f" class="semantic-heading semantic-terms">22.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>AUTHORITY-CHECK</code>, <code>authorization check</code>, <code>authorization object</code>, <code>authorization trace</code>.</li>
+<li>Related terms: <code>authority check helper</code>, <code>authorization checker</code>, <code>policy object</code>, <code>test double</code>, <code>negative authorization test</code>, <code>organization value</code>.</li>
+<li>SAP-specific search terms: <code>SU53</code>, <code>authorization trace</code>, <code>PFCG</code>, <code>RAP authorization</code>, <code>CDS access control</code>, <code>DCL</code>.</li>
+<li>Recommended search pattern: <code>SAP AUTHORITY-CHECK ABAP Unit test</code>, <code>SAP authorization trace SU53</code>, <code>SAP RAP authorization test</code>.</li>
+</ul>
+<h4 id="22-7-example-01299ece" class="semantic-heading semantic-example">22.7 Example / 学习例子</h4>
+<p>假设 AC0567C 上传服务执行前要检查用户是否有 company code 1000 的 execute 权限。生产实现可能最终走 SAP 授权对象；单元测试不直接依赖真实角色，而是注入一个 fake authorization checker。</p>
+<p>测试场景可以这样写：</p>
+<pre><code class="language-text">Given: authorization checker returns denied for company code 1000
+When: execute upload is called
+Then: repository save is not called
+And: external API is not called
+And: response errorCode is AUTHORIZATION_FAILED
+And: retryable is false until authorization is fixed</code></pre>
+<p>另一个场景：</p>
+<pre><code class="language-text">Given: authorization checker returns allowed for company code 1000
+And: input data is valid
+When: execute upload is called
+Then: service continues to precheck and processing</code></pre>
+<p>这两个测试证明的是服务逻辑如何响应授权结果。它们不证明真实角色配置正确。真实角色配置需要测试用户、PFCG、SU53/trace、API 调用证据一起确认。</p>
+<p>再补一个组织值不匹配的例子：</p>
+<pre><code class="language-text">Given: user is allowed for company code 1000
+And: upload request contains company code 2000
+When: execute upload is called
+Then: authorization checker returns denied_for_org
+And: no batch header is created
+And: no application log with success status is written
+And: response code is AC0567C_AUTH_ORG_DENIED</code></pre>
+<p>这个 case 的关键不是“角色配置是否真的如此”，而是业务代码面对组织范围失败时会不会硬停止。真实角色值由后续系统测试证明，单元测试先把代码分支固定住。</p>
+<p>这里的 <code>denied_for_org</code> 是 checker 在业务层做的分类，不是 <code>AUTHORITY-CHECK</code> 的标准返回码。底层 <code>AUTHORITY-CHECK</code> 主要通过 <code>sy-subrc</code> 表示检查结果；业务 checker 再把它映射成更适合 API 和日志的错误类别。</p>
+<p>再补一个 checker 异常的例子：</p>
+<pre><code class="language-text">Given: authorization checker cannot complete because authorization service raises an unexpected error
+When: execute upload is called
+Then: service returns a technical authorization check failure
+And: business save is not called
+And: external API is not called
+And: support log contains trace id but not sensitive payload</code></pre>
+<p>这个 case 防止程序把“授权检查本身失败”误当成“允许通过”或普通业务错误。安全相关检查失败时，默认方向应是 fail closed，而不是继续执行。</p>
+<p>一个最小测试矩阵可以这样设计：</p>
+<div class="table-wrap"><table><thead><tr><th>Case</th><th>Helper result</th><th>Expected service behavior</th></tr></thead><tbody><tr><td>allowed</td><td>allow company 1000 execute</td><td>继续 precheck / save</td></tr><tr><td>denied</td><td>no execute permission</td><td>返回 authorization error，不保存</td></tr><tr><td>org mismatch</td><td>user lacks company 2000</td><td>返回组织范围错误，不保存</td></tr><tr><td>read only</td><td>user can query but not execute</td><td>status API 可读，execute 拒绝</td></tr><tr><td>checker error</td><td>helper 抛出异常或返回 unknown</td><td>fail closed，记录 support trace</td></tr></tbody></table></div>
+<h4 id="22-8-counterexample-failure-mode-3088e7df" class="semantic-heading semantic-example">22.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有以下几类。</p>
+<p>第一，只在 UI 层隐藏按钮。用户看不到按钮，不代表 API、后台 job 或 RAP action 不能被调用。</p>
+<p>第二，单元测试依赖真实权限用户。开发机、测试机角色变化会让测试不稳定，也难以覆盖所有授权失败分支。</p>
+<p>第三，把 helper 当成安全控制本身。测试 helper 只是测试工具和代码结构，生产安全仍要靠真实 SAP 授权机制。</p>
+<p>第四，无权限后仍有副作用。程序先写日志、创建草稿、调用外部接口或锁对象，然后才发现无权限，会制造不必要风险。授权应尽量前置。</p>
+<p>第五，错误消息过度暴露。无权限时不应告诉用户太多敏感对象内部细节；应返回可行动但安全的消息，并把细节交给受控 trace 和审计渠道。</p>
+<p>第六，只测试 checker 被调用。调用发生不代表业务正确停止；必须继续断言 repository、BAPI、HTTP client、job scheduler、message/log writer 的行为。</p>
+<p>第七，把 authorization denied 当 retryable。权限不足通常不是重试就能解决，除非角色或组织值被修正。API response 中的 retryable flag 要和错误类型一致。</p>
+<p>第八，helper 抽象过细。业务 service 如果直接传入 authorization object、field name、ACTVT、PFCG value，后续维护会困难。应尽量用业务动作和业务范围表达意图。</p>
+<p>第九，忘记 technical user。外部接口账号可能拥有服务访问权限，但不代表它能跨所有公司代码执行所有业务动作。单元测试和系统测试都要考虑 technical user 场景。</p>
+<p>第十，把 DCL 空结果直接报“数据不存在”。有些场景为了安全会模糊对象存在性，有些场景需要返回无权限。这个策略要由设计决定，测试应固定设计结果。</p>
+<h4 id="22-9-45049b86" class="semantic-heading semantic-practice">22.9 思考问题</h4>
+<ul>
+<li>为什么 Authority Check Test Helper 不能替代真实 PFCG/角色测试？</li>
+<li>服务逻辑中授权失败时，哪些后续动作必须保证不会发生？</li>
+<li>如何用 test double 覆盖 allowed、denied、organization value mismatch 三个场景？</li>
+<li>UI 隐藏按钮和 ABAP/RAP/CDS 层授权检查有什么区别？</li>
+<li>AC0567C POC 中哪个接口最需要补无权限路径测试？</li>
+</ul>
+<h4 id="22-10-fd1e88bb" class="semantic-heading semantic-reference">22.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPAUTHORITY-CHECK.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - AUTHORITY-CHECK OBJECT</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_UNIT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP Unit</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-control" target="_blank" rel="noopener noreferrer">SAP Help - RAP Authorization Control</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_ACCESS_CONTROL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP CDS Access Control</a></li>
+<li>SAP Help Portal / ABAP Keyword Documentation: search <code>AUTHORITY-CHECK</code>, <code>authorization object</code>, <code>authorization field</code>.</li>
+<li>SAP Help Portal / RAP documentation: search <code>authorization</code>, <code>global authorization</code>, <code>instance authorization</code>.</li>
+<li>SAP Help Portal / Security documentation: search <code>SU53</code>, <code>authorization trace</code>, <code>PFCG</code>.</li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=AUTHORITY-CHECK%20ABAP" target="_blank" rel="noopener noreferrer">AUTHORITY-CHECK ABAP</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=RAP%20authorization" target="_blank" rel="noopener noreferrer">RAP authorization</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=SU53%20authorization%20trace" target="_blank" rel="noopener noreferrer">SU53 authorization trace</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=ABAP%20Unit%20test%20double" target="_blank" rel="noopener noreferrer">ABAP Unit test double</a></li>
+</ul>
+<h4 id="22-11-connections-c7c040b0">22.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-021-cds-test-double-framework-9dce73f3.html">CDS Test Double Framework</a></li>
+<li>Downstream: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a></li>
+<li>Related: <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></li>
+<li>Related: <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 25 - 测试替身与服务逻辑测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="22-12-93cfaee1" class="semantic-heading semantic-practice">22.12 学习任务</h4>
+<ul>
+<li>为一个 execute API 写出 allowed / denied / organization mismatch 三个授权测试场景。</li>
+<li>列出授权失败时不应发生的 5 个副作用，例如保存、提交、外部调用、发送通知、暴露敏感信息。</li>
+<li>写 2 句日语 review 评论：一句说明单元测试不能替代 PFCG，另一句要求补无权限路径测试。</li>
+<li>找一个既有 POC，说明它的权限检查结果如何转成 error code 和 message。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 AUTHORITY-CHECK、RAP authorization 或 SU53/trace 的官方说法。</li>
+</ul>
+<h4 id="22-13-confidence-next-action-45968b9c" class="semantic-heading semantic-status">22.13 Confidence &amp; Next Action</h4>
+<p>Confidence: Medium-High。授权测试分层原则稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已修正失败模式计数为非易漂移表述，并补充 RAP runtime 授权边界、<code>denied_for_org</code> 业务层分类、fail-closed 和无副作用断言。具体 helper 设计、RAP authorization 测试方式、DCL 行为和 ABAP Cloud 限制仍需要结合目标系统与官方资料确认，Joule scoped review 仍保留为 deferred 证据。</p>
+<p>Next action: 继续学习 <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a>，把测试之外的静态质量门禁纳入上线准备。</p>
+<p>原子笔记入口：<a class="wiki" href="section-04-022-authority-check-test-helper-e8ca4248.html">Authority Check Test Helper</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-021-cds-test-double-framework-9dce73f3.html">Previous section</a><a href="section-04-023-background-job-and-submit-basics-11cfa86d.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

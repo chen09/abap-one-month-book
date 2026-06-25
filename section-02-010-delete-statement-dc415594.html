@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>DELETE statement 删除数据 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="10-delete-statement-76aa70f6" class="chapter-title">10. DELETE statement 删除数据</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 10</li><li>self-contained study note</li></ul><h4 id="10-1-73222754" class="semantic-heading semantic-concept">10.1 一句话结论</h4>
+<p>ABAP SQL 的 <code>DELETE</code> 用来从可写数据库对象中删除行。它是写入类语句里风险最高的一类：少一个 <code>WHERE</code> 可能删除整张表，条件过宽可能删除别的业务范围，直接物理删除可能破坏业务历史、审计、关联数据和 Clean Core 边界。学习 <code>DELETE</code> 的重点不是语法，而是删除范围、实际删除件数、事务回滚能力、业务保留规则、授权和官方写入路径。</p>
+<h4 id="10-2-812005a7" class="semantic-heading semantic-concept">10.2 到底学什么</h4>
+<p>先把边界说清楚：本节讲的是 ABAP SQL <code>DELETE</code>，也就是删除数据库持久化对象里的行；它不是内部表的 <code>DELETE</code>。内部表删除只是改 ABAP 内存，ABAP SQL <code>DELETE</code> 会进入数据库修改路径，可能影响生产数据、事务、锁、审计和业务一致性。</p>
+<p>最常见的安全写法，是用 <code>WHERE</code> 精确限定删除范围：</p>
+<pre><code class="language-abap">DELETE FROM zorder_note
+ WHERE note_id = @lv_note_id.
+
+DATA(lv_delete_subrc) = sy-subrc.
+DATA(lv_deleted)      = sy-dbcnt.</code></pre>
+<p>如果 <code>note_id</code> 是唯一主键，业务预期通常是删除一行。<code>sy-dbcnt</code> 应该等于 1；如果是 0，说明目标不存在、已经被别人删除，或者条件不满足；如果大于 1，说明 <code>WHERE</code> 写得不够精确。</p>
+<p><code>DELETE</code> 也可以按结构或内表里的主键删除：</p>
+<pre><code class="language-abap">DELETE zorder_note FROM @ls_note_key.
+DELETE zorder_note FROM TABLE @lt_note_keys.</code></pre>
+<p>这类写法的重点是“来源结构/内表必须正确承载目标表主键”。如果 key 不完整、字段对不齐、来源数据不是想删的对象，就可能删错。真实项目里，删除前通常还要先确认业务状态、关联数据、权限和是否应该做逻辑删除。</p>
+<h4 id="10-3-1a08bbac" class="semantic-heading semantic-why">10.3 为什么重要</h4>
+<p>删除比新增和更新更敏感，因为它直接移除数据。很多 SAP 业务对象并不鼓励物理删除，而是使用状态、取消、冲销、归档、作废标志或删除标志。比如订单、会计凭证、主数据、接口日志、审批记录，往往不能随便 <code>DELETE</code>。能写 SQL 删除，不代表业务上允许删除。</p>
+<p>它的第一层风险是范围失控。没有 <code>WHERE</code> 的 <code>DELETE FROM ztable</code> 会删除所有可见行；过宽的 <code>WHERE</code> 会删除别的客户、组织、期间或状态下的数据。项目里必须把删除范围写到 review 可以直接看懂。</p>
+<p>第二层风险是关联完整性。SAP 业务数据之间有很多关系，未必都由数据库外键强制。删除 header 但保留 item，删除主数据但保留交易数据，删除日志但保留统计索引，都可能造成后续程序异常或业务解释困难。</p>
+<p>第三层风险是审计和恢复。删除后的数据如果已经 commit，恢复可能依赖备份、变更文档、日志或人工重建。生产环境里，“删了再说”通常不是可接受策略。清理程序要有日志、模拟模式、件数确认和回滚/恢复预案。</p>
+<p>第四层风险是 Clean Core。直接删除 SAP 标准表数据通常是高风险动作。S/4HANA、ABAP Cloud、RAP 或 Clean Core 项目里，要优先使用业务事务、released API、BAPI、RAP BO、归档对象、数据清理工具或正式扩展点。</p>
+<h4 id="10-4-key-mechanism-398f618d" class="semantic-heading semantic-mechanism">10.4 Key mechanism / 核心机制</h4>
+<h5 id="10-4-1-delete-from-where-e2a5a82c">10.4.1 <code>DELETE FROM ... WHERE ...</code>：条件删除</h5>
+<p>条件删除是最常见、也最需要 review 的写法：</p>
+<pre><code class="language-abap">DELETE FROM zorder_note
+ WHERE note_id        = @lv_note_id
+   AND sales_order_id = @lv_sales_order_id.</code></pre>
+<p>这里的 <code>WHERE</code> 决定删除哪些行。官方文档说明，符合 <code>sql_cond</code> 的行会被删除；如果没有符合条件的行，不会删除任何行，<code>sy-subrc</code> 会设置为 4。</p>
+<p>写完后要马上保存系统字段：</p>
+<pre><code class="language-abap">DATA(lv_delete_subrc) = sy-subrc.
+DATA(lv_deleted)      = sy-dbcnt.
+
+IF lv_deleted &lt;&gt; 1.
+  &quot; Expected exactly one row to be deleted.
+ENDIF.</code></pre>
+<p>项目里真正判断成功的不是“语句执行了”，而是“删除件数符合业务预期”。</p>
+<h5 id="10-4-2-where-558dda0e">10.4.2 没有 <code>WHERE</code> 是全量删除</h5>
+<p>下面这句非常危险：</p>
+<pre><code class="language-abap">DELETE FROM zorder_note.</code></pre>
+<p>语义是删除目标对象中当前客户端可见的全部行，或在使用 <code>UP TO</code> 时删除指定数量的行。只有在明确设计的数据清理、测试数据初始化、临时表清空或批处理归档场景下，才可能允许这种写法。即便如此，也要有运行条件、日志、件数输出和回滚策略。</p>
+<p>在书写习惯上，除非有明确的“清空表”设计，否则 <code>DELETE FROM ...</code> 后面应该马上出现可解释的 <code>WHERE</code>。</p>
+<h5 id="10-4-3-delete-dbtab-from-wa-9fed1031">10.4.3 按主键删除：<code>DELETE dbtab FROM @wa</code></h5>
+<p>按结构删除时，数据库会根据来源结构中的主键内容寻找目标行：</p>
+<pre><code class="language-abap">DATA(ls_note_key) = VALUE zorder_note(
+  note_id = lv_note_id ).
+
+DELETE zorder_note FROM @ls_note_key.</code></pre>
+<p>这种写法适合“我手里有明确主键”的场景。但初学者要注意：这不是按任意字段匹配，而是按目标对象的主键语义匹配。来源结构最好基于目标表类型或清楚的 key 结构，避免字段顺序、长度或初始值造成误解。</p>
+<p>如果删除条件需要表达业务范围、状态、期间或组织约束，用 <code>DELETE FROM ... WHERE ...</code> 往往更可读：</p>
+<pre><code class="language-abap">DELETE FROM zorder_note
+ WHERE note_id        = @lv_note_id
+   AND sales_order_id = @lv_sales_order_id
+   AND status         = @lc_status_draft.</code></pre>
+<p>这段代码明确说明：只删除某订单下仍处于 draft 的备注。</p>
+<h5 id="10-4-4-delete-from-table-itab-9734f94d">10.4.4 批量删除：<code>DELETE ... FROM TABLE @itab</code></h5>
+<p>批量删除可以用内表提供要删除的 key：</p>
+<pre><code class="language-abap">DELETE zorder_note FROM TABLE @lt_note_keys.
+
+DATA(lv_deleted) = sy-dbcnt.</code></pre>
+<p>官方文档说明，如果内表某一行在数据库里找不到相同主键，那一行会被忽略，<code>sy-subrc</code> 会设置为 4；如果内表为空，不会删除行，但 <code>sy-subrc</code> 仍可为 0；<code>sy-dbcnt</code> 是实际删除的行数。</p>
+<p>所以批量删除后不能只写：</p>
+<pre><code class="language-abap">IF sy-subrc = 0.
+  &quot; All good?
+ENDIF.</code></pre>
+<p>更稳的做法是对比预期件数：</p>
+<pre><code class="language-abap">DELETE zorder_note FROM TABLE @lt_note_keys.
+
+DATA(lv_deleted) = sy-dbcnt.
+
+IF lv_deleted &lt;&gt; lines( lt_note_keys ).
+  &quot; Some requested keys were not deleted or did not exist.
+ENDIF.</code></pre>
+<p>当然，有些清理需求允许“要删的不存在也算成功”。但这必须是业务决策，而不是因为代码没检查。</p>
+<h5 id="10-4-5-098fb6e0">10.4.5 大量删除：分批、排序和提交边界</h5>
+<p>大量删除会带来锁、回滚区、日志、数据库资源和运行时间问题。官方文档提到，<code>UP TO n ROWS</code> 可以用于把大删除拆成多次执行，避免一次删除过多行造成资源问题。</p>
+<pre><code class="language-abap">DO.
+  DELETE FROM zapplication_log
+   WHERE created_at &lt; @lv_cutoff
+   UP TO @lv_package_size ROWS.
+
+  DATA(lv_deleted) = sy-dbcnt.
+
+  IF lv_deleted = 0.
+    EXIT.
+  ENDIF.
+
+  COMMIT WORK.
+ENDDO.</code></pre>
+<p>这个例子只适合当前程序拥有事务边界的清理 report。可复用方法、RAP handler、BAPI 内部或框架回调里不能这样随手提交。</p>
+<p>如果需求是“删除最旧的 N 条”，就不能只写 <code>UP TO n ROWS</code>。官方文档说明，如果 <code>UP TO</code> 没有 <code>ORDER BY</code>，无法定义具体删除哪几行；如果 <code>ORDER BY</code> 不是唯一排序，也无法定义并列行中哪几行会被删。需要稳定删除范围时，应使用业务排序字段和唯一 tie-breaker。</p>
+<h5 id="10-4-6-sy-subrc-sy-dbcnt-9cac845a">10.4.6 <code>sy-subrc</code> 和 <code>sy-dbcnt</code></h5>
+<p>对 <code>DELETE</code> 来说，常见判断是：</p>
+<ul>
+<li><code>sy-subrc = 0</code>：至少一行被删除，或者批量来源行都被处理到；内表为空时也可能是 0。</li>
+<li><code>sy-subrc = 4</code>：没有符合条件的行，或批量删除时至少有一行没有找到对应数据库行。</li>
+<li><code>sy-dbcnt</code>：实际删除的行数。</li>
+</ul>
+<p>这些系统字段应该在 <code>DELETE</code> 后立即复制出来：</p>
+<pre><code class="language-abap">DELETE FROM zorder_note
+ WHERE note_id = @lv_note_id.
+
+DATA(lv_delete_subrc) = sy-subrc.
+DATA(lv_deleted)      = sy-dbcnt.</code></pre>
+<p>不要在后续又执行其他 SQL 后才回来看 <code>sy-subrc</code>。</p>
+<h5 id="10-4-7-00c88fb6">10.4.7 物理删除、逻辑删除和归档</h5>
+<p>SAP 项目里并不是所有“不要显示”的数据都应该物理删除。常见替代方案包括：</p>
+<ul>
+<li>设置删除标志，例如 <code>is_deleted = abap_true</code>。</li>
+<li>改状态，例如 cancelled、rejected、obsolete。</li>
+<li>业务冲销或反向凭证。</li>
+<li>归档对象或数据生命周期管理。</li>
+<li>清理临时表、队列表、日志表中的过期数据。</li>
+</ul>
+<p>物理删除适合临时数据、明确可清理日志、草稿数据、测试数据或项目自有表中已经满足保留策略的数据。对于核心业务对象，应该优先找业务 API 或归档机制。</p>
+<h5 id="10-4-8-8f38a738">10.4.8 删除不是权限、锁和业务校验</h5>
+<p><code>DELETE</code> 不会自动检查当前用户是否业务上允许删除，也不会自动检查关联对象是否仍依赖它。经典 ABAP 可能需要 <code>AUTHORITY-CHECK</code>、lock object、业务状态检查、日志和变更记录；RAP 中要看 authorization、lock、validation、determination、delete action 和 save sequence。</p>
+<p>如果直接删除 SAP 标准表数据，可能绕过变更文档、派生逻辑、缓存、状态机、归档策略和业务一致性检查。这类操作必须通过正式工具、released API、BAPI、RAP BO 或项目批准的修复方案。</p>
+<h4 id="10-5-339b7e33" class="semantic-heading semantic-japan">10.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>削除処理</code></li>
+<li><code>DELETE文</code></li>
+<li><code>物理削除</code></li>
+<li><code>論理削除</code></li>
+<li><code>削除フラグ</code></li>
+<li><code>取消</code></li>
+<li><code>無効化</code></li>
+<li><code>アーカイブ</code></li>
+<li><code>削除対象</code></li>
+<li><code>削除条件</code></li>
+<li><code>WHERE条件</code></li>
+<li><code>削除件数</code></li>
+<li><code>想定件数</code></li>
+<li><code>一括削除</code></li>
+<li><code>分割削除</code></li>
+<li><code>保持期間</code></li>
+<li><code>排他制御</code></li>
+<li><code>権限チェック</code></li>
+<li><code>直テーブル削除</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>このデータは物理削除してよいのか、削除フラグによる論理削除にすべきか確認してください。</li>
+<li><code>WHERE条件</code> が広すぎると、想定外のレコードまで削除される可能性があります。</li>
+<li><code>sy-dbcnt</code> が想定削除件数と一致しているか確認してください。</li>
+<li>大量削除の場合は、分割削除、ログ出力、コミット単位、リカバリ方針を確認します。</li>
+<li>SAP標準テーブルを直接削除せず、業務トランザクション、Released API、BAPI、RAP BO、アーカイブ手段を確認します。</li>
+</ul>
+<p>日本项目里，<code>物理削除</code> 和 <code>論理削除</code> 的区分非常重要。用户说“削除したい”时，开发者不能马上理解为 SQL <code>DELETE</code>，而要先确认是“不显示”“取消”“无效化”“撤销”，还是“真的从表里删除”。</p>
+<h4 id="10-6-english-terms-0391f8c2" class="semantic-heading semantic-terms">10.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP SQL DELETE</code></li>
+<li>Related term: <code>DELETE writable database object</code></li>
+<li>Related term: <code>DELETE FROM ... WHERE</code></li>
+<li>Related term: <code>DELETE ... FROM</code></li>
+<li>Related term: <code>DELETE ... FROM TABLE</code></li>
+<li>Related term: <code>WHERE condition</code></li>
+<li>Related term: <code>UP TO n ROWS</code></li>
+<li>Related term: <code>ORDER BY</code></li>
+<li>Related term: <code>sy-subrc</code></li>
+<li>Related term: <code>sy-dbcnt</code></li>
+<li>Related term: <code>physical delete</code></li>
+<li>Related term: <code>logical delete</code></li>
+<li>Related term: <code>soft delete</code></li>
+<li>Related term: <code>retention period</code></li>
+<li>Related term: <code>database commit</code></li>
+<li>Related term: <code>database rollback</code></li>
+<li>Related term: <code>SAP LUW</code></li>
+<li>Related term: <code>Database LUW</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL DELETE SAP Help</code></li>
+<li><code>ABAP DELETE FROM WHERE sy-dbcnt</code></li>
+<li><code>ABAP DELETE FROM TABLE sy-subrc 4</code></li>
+<li><code>ABAP DELETE UP TO ROWS ORDER BY</code></li>
+<li><code>SAP logical delete physical delete archive ABAP</code></li>
+</ul>
+<h4 id="10-7-example-03b35d5d" class="semantic-heading semantic-example">10.7 Example / 学习例子</h4>
+<h5 id="10-7-1-1-95f66ab8">10.7.1 例 1：按主键删除草稿备注</h5>
+<pre><code class="language-abap">DELETE FROM zorder_note
+ WHERE note_id        = @lv_note_id
+   AND sales_order_id = @lv_sales_order_id
+   AND status         = @lc_status_draft.
+
+DATA(lv_deleted) = sy-dbcnt.
+
+IF lv_deleted &lt;&gt; 1.
+  &quot; Expected exactly one draft note to be deleted.
+ENDIF.</code></pre>
+<p>这里不是只按 <code>note_id</code> 删除，而是附加了订单和草稿状态。这样能表达业务规则：只能删除仍未正式提交的草稿备注。</p>
+<h5 id="10-7-2-2-key-a55a2f86">10.7.2 例 2：批量按 key 删除</h5>
+<pre><code class="language-abap">DELETE zorder_note FROM TABLE @lt_note_keys.
+
+DATA(lv_deleted) = sy-dbcnt.
+
+IF lv_deleted &lt;&gt; lines( lt_note_keys ).
+  &quot; Some requested keys did not exist or were not deleted.
+ENDIF.</code></pre>
+<p>如果业务允许重复删除请求，即“已经不存在也算成功”，可以不报错，但应在接口说明或日志中说明这种幂等语义。</p>
+<h5 id="10-7-3-3-ead48ec9">10.7.3 例 3：分批清理过期日志</h5>
+<pre><code class="language-abap">DO.
+  DELETE FROM zapplication_log
+   WHERE created_at &lt; @lv_cutoff
+   UP TO @lv_package_size ROWS.
+
+  DATA(lv_deleted) = sy-dbcnt.
+
+  IF lv_deleted = 0.
+    EXIT.
+  ENDIF.
+
+  COMMIT WORK.
+ENDDO.</code></pre>
+<p>这个例子用于清理项目自有日志表，且假设当前 report 拥有事务边界。真实项目还应加模拟模式、输出删除件数、异常处理和运行权限检查。</p>
+<h5 id="10-7-4-4-b941149b">10.7.4 例 4：逻辑删除优先</h5>
+<pre><code class="language-abap">UPDATE zorder_note
+   SET is_deleted = @abap_true,
+       changed_by = @sy-uname,
+       changed_at = @lv_now
+ WHERE note_id    = @lv_note_id.</code></pre>
+<p>如果业务要求保留历史、审计或可恢复，逻辑删除可能比物理 <code>DELETE</code> 更合适。读者要学会问“是否真的要物理删除”。</p>
+<h4 id="10-8-counterexample-failure-mode-417cc491" class="semantic-heading semantic-example">10.8 Counterexample / Failure mode</h4>
+<p>失败模式一：漏掉 <code>WHERE</code>，导致全表删除。除非这是明确设计的初始化或清理程序，否则应视为高危缺陷。</p>
+<p>失败模式二：<code>WHERE</code> 太宽。只按状态、日期或用户删除，可能把别的组织、客户、期间、系统批次的数据一起删掉。</p>
+<p>失败模式三：只看 <code>sy-subrc</code>，不看 <code>sy-dbcnt</code>。删除一条、删除 N 条、删除 0 条的业务意义完全不同。</p>
+<p>失败模式四：批量 <code>DELETE FROM TABLE</code> 后把 <code>sy-subrc = 4</code> 当作全部失败，或把它忽略成成功。它可能表示部分 key 没找到，实际已有部分行被删除。</p>
+<p>失败模式五：把业务“取消”做成物理删除。很多业务对象应该取消、冲销、失效或设置删除标志，而不是 SQL 删除。</p>
+<p>失败模式六：直接删除 SAP 标准表。这样可能绕过标准业务逻辑、变更文档、归档和一致性检查。</p>
+<p>失败模式七：大量删除不分批、不提交、不记录件数。容易造成长事务、锁等待、回滚区压力或难以恢复。</p>
+<p>失败模式八：测试后不清理或清理过度。删除类测试既可能污染共享环境，也可能误删他人测试数据。</p>
+<h4 id="10-9-573b68a5" class="semantic-heading semantic-practice">10.9 思考问题</h4>
+<ul>
+<li>这个需求是真正物理删除，还是逻辑删除、取消、无效化、归档？</li>
+<li><code>DELETE</code> 的目标对象是否允许被当前程序直接删除？</li>
+<li><code>WHERE</code> 是否能保证只删除预期业务范围？</li>
+<li>预期删除件数是多少？代码是否检查 <code>sy-dbcnt</code>？</li>
+<li>如果目标行不存在，是错误、忽略，还是幂等成功？</li>
+<li>是否存在 header/item、主数据/交易数据、日志/统计数据等关联关系？</li>
+<li>是否需要先检查业务状态、权限、锁和保留期限？</li>
+<li>大量删除是否需要分批、模拟模式、日志、commit 计划和恢复方案？</li>
+<li>谁负责 <code>COMMIT WORK</code> 或 rollback？</li>
+<li>ABAP Cloud / RAP / Clean Core 项目中，是否应该改用 released API、BAPI、RAP BO、EML、归档对象或业务事务？</li>
+</ul>
+<h4 id="10-10-51df1df3" class="semantic-heading semantic-reference">10.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPDELETE_DBTAB.html" target="_blank" rel="noopener noreferrer">DELETE writable_obj</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPDELETE_SOURCE.html" target="_blank" rel="noopener noreferrer">DELETE writable_obj, source</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_753_index_htm/7.53/en-US/abapdelete_where.htm" target="_blank" rel="noopener noreferrer">DELETE dbtab - cond</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenabap_sql_writing.html" target="_blank" rel="noopener noreferrer">ABAP SQL - Write Access with DML</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPIUMD_TARGET.html" target="_blank" rel="noopener noreferrer">INSERT, UPDATE, MODIFY, DELETE, target</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT.html" target="_blank" rel="noopener noreferrer">COMMIT WORK</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPINVALID_STMTS_IN_RAP_METHODS.html" target="_blank" rel="noopener noreferrer">Restrictions in RAP Handler and Saver Methods</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/17_SAP_LUW.md" target="_blank" rel="noopener noreferrer">SAP LUW Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="10-11-connections-333b832d">10.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-02-009-update-statement-ab212d9f.html">UPDATE statement 更新数据</a></li>
+<li>Related: <a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a></li>
+<li>Related: <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a></li>
+<li>Related: <a class="wiki" href="section-02-008-insert-statement-0beac323.html">INSERT statement 新增数据</a></li>
+<li>Related: <a class="wiki" href="section-02-011-modify-statement-e9a9a916.html">MODIFY statement 修改语义</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li>Downstream: <a class="wiki" href="section-02-011-modify-statement-e9a9a916.html">MODIFY statement 修改语义</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 09 - ABAP SQL 写入、聚合与事务</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="10-12-2ea72320" class="semantic-heading semantic-practice">10.12 学习任务</h4>
+<ul>
+<li>写一个 <code>DELETE FROM ... WHERE ...</code> 例子，并说明预期 <code>sy-dbcnt</code> 应该是多少。</li>
+<li>把一个物理删除需求改写成逻辑删除方案，说明为什么需要保留历史。</li>
+<li>写一个批量 <code>DELETE ... FROM TABLE</code> 例子，并说明 <code>sy-dbcnt</code> 少于内表行数时如何处理。</li>
+<li>写一句日语 review 说明：<code>物理削除してよいのか、削除フラグによる論理削除にすべきか確認してください。</code></li>
+<li>找一个没有 <code>WHERE</code> 或 <code>WHERE</code> 过宽的删除语句，说明它可能造成什么生产风险。</li>
+<li>设计一个过期日志清理 report，列出模拟模式、分批删除、日志输出、commit 单位和恢复方案。</li>
+</ul>
+<h4 id="10-13-confidence-next-action-97f8c04a" class="semantic-heading semantic-status">10.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 复核 <code>DELETE writable_obj</code>、<code>DELETE writable_obj, source</code>、<code>DELETE FROM ... WHERE</code>、<code>ORDER BY</code> / <code>OFFSET</code> / <code>UP TO n ROWS</code>、write access with DML、I/U/M/D target、<code>COMMIT WORK</code>、RAP handler/saver restrictions，以及 SAP LUW / ABAP SQL cheat-sheet 中 <code>sy-subrc</code>、<code>sy-dbcnt</code> 和部分成功示例；正文已覆盖全表删除风险、批量部分成功、逻辑删除/物理删除、事务边界、锁、授权、Clean Core 和 RAP/ABAP Cloud 注意点。旧 Joule ultra-short prompt 返回通用错误，旧 Claude 输出为 session expired；2026-06-18 已创建新的 Claude follow-up prompt，但当前 Claude health check 在 180 秒内未返回，因此本轮按官方资料闭环并保留外部模型复核债务。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-011-modify-statement-e9a9a916.html">MODIFY statement 修改语义</a>，继续检查 upsert 语义、<code>INSERT</code> / <code>UPDATE</code> / <code>MODIFY</code> 的边界和项目风险。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-010-delete-statement-dc415594.html">DELETE statement 删除数据</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-009-update-statement-ab212d9f.html">Previous section</a><a href="section-02-011-modify-statement-e9a9a916.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

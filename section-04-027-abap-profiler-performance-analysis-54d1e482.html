@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP Profiler performance analysis | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="27-abap-profiler-performance-analysis-86c81a52" class="chapter-title">27. ABAP Profiler performance analysis</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 27</li><li>self-contained study note</li></ul><h4 id="27-1-eb8299ea" class="semantic-heading semantic-concept">27.1 一句话结论</h4>
+<p><a class="wiki" href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">ABAP Profiler performance analysis</a> 是用运行时调用栈和耗时数据定位 ABAP 应用层瓶颈的方法。当前一节 <a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a> 没有发现明显慢 SQL，或 SQL 只是整体慢的一部分时，Profiler 帮助开发者回答：到底是哪个 method、loop、formatting、conversion、authorization check、logging、framework callback 或 service logic 消耗了时间。</p>
+<p>一句话记忆：SQL Trace 看“数据库访问慢不慢”，ABAP Profiler 看“ABAP 程序自己把时间花在哪里”。</p>
+<p>把它放到一本书里，可以这样理解：Profiler 不是“看到慢就抓一个倒霉方法背锅”的工具，而是把一次业务动作拆成可观察的调用路径。用户只会说“这个 API 很慢”“这个 job 跑不完”“这个画面保存要等很久”，但开发者必须把这句话翻译成工程证据：入口是什么，输入数据是多少，时间花在数据库、框架、业务判断、消息组装、权限检查，还是结果序列化。Profiler 负责其中的 ABAP 应用层部分。</p>
+<p>因此，本节的目标不是背事务码，而是学会一种性能调查姿势：先把场景缩小到一次可重复的动作，再用 profiler 证明“慢在哪里”，最后用相同条件比较优化前后。对于初学者，这比记住某个按钮位置更重要；系统版本、权限、工具入口会变化，但 performance evidence 的写法在项目里长期稳定。</p>
+<h4 id="27-2-d98d54ad" class="semantic-heading semantic-concept">27.2 到底学什么</h4>
+<p>本节学习的是性能分析的应用层视角。很多性能问题不是单条 SQL 慢，而是 ABAP 代码里反复调用、重复转换、无意义循环、过度对象创建、频繁日志拼接、错误的 internal table 查找、RAP/OData handler 中的重复读取，或多个小耗时叠加成大耗时。Profiler 的价值，是把这些耗时用调用层级和指标暴露出来。</p>
+<p>第一，要理解工具边界。ABAP Profiler / runtime analysis 适合短时间、可复现、明确输入条件的性能分析。它不是长期生产监控工具，也不是数据库计划分析工具；数据库访问要结合 SQL Trace / SQL Monitor，生产级 SQL 画像要结合 <a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a>，系统资源和 Basis 层问题还要看其他监控。</p>
+<p>第二，要理解核心指标。常见分析会关注 gross time、net time、call count、call hierarchy 和 hotspot。gross time 包含子调用耗时，net time 更接近当前方法自身耗时；call count 能暴露“单次不慢但调用太多”的问题；call hierarchy 帮助定位耗时从哪个入口传下去。不同工具视图中也可能出现 hit count、sample count 等词，初学者要按该视图的列定义阅读，不要自动把它们等同于精确的 method call count。</p>
+<p>第三，要理解可比性。Profiler 结果强依赖输入数据、用户、缓存状态、系统负载和执行路径。每次分析都要记录测试条件：系统/client、用户、输入参数、数据量、执行步骤、是否首次运行、是否包含缓存预热。没有条件记录，前后对比很容易误判。</p>
+<p>第四，要理解 profiler 的测量开销。Runtime analysis / profiler 会给被测程序增加 instrumentation overhead，完整调用记录和聚合统计模式的开销也可能不同。因此 profiler 里看到的绝对时间不能直接当作最终用户响应时间。项目里更稳妥的做法是：用 profiler 比较调用次数、相对耗时比例和热点位置，再用不带 trace 的受控执行确认最终响应时间或 job duration 是否真的改善。</p>
+<p>还要学会区分“工具能证明什么”和“工具不能证明什么”。Profiler 可以证明某次受控执行里 ABAP 调用路径的耗时分布；它不能单独证明数据库执行计划是否合理，不能代表所有生产高峰时段，也不能替代业务正确性测试。优化一个 hotspot 之后，仍然要确认 API response、日志、authorization、commit boundary 和错误消息没有被破坏。</p>
+<p>本节可以把学习范围分成四层：</p>
+<div class="table-wrap"><table><thead><tr><th>层次</th><th>本节要会什么</th><th>不在本节解决什么</th></tr></thead><tbody><tr><td>场景定义</td><td>把“慢”写成可重复入口、数据量、用户和步骤</td><td>不分析所有用户的长期负载</td></tr><tr><td>指标读取</td><td>读 gross time、net time、call count、call hierarchy</td><td>不把单一指标当最终结论</td></tr><tr><td>假设形成</td><td>判断是循环、查找、转换、消息、日志、权限还是框架路径</td><td>不凭第一眼热点直接大改</td></tr><tr><td>前后比较</td><td>用相同条件证明优化有效</td><td>不用一次本地运行替代项目验收</td></tr></tbody></table></div>
+<h4 id="27-3-ffb5fce5" class="semantic-heading semantic-why">27.3 为什么重要</h4>
+<p>性能优化最怕凭感觉。看到程序慢就改 SQL，可能错过真正的 ABAP 层循环；看到某个 method gross time 高就直接重写，可能忽略它只是包住了慢子调用；看到一次 profiler 结果改善，就宣布成功，可能只是缓存或数据量变了。Profiler 把“感觉慢”变成“哪段代码在什么条件下消耗多少时间”。</p>
+<p>对 SAP 项目交付来说，Profiler 特别适合分析 service logic、background job、RAP/OData handler、批量处理、formatting、serialization、日志/消息拼接、authorization 循环等应用层热点。它能让性能缺陷单从“请优化”变成“在 QAS client 100、1000 条 batch 数据下，<code>ZCL_xxx=&gt;build_response</code> net time 占 45%，调用 100000 次，建议减少重复转换或缓存结果”。</p>
+<p>对 Java/Python 背景学习者，可以把 ABAP Profiler 类比成 CPU profiler / call profiler，但要注意 SAP 语境：ABAP method、function module、Open SQL、RAP framework callback、internal table、authorization、application log、OData serialization 都可能出现在调用路径中。它不是只看一段本地代码，而是看 ABAP runtime 中一次业务请求的调用形状。</p>
+<p>在日本 SAP 项目现场，Profiler 证据通常不会独立存在，而是进入 defect ticket、性能改善说明、移送前确认、客户报告或内部 review。一个成熟的说明不会只写“処理を最適化しました”，而会写清楚：在什么再现条件下，哪个调用次数异常，改动了哪里，改善前后指标如何，业务输出是否一致。这种写法比“我感觉快了”更容易被项目经理、Basis、功能顾问和客户接受。</p>
+<h4 id="27-4-key-mechanism-f46cfa39" class="semantic-heading semantic-mechanism">27.4 Key mechanism / 核心机制</h4>
+<p>Profiler 分析可以按五步做：</p>
+<pre><code class="language-text">1. Define scenario
+2. Capture profile/runtime trace
+3. Read call hierarchy and hotspots
+4. Form a hypothesis
+5. Change code and compare under the same conditions</code></pre>
+<p>第一步，定义场景。不要“随便跑一下系统”。要写清楚：执行哪个 API、哪个 job、哪个 report、哪个 action；输入数据量是多少；用户是谁；在哪个 system/client；是否需要先清缓存或预热；本次关注响应时间、CPU、调用次数还是特定方法。</p>
+<p>第二步，捕获 profile。常见 on-premise 语境会提到 SAT / runtime analysis；不同 release、ABAP Cloud、权限和工具入口可能不同。学习阶段不要求背所有事务码，但要知道 profiler 的结果来自一次受控运行，而不是猜测。</p>
+<p>第三步，读指标：</p>
+<div class="table-wrap"><table><thead><tr><th>指标</th><th>读法</th></tr></thead><tbody><tr><td>Gross time</td><td>当前节点包含子调用的总耗时</td></tr><tr><td>Net time</td><td>当前节点自身耗时，更适合找本方法内部热点</td></tr><tr><td>Call count</td><td>调用次数，适合发现循环内重复调用</td></tr><tr><td>Call hierarchy</td><td>从入口到热点的调用路径</td></tr><tr><td>Hotspot</td><td>总耗时或自身耗时异常高的位置</td></tr><tr><td>Hit count / samples</td><td>如果工具视图出现这类列，要按该视图定义判断；它不一定等同于精确调用次数</td></tr></tbody></table></div>
+<p>第四步，形成假设。典型热点包括：loop 内调用昂贵方法、每行重复读取配置、重复格式化文本、internal table 使用标准表线性查找、RAP handler 中重复 EML/read、OData response 组装过重、application log/message 逐行拼接。</p>
+<p>第五步，验证改动。性能优化必须前后对比。相同输入、相同用户、相近系统负载下重新 profile，比较 call count、net time、gross time 和业务结果。由于 profiler 本身会增加测量开销，前后对比时更应该看调用次数和相对比例变化；最终响应时间、job duration 或 API latency 还要用不带 trace 的同条件运行确认。没有对比证据，就不能证明优化有效。</p>
+<p>可以固定使用下面的 evidence packet 模板：</p>
+<pre><code class="language-text">ABAP Profiler Evidence Packet
+
+Entry point:
+  API / report / job / RAP action / OData request:
+
+System and user:
+  System/client:
+  User/role:
+
+Scenario:
+  Input parameters:
+  Test data volume:
+  Warm-up/cache condition:
+  Execution steps:
+
+Profiler observation:
+  Main call path:
+  Main hotspot:
+  Gross time:
+  Net time:
+  Call count:
+
+Hypothesis:
+  Why this hotspot is suspicious:
+
+Change:
+  Code or design change:
+  Risk and regression scope:
+
+Before/After:
+  Before metrics:
+  After metrics:
+  Untraced response time before/after:
+  Business output unchanged:</code></pre>
+<p>读指标时，可以用下面的判断表避免误判：</p>
+<div class="table-wrap"><table><thead><tr><th>现象</th><th>常见含义</th><th>下一步</th></tr></thead><tbody><tr><td>Gross time 高、net time 低</td><td>当前节点只是包住慢子调用</td><td>展开 call hierarchy，看下层热点</td></tr><tr><td>Net time 高</td><td>当前 method 自身计算、循环、转换或查找重</td><td>看代码内部循环和数据结构</td></tr><tr><td>Call count 异常高</td><td>单次不慢，但重复调用太多</td><td>找循环内调用、缓存缺失或重复读取</td></tr><tr><td>很多小方法累计很慢</td><td>过度拆分、频繁对象创建、日志/消息拼接</td><td>判断是否能批量化或移动到循环外</td></tr><tr><td>框架 callback 显示很高</td><td>可能是业务实现挂在框架路径下面</td><td>找到自定义 class/method，不直接优化 SAP 标准框架</td></tr><tr><td>SQL 子调用占比高</td><td>应用层入口触发了数据库瓶颈</td><td>回到 SQL Trace / SQL Monitor 交叉验证</td></tr></tbody></table></div>
+<p>Profiler 最容易制造“看起来有证据、其实没有结论”的情况。比如某个 framework method gross time 最高，不代表 SAP 标准框架有问题；它可能只是承载了自定义 handler 的下层调用。又比如第一次运行比第二次慢，可能是缓存、buffer、class loading 或 HANA plan/cache 状态不同。书稿里要反复训练的不是“找到一个数字”，而是“用条件、路径、指标和对比组成可信结论”。</p>
+<h4 id="27-5-4275cf74" class="semantic-heading semantic-japan">27.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>ABAPプロファイラ</code></li>
+<li><code>ランタイム分析</code></li>
+<li><code>パフォーマンス分析</code></li>
+<li><code>性能調査</code></li>
+<li><code>呼び出し階層</code></li>
+<li><code>実行時間</code></li>
+<li><code>総処理時間</code></li>
+<li><code>正味時間（自己時間）</code></li>
+<li><code>呼び出し回数</code></li>
+<li><code>ボトルネック</code></li>
+<li><code>ホットスポット</code></li>
+<li><code>改善前後の比較</code></li>
+<li><code>再現条件</code></li>
+</ul>
+<p>说明句：</p>
+<pre><code class="language-text">SQLトレースでは大きなボトルネックが見えないため、ABAPプロファイラでアプリケーション層の処理時間を確認します。</code></pre>
+<p>含义：SQL Trace 没发现大问题，所以用 Profiler 看应用层。</p>
+<pre><code class="language-text">呼び出し回数と自己時間を確認し、どのメソッドがボトルネックになっているかを切り分けます。</code></pre>
+<p>含义：通过调用次数和自身耗时定位瓶颈方法。</p>
+<pre><code class="language-text">改善前後で同一条件のプロファイル結果を比較します。</code></pre>
+<p>含义：优化前后必须在相同条件下比较 profile 结果。</p>
+<p>项目报告常用表达：</p>
+<pre><code class="language-text">再現条件を固定した上で、ABAPプロファイラの結果を比較しました。</code></pre>
+<p>含义：固定再现条件后比较 profiler 结果。</p>
+<pre><code class="language-text">自己時間が高いカスタムメソッドを中心に、ループ内の重複処理を見直しました。</code></pre>
+<p>含义：围绕自身耗时高的自定义方法，检查循环内重复处理。</p>
+<pre><code class="language-text">SQL処理ではなく、レスポンス生成処理に主なボトルネックがあると判断しました。</code></pre>
+<p>含义：判断主要瓶颈不在 SQL，而在 response 生成处理。</p>
+<p>注意现场说法要留余地。不要轻易写 <code>原因はこれです</code>，除非已经有充分验证；更稳妥的是 <code>主な要因と考えられます</code>、<code>可能性が高いです</code>、<code>追加確認が必要です</code>。性能分析经常跨 ABAP、DB、Basis、网络和前端，表达过满会增加沟通风险。</p>
+<h4 id="27-6-english-terms-7b8ffb5e" class="semantic-heading semantic-terms">27.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP Profiler</code>, <code>ABAP runtime analysis</code>, <code>performance analysis</code></li>
+<li>Related terms: <code>SAT</code>, <code>runtime trace</code>, <code>call hierarchy</code>, <code>gross time</code>, <code>net time</code>, <code>call count</code>, <code>hit count</code>, <code>hotspot</code>, <code>CPU time</code>, <code>method runtime</code>, <code>performance trace</code></li>
+<li>Recommended search pattern: <code>SAP ABAP Profiler runtime analysis call hierarchy gross net time</code></li>
+<li>工具入口和名称会随 release / deployment 变化；on-premise 常见 <code>SAT</code> / older <code>SE30</code>，学习时优先理解指标和分析流程。</li>
+</ul>
+<h4 id="27-7-example-85a42ad5" class="semantic-heading semantic-example">27.7 Example / 学习例子</h4>
+<p>假设 AC0567C 的 status API 查询 1000 个 batch 时，SQL Trace 没发现单条 SQL 特别慢，但整体响应仍然慢。Profiler 可能显示：</p>
+<pre><code class="language-text">ZCL_AC0567C_STATUS_SERVICE=&gt;BUILD_RESPONSE
+  gross time: 80%
+  calls: 1
+
+ZCL_AC0567C_STATUS_SERVICE=&gt;FORMAT_MESSAGE
+  net time: 45%
+  calls: 100000
+
+ZCL_AC0567C_STATUS_SERVICE=&gt;CONVERT_STATUS_TEXT
+  net time: 20%
+  calls: 100000</code></pre>
+<p>这个结果说明问题可能不是数据库，而是 response 组装时对每一行反复格式化消息和转换状态文本。优化方向可能是：把状态文本先缓存到 hashed table；减少循环内重复 conversion；把 message 格式化延迟到真正需要输出时；或调整 API response 结构，避免返回不必要的详细字段。</p>
+<p>这里的百分比应理解为本次 profile 结果中的相对耗时占比，不要把它直接当成无 trace 状态下的最终响应时间。真正面向用户的响应时间，还要用同一输入条件、关闭 trace 后再测一次。</p>
+<p>优化后要重新 profile：</p>
+<pre><code class="language-text">Before:
+  FORMAT_MESSAGE calls: 100000
+  untraced response time: high
+
+After:
+  FORMAT_MESSAGE calls: 1000
+  untraced response time: lower
+  API response content: unchanged</code></pre>
+<p>这样才是项目可接受的性能证据：有场景、有指标、有假设、有改动、有前后对比。</p>
+<p>再把这个例子写成读者可以照抄的调查记录：</p>
+<pre><code class="language-text">Entry point:
+  GET /sap/opu/odata/.../BatchStatus?$top=1000
+
+Scenario:
+  QAS client 100, test user Z_API_TEST, 1000 batch status records.
+  Run once for warm-up, then capture profiler result on the second controlled run.
+
+Observation:
+  SQL Trace shows no single dominant slow SQL statement.
+  ABAP Profiler shows FORMAT_MESSAGE and CONVERT_STATUS_TEXT have high net time and high call count.
+
+Hypothesis:
+  Response builder repeats message formatting and status text conversion inside nested loops.
+
+Change:
+  Cache status text by status code in a hashed table.
+  Move static message template lookup outside the item loop.
+  Keep response field names and error semantics unchanged.
+
+Regression check:
+  Same 1000-record response has the same status codes, message texts and HTTP status.
+  Authorization and log writing behavior remains unchanged.</code></pre>
+<p>这个例子也说明一个常见权衡：性能优化不等于删除所有“看起来慢”的逻辑。比如 authorization check、audit log、business validation 可能本来就必须执行；优化方向应该是减少重复、批量化、缓存可缓存的数据、选择合适的 internal table 类型，而不是为了数字好看牺牲安全和可追溯性。</p>
+<h4 id="27-8-counterexample-failure-mode-14a986bc" class="semantic-heading semantic-example">27.8 Counterexample / Failure mode</h4>
+<p>反例一：只用 SQL Trace。SQL 没问题不代表程序没问题；应用层循环、转换、日志、authorization、serialization 都可能慢。</p>
+<p>反例二：profile 场景太大。一次把多个用户操作、多个 API、多个 job 全部混在一起，call hierarchy 会很难解释，热点也很难对应具体动作。</p>
+<p>反例三：只看 gross time。某个入口 gross time 高，可能只是因为它包含了所有子调用；真正该改的是下面 net time 高的方法。</p>
+<p>反例四：不记录数据量。10 条数据没问题，10 万条数据才暴露循环和 internal table 查找问题。Profiler 证据必须写清输入规模。</p>
+<p>反例五：优化后不复测。没有相同条件下的 before/after profile，就无法证明改动有效，甚至可能只是换了一个瓶颈。</p>
+<p>反例六：把 profiler 当成数据库执行计划证明。Profiler 能看到 ABAP 调用和耗时分布，但 SQL 语句是否走了合适索引、HANA 端是否有昂贵操作，需要 SQL Trace、SQL Monitor 或数据库工具继续确认。</p>
+<p>反例七：忽略缓存和首次运行差异。第一次运行慢、第二次运行快，不一定是代码改善，可能只是 buffer、metadata、class loading 或 plan/cache 状态变化。报告里要写清是否预热。</p>
+<p>反例八：只优化自定义代码，不检查业务副作用。把循环内的 authority check 移走、合并日志写入、缓存配置或延迟 message formatting，都可能改变错误时机、审计记录、权限语义或返回内容。性能改善后必须补 regression check。</p>
+<p>反例九：把标准框架节点当成修改目标。RAP/OData 框架路径出现在 profiler 里很正常，真正要看的通常是挂在框架下面的自定义 behavior implementation、query provider、service class 或 helper method。</p>
+<h4 id="27-9-07a752df" class="semantic-heading semantic-practice">27.9 思考问题</h4>
+<ul>
+<li>如果 SQL Trace 没发现明显慢 SQL，但 API 仍慢，下一步为什么要看 ABAP Profiler？</li>
+<li>gross time 和 net time 的区别是什么？</li>
+<li>哪些 ABAP 代码模式容易在 profiler 中成为 hotspot？</li>
+<li>如何设计一个可比较的 before/after profiling 场景？</li>
+<li>AC0567C POC 中，哪一个 API、job 或 batch 处理最适合作为 profiler 练习对象？</li>
+<li>如果 profiler 显示某个 message formatting 方法调用 100000 次，可能的优化方向是什么？</li>
+<li>为什么不能只用一次 profiler 结果宣布“性能问题已经解决”？</li>
+<li>如果主要 hotspot 是 authorization、logging 或 audit 相关逻辑，优化时要额外注意什么？</li>
+</ul>
+<h4 id="27-10-70ab121e" class="semantic-heading semantic-reference">27.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a></li>
+<li><a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a></li>
+<li><a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a></li>
+<li><a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>SAP Help Portal: search <code>ABAP Profiler</code>, <code>SAT runtime analysis</code>, <code>ABAP performance analysis</code>.</li>
+<li>SAP Help Portal: search <code>Runtime Analysis</code>, <code>SQL Trace</code>, <code>SQL Monitor</code>, <code>Performance Analysis</code>.</li>
+<li>ABAP Keyword Documentation: use the latest index to search <code>performance</code>, <code>internal table</code>, <code>method call</code>, and related ABAP runtime topics.</li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20Profiler" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP Profiler</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAT%20runtime%20analysis" target="_blank" rel="noopener noreferrer">SAP Help search - SAT runtime analysis</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20runtime%20analysis" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP runtime analysis</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20performance%20analysis" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP performance analysis</a></li>
+<li><a href="https://learning.sap.com/search?query=ABAP%20performance%20analysis" target="_blank" rel="noopener noreferrer">SAP Learning search - ABAP performance analysis</a></li>
+</ul>
+<h4 id="27-11-connections-c5463101">27.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a></li>
+<li>Downstream: <a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a></li>
+<li>Related: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Related: <a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 26 - ATC、Trace、Profiler、SQL Monitor</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="27-12-773f2334" class="semantic-heading semantic-practice">27.12 学习任务</h4>
+<ul>
+<li>设计一个 profiler 场景：入口、用户、输入数据量、执行步骤、预期热点。</li>
+<li>用自己的话解释 gross time、net time、call count 的区别。</li>
+<li>写两句日语性能分析说明：一句说明为什么使用 ABAP Profiler，一句说明 before/after 比较。</li>
+<li>列出 3 种可能的 ABAP 应用层热点：例如 nested loop、重复转换、standard table 线性查找。</li>
+<li>用 English Terms 找一个 SAP 官方 ABAP Profiler / SAT 页面，把精确链接补到参考资料。</li>
+<li>用 evidence packet 模板写一份 AC0567C status API 的 profiler 调查记录。</li>
+<li>给一个“不能优化掉”的逻辑举例，例如 authorization check、audit log 或错误消息语义，并说明如何在优化后验证它没有被破坏。</li>
+</ul>
+<h4 id="27-13-confidence-next-action-3b4cc4e4" class="semantic-heading semantic-status">27.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High。ABAP Profiler 的分析流程和指标解释稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已补足 profiler 测量开销、hit count / sample count 解释、日本项目术语、profile 百分比相对性和 untraced response time 确认。具体工具入口、可用字段、事务码和云环境可用性要按系统 release 与权限确认，Joule scoped review 仍保留为 deferred 证据。</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a>，区分单次 profiling、SQL trace 与生产级 SQL 使用画像。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">ABAP Profiler performance analysis</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-026-sql-trace-performance-analysis-42456acb.html">Previous section</a><a href="section-04-028-sql-monitor-sql-4fef5db4.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

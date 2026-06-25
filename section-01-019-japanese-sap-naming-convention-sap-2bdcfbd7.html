@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Japanese SAP naming convention 日本SAP项目命名规范 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="19-japanese-sap-naming-convention-sap-ca25fd93" class="chapter-title">19. Japanese SAP naming convention 日本SAP项目命名规范</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 19</li><li>self-contained study note</li></ul><h4 id="19-1-dce0f7fb" class="semantic-heading semantic-concept">19.1 一句话结论</h4>
+<p>Japanese SAP naming convention，是日本 SAP 项目中把 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a>、<a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a>、customer namespace、业务缩写、对象类型和 <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a> 沟通统一起来的命名规则；本节要学的是：不要自己发明对象名，先读项目的 <code>命名規約 / 開発標準 / 技術標準</code>，再创建 Z/Y 或注册 namespace 下的对象。</p>
+<h4 id="19-2-430cec21" class="semantic-heading semantic-concept">19.2 到底学什么</h4>
+<p>命名规范不是“变量名前面加几个字母”这么小的事。在 SAP 项目里，repository object 是系统级对象，名字会出现在 TADIR/object directory、package、transport request、where-used list、test evidence、障害調査记录和上线沟通中。一个对象名如果随手起，后面不是改文件名那么简单，而可能牵涉依赖对象、transport、CDS/RAP 引用、测试证据和多团队沟通。</p>
+<p>第一层是 namespace。SAP Learning 明确说明，customer repository object names 必须以 <code>Y</code> 或 <code>Z</code> 开头；复杂组织也可以使用注册 namespace，例如 <code>/ABC/</code> 这样的形式。这里要小心两个细节：customer fields in an SAP table definition 通常要以 <code>ZZ</code> 或 <code>YY</code> 这类客户字段范围开头，而不是单个 <code>Z</code>；如果对象名是数字，某些数字型对象的 customer namespace 通常以 <code>9</code> 开头。初学者不用记完 SAP Note 16466 的全部对象范围，但必须知道：SAP 标准对象名和客户自开发对象名不能混用。</p>
+<p>第二层是项目命名規約。真实日本项目通常会规定 package、program/report、global class、interface、database table、structure、data element、domain、CDS view entity、behavior definition、service definition、authorization object、application log object、test class 等命名格式。规则可能包含客户缩写、业务模块、功能域、对象类型、序号、后缀、语言约定和禁止词。项目越大，越不能只靠“大家大概知道”。</p>
+<p>第三层是 SAP 官方 ABAP Objects 命名建议。SAP Help 对 global class/interface 给出 <code>CL_</code>、<code>IF_</code>，并把 local class/interface 的 <code>LCL_</code>、<code>LIF_</code> 作为 recommendation；还建议 method name 以动词开始，event handler 使用 <code>ON_</code>，boolean method 使用 <code>IS_</code>，check method 使用 <code>CHECK_</code>。这些建议很有价值，但 SAP 文档也说明它们不是强制规则。客户项目常会在前面再加 <code>ZCL_</code>、<code>ZIF_</code>、<code>/ABC/CL_</code> 或项目缩写，最终以项目标准为准。</p>
+<p>第四层是 readability。很多 ABAP repository object name、ABAP Objects 名称、CDS 名称在语法层面不区分大小写，所以用 underscore 分隔词，比靠 camelCase 更可靠。不要把这个规则泛化成“ABAP 里大小写都无所谓”：字符串字面量、外部接口字段、JSON/XML payload、某些 SQL/数据库或 OData 消费上下文仍可能大小写敏感；CDS view entity 名称在 CDS 语法里不靠大小写区分，但暴露到 metadata、OData 或外部消费时会保留拼写形式，外部消费者可能按大小写处理名称。这里的重点是：repository object 命名要稳定、可读、可检索，不要设计只靠大小写区分的对象名。</p>
+<p>第五层是 CDS/RAP caveat。SAP 的一些官方文档和 reference scenario 会出现 <code>I_</code>、<code>R_</code>、<code>C_</code> 这样的 CDS development object naming pattern，例如 interface view、base/root view entity、projection/consumption view 的区分。这能帮助理解 CDS/RAP 分层，但不能机械照抄成客户项目规则。客户自开发仍要遵守 customer namespace、package、ABAP Cloud / released object 限制和项目命名規約；在 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a>、<a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a> 章节会再细讲。</p>
+<p>第六层是 package 与 object name 的边界。package 决定对象归属、transport layer、可见性和治理边界；object name 决定具体对象如何被搜索、引用和沟通。命名 prefix 可以帮助人看懂对象，但不能替代 package ownership。一个对象叫 <code>ZSD_...</code>，不代表它就应该放在 SD package；一个 package 叫 <code>ZFI_...</code>，也不代表里面可以随便塞所有 FI 相关对象。两者要一致，但不是同一个概念。</p>
+<p>对初学者来说，本节的最低要求不是能背出 50 行命名表，而是养成创建对象前先问三句话：第一，项目的 <code>命名規約</code> 在哪里？第二，这个对象属于哪个 package 和业务域？第三，它是客户自开发、扩展字段、CDS/RAP 对象，还是测试/日志/授权辅助对象？这三句话能避免大量后期返工。</p>
+<p>可以把命名规范看成 SAP 项目里的“对象户籍制度”。一个 repository object 一旦创建，就会进入对象目录、package、transport、where-used、权限、测试证据和移送记录。它不是开发者本地临时文件，也不是只服务当前画面的变量名。名字本身会被别的团队拿来判断对象归属、业务范围、修改影响和障害调查入口。</p>
+<p>日本项目中尤其要注意缩写管理。<code>SO</code>、<code>BP</code>、<code>AP</code>、<code>AR</code>、<code>MM</code>、<code>SD</code>、<code>IF</code>、<code>BAT</code>、<code>LOG</code> 这些缩写如果没有统一表，很容易出现同一个词三种写法。命名规范最好和术语表、业务领域、package 设计、transport description 保持一致。否则对象名看似英文，实际每个团队理解不同。</p>
+<p>本书的原则是：学习者可以看懂常见前缀和命名思想，但不要把教程里的示例当成项目强制标准。真正创建对象前，一定回到客户项目的 <code>命名規約 / 開発標準 / 技術標準</code>，再结合 SAP 官方 namespace 和目标系统规则确认。</p>
+<h4 id="19-3-d0f34c76" class="semantic-heading semantic-why">19.3 为什么重要</h4>
+<p>命名规范的第一价值，是减少冲突。SAP 系统里 repository object name 是全系统范围的名字，不是本地文件夹里的私有文件名。两个团队如果都创建 <code>ZCL_ORDER_HELPER</code>，不是在两个 Git branch 里各自存在，而是在同一个系统命名空间里撞车。大型日本项目常有多个供应商、多个模块、多个开发线，如果没有命名規約，会很快失控。</p>
+<p>第二价值是提高搜索和影响分析质量。<code>ZCL_SD_SO_PRICING_CHECK</code> 这样的名字不一定完美，但至少能让 reviewer 猜到模块、对象类型和业务意图；<code>ZCL_TEST1</code>、<code>ZREPORT_NEW</code>、<code>ZTMP_TABLE</code> 这类名字在 <a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a>、debug、transport object list 和障害調査中都会制造噪音。</p>
+<p>第三价值是降低后期重命名成本。Java/Python 项目里重命名类或文件，IDE 和 Git 可能帮你处理大部分引用；SAP repository object 一旦进入 transport、被 CDS/RAP/service/authorization/test evidence 引用，重命名就变成跨对象、跨系统、跨团队协调。尤其 CDS/RAP 对象之间依赖多，命名一开始不稳，后面每一次改名都可能牵动服务、metadata、UI、测试数据和权限。</p>
+<p>第四价值是让日语项目沟通更顺。现场 reviewer 不一定有时间打开每个对象看实现，很多时候先看对象名、package、transport description 和テスト evidence。命名清楚，沟通就短；命名混乱，review 会先卡在“これは何のオブジェクトですか”。</p>
+<p>第五价值是让交接更可靠。一个月后、半年后、或别的供应商接手时，对象名往往是第一层线索。<code>ZCL_ACME_SD_SO_APPR_SRV</code> 这样的名字虽然需要项目标准解释，但至少能提示客户/模块/业务对象/用途；<code>ZCL_TOOL2</code> 只能迫使接手者打开实现、追 where-used、查 transport，时间全部浪费在“它到底是什么”上。</p>
+<p>第六价值是减少错误移送。transport request 里可能有几十个对象，如果名字和 package 清楚，reviewer 更容易发现“不该进这个请求的对象”。命名混乱时，测试对象、临时对象、真实对象、跨模块对象混在一起，移送前确认会非常痛苦。</p>
+<h4 id="19-4-key-mechanism-b5f57c20" class="semantic-heading semantic-mechanism">19.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 SAP namespace。客户对象一般在 <code>Y*</code> / <code>Z*</code> customer namespace，或在已注册的 prefix namespace 里，例如 <code>/ABC/</code>。如果项目没有注册 namespace，就不要假设自己能创建 <code>/XXX/</code> 对象；如果客户已经注册 namespace，也要确认哪些对象类型、哪些系统、哪些 package 被允许使用。遇到客户字段或数字型对象时，还要回到具体对象类型的 name range，而不是把 <code>Z</code> 当成万能答案。</p>
+<p>第二层机制是 object type prefix。ABAP Objects 里常见 <code>CL_</code> / <code>IF_</code> / <code>LCL_</code> / <code>LIF_</code>，客户项目中常见 <code>ZCL_</code> / <code>ZIF_</code> 或 <code>/ABC/CL_</code> / <code>/ABC/IF_</code>。DDIC、CDS、RAP、service、test、log、authorization 也会有各自的项目 prefix/suffix。这里不要混用：class prefix、table prefix、CDS prefix、package prefix 不是同一张规则表。</p>
+<p>第三层机制是 semantic segment。一个好名字通常包含 namespace、业务域、对象类型或层级、业务含义，必要时加版本或用途后缀。比如 <code>ZCL_SD_SO_STATUS_CHECK</code> 比 <code>ZCL_CHECK</code> 更能传递上下文；但过长、过细、塞满实现细节也会变差。命名的目标是“可搜索、可维护、可沟通”，不是把设计书整句塞进对象名。</p>
+<p>第四层机制是 package ownership。package 是对象归属和 transport/governance 的主要边界，命名只是可读线索。对象名和 package 不一致时，要优先回到 package 设计、transport layer 和团队分工，而不是靠改 prefix 掩盖边界问题。</p>
+<p>第五层机制是 case 与 underscore。许多 ABAP 名称不靠大小写区分，underscore 让词边界稳定；但字符串、外部 payload、部分消费上下文仍可能大小写敏感。写命名规范时要明确：这是 repository object naming 的可读性规则，不是所有 ABAP 运行时数据的大小写规则。</p>
+<p>第六层机制是 review gate。成熟项目会在对象创建、code review、ATC/custom check、transport release 或移送前确认命名是否符合标准。Day 02 只要先学会人工自查；自动化命名检查、ATC 自定义规则、package interface 和 Clean Core 分类放到 Week 4。</p>
+<p>可以用下面的命名决策流程：</p>
+<pre><code class="language-text">1. Identify ownership
+   Which module, team, package, and transport layer owns this object?
+
+2. Identify namespace
+   Y/Z customer namespace, registered namespace, extension field namespace, or test object?
+
+3. Identify object type
+   Class, interface, table, data element, CDS view entity, behavior, service, auth object, log object?
+
+4. Identify business meaning
+   What business object, process, API, or delivery artifact does the object represent?
+
+5. Apply project standard
+   Prefix, suffix, abbreviation table, length limit, forbidden words, sequence rule.
+
+6. Check impact before creation
+   Is there an existing object? Is the name searchable? Does it fit package and transport?</code></pre>
+<p>对象类型可以用下面的表自查，具体格式以项目标准为准：</p>
+<div class="table-wrap"><table><thead><tr><th>对象类型</th><th>命名关注点</th><th>常见风险</th></tr></thead><tbody><tr><td>Package</td><td>owner、transport layer、模块边界</td><td>用 prefix 掩盖错误归属</td></tr><tr><td>Global class</td><td><code>ZCL_</code> / <code>/NS/CL_</code>、业务域、用途</td><td><code>ZCL_UTIL</code>, <code>ZCL_TEST</code>, <code>ZCL_NEW</code></td></tr><tr><td>Interface</td><td><code>ZIF_</code> / <code>/NS/IF_</code>、契约含义</td><td>接口名像实现类</td></tr><tr><td>DDIC table</td><td>namespace、业务对象、header/item/log 区分</td><td>临时表名进入生产</td></tr><tr><td>Data element/domain</td><td>语义、单位、值范围</td><td>直接复制字段名，缺少业务含义</td></tr><tr><td>CDS view entity</td><td>interface/root/projection/service-facing 层级</td><td>把 table 名直接当 view 名</td></tr><tr><td>Behavior/service</td><td>BO 名、服务边界、consumer</td><td>UI service 和 Web API 混名</td></tr><tr><td>Authorization object</td><td>业务动作和组织字段</td><td>名字看不出检查范围</td></tr><tr><td>Application log object</td><td>业务流程和证据范围</td><td>所有日志都叫 <code>ZLOG</code></td></tr><tr><td>Test class/data</td><td>测试范围和隔离性</td><td>测试对象像生产对象</td></tr></tbody></table></div>
+<p>这张表不是命名模板，而是提醒：不同对象类型有不同沟通对象。class 名给开发者读，CDS 名还会给 API/metadata 消费者读，authorization object 名给权限团队读，log object 名给运维和障害调查读。命名标准要服务这些读者。</p>
+<h4 id="19-5-a0363ca5" class="semantic-heading semantic-japan">19.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>命名規約</code>、<code>命名ルール</code>、<code>開発標準</code>、<code>技術標準</code>、<code>オブジェクト命名</code>、<code>ネームスペース</code>、<code>プレフィックス</code>、<code>サフィックス</code>、<code>Z/Y領域</code>、<code>予約ネームスペース</code>。</li>
+<li>对象说法：<code>パッケージ命名</code>、<code>クラス命名</code>、<code>インターフェース命名</code>、<code>テーブル命名</code>、<code>CDS命名</code>、<code>RAPオブジェクト命名</code>、<code>サービス命名</code>。</li>
+<li>review 说法：<code>命名規約に準拠していません</code>、<code>開発標準に合わせてください</code>、<code>この略称はプロジェクト標準ですか</code>、<code>パッケージと命名が一致していません</code>。</li>
+<li>提问句：このプロジェクトの命名規約はどこにありますか。Z/Y領域を使いますか、それとも予約ネームスペースを使いますか。</li>
+<li>说明句：このクラス名は命名規約上、業務領域と用途が分かりにくいため、レビュー前にリネーム方針を確認します。</li>
+<li>使用场景：对象创建前确认、code review、設計書レビュー、移送前確認、障害調査、供应商交接。</li>
+</ul>
+<h4 id="19-6-english-terms-a8030ee5" class="semantic-heading semantic-terms">19.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>SAP repository object naming conventions</code>, <code>customer namespace</code>, <code>reserved namespace</code>, <code>ABAP Objects naming conventions</code>, <code>CDS naming conventions</code>, <code>development standards</code>.</li>
+<li>Recommended search pattern: <code>SAP repository object naming conventions customer namespace Y Z</code></li>
+<li>Related terms: <code>Y*</code>, <code>Z*</code>, <code>ZZ</code>, <code>/ABC/</code>, <code>CL_</code>, <code>IF_</code>, <code>LCL_</code>, <code>LIF_</code>, <code>ZCL_</code>, <code>ZIF_</code>, <code>I_</code>, <code>R_</code>, <code>C_</code>, <code>package</code>, <code>object directory</code>, <code>TADIR</code>, <code>ATC</code>.</li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="19-7-example-9790ada4" class="semantic-heading semantic-example">19.7 Example / 学习例子</h4>
+<ul>
+<li>例子 1：项目规定销售模块全局类使用 <code>ZCL_SD_...</code>，接口使用 <code>ZIF_SD_...</code>。创建销售订单状态检查类时，不要叫 <code>ZCL_CHECK</code>，而应让名字体现业务域和用途，例如 <code>ZCL_SD_SO_STATUS_CHECK</code>。实际项目格式以命名規約为准。</li>
+<li>例子 2：在 DDIC 中给 SAP 标准表扩展客户字段，不能简单用 <code>ZFIELD</code>；很多 SAP 文档和项目规则要求客户字段使用 <code>ZZ...</code> 或 <code>YY...</code> 这类客户字段命名范围。</li>
+<li>例子 3：做 CDS/RAP 时，不要把 projection view 起成像数据库表一样的名字，也不要直接照抄 SAP 标准 <code>I_</code> / <code>C_</code> 命名而不加客户 namespace 和项目规则。先确认你的对象是 interface view、root/base view、projection view，还是 service-facing projection。</li>
+<li>例子 4：AC0567C 上传批次如果要命名对象，可以先拆角色。上传 BO root 可能叫 batch，行项目可能叫 item，服务可能面向 Web API，日志对象面向障害调查，授权对象面向 execute/read/delete 动作。不要让所有对象都叫 <code>UPLOAD</code>；应让 root、item、service、log、auth 的职责在名字里可区分。</li>
+<li>例子 5：如果项目规定缩写表里 <code>受注</code> 使用 <code>SO</code>，就不要同一组对象里一会儿用 <code>ORDER</code>、一会儿用 <code>JUCHU</code>、一会儿用 <code>SALESORD</code>。技术上都能激活，项目上却会破坏检索和交接。</li>
+<li>最小动作：找一个现有 Z/Y 对象，写出它的 namespace、对象类型、业务域、package 和 transport request。</li>
+<li>进阶动作：对照项目或练习命名規約，检查一个 class、一个 DDIC table、一个 CDS view entity 是否命名一致。</li>
+</ul>
+<p>一个小型 review 清单可以这样写：</p>
+<pre><code class="language-text">Naming review checklist:
+  - Does the object use the correct customer namespace?
+  - Does the object type prefix match the object type?
+  - Does the business abbreviation exist in the project glossary?
+  - Does the name match package ownership?
+  - Is it searchable in ADT / where-used / transport list?
+  - Is it free from temporary words such as TEST, TMP, NEW, OLD, COPY?
+  - Does the transport description use the same business wording?</code></pre>
+<h4 id="19-8-counterexample-failure-mode-661058d8" class="semantic-heading semantic-example">19.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：对象名先随便起，后面再改。修正：repository object 进入 transport 和依赖链后，重命名成本会显著上升。</li>
+<li>误区 2：只知道 Z/Y，不知道 <code>ZZ</code> 字段 caveat 和注册 namespace。修正：不同对象类型有不同 name range，先查项目标准和 SAP 资料。</li>
+<li>误区 3：把 prefix 当 package。修正：<code>ZSD_</code> 只是命名线索，真正归属要看 package、transport layer 和 owner。</li>
+<li>误区 4：在一个项目里混用中文拼音、日语罗马字、英文缩写和模块缩写。修正：业务词和缩写要从 glossary / 命名規約 统一。</li>
+<li>误区 5：机械套用 SAP 标准 CDS 的 <code>I_</code> / <code>C_</code> 前缀。修正：先区分 SAP VDM 命名、RAP reference scenario 命名和客户项目命名。</li>
+<li>误区 6：以为 ABAP 大小写不敏感，所以所有地方都不敏感。修正：repository object 命名和运行时字符串/外部 payload 是不同层面的规则。</li>
+<li>误区 7：把临时 POC 名字带进正式对象。修正：POC 对象进入正式 transport 前必须重命名或重建，并确认依赖对象和测试证据同步。</li>
+<li>误区 8：只命名代码对象，不命名交付证据。修正：transport description、test evidence、application log object、authorization object、service binding 也要使用同一套业务词。</li>
+<li>误区 9：缩写只在开发团队内部懂。修正：缩写要能被业务、权限、运维、测试团队理解，或至少能在 glossary 中查到。</li>
+<li>误区 10：复制 SAP 标准对象命名，造成像标准对象。修正：客户自开发对象要清楚落在 customer namespace，避免误导为 SAP delivered object。</li>
+</ul>
+<h4 id="19-9-1a837d09" class="semantic-heading semantic-practice">19.9 思考问题</h4>
+<ul>
+<li>为什么命名規約不只是代码风格，而是 transport、where-used、review 和障害調査的基础？</li>
+<li><code>ZCL_SD_SO_STATUS_CHECK</code> 里哪些部分是 namespace、对象类型、业务域、业务含义？</li>
+<li>package 和 object name 不一致时，应该优先调整哪个边界？为什么？</li>
+<li>在日本项目里，如果不知道某个缩写是否允许，应该怎么问？</li>
+<li>CDS/RAP 对象为什么不能只按 database table 命名方式来命名？</li>
+</ul>
+<h4 id="19-10-786a995f" class="semantic-heading semantic-reference">19.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-ii-of-sap-s-4hana-and-sap-business-suite/transport-requests-for-development-1" target="_blank" rel="noopener noreferrer">SAP Learning - Transport Requests for Development</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/saphelp_ewm900/helpdata/en/92/c2b084bc1d11d2958700a0c94260a5/content.htm" target="_blank" rel="noopener noreferrer">SAP Help - Naming Conventions in ABAP Objects</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/fc4c71aa50014fd1b43721701471913d/8b8f9d8f3cb948b2841d6045a255e503.html" target="_blank" rel="noopener noreferrer">SAP Help - Naming Conventions for Development Objects</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_GENERAL_SYNTAX_RULES.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP CDS General Syntax Rules</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="19-11-connections-350cc782">19.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li><span class="wiki unresolved">MOC ADT Workflow</span></li>
+<li>Upstream: <a class="wiki" href="section-01-018-client-strategy-in-dev-qas-prd-f855e422.html">Client strategy in DEV QAS PRD</a></li>
+<li>Downstream: <a class="wiki" href="section-02-043-sy-subrc-discipline-and-silent-failure-patterns-17a684f1.html">sy-subrc discipline and silent failure patterns</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 02 - ADT 与 Repository Object 生命周期</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="19-12-1024425c" class="semantic-heading semantic-practice">19.12 学习任务</h4>
+<ul>
+<li>用自己的中文解释：为什么 SAP 对象名不是普通文件名？</li>
+<li>写一个日语问题：向项目负责人确认命名規約在哪里。</li>
+<li>给一个 class、一个 interface、一个 CDS view entity 各设计一个候选名字，并说明它们是否满足 Z/Y 或 namespace 规则。</li>
+<li>找一个现有 Z/Y 对象，记录它的 package、transport request、where-used 入口和命名含义。</li>
+<li>检查一个你写过的对象名：它是否混用了中文拼音、日语罗马字、英文缩写？是否需要统一？</li>
+</ul>
+<h4 id="19-13-confidence-next-action-c75635a7" class="semantic-heading semantic-status">19.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for Chapter 01 awareness level, based on SAP Learning / SAP Help, ABAP Keyword Documentation, and partial Joule SAP review. 具体对象类型命名表、客户字段范围、RAP/CDS 命名、ABAP Cloud 限制仍以项目命名規約和目标系统版本为准。</li>
+<li>Next action: 结束 Day 02 后进入 <a class="wiki" href="section-02-043-sy-subrc-discipline-and-silent-failure-patterns-17a684f1.html">sy-subrc discipline and silent failure patterns</a>，把“对象如何命名和进入治理”推进到“ABAP 运行结果如何被判断”。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-019-japanese-sap-naming-convention-sap-2bdcfbd7.html">Japanese SAP naming convention 日本SAP项目命名规范</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-018-client-strategy-in-dev-qas-prd-f855e422.html">Previous section</a><a href="section-01-020-abap-data-object-e568a611.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Service preview 服务预览 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="44-service-preview-ee08e76e" class="chapter-title">44. Service preview 服务预览</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 44</li><li>self-contained study note</li></ul><h4 id="44-1-a0a4410b" class="semantic-heading semantic-concept">44.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a> 是在 ADT / RAP 开发中快速确认服务已发布、metadata 可读取、基本 UI 或 OData 调用可启动的最短验证路径。它适合开发早期排查 service definition、service binding、publish、metadata 和基本页面问题；但它不是完整 API 测试，也不能替代权限、错误、并发、性能、QAS/PRD 和外部消费者测试。</p>
+<p>一句话记忆：preview 是“先看服务活没活”，不是“证明服务可上线”。</p>
+<p>在学习 RAP/OData 时，Service preview 是一个很有成就感的时刻：前面写的 CDS、projection、behavior、service definition、service binding，终于变成一个能打开的页面或 endpoint。也正因为它很直观，初学者容易高估它的含义。Preview 不是验收章，它更像开发者的第一盏绿灯：对象链没有完全断，runtime 能看到服务，metadata 大概率能生成，当前用户可以进入最短路径。</p>
+<p>所以本节要训练的是“正确解读 preview”。看到 preview 成功，要知道下一步补什么；看到 preview 失败，要知道从 publish、metadata、authorization、runtime 哪一层查起。它不是为了替代 <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a>，而是为了让 API testing 有一个稳定入口。</p>
+<h4 id="44-2-39775a27" class="semantic-heading semantic-concept">44.2 到底学什么</h4>
+<p>Service preview 通常出现在 service binding 之后。开发者创建 service definition，创建 service binding，激活并 publish，然后从 ADT 打开 preview。若是 UI service，可能打开 Fiori Elements preview 页面；若是 API/metadata 方向，可能打开 service document、metadata 或一个可测试的 endpoint。</p>
+<p>本节要学的是 preview 的正确使用姿势。第一，它是开发期 smoke test：服务是否发布、metadata 是否生成、entity set 是否可见、基本读取是否可走通。第二，它是问题定位入口：打不开时要回查 activation、publish、authorization、runtime error、metadata、binding type。第三，它不是验收终点：真正交付还要做 API testing workflow、权限矩阵、错误 payload、重复请求、系统间连接和目标系统验证。</p>
+<p>初学者最容易犯的错误，是把 preview 截图当作“API 已完成”的证据。Preview 很有用，但它只覆盖最短路径；项目验收需要更宽的证据链。</p>
+<p>本节还要学会区分三类 preview：</p>
+<div class="table-wrap"><table><thead><tr><th>类型</th><th>常见目标</th><th>不能证明什么</th></tr></thead><tbody><tr><td>UI preview</td><td>Fiori Elements 页面能否加载</td><td>外部 API contract、技术用户调用、异常 payload</td></tr><tr><td>Metadata preview</td><td><code>$metadata</code> 是否可读、entity/action 是否出现</td><td>业务逻辑正确、权限矩阵正确</td></tr><tr><td>Basic endpoint smoke</td><td>简单 GET 或 service document 可访问</td><td>POST/PATCH/action、并发、重试、QAS 配置</td></tr></tbody></table></div>
+<p>这三类都很有用，但都只属于开发早期证据。写书稿时要反复提醒读者：preview 证据越完整，后续 API testing 越轻松；但 preview 再完整，也不能跳过 negative test、authorization test 和 transport 后验证。</p>
+<h4 id="44-3-3f6226f3" class="semantic-heading semantic-why">44.3 为什么重要</h4>
+<p>Service preview 重要，是因为它把“我写了对象”和“服务真的能被 runtime 看到”连接起来。RAP 对象链很长：CDS projection、behavior projection、service definition、service binding、publish、authorization、metadata、OData runtime。任何一环出错，最终页面或 endpoint 都可能打不开。Preview 是最快发现断点的入口。</p>
+<p>对交付来说，preview 能提供早期证据：服务已 publish、metadata 生成、entity set 名称正确、基本页面能加载、action 是否显示、navigation 是否出现。它能帮助开发者在进入正式测试前先排除配置和模型级问题。</p>
+<p>但 preview 也很容易制造假安全感。页面能打开，不代表 create/update/action 可用；列表有数据，不代表 DCL/RAP authorization 正确；metadata 可见，不代表外部系统认证、payload、错误处理、并发和性能都合格。项目中常见“开发 preview 可以，联调失败”的问题，往往就是把 preview 当成完整测试。</p>
+<p>对 Java/Python 背景学习者，可以把 preview 类比成本地 Swagger UI / dev preview / smoke test。它证明服务入口存在，但上线还需要 contract test、security test、negative test、integration test 和 target environment check。</p>
+<p>在项目交付中，preview 的最佳用途是快速缩小问题范围。页面打不开时，先别急着 debug action handler；metadata 没生成，action handler 根本还没进入；publish 没完成，OData runtime 可能还不知道这个 service；当前用户缺权限，也会让 preview 表现得像“服务坏了”。Preview 把这些层级暴露出来，帮助团队少走弯路。</p>
+<p>但 preview 截图本身很弱。强一点的证据应该包括：binding 名称、系统/client、用户、URL、publish 状态、metadata 片段、当前只验证了哪个 entity/action、哪些还没测。这种记录能让 review 人员知道它只是 smoke test，而不是上线承诺。</p>
+<h4 id="44-4-key-mechanism-ef27b6a2" class="semantic-heading semantic-mechanism">44.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 publish 状态。没有 publish 或 publish 失败，preview 通常不能正常访问。看到 preview 问题时，不要先怀疑业务代码，先确认 service binding 是否激活、publish 状态是否正常。</p>
+<p>第二层机制是 metadata。Preview 背后依赖 metadata。若 entity set、navigation、action、annotation 没在 metadata 中出现，页面或 API 工具自然无法使用。Preview 打开后，应顺手检查 <code>$metadata</code>，而不是只看页面。</p>
+<p>第三层机制是 UI runtime。Fiori Elements preview 依赖 annotation、draft、value help、navigation、action exposure 等信息。页面空白、按钮不显示、字段标签不对，往往不是“preview 坏了”，而是 metadata/annotation/projection/behavior 暴露不足。</p>
+<p>第四层机制是 authorization。Preview 使用当前登录用户或开发环境用户。它能证明“这个用户此刻能打开”，不能证明所有业务角色都可用，也不能证明外部技术用户可调用。</p>
+<p>第五层机制是数据和错误。Preview 的列表读取通常是 happy path。交付测试还要覆盖 create/update/delete/action、validation failure、authorization failure、not found、concurrency conflict、duplicate request、batch/action 错误。</p>
+<p>第六层机制是环境差异。DEV preview 成功不代表 QAS/PRD 成功。目标系统需要 transport、activation、publish、role、catalog、communication arrangement、destination、ICF/OData runtime 等配置一致。</p>
+<p>第七层机制是证据保存。好的 preview 证据不只是截图，而是包含 binding 名称、publish 状态、URL、metadata 片段、用户、时间、主要 entity/action、后续待补测试项。</p>
+<p>可以固定使用下面的 preview evidence packet：</p>
+<pre><code class="language-text">Service Preview Evidence Packet
+
+Service objects:
+  Service definition:
+  Service binding:
+  Binding type:
+  Projection/root entity:
+
+System:
+  System/client:
+  User:
+  Timestamp:
+
+Publication:
+  Activation status:
+  Publish status:
+  Preview URL:
+
+Metadata:
+  $metadata opened:
+  Entity sets found:
+  Actions/functions found:
+  Navigation found:
+
+Preview result:
+  UI page / service document / endpoint:
+  What works:
+  What is not tested:
+
+Next tests:
+  API testing workflow:
+  Authorization patterns:
+  Negative cases:
+  QAS/transport checks:</code></pre>
+<p>Preview 失败时，可以按层排查：</p>
+<div class="table-wrap"><table><thead><tr><th>层</th><th>常见现象</th><th>先查什么</th></tr></thead><tbody><tr><td>Activation</td><td>对象未激活或语法错误</td><td>CDS/BDEF/service definition/binding activation</td></tr><tr><td>Publish</td><td>preview URL 不可用或服务未注册</td><td>service binding publish status</td></tr><tr><td>Metadata</td><td>页面空、entity/action 缺失</td><td><code>$metadata</code>、projection、annotation、exposed association/action</td></tr><tr><td>Authorization</td><td>当前用户打不开或看不到数据</td><td>role、DCL、RAP authorization、SU53/trace</td></tr><tr><td>Runtime</td><td>打开时报 dump 或服务错误</td><td>backend error、RAP runtime log、short dump</td></tr><tr><td>Data</td><td>页面打开但无业务结果</td><td>测试数据、DCL 过滤、query provider、association</td></tr></tbody></table></div>
+<p>Preview 成功后，也要立刻写“未验证项”。例如：未测业务用户、未测 write/action、未测 validation failure、未测 ETag、未测 QAS publish。这个习惯能防止团队把 smoke test 误读成验收完成。</p>
+<p>在真实项目里，preview 后面至少要接三件事。第一，打开 <code>$metadata</code>，确认 entity set、navigation、action/function、annotation 是否真的按 contract 暴露；如果 metadata 没有出现，前端页面或 API 工具看不到对象通常不是测试工具问题。第二，把 preview URL、binding type、publish status 和当前用户写进测试证据，避免后续只剩一张无法复现的截图。第三，把 preview 结果转入 <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a>：用 HTTP client、Postman、SAP Gateway Client 或项目规定工具去验证 GET、POST/PATCH、action、错误 payload、authorization、幂等和目标系统配置。</p>
+<p>因此，本书建议把 preview 定义成“开发者疎通確認”。它回答的问题是“服务入口是否可见、metadata 是否可读、最短 happy path 是否启动”。它不回答“业务规则是否完全正确、所有角色是否有权限、外部系统是否能稳定调用、transport 后是否可用”。这个边界越早讲清楚，后面的 OData 测试和上线证据越不会混乱。</p>
+<h5 id="from-preview-to-acceptance-tests-4bda1926">From preview to acceptance tests</h5>
+<p>Preview 完成后，最重要的动作不是关闭任务，而是把 preview 结果转换成正式测试项。可以按下面的表推进：</p>
+<div class="table-wrap"><table><thead><tr><th>Preview observation</th><th>Next acceptance test</th><th>Reason</th></tr></thead><tbody><tr><td>页面能打开</td><td>用业务角色完成主流程、保存、action、draft activate</td><td>开发者用户 preview 不等于业务用户可用</td></tr><tr><td><code>$metadata</code> 可读取</td><td>固定 metadata snapshot，确认 entity/action/navigation 是否属于 contract</td><td>metadata 是 UI/API 消费者的依赖</td></tr><tr><td>列表有数据</td><td>测 <code>$filter</code>、<code>$select</code>、<code>$expand</code>、分页、DCL 过滤</td><td>列表 happy path 不证明查询语义正确</td></tr><tr><td>action 按钮出现</td><td>调用 action 的成功、validation failure、authorization failure</td><td>按钮可见不代表 action handler 和错误处理正确</td></tr><tr><td>validation message 能显示</td><td>记录 field message、HTTP error payload、message id</td><td>UI 和 API 对错误证据的要求不同</td></tr><tr><td>当前用户有权限</td><td>用无权限用户、业务用户、technical user 分别验证</td><td>权限问题常被 preview 的开发者权限掩盖</td></tr><tr><td>DEV preview 成功</td><td>QAS 移送后检查 publish、role、metadata、endpoint</td><td>系统环境差异是上线前常见缺陷来源</td></tr></tbody></table></div>
+<p>这张表可以直接放进测试说明。它让 review 人员知道：preview 是测试起点，而不是测试终点。尤其在 <code>Service binding -&gt; Service preview -&gt; API testing workflow</code> 这条链上，preview 的作用是把“服务入口可见”变成“后续测试有明确入口和证据”，而不是把所有风险一次性盖章通过。</p>
+<h4 id="44-5-7175f44f" class="semantic-heading semantic-japan">44.5 日本项目现场说法</h4>
+<ul>
+<li><code>サービスプレビュー</code>：service preview。</li>
+<li><code>公開状態</code>：publish status。</li>
+<li><code>メタデータ確認</code>：metadata check。</li>
+<li><code>疎通確認</code>：connectivity / smoke check。</li>
+<li><code>正常系確認</code>：happy-path check。</li>
+<li><code>異常系確認</code>：negative/error-path check。</li>
+<li><code>テスト証跡</code>：test evidence。</li>
+</ul>
+<p>サービスプレビューは疎通確認として有効ですが、API の受入テストを代替するものではありません。</p>
+<p>意思是：service preview 作为连通性检查有效，但不能替代 API 验收测试。</p>
+<p>プレビューで画面が開くことに加えて、メタデータ、権限、エラー応答、移送後の公開状態を確認してください。</p>
+<p>意思是：除了 preview 页面能打开，还要确认 metadata、权限、错误响应和移送后的 publish 状态。</p>
+<p>この証跡は preview の正常系だけなので、異常系と権限パターンを追加してください。</p>
+<p>意思是：这个证据只有 preview 的正常路径，请补充异常路径和权限模式。</p>
+<p>更像现场 review 的表达：</p>
+<pre><code class="language-text">プレビュー結果は開発時点の疎通確認として扱い、受入証跡とは分けて管理します。</code></pre>
+<p>含义：preview 结果作为开发期连通确认，与验收证据分开管理。</p>
+<pre><code class="language-text">$metadata に対象エンティティ、アクション、ナビゲーションが出力されているか確認してください。</code></pre>
+<p>含义：请确认 <code>$metadata</code> 中是否输出了目标 entity、action 和 navigation。</p>
+<pre><code class="language-text">QAS 移送後に再 publish 状態とロール設定を確認してから、API テストに進みます。</code></pre>
+<p>含义：QAS 移送后确认 publish 状态和 role 设置，再进入 API 测试。</p>
+<h4 id="44-6-english-terms-020747f8" class="semantic-heading semantic-terms">44.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Service preview</code></li>
+<li>Related terms: <code>preview</code>, <code>publish status</code>, <code>service binding</code>, <code>$metadata</code>, <code>Fiori Elements preview</code>, <code>smoke test</code>, <code>happy path</code>, <code>negative test</code>, <code>authorization test</code>, <code>error payload</code>, <code>test evidence</code></li>
+<li>Recommended search pattern: <code>SAP RAP service binding preview publish metadata</code></li>
+<li>Delivery terms to keep in English: <code>preview</code>, <code>publish</code>, <code>metadata</code>, <code>endpoint</code>, <code>smoke test</code>, <code>evidence</code>, <code>happy path</code></li>
+</ul>
+<h4 id="44-7-example-4b32f0c2" class="semantic-heading semantic-example">44.7 Example / 学习例子</h4>
+<p>一个最小 preview 证据可以这样记录：</p>
+<pre><code class="language-text">Service binding: ZUI_TRAVEL_O4
+Binding type: OData V4 UI
+Service definition: ZUI_TRAVEL
+Publish status: Published
+Preview user: DEV_USER01
+Preview result: Travel list page opens
+Metadata check: EntitySet Travel exists
+Action check: AcceptTravel button appears
+Navigation check: Booking section appears
+Known gap: authorization negative test not done
+Known gap: validation error payload not captured</code></pre>
+<p>这个记录比“截图能打开”更有价值，因为它告诉后续 reviewer：已经验证了哪些点，还缺哪些点。</p>
+<p>如果 preview 打不开，可以按下面顺序排查：</p>
+<pre><code class="language-text">1. Service binding 是否 activated？
+2. 是否 published？
+3. Service definition 是否引用正确？
+4. Metadata 是否能打开？
+5. 当前用户是否有权限？
+6. Backend 是否有 dump / runtime error？
+7. Annotation / projection / behavior 是否暴露了页面需要的内容？</code></pre>
+<p>如果 preview 能打开，下一步不是结束，而是进入 <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a>：保存 HTTP 请求响应、权限失败、validation failure、重复请求、QAS/PRD 验证等证据。</p>
+<p>AC0567C 的开发期 preview 也可以这样记录：</p>
+<pre><code class="language-text">Service binding:
+  ZUI_AC0567C_UPLOAD_O4
+
+Preview purpose:
+  Confirm upload job status service can expose list/detail/status action metadata.
+
+Preview evidence:
+  Metadata contains UploadJob entity set.
+  Status action/function is visible if designed as service operation.
+  Current developer user can open list preview.
+
+Not proven:
+  External technical user can call /validate /execute /status.
+  Unauthorized user is rejected.
+  Duplicate execute request is idempotent.
+  QAS communication arrangement and role are complete.</code></pre>
+<p>这条记录的价值在于，它没有夸大 preview。它告诉读者：preview 能证明 service chain 初步可用，但 AC0567C 作为接口项目，还必须进入 API testing workflow 和 Week 4 的 authorization / idempotency / logging 证据。</p>
+<h4 id="44-8-counterexample-failure-mode-b3d43250" class="semantic-heading semantic-example">44.8 Counterexample / Failure mode</h4>
+<p>反例一：preview 页面能打开，就宣布接口完成。后来外部系统 POST 失败，因为 payload、权限、CSRF/认证或错误处理没有测试。修正方式是把 preview 降级为 smoke test，继续做 API 测试。</p>
+<p>反例二：只用开发者权限 preview。开发者有 SAP_ALL 或宽权限，业务用户没有。修正方式是用目标业务角色和技术用户分别测试。</p>
+<p>反例三：metadata 没检查。页面缓存或 preview 入口能打开，但 action/navigation 没进入 metadata。修正方式是保存 <code>$metadata</code> 证据。</p>
+<p>反例四：DEV preview 成功，QAS 不可用。binding transport 了，但 publish、role、communication arrangement 没完成。修正方式是做目标系统发布后检查。</p>
+<p>反例五：只测正常路径。validation error、authorization error、not found、重复点击、并发冲突都没覆盖。修正方式是补 negative tests。</p>
+<p>反例六：把 preview 问题误判成业务逻辑问题。实际只是 service binding 未 publish。修正方式是按 activation/publish/metadata/authorization/runtime 的顺序排查。</p>
+<p>反例七：只看 UI preview，不看 <code>$metadata</code>。页面暂时能加载，但外部系统需要的 action 或字段并没有进入 metadata。修正方式是保存 metadata 片段。</p>
+<p>反例八：忽略缓存和目标系统差异。DEV 刚 publish 后可用，QAS 因 transport、role、metadata cache 或通信配置不同失败。修正方式是把目标系统 smoke test 写入交付清单。</p>
+<p>反例九：把开发者用户当作业务用户。Preview 使用的开发者用户权限过大，掩盖 DCL 或 RAP authorization 问题。修正方式是至少用业务角色和技术用户各做一轮后续 API 测试。</p>
+<h4 id="44-9-79950d99" class="semantic-heading semantic-practice">44.9 思考问题</h4>
+<ul>
+<li>Preview 证明了什么？没有证明什么？</li>
+<li>当前 preview 使用的是哪个用户、哪个系统、哪个 binding type？</li>
+<li><code>$metadata</code> 是否包含预期 entity、navigation、action？</li>
+<li>如果 preview 失败，第一步查 publish 还是业务代码？</li>
+<li>是否用业务用户和技术用户分别测试？</li>
+<li>QAS/PRD 是否也做了 publish 后验证？</li>
+<li>这份证据能否支持“可上线”，还是只能支持“开发期 smoke test 通过”？</li>
+<li>Preview 成功后，哪些测试必须移交给 API testing workflow？</li>
+<li>如果 <code>$metadata</code> 缺少 action，问题可能在哪些对象层？</li>
+<li>AC0567C 的 preview 能证明什么，不能证明什么？</li>
+</ul>
+<h4 id="44-10-c28db869" class="semantic-heading semantic-reference">44.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-binding" target="_blank" rel="noopener noreferrer">SAP Help - Service Binding</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/using-service-binding-editor-for-odata-v4-service" target="_blank" rel="noopener noreferrer">SAP Help - Using Service Binding Editor for OData V4 Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-definition" target="_blank" rel="noopener noreferrer">SAP Help - Service Definition</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-an-odata-ui-service" target="_blank" rel="noopener noreferrer">SAP Learning - Defining OData UI Services</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/getting-started-with-creating-an-sap-fiori-elements-app-based-on-an-odata-v4-rap-service" target="_blank" rel="noopener noreferrer">SAP Learning - Getting Started with Creating an SAP Fiori Elements App Based on an OData V4 RAP Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://api.sap.com/" target="_blank" rel="noopener noreferrer">SAP Business Accelerator Hub</a> (accessed 2026-06-18)</li>
+<li><a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li><a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li><a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><a class="wiki" href="section-03-049-rap-extensibility-a515afa6.html">RAP extensibility</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="44-11-connections-f6be49a7">44.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a></li>
+<li>Downstream: <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="44-12-663196f3" class="semantic-heading semantic-practice">44.12 学习任务</h4>
+<ul>
+<li>写一个 preview 证据模板，至少包含 binding、publish status、URL、user、metadata、已验证点、未验证点。</li>
+<li>补 2 个日语句子：一条说明 preview 是疎通確認，一条说明还要做異常系测试。</li>
+<li>找一个 preview 打不开的假设案例，按 activation/publish/metadata/authorization/runtime 排查。</li>
+<li>从 preview 进入 API testing workflow，列出 5 个必须补的测试。</li>
+<li>如果进入 Week 4，把 AC0567C POC 的本地 proxy 调用也写成类似证据链。</li>
+<li>用 <code>Service Preview Evidence Packet</code> 模板补一份 preview 证据。</li>
+<li>画一张 preview 失败排查表：activation / publish / metadata / authorization / runtime / data。</li>
+<li>写一句日语说明：preview 不是受入测试完成证据。</li>
+</ul>
+<h4 id="44-13-confidence-next-action-f3246efd" class="semantic-heading semantic-status">44.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-facing service preview / smoke-test boundary after official-source closure。正文已补并于 2026-06-18 复核 SAP Help <code>Service Binding</code>、ADT <code>Using Service Binding Editor for OData V4 Service</code>、SAP Help <code>Service Definition</code>、SAP Learning <code>Defining OData UI Services</code>、Fiori Elements OData V4 RAP service 课程和 SAP Business Accelerator Hub。它们支撑 service binding、publish / preview、metadata、local service endpoint、Fiori Elements Preview、UI preview 与正式 API 测试边界。具体 ADT 菜单、preview UI、publish status 和 endpoint 形态仍会随 release / system setup 变化。</li>
+<li>Review status: prior Joule / Claude review artifacts for this section are deferred or timed out and explicitly state that no usable verdict was obtained；2026-06-18 Claude CLI 当前 session expired，外部 review debt 保留。由于本节已完成官方资料闭环和 preview evidence packet / acceptance boundary 说明，不再停留在提纲草稿状态。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；下一节继续 <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a>，把 preview smoke test 扩展为 metadata、positive / negative request、authorization、concurrency 和 regression evidence。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-043-ui-service-vs-web-api-eae9e36c.html">Previous section</a><a href="section-03-045-api-testing-workflow-0438366f.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

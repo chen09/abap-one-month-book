@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Repository object 仓库对象 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="10-repository-object-b85df24a" class="chapter-title">10. Repository object 仓库对象</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 10</li><li>self-contained study note</li></ul><p><strong>1) 一句话结论</strong></p>
+<p>Repository object 仓库对象，是保存在 ABAP Repository 中的开发对象；本节要学的是：ABAP class、DDIC table、CDS view entity、RAP behavior definition、service binding 等都不是普通本地文件，而是带有持久的对象目录属性（object type、object name、package、original system/language）以及开发过程状态（activation 状态、lock、transport 关联）的 SAP 系统对象。</p>
+<p><strong>2) 到底学什么</strong></p>
+<p>前两节已经讲过 <a class="wiki" href="section-01-008-abap-development-tools-in-eclipse-fef5783a.html">ADT</a> 和 <a class="wiki" href="section-01-009-abap-project-in-adt-1e9a4e00.html">ABAP project</a>。现在进入第三层：当 ADT 连接到 ABAP back-end 之后，开发者真正打开和修改的是什么？答案不是“文件”，而是 repository object，也就是 development object。SAP Help 的定义很清楚：AS ABAP 把 development objects 存在 repository 中，因此它们也叫 repository objects；<code>repository object</code> 和 <code>development object</code> 在很多官方资料里经常作为近义词使用。</p>
+<p>初学者可以先把 repository object 理解成“SAP 系统里可开发、可管理、可激活、可传输的对象单位”。它可以是 ABAP class、interface、program、function group、DDIC table、data element、domain、structure、CDS data definition、metadata extension、RAP behavior definition、service definition、service binding 等。这里的“对象”不是面向对象编程里的 object instance，而是 ABAP Repository 中的开发资产。</p>
+<p>这和 Java/Python 的本地文件模型差异很大。Java 里一个 class 常常对应一个 <code>.java</code> 文件，Python 里一个 module 常常对应一个 <code>.py</code> 文件；ABAP 里，一个 repository object 可能有文本 source，也可能主要是 metadata，也可能由多个子对象组成。例如 ABAP class 有 source 和 methods，function group 下面有 function modules，DDIC table 是结构化定义，CDS view entity 是 DDL source，service binding 则描述服务暴露方式。它们都在 repository 里，但不都等于“一个文本文件”。</p>
+<p>本节还要区分两类信息。第一类是 object directory / TADIR 级别的持久属性，例如 object type、object name、package、person responsible、original system、original language 等。第二类是 ADT 里观察到的编辑或运行状态，例如 active/inactive version、对象锁、当前用户是否有 change/activation 权限、是否已经分配到 transport request。两类都重要，但不能混成一个概念：TADIR 像系统的对象目录；activation 和 lock 更像当前开发过程中的状态。</p>
+<p>最后，本节建立一个 Day 02 够用的生命周期：在 package 下创建 repository object，非临时/可传输 package 中通常要分配 transport request；打开对象的 source 或 metadata；保存后可能产生 inactive version；通过 syntax check / Problems view 修正问题；activation 成功后产生 active version，系统据此生成可运行的 runtime/loaded version；再进行 run/test/debug/where-used/ATC；最后通过 transport request 进入后续系统。后面每一节会拆 package、transport、activation、where-used，本节先把它们放在同一张图里。</p>
+<p><strong>3) 为什么重要</strong></p>
+<p>Repository object 是 SAP 开发世界里的基本颗粒。项目沟通时，大家不会只说“改了一个文件”，而会问：改的是哪个 object type？object name 是什么？属于哪个 package？original language 是什么？是否 active？是否有 object lock？挂在哪个 transport request？是否是 SAP standard object、customer Z/Y object，还是某个 released object？这些问题都围绕 repository object 展开。</p>
+<p>如果不理解这一点，初学者会在 ADT 里迷路。看到 class、CDS、behavior definition、service binding、DDIC table 时，会以为它们只是不同后缀的文件；看到 transport request 里出现 <code>R3TR</code>、<code>LIMU</code>、class method、function module 等条目时，会不知道为什么有 main object 和 subobject；看到“对象已保存但未激活”时，会误以为系统已经运行了新版本；看到“对象被别人锁住”时，会误以为是 Eclipse 本地文件冲突。</p>
+<p>对 Java/Python 背景的人，可以把 repository object 暂时类比为“源码文件 + 元数据 + 构建/部署单元 + 传输单元”的组合，但这个类比不完全准确。ABAP repository object 存在于 SAP 系统的 repository 中，受 package、activation、transport、authorization、where-used、Clean Core released state 和系统 landscape 管理。它既是代码学习的对象，也是项目交付和上线审计的对象。</p>
+<p>日本 SAP 项目中，repository object 还会影响命名规范。客户开发对象通常使用 <code>Z</code> / <code>Y</code> namespace 或客户命名空间，package、class、CDS、service 等对象名会进入设计书、单体测试说明、移送依頼、障害調査票和改修一覧。命名不是审美问题，而是对象可追踪性问题。更完整的命名规则会在 <a class="wiki" href="section-01-019-japanese-sap-naming-convention-sap-2bdcfbd7.html">Japanese SAP naming convention</a> 展开，本节只先记住：创建第一个对象时，名字、包、original language 和 transport 都会留下项目痕迹。</p>
+<p><strong>4) Key mechanism / 核心机制</strong></p>
+<p>第一层机制是 repository 与 object directory。AS ABAP 的 development objects 存放在 repository 中，object directory（常见表名 <code>TADIR</code>）记录系统中的 repository objects。初学者不用直接改 TADIR，也不应该手工改它；只要知道项目里听到 <code>TADIR entry</code>、<code>object directory entry</code>、<code>オブジェクトディレクトリ</code> 时，指的是对象在系统目录里的登记信息。</p>
+<p>第二层机制是 object identity。一个 repository object 通常通过 object type 和 object name 被识别，并归属于某个 package。更底层的 transport / object directory 资料里还会看到 <code>R3TR</code> 和 <code>LIMU</code>。可以先这样理解：<code>R3TR</code> 常表示主开发对象，<code>LIMU</code> 常表示主对象下的子对象，例如 function group 下面的 function module、class 下面的方法等。Day 02 不背完整代码表，只要知道 transport 里可能出现 main object / subobject 关系。</p>
+<p>第三层机制是 package 与 namespace。repository object 通常要放进 <a class="wiki" href="section-01-011-abap-package-f43e032c.html">package</a>。package 组织对象，也把对象接到 transport 和 software logistics 上。临时对象可能放在 <code>$TMP</code>，不会正常进入 transport；正式对象通常放在可传输 package。客户自开发对象一般使用 <code>Z</code> / <code>Y</code> 前缀或客户 namespace，具体命名由项目技术标准决定。</p>
+<p>第四层机制是 source、metadata 与 generated/runtime artifacts。ABAP class、program、CDS data definition 等通常有可编辑 source；DDIC table、domain、data element、service binding 等更多体现为结构化定义或 metadata；RAP 生成器还可能一次生成多个 repository objects。不要把 repository object 简化成“一个文本文件”，也不要把 generated artifact 当成可以随便手改的普通文件。</p>
+<p>第五层机制是 active/inactive 与 activation。很多 repository object 可以有 inactive version 和 active version。保存后可能只是产生 inactive version；activation 成功后产生 active version，系统据此生成可运行的 runtime/loaded version。activation 不是 transport，transport 也不是 activation；前者解决当前系统内对象是否有效，后者解决对象变更如何跨系统移动。</p>
+<p>第六层机制是 lock、authorization 与 where-used。编辑对象时系统会设置 lock，避免多人同时修改同一个对象。能显示对象不代表能修改对象，能修改不代表能 activation 或加入 transport。where-used search 则帮助开发者检查一个 repository object 被哪些对象引用。这些都是 repository object 级别的项目能力，不是普通文本编辑器功能。</p>
+<p>第七层机制是 ADT editor 与 SAP GUI fallback。Project Explorer 可以定位、显示、编辑和创建 repository objects。很多现代对象有 Eclipse-based editor；如果某个对象类型没有对应 ADT editor，classic/brownfield 系统中可能会在 ADT editor area 打开 SAP GUI-based tool。本节不展开 SE11/SE80 历史，只记住：ADT 是现代入口，但并不是所有历史对象都长成同一种编辑器。</p>
+<p><strong>5) 日本项目现场说法</strong></p>
+<ul>
+<li>常见日语：<code>リポジトリオブジェクト</code>、<code>開発オブジェクト</code>、<code>オブジェクトタイプ</code>、<code>オブジェクト名</code>、<code>オブジェクトディレクトリ</code>、<code>TADIR</code>、<code>主オブジェクト</code>、<code>サブオブジェクト</code>、<code>パッケージ</code>、<code>原語</code>、<code>有効化</code>、<code>アクティベート</code>、<code>非有効バージョン</code>、<code>移送依頼</code>、<code>使用箇所検索</code>、<code>ロック</code>、<code>権限不足</code>、<code>SAP GUIツール</code>、<code>Z/Y名前空間</code>。</li>
+<li>说明句：この修正対象は ABAP クラスではなく、CDS のリポジトリオブジェクトです。</li>
+<li>说明句：対象オブジェクトのパッケージ、原語、有効化状態、移送依頼を確認してください。</li>
+<li>说明句：Transport の明細に LIMU が出ている場合は、主オブジェクトとサブオブジェクトの関係を確認します。</li>
+<li>说明句：TADIR の直接変更ではなく、標準機能または ADT から対象オブジェクトを確認してください。</li>
+<li>使用场景：对象创建、命名审查、code review、移送前確認、where-used 影响调查、对象锁冲突、障害調査、brownfield 旧对象识别。</li>
+</ul>
+<p><strong>6) English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>ABAP repository object</code>, <code>development object</code>, <code>ABAP Development Object</code>, <code>Object Directory</code>, <code>TADIR</code></li>
+<li>Related terms: <code>object type</code>, <code>object name</code>, <code>package</code>, <code>original language</code>, <code>original system</code>, <code>person responsible</code>, <code>active version</code>, <code>inactive version</code>, <code>activation</code>, <code>enqueue lock</code>, <code>transport request</code>, <code>R3TR</code>, <code>LIMU</code>, <code>main object</code>, <code>subobject</code>, <code>Project Explorer</code>, <code>Eclipse-based editor</code>, <code>SAP GUI-based tool</code>, <code>System Library</code>, <code>Favorite Packages</code>, <code>Generated ABAP Repository Objects</code></li>
+<li>Recommended search pattern: <code>ABAP Development Objects repository objects SAP Help</code>, <code>TADIR object directory repository object SAP</code>, <code>ABAP repository object transport request ADT</code>, <code>ABAP Project Explorer development objects SAP Help</code></li>
+<li>读官方资料时要区分 <code>repository object</code>、<code>runtime object</code>、<code>generated object</code>、<code>transport object entry</code> 和 <code>database table data</code>。它们经常相关，但不是同一个层面的词。</li>
+</ul>
+<p><strong>7) Example / 学习例子</strong></p>
+<p>假设今天要创建一个练习 class。第一步是在正确的 <a class="wiki" href="section-01-009-abap-project-in-adt-1e9a4e00.html">ABAP project</a> 中打开 Project Explorer，确认目标 package 已经加入 Favorite Packages。第二步在 package 上选择 New -&gt; ABAP Class，输入 class name、description、package 和 transport request。这里创建的不是一个本地 <code>.abap</code> 文件，而是 ABAP Repository 中的 class repository object。</p>
+<p>创建后，ADT 会打开 class editor。你写入一个简单方法并保存，此时可能只是 inactive version。运行 syntax check 后，如果 Problems view 没有错误，再 activation。activation 成功后，这个 class 才成为当前系统里可运行、可被其他对象引用的 active version。然后可以运行 ABAP Unit、debug、where-used search 或查看 Properties。</p>
+<p>再看一个 RAP 例子。用 ABAP Repository Objects Generator 生成 OData UI Service 时，系统可能一次生成 database table、CDS root view、projection view、behavior definition、behavior implementation class、service definition、service binding 等一组 repository objects。初学者不需要马上懂每个对象的全部语法，但要知道它们都在 repository 里，有 package、activation、transport 和依赖关系。</p>
+<p>最后看 transport。transport request 中可能出现一个主对象，例如 class，也可能出现某个 subobject，例如 class method 或 function module。看到这种条目时，不要把它理解为本地文件拆分，而要回到 repository object / main object / subobject 模型。</p>
+<p><strong>8) Counterexample / Failure mode</strong></p>
+<ul>
+<li>误区 1：把 repository object 当成本地文件。修正：它是 ABAP Repository 中的开发对象，受系统、package、activation 和 transport 管理。</li>
+<li>误区 2：把 active/inactive、lock、transport 都当成 TADIR 属性。修正：TADIR 记录对象目录属性；active/inactive 和 lock 是开发过程中的状态。</li>
+<li>误区 3：以为所有对象都有纯文本 source。修正：有些对象是 source-based，有些主要是 metadata，有些由生成器生成，有些有 subobject。</li>
+<li>误区 4：只看 object name，不看 package。修正：package 决定对象组织、可传输性和软件物流边界。</li>
+<li>误区 5：看到 SAP GUI-based tool 就以为不能用 ADT。修正：ADT 仍是入口；某些 classic object 类型可能通过 SAP GUI 工具打开。</li>
+<li>误区 6：直接修改 generated object。修正：先确认它是否由 generator 管理，是否应该改 extension point、behavior implementation 或手写 class。</li>
+<li>误区 7：无视命名规范。修正：客户对象通常遵守 <code>Z</code> / <code>Y</code> namespace 或项目命名标准，名称会进入设计、测试、移送和障害调查材料。</li>
+</ul>
+<p><strong>9) 思考问题</strong></p>
+<ul>
+<li>为什么 SAP Help 会把 development object 也叫 repository object？</li>
+<li>TADIR/object directory 级别的对象属性，与 ADT 里的 active/inactive 或 lock 状态有什么区别？</li>
+<li>为什么 DDIC table、CDS view entity、ABAP class 和 service binding 都能算 repository object，但表现形式不同？</li>
+<li>transport request 中出现 <code>R3TR</code> 与 <code>LIMU</code> 时，可能对应什么 main object / subobject 关系？</li>
+<li>如果一个对象已经保存但没有 activation，会产生什么项目风险？</li>
+<li>在日本项目里，如何用一句日语要求同事确认对象的 package、原語、有効化状態 和移送依頼？</li>
+</ul>
+<p><strong>10) 参考资料入口</strong></p>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/4ec12bc26e391014adc9fffe4e204223.html" target="_blank" rel="noopener noreferrer">ABAP Development Objects</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/LATEST/4a368c163b08418890a406d413933ba7/5738e06c4eb711d182bf0000e829fbfe.html" target="_blank" rel="noopener noreferrer">Object Directory</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/browsing-development-objects-in-project-explorer" target="_blank" rel="noopener noreferrer">Browsing Development Objects in the Project Explorer</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/ab03dcd9072f4a2d85c945d05929d3fb.html" target="_blank" rel="noopener noreferrer">List of Development Objects with an Eclipse-based Editor</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/4ec223686e391014adc9fffe4e204223.html" target="_blank" rel="noopener noreferrer">Transport Request</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/generating-abap-repository-objects" target="_blank" rel="noopener noreferrer">Generating ABAP Repository Objects</a>（accessed 2026-06-13）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>11) Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li><span class="wiki unresolved">MOC ADT Workflow</span></li>
+<li>Upstream: <a class="wiki" href="section-01-009-abap-project-in-adt-1e9a4e00.html">ABAP project in ADT</a></li>
+<li>Downstream: <a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a></li>
+<li>Related: <a class="wiki" href="section-01-013-activation-ff7e1caa.html">Activation 激活机制</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a></li>
+<li>Related: <a class="wiki" href="section-01-016-abap-debugger-05add8e6.html">ABAP debugger 调试器入口</a></li>
+<li>Related: <a class="wiki" href="section-01-019-japanese-sap-naming-convention-sap-2bdcfbd7.html">Japanese SAP naming convention</a></li>
+<li>Related: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Related: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Related: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 02 - ADT 与 Repository Object 生命周期</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>12) 学习任务</strong></p>
+<ul>
+<li>用自己的中文解释 repository object 与本地文件的区别。</li>
+<li>在 ADT 中找 3 个不同类型的 repository objects，例如 class、CDS、DDIC table，记录 object type、object name、package 和 activation 状态。</li>
+<li>找一个对象查看 where-used，记录它被哪些对象引用。</li>
+<li>写 1 句日语，要求同事确认目标对象的 package、原語、有効化状態 和移送依頼。</li>
+<li>观察一个 transport request，如果看到 <code>R3TR</code> 或 <code>LIMU</code>，用一句话说明可能代表 main object / subobject。</li>
+<li>如果已经进入 Week 3/4，把一个 RAP service binding 的对象链映射成 repository objects 清单。</li>
+</ul>
+<p><strong>13) Confidence &amp; Next Action</strong></p>
+<ul>
+<li>Confidence: High for beginner conceptual boundary; exact object types, R3TR/LIMU entries, editor availability, and cloud restrictions vary by release, ADT version, deployment option, and project authorization.</li>
+<li>Next action: 进入 <a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a>，把“对象是什么”推进到“对象为什么必须放进 package，以及 package 如何连接命名、传输和软件物流”。</li>
+</ul>
+<blockquote>Atomic note: <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a></blockquote><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-009-abap-project-in-adt-1e9a4e00.html">Previous section</a><a href="section-01-011-abap-package-f43e032c.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

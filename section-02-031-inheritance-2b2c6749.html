@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Inheritance 继承 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="31-inheritance-41bf974c" class="chapter-title">31. Inheritance 继承</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 31</li><li>self-contained study note</li></ul><h4 id="31-1-0f32841f" class="semantic-heading semantic-concept">31.1 一句话结论</h4>
+<p>Inheritance 继承是 OO ABAP 中表达“一个 class 是另一个 class 的特殊版本”的机制。subclass 通过 <code>INHERITING FROM</code> 继承 superclass 的 public / protected contract，可以 redefine 允许重定义的方法，也可以新增自己的行为。它适合表达清楚的 is-a / specialization 关系，不适合单纯为了复用几行 helper code。</p>
+<p>初学者最重要的判断是：继承不是“代码复用快捷键”，而是长期 contract。父类一旦把 public / protected method 暴露给子类和调用者，后续修改就会影响整条继承链。多数业务开发里，优先考虑小 class、composition、<a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a> 和 constructor injection；只有当“子类确实是父类的一种”并且需要共享稳定扩展点时，才考虑 inheritance。</p>
+<h4 id="31-2-dcb698b2" class="semantic-heading semantic-concept">31.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a> 讲的是 capability contract：调用方只关心“这个对象能做什么”。本节讲的是 specialization contract：子类不仅能做父类能做的事，还代表父类概念下的一个更具体类型。</p>
+<p>本节要掌握七个边界：</p>
+<ul>
+<li><code>CLASS lcl_child DEFINITION INHERITING FROM lcl_parent.</code> 表示 child class 继承 parent class。</li>
+<li>如果省略 <code>INHERITING FROM</code>，普通 class 仍隐式位于 ABAP Objects 的根类 <code>object</code> 之下；因此后续会看到 <code>TYPE REF TO object</code> 这种泛型 object reference。</li>
+<li>ABAP class inheritance 是单继承：一个 class 只能有一个 direct superclass，但可以实现多个 interfaces。</li>
+<li>subclass 可以访问 superclass 的 public / protected components；不能直接访问 superclass private components。<code>FRIENDS</code> 是高级例外，但不应成为普通继承设计的理由。</li>
+<li><code>PROTECTED SECTION</code> 是给子类看的 contract，不是“稍微开放一点的 private”。</li>
+<li>superclass method 可以被 subclass 用 <code>METHODS method_name REDEFINITION.</code> 重写，前提是该 method 是 public/protected instance method、不是 private/static/final method，并且 signature 不改变。</li>
+<li><code>ABSTRACT</code> class / method 表达“不能直接实例化，必须由子类完成或使用”；<code>FINAL</code> class / method 表达“不允许继续继承或重定义”。<code>ABSTRACT</code> 和 <code>FINAL</code> 不能同时用于同一个 class 或 method。</li>
+<li>如果只是为了替换实现、做 ABAP Unit test double、隔离依赖，优先用 interface；如果只是为了共享实现细节，优先用 composition 或 private helper。</li>
+</ul>
+<p>最小语法模型：</p>
+<pre><code class="language-abap">CLASS lcl_document DEFINITION ABSTRACT.
+  PUBLIC SECTION.
+    METHODS get_kind ABSTRACT
+      RETURNING VALUE(rv_kind) TYPE string.
+
+    METHODS describe
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS lcl_document IMPLEMENTATION.
+  METHOD describe.
+    rv_text = |Document kind: { get_kind( ) }|.
+  ENDMETHOD.
+ENDCLASS.
+
+CLASS lcl_invoice DEFINITION
+  INHERITING FROM lcl_document.
+  PUBLIC SECTION.
+    METHODS get_kind REDEFINITION.
+ENDCLASS.
+
+CLASS lcl_invoice IMPLEMENTATION.
+  METHOD get_kind.
+    rv_kind = &#x27;Invoice&#x27;.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>lcl_document</code> 说“所有 document 都能说明自己的 kind”。它本身是 abstract，不能直接 <code>NEW lcl_document( )</code>。<code>lcl_invoice</code> 是 document 的一种，所以继承它，并提供 <code>get_kind</code> 的具体实现。</p>
+<h4 id="31-3-20e6a933" class="semantic-heading semantic-why">31.3 为什么重要</h4>
+<p>inheritance 是 ABAP Objects 里最容易被“写得出来但设计错”的主题之一。语法并不难，难的是判断它是不是合适的建模方式。</p>
+<p>在项目里，继承通常影响三件事：</p>
+<ul>
+<li>扩展点：父类允许子类在哪些地方 redefine，哪些地方不能动。</li>
+<li>可见性：protected method / attribute 会成为子类 contract，父类不能随便改。</li>
+<li>多态：父类 reference 可以指向子类对象，运行时调用子类重定义后的 method。</li>
+</ul>
+<p>如果继承关系清楚，它可以减少重复、统一流程、提供 framework extension point。例如 SAP framework 里会看到类似 <code>INHERITING FROM cl_abap_behavior_saver</code> 的类，用父类定义生命周期方法，再由具体 behavior pool 子类实现保存逻辑。项目里读到这种代码时，要先问：“父类规定了什么生命周期 contract？子类重定义了哪个 hook？”</p>
+<p>如果继承关系不清楚，它会制造隐性耦合。一个看似小的父类 protected method 改名、改参数、改语义，可能让所有子类同时受影响。Java/Python 背景学习者容易把继承当作复用实现的第一选择；在 ABAP 项目里，更保守的选择通常是 interface + composition。</p>
+<h4 id="31-4-key-mechanism-92d54e2d" class="semantic-heading semantic-mechanism">31.4 Key mechanism / 核心机制</h4>
+<h5 id="31-4-1-inheritance-expresses-is-a-3b170690">31.4.1 inheritance expresses is-a</h5>
+<p>继承表达的是 is-a 关系，而不是 uses-a 关系。</p>
+<ul>
+<li><code>Invoice is a Document</code>：可能适合 inheritance。</li>
+<li><code>PaymentService uses a TaxCalculator</code>：更适合 composition 或 interface injection。</li>
+<li><code>OrderValidator and DeliveryValidator share 20 lines of code</code>：通常不够成为 inheritance 理由。</li>
+</ul>
+<p>判断句很简单：如果不能自然说“子类是父类的一种”，就不要急着写 <code>INHERITING FROM</code>。</p>
+<h5 id="31-4-2-subclass-inherits-public-and-protected-contract-75bff6c0">31.4.2 subclass inherits public and protected contract</h5>
+<p>subclass 继承 superclass 的可见 contract。调用者通过 superclass reference 能看到 superclass public components；subclass 内部能访问 superclass public / protected components。</p>
+<pre><code class="language-abap">CLASS lcl_rule DEFINITION ABSTRACT.
+  PUBLIC SECTION.
+    METHODS is_valid ABSTRACT
+      RETURNING VALUE(rv_valid) TYPE abap_bool.
+
+  PROTECTED SECTION.
+    METHODS normalize
+      IMPORTING iv_value        TYPE string
+      RETURNING VALUE(rv_value) TYPE string.
+ENDCLASS.
+
+CLASS lcl_rule IMPLEMENTATION.
+  METHOD normalize.
+    rv_value = to_upper( val = iv_value ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>normalize</code> 放在 <code>PROTECTED SECTION</code>，意思是父类承诺子类可以调用它。它不只是父类自己的 private helper，而是继承关系的一部分。以后如果父类改变 <code>normalize</code> 的 signature 或语义，子类都会受影响。</p>
+<p>这就是为什么前面 <a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a> 一节强调：protected 要谨慎。private 是父类内部自由，protected 是父类对子类的承诺。</p>
+<p>还有一个容易忽略的细节：subclass 访问 inherited protected components 时，通常使用 <code>me-&gt;component</code> 或直接写 component name。不要把“任何 superclass reference 都能访问 protected”理解成通用规则；通过 superclass 静态类型的任意 reference 去访问 protected component，会破坏其他 subclass 的封装边界。初学阶段把 protected 视为“本对象继承链内可见”，而不是“所有父类引用可见”。</p>
+<h5 id="31-4-3-abstract-class-and-abstract-method-9effb959">31.4.3 abstract class and abstract method</h5>
+<p><code>ABSTRACT</code> class 不能直接实例化。它通常用来提供 shared contract 或 shared flow，让子类补齐差异点。</p>
+<pre><code class="language-abap">CLASS lcl_message_formatter DEFINITION ABSTRACT.
+  PUBLIC SECTION.
+    METHODS format ABSTRACT
+      IMPORTING iv_text          TYPE string
+      RETURNING VALUE(rv_result) TYPE string.
+ENDCLASS.</code></pre>
+<p>abstract method 没有 superclass implementation，必须由非 abstract subclass 提供实现。包含 abstract method 的 class 自身也必须声明为 <code>ABSTRACT</code>；如果某个 subclass 仍没有补齐所有 abstract methods，它也必须保持 abstract，不能直接被实例化。对初学者来说，可以把 abstract method 理解为“父类说这个能力必须存在，但不知道每个子类具体怎么做”。</p>
+<h5 id="31-4-4-final-class-and-final-method-3627de62">31.4.4 final class and final method</h5>
+<p><code>FINAL</code> 是 inheritance 的刹车。</p>
+<pre><code class="language-abap">CLASS lcl_status_text DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.</code></pre>
+<p>如果一个 class 没有打算给别人继承，尤其是普通业务 service、formatter、validator、mapper，写成 <code>FINAL</code> 通常更清楚：它不是 extension point。其他 class 不能 <code>INHERITING FROM</code> 一个 final class；尝试继承 final class 会在语法检查阶段失败。后续要替换实现时，用 interface；要共享内部逻辑时，用 composition；不要默认让每个 class 都可继承。</p>
+<p>同理，method 也可以被设计成不可重定义的 contract。final method 不能被 subclass redefine。初学阶段不必记住所有组合语法，但要理解意图：<code>ABSTRACT</code> 打开必须实现的扩展点，<code>FINAL</code> 关闭继承或重定义；两者互斥，不能同时表达“必须重写”和“不许重写”。</p>
+<h5 id="31-4-5-method-redefinition-changes-runtime-behavior-c17ffff9">31.4.5 method redefinition changes runtime behavior</h5>
+<p>redefinition 是 inheritance 里最重要的行为变化。subclass 可以重新实现 superclass method：</p>
+<pre><code class="language-abap">CLASS lcl_base_pricing DEFINITION ABSTRACT.
+  PUBLIC SECTION.
+    METHODS calculate
+      IMPORTING iv_amount     TYPE decfloat34
+      RETURNING VALUE(rv_net) TYPE decfloat34.
+ENDCLASS.
+
+CLASS lcl_base_pricing IMPLEMENTATION.
+  METHOD calculate.
+    rv_net = iv_amount.
+  ENDMETHOD.
+ENDCLASS.
+
+CLASS lcl_discount_pricing DEFINITION
+  INHERITING FROM lcl_base_pricing.
+  PUBLIC SECTION.
+    METHODS calculate REDEFINITION.
+ENDCLASS.
+
+CLASS lcl_discount_pricing IMPLEMENTATION.
+  METHOD calculate.
+    rv_net = iv_amount * &#x27;0.90&#x27;.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>当变量类型是 superclass reference、实际对象是 subclass 时，调用会走运行时对象的实现：</p>
+<pre><code class="language-abap">DATA lo_pricing TYPE REF TO lcl_base_pricing.
+lo_pricing = NEW lcl_discount_pricing( ).
+
+DATA(lv_net) = lo_pricing-&gt;calculate( iv_amount = &#x27;100.00&#x27; ).</code></pre>
+<p>这就是下一节 <a class="wiki" href="section-02-032-polymorphism-889652ed.html">Polymorphism 多态</a> 要展开的内容：同一个 call，根据实际对象不同，执行不同实现。</p>
+<p>redefinition 有几个硬边界：可重定义的方法必须是 not private/static/final。不能 redefine private method，因为子类看不到它；不能 redefine static method，因为 static method 不参与对象实例的动态分派 dynamic dispatch；不能 redefine final method，因为父类明确关闭了这个扩展点。redefinition 也不能改变 method signature：参数方向、类型、返回值和异常 contract 都属于父类 method contract，subclass 只能改变 implementation。</p>
+<h5 id="31-4-6-super-call-preserves-parent-behavior-bdc1c8eb">31.4.6 super call preserves parent behavior</h5>
+<p>如果 subclass redefine method，但仍想复用 superclass 的原有逻辑，可以在 subclass method 中调用 <code>super-&gt;method_name( )</code>。</p>
+<pre><code class="language-abap">CLASS lcl_prefixed_document DEFINITION
+  INHERITING FROM lcl_document.
+  PUBLIC SECTION.
+    METHODS describe REDEFINITION.
+    METHODS get_kind REDEFINITION.
+ENDCLASS.
+
+CLASS lcl_prefixed_document IMPLEMENTATION.
+  METHOD describe.
+    rv_text = |[SAP] { super-&gt;describe( ) }|.
+  ENDMETHOD.
+
+  METHOD get_kind.
+    rv_kind = &#x27;Generic&#x27;.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>super-&gt;describe( )</code> 表示调用 superclass 的 <code>describe</code> implementation。它适合“先执行父类标准流程，再补一点子类差异”的场景。但如果每个子类都要绕开父类大半逻辑，说明父类抽象可能设计错了。</p>
+<p><code>super-&gt;</code> 只能在 subclass 的 instance method 中使用，指向 direct superclass 的 implementation；不能写 <code>super-&gt;super-&gt;...</code> 跳过中间层。constructor 场景还要更谨慎：如果 subclass 定义了自己的 constructor，而 superclass constructor 有 mandatory importing parameters，subclass constructor 需要显式调用 <code>super-&gt;constructor( ... )</code> 来完成父类初始化。初学阶段不要在 constructor 链里放业务副作用，否则所有子类创建都会变重。</p>
+<h5 id="31-4-7-inheritance-vs-interface-vs-composition-c733cb7a">31.4.7 inheritance vs interface vs composition</h5>
+<p>三者经常混在一起，需要明确区分：</p>
+<ul>
+<li>inheritance：<code>lcl_invoice</code> 是 <code>lcl_document</code> 的一种。</li>
+<li>interface：<code>lcl_invoice</code> 能提供 <code>lif_printable</code> 的能力。</li>
+<li>composition：<code>lcl_invoice_service</code> 使用 <code>lif_tax_calculator</code> 或 <code>lcl_number_formatter</code>。</li>
+</ul>
+<p>项目里的保守判断：</p>
+<ul>
+<li>需要多实现、可替换、test double：优先 interface。</li>
+<li>只是把一个对象交给另一个对象使用：优先 composition。</li>
+<li>需要表达 is-a，且父类提供稳定扩展点：才使用 inheritance。</li>
+</ul>
+<h5 id="31-4-8-inheritance-decision-checklist-2395e634">31.4.8 inheritance decision checklist</h5>
+<p>在 code review 里，继承设计可以用下面这张表收口。重点不是“ABAP 语法能不能继承”，而是“这个父子关系是否真的表达稳定的 is-a contract，父类是否愿意长期承诺 public / protected extension points”。一旦父类把大量内部状态暴露成 protected，后续每次修改父类都可能影响所有子类；这时继承就不再是复用捷径，而是长期耦合。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Inheritance may fit when...</th><th>Prefer interface / composition when...</th></tr></thead><tbody><tr><td>Is there a true is-a relation?</td><td>子类确实是父类的一种，例如 <code>invoice is a document</code>。</td><td>只是想复用几行逻辑，或只是多个对象有相似动作。</td></tr><tr><td>Is the parent contract stable?</td><td>public / protected methods 是长期扩展点，调用顺序和含义清楚。</td><td>父类内部 helper 还经常变化，子类只是顺便调用它。</td></tr><tr><td>Do subclasses share lifecycle or flow?</td><td>父类定义模板流程，子类只补差异点。</td><td>每个实现只是同一 capability 的不同来源，例如不同税率计算器。</td></tr><tr><td>Will protected members stay small?</td><td>protected API 少、稳定、命名清楚。</td><td>需要把大量内部状态暴露给子类才能完成需求。</td></tr><tr><td>Is polymorphism needed?</td><td>父类 reference 调用子类行为是设计目标。</td><td>调用方只需要一个 interface contract，不关心具体父类。</td></tr><tr><td>Can tests stay simple?</td><td>每个 subclass 可以复用共同 contract test。</td><td>测试必须理解父类内部状态、hook 顺序和隐藏副作用。</td></tr></tbody></table></div>
+<p>普通业务代码里，很多 class 更适合先设计成 <code>FINAL</code>，再用 interface 表达可替换能力，用 composition 组合 helper 或 service。继承仍然有价值，尤其在 framework lifecycle、template method、RAP saver 这类由父类规定 extension point 的场景；但它的成本是更强的耦合、更难的测试边界和更谨慎的 protected contract 维护。</p>
+<h4 id="31-5-abf4bb3b" class="semantic-heading semantic-japan">31.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>継承</code>、<code>親クラス</code>、<code>子クラス</code>、<code>スーパークラス</code>、<code>サブクラス</code>、<code>抽象クラス</code>、<code>再定義</code>、<code>protectedメソッド</code>、<code>is-a関係</code>、<code>継承階層</code>。</li>
+<li>设计说明句：このクラスは共通処理を親クラスに持たせ、差分処理をサブクラスで再定義する設計です。</li>
+<li>Review 指摘句：この設計は is-a 関係ではなく処理共通化が目的に見えるため、継承ではなくインターフェースまたは委譲を検討してください。</li>
+<li>风险提示句：protectedメソッドは子クラス向けの契約になるため、後続変更の影響範囲を確認する必要があります。</li>
+<li>使用场景：class design review、framework extension point 分析、RAP behavior pool 读取、ABAP Unit 设计、重构讨论、影响调查。</li>
+</ul>
+<p>日本项目里 <code>継承</code> 经常和 <code>共通化</code> 一起出现，但两者不能等同。<code>共通化したいから親クラスを作る</code> 不是充分理由；要进一步确认是否存在稳定的 <code>親子関係</code> 和 <code>再定義ポイント</code>。</p>
+<h4 id="31-6-english-terms-04fb4d04" class="semantic-heading semantic-terms">31.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>inheritance</code>, <code>INHERITING FROM</code>, <code>superclass</code>, <code>subclass</code>, <code>method redefinition</code>, <code>ABSTRACT</code>, <code>FINAL</code>, <code>super-&gt;method</code></li>
+<li>Related syntax: <code>CLASS ... DEFINITION INHERITING FROM ...</code>, <code>METHODS ... REDEFINITION</code>, <code>METHODS ... ABSTRACT</code>, <code>CLASS ... DEFINITION ABSTRACT</code>, <code>CLASS ... DEFINITION FINAL</code></li>
+<li>Design terms: <code>is-a relationship</code>, <code>extension point</code>, <code>template method</code>, <code>composition</code>, <code>delegation</code>, <code>polymorphism</code>, <code>dynamic dispatch</code>, <code>protected contract</code>, <code>mutually exclusive</code></li>
+<li>读官方资料时注意：<code>inheritance</code> 也可能出现在 package inheritance、DDIC domain inheritance 等语境；本节讲的是 OO ABAP class inheritance。</li>
+</ul>
+<h4 id="31-7-example-c91d1b78" class="semantic-heading semantic-example">31.7 Example / 学习例子</h4>
+<h5 id="31-7-1-1-abstract-superclass-99db7b8d">31.7.1 例 1：用 abstract superclass 统一流程</h5>
+<pre><code class="language-abap">CLASS lcl_exporter DEFINITION ABSTRACT.
+  PUBLIC SECTION.
+    METHODS export
+      RETURNING VALUE(rv_text) TYPE string.
+
+  PROTECTED SECTION.
+    METHODS get_header ABSTRACT
+      RETURNING VALUE(rv_header) TYPE string.
+
+    METHODS get_body ABSTRACT
+      RETURNING VALUE(rv_body) TYPE string.
+ENDCLASS.
+
+CLASS lcl_exporter IMPLEMENTATION.
+  METHOD export.
+    rv_text = |{ get_header( ) }: { get_body( ) }|.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>export</code> 是父类统一流程：先 header，再 body。<code>get_header</code> 和 <code>get_body</code> 是子类必须补齐的差异点。</p>
+<pre><code class="language-abap">CLASS lcl_invoice_exporter DEFINITION
+  INHERITING FROM lcl_exporter.
+  PROTECTED SECTION.
+    METHODS get_header REDEFINITION.
+    METHODS get_body   REDEFINITION.
+ENDCLASS.
+
+CLASS lcl_invoice_exporter IMPLEMENTATION.
+  METHOD get_header.
+    rv_header = &#x27;Invoice&#x27;.
+  ENDMETHOD.
+
+  METHOD get_body.
+    rv_body = &#x27;Amount: 100.00&#x27;.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>调用方可以只知道它是 <code>lcl_exporter</code>：</p>
+<pre><code class="language-abap">DATA lo_exporter TYPE REF TO lcl_exporter.
+lo_exporter = NEW lcl_invoice_exporter( ).
+
+DATA(lv_text) = lo_exporter-&gt;export( ).</code></pre>
+<p>这个例子适合 inheritance，因为父类真的定义了一套稳定流程，子类只填补差异步骤。</p>
+<h5 id="31-7-2-2-02dd777c">31.7.2 例 2：不适合继承的复用</h5>
+<pre><code class="language-abap">CLASS lcl_order_validator DEFINITION
+  INHERITING FROM lcl_string_helper.
+ENDCLASS.</code></pre>
+<p>如果 <code>lcl_order_validator</code> 并不是 <code>lcl_string_helper</code> 的一种，只是想复用字符串处理方法，这就是错误信号。更好的做法通常是 composition：</p>
+<pre><code class="language-abap">CLASS lcl_order_validator DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING io_formatter TYPE REF TO lif_text_formatter.
+
+  PRIVATE SECTION.
+    DATA mo_formatter TYPE REF TO lif_text_formatter.
+ENDCLASS.</code></pre>
+<p>这样 <code>lcl_order_validator</code> 仍然是 validator，formatter 只是它使用的协作者。</p>
+<h5 id="31-7-3-3-rap-saver-07b52fbe">31.7.3 例 3：RAP saver 里的继承意识</h5>
+<p>后续 RAP 章节会看到类似：</p>
+<pre><code class="language-abap">CLASS lsc_zxxx DEFINITION
+  INHERITING FROM cl_abap_behavior_saver.
+ENDCLASS.</code></pre>
+<p>RAP 中还会看到 handler 相关基类，例如 <code>CL_ABAP_BEHAVIOR_HANDLER</code>，以及 saver 相关基类 <code>CL_ABAP_BEHAVIOR_SAVER</code>。前者偏向 transactional handler methods，后者偏向 save sequence methods。它们都不是为了复用普通 helper，而是 SAP framework 定义生命周期父类，子类按规定 method signature 实现业务逻辑。</p>
+<p>读这种代码时，要连接到 <span class="wiki unresolved">RAP saver phase is where database writes should happen</span>，理解“父类规定生命周期，子类实现扩展点”的模式。同时要保留 Clean Core / ABAP Cloud 意识：继承 SAP standard class 是否允许，不只看语法，还要看该 class 在当前系统和语言版本中是否 released / allowed。不要为了访问 protected area 去继承未释放的 SAP 标准类。</p>
+<h4 id="31-8-counterexample-failure-mode-0b8cc6fe" class="semantic-heading semantic-example">31.8 Counterexample / Failure mode</h4>
+<h5 id="31-8-1-1-helper-ed2fbd0c" class="semantic-heading semantic-failure">31.8.1 误区 1：为了复用 helper 就继承</h5>
+<p>两个 class 都需要 <code>format_amount</code>，不代表它们有父子关系。</p>
+<p>修正动作：把 helper 抽成 private method、utility collaborator、formatter class，或通过 interface 注入。</p>
+<h5 id="31-8-2-2-protected-bcb79770" class="semantic-heading semantic-failure">31.8.2 误区 2：把 protected 当成默认可见性</h5>
+<p>protected 会被子类依赖，后续改动成本比 private 高。</p>
+<p>修正动作：默认 private；只有明确设计 subclass extension point 时才 protected。</p>
+<h5 id="31-8-3-3-contract-1a218c0b" class="semantic-heading semantic-failure">31.8.3 误区 3：重定义后破坏父类 contract</h5>
+<p>父类 method 说 <code>calculate</code> 返回 net amount，子类却返回 gross amount。语法可能能过，但语义坏了。</p>
+<p>修正动作：redefinition 不能改变调用方对父类 method 的基本期待；必要时新建 method 或改抽象模型。</p>
+<h5 id="31-8-4-4-3c3ffb26" class="semantic-heading semantic-failure">31.8.4 误区 4：继承层级太深</h5>
+<p>三四层以上的业务继承，很容易让缺陷调查变成“到底哪个 class 改了行为”的追踪游戏。</p>
+<p>修正动作：压平设计；用 interface + composition 拆出变化点。</p>
+<h5 id="31-8-5-5-inheritance-authorization-customizing-668952ca" class="semantic-heading semantic-failure">31.8.5 误区 5：把 inheritance 和 authorization / customizing 混在一起</h5>
+<p>不同公司代码、不同税码、不同权限，不一定需要不同 subclass。</p>
+<p>修正动作：业务差异优先考虑配置、strategy object、rule class、BAdI / enhancement point 或 RAP behavior design；继承只用于稳定类型层级。</p>
+<h5 id="31-8-6-6-constructor-3828358a" class="semantic-heading semantic-failure">31.8.6 误区 6：父类 constructor 做太多事</h5>
+<p>如果父类 constructor 里做 DB 更新、remote call、authorization side effect，所有子类创建对象都会背上这个成本。</p>
+<p>修正动作：constructor 只建立有效初始状态；业务动作放到显式 method；依赖通过 interface 注入。</p>
+<h5 id="31-8-7-7-sap-471a0b7b" class="semantic-heading semantic-failure">31.8.7 误区 7：通过继承访问未释放 SAP 标准类</h5>
+<p>看到某个 SAP standard class 有 protected method，不代表项目可以通过 subclass 继承来使用它。</p>
+<p>修正动作：优先使用 released API、documented extension point、BAdI、RAP framework contract 或 SAP Help 明确允许的方式；ABAP Cloud / Clean Core 场景下尤其要确认 release status。</p>
+<h4 id="31-9-59e02ab1" class="semantic-heading semantic-practice">31.9 思考问题</h4>
+<ul>
+<li>这个 subclass 真的是 superclass 的一种吗？能自然说出 is-a 关系吗？</li>
+<li>这里需要的是继承、interface，还是 composition？</li>
+<li>superclass 暴露了哪些 protected contract？未来改动会影响哪些子类？</li>
+<li>哪些 method 允许 redefinition？子类重定义后是否仍满足父类语义？</li>
+<li>class 是否应该是 <code>FINAL</code>，避免无意成为 extension point？</li>
+<li>如果使用 abstract class，哪些步骤由父类固定，哪些步骤由子类补齐？</li>
+<li>日本项目 review 时，应说 <code>継承関係</code>、<code>再定義</code>，还是 <code>委譲</code> / <code>インターフェース化</code>？</li>
+<li>在 RAP 或 framework code 中，是否能识别 <code>INHERITING FROM</code> 背后的生命周期 contract？</li>
+</ul>
+<h4 id="31-10-cfe5a34f" class="semantic-heading semantic-reference">31.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCLASSES_AND_INTERFACES.html" target="_blank" rel="noopener noreferrer">Classes and Interfaces</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCLASS.html" target="_blank" rel="noopener noreferrer">CLASS</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMETHODS_REDEFINITION.html" target="_blank" rel="noopener noreferrer">METHODS, REDEFINITION</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/implementing-inheritance_bfdb59f7-0f99-48b9-b019-a7b766830ecc" target="_blank" rel="noopener noreferrer">Implementing Inheritance</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/using-interfaces_e45af9bb-46e5-457b-88ef-d5ad6b0d38d7" target="_blank" rel="noopener noreferrer">Using Interfaces</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">RAP saver phase is where database writes should happen</span></li>
+</ul>
+<h4 id="31-11-connections-021b87c8">31.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a></li>
+<li>Downstream: <a class="wiki" href="section-02-032-polymorphism-889652ed.html">Polymorphism 多态</a></li>
+<li>Related: <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a></li>
+<li>Related: <a class="wiki" href="section-02-025-local-class-4c6dbe23.html">Local class 局部类</a></li>
+<li>Related: <a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a></li>
+<li>Related: <a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a></li>
+<li>Related: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Related: <span class="wiki unresolved">RAP saver phase is where database writes should happen</span></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 12 - OO ABAP 抽象、异常与单元测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="31-12-9a88e70f" class="semantic-heading semantic-practice">31.12 学习任务</h4>
+<ul>
+<li>写一个 abstract superclass，包含一个 concrete template method 和一个 abstract hook method。</li>
+<li>写一个 subclass，用 <code>INHERITING FROM</code> 和 <code>METHODS ... REDEFINITION</code> 实现 hook method。</li>
+<li>用 5 行中文说明 inheritance、interface、composition 的区别。</li>
+<li>找一个已有 <code>FINAL</code> class，说明为什么它不应该被继承。</li>
+<li>用日语写一句 review comment，指出某个设计只是为了共通化而使用继承，建议改为委譲或 interface。</li>
+<li>打开 SAP Help 的 <code>CLASS</code> / <code>METHODS, REDEFINITION</code> 页面，对照 <code>INHERITING FROM</code> 与 <code>REDEFINITION</code> 的语法。</li>
+<li>如果已经进入 RAP 章节，阅读 <code>cl_abap_behavior_saver</code> 相关子类，说明父类生命周期和子类保存逻辑的关系。</li>
+</ul>
+<h4 id="31-13-confidence-next-action-b828356f" class="semantic-heading semantic-status">31.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节核心语法和设计边界已按 SAP Help / ABAP Keyword Documentation 的 <code>CLASS</code>、Classes and Interfaces、<code>METHODS ... REDEFINITION</code> 页面，以及 SAP Learning 的 Implementing Inheritance 校准；旧 Joule snapshot 对本节给出 <code>Pass with fixes</code>，要求补充的 implicit <code>object</code> root、single inheritance、<code>FINAL</code> superclass 限制、private/protected/<code>FRIENDS</code> 边界、protected reference 访问限制、<code>REDEFINITION</code> 适用范围、dynamic dispatch、signature 不变、<code>ABSTRACT</code> / <code>FINAL</code> 互斥、<code>super-&gt;</code> 和 RAP framework inheritance 语境已经集成。</li>
+<li>Next action: 已同步为书稿质量候选；Claude CLI 旧 review 因 credential loading error 没有返回 verdict，后续 Claude 恢复时可按 <code>90-Review/Claude Day12 Inheritance Section Review Prompt 2026-06-13.md</code> 做补充可读性 review。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-030-interface-95651eea.html">Previous section</a><a href="section-02-032-polymorphism-889652ed.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

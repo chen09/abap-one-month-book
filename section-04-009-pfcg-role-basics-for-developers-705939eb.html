@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>PFCG role basics for developers | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="9-pfcg-role-basics-for-developers-8eddb165" class="chapter-title">9. PFCG role basics for developers</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 09</li><li>self-contained study note</li></ul><h4 id="9-1-f12c61f5" class="semantic-heading semantic-concept">9.1 一句话结论</h4>
+<p><a class="wiki" href="section-04-009-pfcg-role-basics-for-developers-705939eb.html">PFCG role basics for developers</a> 是 ABAP 开发者理解 SAP 授权落地方式的基础：开发者通常不负责在生产系统维护角色，但必须读懂 PFCG role、authorization object、authorization field、field value、organizational value / organizational level、generated profile、role assignment 和 <code>SU53</code> / trace 证据，才能把代码里的授权检查和项目里的角色配置对齐。</p>
+<p>一句话记忆：开发者不一定维护 PFCG，但必须能说明“我的代码检查什么对象、什么字段、什么值；测试用户有没有这些值；失败证据在哪里”。</p>
+<h4 id="9-2-486cffa0" class="semantic-heading semantic-concept">9.2 到底学什么</h4>
+<p>本节学习的是开发者视角下的 PFCG，不是安全管理员完整操作手册。PFCG 是 classic SAP role maintenance 的核心入口之一，安全/Basis/授权团队会用它维护角色菜单、授权数据、组织级字段、生成 profile，并把角色分配给用户。ABAP 开发者要理解这些结构，因为 <code>AUTHORITY-CHECK</code>、RAP authorization、CDS DCL、OData service 访问和测试用户行为，最终都会和角色中的授权值发生关系。</p>
+<p>第一，要知道 role 不是一个简单标签。一个用户被分配 role 后，系统会通过 role 中的 authorization data / generated profile 判断他是否拥有某些 authorization object 的字段值。例如一个上传 API 可能需要 <code>ACTVT = 02</code> 表示修改，<code>ACTVT = 16</code> 或项目定义的 execute 值表示执行，并需要 company code 或 plant 等组织字段。role 名字听起来像 <code>UPLOAD_ADMIN</code> 不代表权限一定正确，必须看对象和字段值。</p>
+<p>第二，要知道开发者的责任边界。开发者可以提出授权对象、字段和值的需求，可以提供代码检查点、测试用户矩阵、<code>SU53</code> 或 trace 证据；但生产角色维护、广域授权开放、职责分离、审批流程通常属于授权团队和项目治理范围。开发者不应为了“让测试通过”直接放大生产角色。</p>
+<p>第三，要知道 PFCG 不是全部授权世界。Fiori business role、catalog、space/page、IAM app、communication arrangement、CDS DCL、RAP global/instance authorization、service binding 暴露、background job user 都可能参与最终访问结果。PFCG 很重要，但不是唯一入口；不同系统形态和项目架构会有不同角色治理方式。</p>
+<p>第四，要知道“role 已经分配”不是排查终点。一个用户是否真正通过检查，至少取决于目标系统/client、role 是否分配、authorization data 是否维护、profile 是否生成、用户比较/用户缓冲是否生效、测试用户是否重新登录、以及代码实际检查的 object/field/value 是否与 role 一致。项目现场经常听到“ロールは付いています”，但开发者还要继续追问：哪个 role、哪个 object、哪个 field、哪个 value、在哪个系统、哪个用户、什么时间生效？</p>
+<p>第五，要知道开发者交付给授权团队的不是“请加权限”四个字，而是一份可执行的授权需求。它应包含业务动作、技术入口、检查点、authorization object、fields、values、正向/反向测试用户、复现步骤、失败证据和最小权限边界。这样授权团队才能维护 role，测试团队才能准备用户，reviewer 才能判断是否过授权。</p>
+<h4 id="9-3-8f01e469" class="semantic-heading semantic-why">9.3 为什么重要</h4>
+<p>很多授权缺陷不是因为代码太复杂，而是开发者和授权团队说的不是同一种证据。开发者说“我检查了 <code>Z_UPLOAD</code>”，授权团队问“需要哪些 field value”；测试人员说“用户已经有 role”，开发者问“role 里有没有对应动作值和公司代码 1000”；客户说“某用户不能执行”，项目组要判断是 role 没分配、profile 没生成、字段值不对、DCL 过滤、RAP instance authorization，还是服务暴露/通信用户问题。</p>
+<p>对 Java/Python 背景读者，可以把 PFCG role 暂时类比成企业权限系统里的 role/policy 配置，但 SAP 的粒度更细。一个 role 中可能包含多个 authorization objects；每个 object 又有多个 fields；字段值可能是 <code>ACTVT</code>、company code、plant、sales org、customer 自定义字段等。代码中的 <code>AUTHORITY-CHECK OBJECT ... ID ... FIELD ...</code> 必须和 role 里的对象/字段/值对齐。</p>
+<p>对日本 SAP 项目来说，PFCG 相关问题经常出现在単体テスト、結合テスト、権限テスト、障害票和本番リリース前確認中。没有 PFCG 基础，开发者很容易把所有错误都推给“権限チーム”，或者反过来让授权团队盲目加大权限，最后造成审计风险。</p>
+<p>PFCG 也是开发者理解“最小权限原则”的入口。最小权限不是一句安全口号，而是测试矩阵里的具体值：能 display 的用户不一定能 change；能 change 公司代码 1000 的用户不应该自动能 change 2000；能从 Fiori 应用进入页面的用户不一定能通过 API 执行批量上传；technical user 不应该因为是接口账号就拥有全组织范围。一本项目实战书必须让读者习惯这种粒度，否则授权设计只会停留在“有 role / 没 role”的粗糙层面。</p>
+<h4 id="9-4-key-mechanism-268fdb8f" class="semantic-heading semantic-mechanism">9.4 Key mechanism / 核心机制</h4>
+<p>开发者可以用下面的链路理解 PFCG：</p>
+<pre><code class="language-text">Business requirement
+  -&gt; operation and data scope
+  -&gt; code/DCL/RAP authorization check point
+  -&gt; authorization object
+  -&gt; authorization fields
+  -&gt; expected field values
+  -&gt; PFCG role authorization data
+  -&gt; generated profile
+  -&gt; user role assignment
+  -&gt; test evidence</code></pre>
+<p>第一层是 business requirement。先说明用户要做什么：display、create、change、delete、approve、execute、cancel、upload、status query。不要一开始就说“加一个 role”，而要先说业务动作和数据范围。</p>
+<p>第二层是 check point。classic ABAP 可能是 <code>AUTHORITY-CHECK</code>；CDS 读取可能是 DCL；RAP action 可能涉及 global authorization / instance authorization / precheck；OData service 还可能受到 service exposure、communication user 或 business catalog 影响。PFCG role 要和这些检查点对齐。</p>
+<p>第三层是 authorization object / field / value。开发者要能列出最小需求，例如：</p>
+<pre><code class="language-text">Object: Z_UPLOAD
+Fields:
+  ACTVT = 16
+  BUKRS = 1000
+Operation:
+  Execute upload batch
+Test users:
+  USER_OK_1000 should pass
+  USER_NG_2000 should fail</code></pre>
+<p>第四层是 evidence。授权失败时，<code>SU53</code> 可以提供当前用户最近一次失败的授权检查线索；authorization trace 能提供更完整的检查过程。开发者要知道如何读这些证据，但不要把 <code>SU53</code> 当成万能答案：如果问题来自 DCL、RAP instance rule、service binding、communication arrangement 或 UI catalog，证据位置可能不同。</p>
+<p>第五层是 role generation and assignment。PFCG 中修改 role 后，通常还要生成 authorization profile，并把 role 分配给用户。测试时要确认目标系统、目标 client、测试用户、role assignment、profile generation、user buffer/重新登录等因素。否则“role 已经改了”不一定等于“当前测试用户已经生效”。</p>
+<p>在真实项目里，还要能读懂 PFCG authorization data 的维护状态。某些授权值来自事务、服务或 SU24 authorization proposal；某些值由权限团队手动维护；系统升级、菜单变更或 proposal 调整后，也可能出现旧值或未维护状态。开发者不需要替代权限团队操作这些状态，但要知道它们解释了为什么“同一个 role 名字”在不同系统或不同时间可能代表不同授权内容。和授权团队沟通时，最有用的问题不是“有没有 role”，而是“这个 role 的 authorization data 是否已维护、profile 是否已生成、user comparison / user buffer 是否已生效、目标用户是否重新登录、SU53/trace 看到的 object-field-value 是否与设计一致”。</p>
+<p><code>SU24</code> 也要放在正确位置理解。它通常用于维护或影响事务/服务相关的授权建议值，帮助 PFCG 生成或维护 role authorization data；它不是运行时替代 <code>AUTHORITY-CHECK</code>、DCL 或 RAP authorization 的开关。开发者如果发现某个事务、服务或自定义入口总是需要人工补同一组授权值，可以和权限团队讨论 proposal/default 维护，但最终仍要用正向用户、反向用户、<code>SU53</code> / trace 和 API/业务结果证明授权边界有效。</p>
+<p>开发者可以把 PFCG 相关排查整理成两张表。</p>
+<p>第一张是“需求到 role 的映射表”：</p>
+<div class="table-wrap"><table><thead><tr><th>项目</th><th>说明</th></tr></thead><tbody><tr><td>Business operation</td><td>用户要做什么，例如 display、execute、approve、cancel</td></tr><tr><td>Entry point</td><td>SAP GUI、Fiori、OData/API、background job、external system</td></tr><tr><td>Runtime check point</td><td><code>AUTHORITY-CHECK</code>、CDS DCL、RAP authorization、service access</td></tr><tr><td>Authorization object</td><td>标准或自定义 object，例如 <code>Z_UPLOAD</code></td></tr><tr><td>Fields</td><td><code>ACTVT</code>、company code、plant、sales org、custom responsibility field</td></tr><tr><td>Values</td><td><code>03</code> display、<code>02</code> change、<code>16</code> execute 或项目定义值、组织值、允许范围</td></tr><tr><td>Positive user</td><td>应该通过的测试用户</td></tr><tr><td>Negative user</td><td>应该失败的测试用户</td></tr><tr><td>Evidence</td><td>SU53、trace、API response、application log、test result</td></tr></tbody></table></div>
+<p>第二张是“缺陷分派表”：</p>
+<div class="table-wrap"><table><thead><tr><th>现象</th><th>首先判断</th><th>可能责任边界</th></tr></thead><tbody><tr><td>用户无权进入 Fiori 应用</td><td>business role / catalog / app assignment</td><td>Fiori/security/team setup</td></tr><tr><td>列表为空</td><td>DCL、role 组织值、query condition</td><td>CDS/security/test data</td></tr><tr><td>action forbidden</td><td>RAP authorization、classic check、role value</td><td>development/security</td></tr><tr><td>API 403</td><td>authentication、service authorization、technical user role</td><td>integration/security</td></tr><tr><td>role 已分配但仍失败</td><td>profile generation、user buffer、client/system、field value</td><td>security/Basis/test</td></tr><tr><td>只有某公司代码失败</td><td>organization level / field mapping</td><td>security/development/business</td></tr></tbody></table></div>
+<p>还要注意 <code>ACTVT</code> 的语义。很多项目会把 <code>03</code> 当 display，把 <code>01</code> 当 create，把 <code>02</code> 当 change，把 <code>06</code> 当 delete，把 <code>16</code> 或客户定义值当 execute，但实际使用要以具体 authorization object 和项目定义为准。开发者不能只背数字，要在设计书里写出业务动作和技术字段值的对应关系。</p>
+<p>对 custom authorization object，开发者还要和权限团队确认字段设计是否稳定。字段太粗会导致过授权，字段太细会导致 role 维护困难；字段名和业务字段映射不清，会让 <code>SU53</code> / trace 证据难以解释。比如上传批次只按 company code 授权，还是还要按 plant、upload type、approval group 授权，这不是语法问题，而是业务权限模型问题。</p>
+<h4 id="9-5-02a36265" class="semantic-heading semantic-japan">9.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>PFCGロール</code></li>
+<li><code>ロール割当</code></li>
+<li><code>権限オブジェクト</code></li>
+<li><code>権限項目</code></li>
+<li><code>権限値</code></li>
+<li><code>組織レベル</code></li>
+<li><code>プロファイル生成</code></li>
+<li><code>ユーザ比較</code></li>
+<li><code>権限トレース</code></li>
+<li><code>SU53証跡</code></li>
+<li><code>職務分掌</code></li>
+<li><code>権限チーム</code></li>
+</ul>
+<p>说明句：</p>
+<pre><code class="language-text">開発側では、チェック対象の権限オブジェクト、項目、想定値、テストユーザ、SU53 証跡を提示します。</code></pre>
+<p>含义：开发侧提供检查对象、字段、预期值、测试用户和失败证据。</p>
+<pre><code class="language-text">本番ロールの変更は権限チームの管理対象のため、開発側では必要権限と再現手順を明確にします。</code></pre>
+<p>含义：生产角色变更由授权团队管理，开发侧负责说明需求和复现。</p>
+<pre><code class="language-text">ロールが割当済みでも、対象の組織値や ACTVT が不足していないか確認します。</code></pre>
+<p>含义：有 role 不代表字段值完整，还要看组织值和 activity。</p>
+<pre><code class="language-text">開発側の確認範囲は、権限チェックポイント、必要な権限オブジェクト、項目値、再現手順、証跡の提示までとし、本番ロール変更は権限チームの手順に従います。</code></pre>
+<p>含义：开发侧说明检查点、对象、字段值、复现和证据；生产角色变更按授权团队流程。</p>
+<pre><code class="language-text">一時的な広範囲権限でテストした結果は、実運用ロールでの権限テスト結果としては扱えません。</code></pre>
+<p>含义：临时全权限测试结果不能当成真实运用角色的授权测试证据。</p>
+<h4 id="9-6-english-terms-b56d8e45" class="semantic-heading semantic-terms">9.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>PFCG</code>, <code>PFCG role</code>, <code>role maintenance</code>, <code>authorization object</code>, <code>authorization field</code>, <code>authorization value</code>, <code>generated profile</code>, <code>role assignment</code></li>
+<li>Related terms: <code>SU53</code>, <code>authorization trace</code>, <code>ACTVT</code>, <code>organizational value</code>, <code>organizational level</code>, <code>user comparison</code>, <code>business role</code>, <code>catalog</code>, <code>communication user</code>, <code>AUTHORITY-CHECK</code></li>
+<li>Recommended search pattern: <code>SAP PFCG role authorization object field value developer</code></li>
+<li>证据中建议保留英文列名：<code>User</code>, <code>Role</code>, <code>Authorization Object</code>, <code>Field</code>, <code>Expected Value</code>, <code>Actual Result</code>, <code>SU53/Trace Evidence</code>, <code>Conclusion</code>。</li>
+</ul>
+<h4 id="9-7-example-77d09b0a" class="semantic-heading semantic-example">9.7 Example / 学习例子</h4>
+<p>假设 AC0567C 的 <code>execute</code> action 只允许公司代码 <code>1000</code> 的上传负责人执行。开发者不需要直接维护生产 role，但需要给授权团队和测试团队一份最小授权说明：</p>
+<pre><code class="language-text">Business operation:
+  Execute upload batch
+
+Technical check:
+  RAP global/instance authorization or classic authorization check
+
+Authorization object:
+  Z_UPLOAD
+
+Fields:
+  ACTVT = 16
+  BUKRS = 1000
+
+Positive test user:
+  TEST_UPLOAD_1000
+
+Negative test user:
+  TEST_UPLOAD_2000 or user without Z_UPLOAD
+
+Evidence:
+  API request/response
+  SU53 or authorization trace
+  application log / backend status</code></pre>
+<p>这样写的好处是：开发者没有越权改角色，但把“代码检查什么”和“角色应该给什么”讲清楚了。授权团队可以据此维护 role，测试团队可以据此准备正反用户，reviewer 可以据此判断最小授权是否合理。</p>
+<p>如果把同一个例子写进缺陷票，可以更具体：</p>
+<pre><code class="language-text">Symptom:
+  TEST_UPLOAD_1000 calls Execute Upload Batch and receives 403 / no authorization.
+
+Expected:
+  User with Z_UPLOAD ACTVT=16 or the project-defined execute value and BUKRS=1000 can execute batch 4711.
+
+Evidence:
+  Endpoint: POST /.../UploadBatches(&#x27;4711&#x27;)/Execute
+  User: TEST_UPLOAD_1000
+  System/client: QAS/100
+  Time: 2026-06-16 10:30 JST
+  SU53/trace: missing Z_UPLOAD BUKRS=1000 ACTVT=16 or the project-defined execute value
+  Application log: no save executed after authorization failure
+
+Request to authorization team:
+  Please confirm assigned role contains Z_UPLOAD with ACTVT=16 or the project-defined execute value and BUKRS=1000,
+  and that profile/user assignment is effective in QAS/100.</code></pre>
+<p>这个模板的重点是“可验证”。授权团队能查 role，开发者能查代码检查点，测试人员能复现，业务顾问能确认公司代码范围。它避免了“权限不够，请处理”这种无法分派的缺陷。</p>
+<p>再看一个反向测试例子：<code>TEST_UPLOAD_2000</code> 只有 <code>BUKRS=2000</code>，却尝试执行 <code>BUKRS=1000</code> 的 batch。预期结果应该是失败，而且失败后不能进入保存阶段，不能产生部分更新，不能让 API 返回成功。这类负向测试比正向测试更能证明授权边界有效。</p>
+<h4 id="9-8-counterexample-failure-mode-aa374b62" class="semantic-heading semantic-example">9.8 Counterexample / Failure mode</h4>
+<p>反例一：只说“缺权限”，不说明 object、field、value、用户和复现步骤。授权团队只能猜，最后要么加错权限，要么来回沟通。</p>
+<p>反例二：测试用户有 role，但 role 中字段值不对。例如有 <code>ACTVT = 03</code> 显示权限，没有 <code>ACTVT = 02</code> 修改权限或 <code>ACTVT = 16</code> / 项目定义 execute 值；或只允许 company code 2000，却拿 company code 1000 测试。</p>
+<p>反例三：开发者直接扩大生产角色。短期看测试通过，长期会破坏职责分离、审计和最小权限原则。</p>
+<p>反例四：只测 UI，不测 API。UI 按钮可能隐藏或灰掉，但外部 API 直接调用仍要被后端授权拒绝。</p>
+<p>反例五：把所有访问问题都归因于 PFCG。实际问题可能来自 CDS DCL、RAP instance authorization、service binding、communication arrangement、catalog、user buffer 或目标 client 不一致。</p>
+<p>反例六：只给“超级测试用户”跑通流程。全权限用户能通过，不代表真实业务角色能通过；全权限用户也无法证明无权限路径会被拒绝。</p>
+<p>反例七：role 变更后不记录证据。没有 role 名、profile 生成时间、用户分配、SU53/trace、测试结果，后续很难证明修复范围，也很难排查回归。</p>
+<p>反例八：接口 technical user 权限过宽。为了赶进度给接口账号全公司代码、全 activity，短期容易跑通，长期会造成审计和数据外泄风险。</p>
+<p>反例九：把组织级字段当成纯技术字段。company code、plant、sales org 这类值往往对应客户组织和职责分工，不能由开发者单方面决定。</p>
+<p>反例十：自定义 authorization object 没有命名和字段说明。后续维护者看到 <code>Z_OBJ1</code>、<code>FIELD1</code> 很难判断业务含义，trace 证据也难以沟通。</p>
+<h4 id="9-9-f8f7d921" class="semantic-heading semantic-practice">9.9 思考问题</h4>
+<ul>
+<li>当前代码或服务检查了哪个 authorization object？</li>
+<li>需要哪些 authorization fields 和 field values？</li>
+<li><code>ACTVT</code> 的值是否和业务动作一致：display、change、execute、delete？</li>
+<li>是否需要组织级字段，例如 company code、plant、sales org？</li>
+<li>正向测试用户和反向测试用户分别是谁？</li>
+<li>授权失败时，<code>SU53</code>、trace、API error payload 和 application log 能否互相解释？</li>
+<li>AC0567C POC 中，technical user、business user、test user 是否需要不同角色？</li>
+<li>如果只用全权限用户测试，本节哪些结论无法被证明？</li>
+<li>role 分配后，如何确认 profile、user assignment、用户会话和目标 client 都已经正确？</li>
+<li>自定义 authorization object 的字段是否能被业务顾问、授权团队和开发者共同理解？</li>
+</ul>
+<h4 id="9-10-e06d0e22" class="semantic-heading semantic-reference">9.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPAUTHORITY-CHECK.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - AUTHORITY-CHECK OBJECT</a></li>
+<li><a href="https://learning.sap.com/courses/exploring-the-authorization-concept-for-sap-fiori-on-sap-s-4hana/explaining-sap-fiori-authorization-model" target="_blank" rel="noopener noreferrer">SAP Learning - Explaining SAP Fiori Authorization Model</a></li>
+<li><a href="https://learning.sap.com/courses/exploring-the-authorization-concept-for-sap-fiori-on-sap-s-4hana/using-additional-features-for-role-maintenance" target="_blank" rel="noopener noreferrer">SAP Learning - Using Additional Features for Role Maintenance</a></li>
+<li><a href="https://learning.sap.com/courses/exploring-the-authorization-concept-for-sap-fiori-on-sap-s-4hana/analyzing-missing-authorizations" target="_blank" rel="noopener noreferrer">SAP Learning - Analyzing Missing Authorizations</a></li>
+<li><a href="https://learning.sap.com/courses/exploring-the-authorization-concept-for-sap-fiori-on-sap-s-4hana/describing-the-authorization-concept-for-abap-cds" target="_blank" rel="noopener noreferrer">SAP Learning - Describing the Authorization Concept for ABAP CDS</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-control" target="_blank" rel="noopener noreferrer">SAP Help - RAP Authorization Control</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_ACCESS_CONTROL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP CDS Access Control</a></li>
+<li><a href="https://help.sap.com/docs/search?q=PFCG%20role%20authorization%20profile" target="_blank" rel="noopener noreferrer">SAP Help search - PFCG role authorization profile</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20authorization%20object%20field%20value" target="_blank" rel="noopener noreferrer">SAP Help search - SAP authorization object field value</a></li>
+<li><a href="https://help.sap.com/docs/search?q=PFCG%20user%20comparison%20generated%20profile" target="_blank" rel="noopener noreferrer">SAP Help search - PFCG user comparison generated profile</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SU24%20authorization%20proposal" target="_blank" rel="noopener noreferrer">SAP Help search - SU24 authorization proposal</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SU56%20user%20buffer%20authorization" target="_blank" rel="noopener noreferrer">SAP Help search - SU56 user buffer authorization</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ACTVT%20authorization%20field" target="_blank" rel="noopener noreferrer">SAP Help search - ACTVT authorization field</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SU53%20authorization" target="_blank" rel="noopener noreferrer">SAP Help search - SU53 authorization</a></li>
+<li><a class="wiki" href="section-04-008-sap-role-profile-authorization-object-hierarchy-547b4ecb.html">SAP role profile authorization object hierarchy</a></li>
+<li><a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li><a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></li>
+<li><a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li><a class="wiki" href="section-04-040-ac0567c-authorization-replay-626f837b.html">AC0567C authorization replay</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="9-11-connections-bb18397b">9.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-008-sap-role-profile-authorization-object-hierarchy-547b4ecb.html">SAP role profile authorization object hierarchy</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Related: <a class="wiki" href="section-04-040-ac0567c-authorization-replay-626f837b.html">AC0567C authorization replay</a></li>
+<li>Downstream: <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 22 - 授权检查与 Precheck</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="9-12-81462f59" class="semantic-heading semantic-practice">9.12 学习任务</h4>
+<ul>
+<li>为一个 API action 写出最小授权需求：operation、object、field、value、positive user、negative user。</li>
+<li>用中文解释“开发者不维护生产 PFCG role，但必须提供授权证据”的边界。</li>
+<li>用日语写一句说明：開発側では必要な権限オブジェクト、項目、想定値、テストユーザを提示します。</li>
+<li>设计一个 AC0567C 授权测试矩阵：business user、technical user、no-role user、wrong-company user。</li>
+<li>写出 role 生效链路检查：authorization data 是否维护、profile 是否生成、user comparison / user buffer 是否生效、测试用户是否重新登录。</li>
+<li>找一个 SAP 官方 PFCG / authorization object / SU53 页面，把精确链接补到参考资料入口。</li>
+</ul>
+<h4 id="9-13-confidence-next-action-f01cccee" class="semantic-heading semantic-status">9.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the developer-facing PFCG / generated profile / role assignment / authorization object-field-value framing, <code>SU24</code> proposal boundary, <code>SU53</code> / authorization-trace evidence use, Fiori business role versus backend PFCG boundary, and <code>ACTVT = 02</code> change versus <code>ACTVT = 16</code> / project-defined execute wording; Claude 2026-06-18 final follow-up returned <code>Pass</code>. Medium-High for exact PFCG menu paths, user comparison behavior, user-buffer refresh procedure, role naming, Fiori/IAM tooling, and production security workflow because these remain system-, release-, and customer-policy-dependent. Joule automation was not callable in the current Codex session; existing Joule records for this section are deferred, so SAP-specialist review debt remains only if the project insists on a fresh Joule verdict for every authorization subsection.</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a>，从授权边界进入并发与锁设计；后续如 Joule / Chrome DevTools 工具恢复，可用本节最终正文再补一次 SAP-specialist confirmation。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-009-pfcg-role-basics-for-developers-705939eb.html">PFCG role basics for developers</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-008-sap-role-profile-authorization-object-hierarchy-547b4ecb.html">Previous section</a><a href="section-04-010-enqueue-locking-d5a35a82.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

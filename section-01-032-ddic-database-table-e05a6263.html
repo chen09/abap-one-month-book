@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>DDIC database table 字典表 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="32-ddic-database-table-f9109ff2" class="chapter-title">32. DDIC database table 字典表</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 32</li><li>self-contained study note</li></ul><h4 id="32-1-f692c094" class="semantic-heading semantic-concept">32.1 一句话结论</h4>
+<p>DDIC database table 字典表 是 ABAP Dictionary 中对持久化数据库表的统一元数据定义。它不是“随便建一张 SQL 表”，而是把表名、字段、主键、client dependency、data element、背后的 domain、数据维护方式、delivery class、activation 和 transport 管理串在一起，成为 ABAP 程序、ABAP SQL、CDS/RAP、数据浏览和项目交付共同依赖的基础对象。</p>
+<h4 id="32-2-4bba7262" class="semantic-heading semantic-concept">32.2 到底学什么</h4>
+<p>Day 05 开始进入 ABAP Dictionary。前四天主要在看 ABAP 代码如何运行，今天开始看“代码操作的数据结构从哪里来”。在 Java/Python 项目里，初学者常把 database table 理解成数据库 schema 或 ORM entity；在 SAP 项目里，database table 首先是一个 ABAP repository object。它有包、传输请求、激活状态、字段元数据、语义标签、client 规则和工具入口，最终才映射到物理数据库中的表。</p>
+<p>SAP Learning 对 ABAP Dictionary 的说法很关键：ABAP Dictionary 中的 database table definition 是数据库中表的 representation，并且独立于具体数据库细节。它使用 ABAP Dictionary 自己的 built-in dictionary types，而不是直接使用某个数据库厂商的类型；定义里包含 field list 和额外 table properties。对初学者来说，这句话意味着：SAP 表不是先从 HANA/Oracle/SQL Server 的 DDL 角度理解，而是先从 ABAP Dictionary 元数据角度理解。</p>
+<p>一个 DDIC database table 至少要看四层。</p>
+<p>第一层是 table 本身：表名、description、package、transport request、table category、delivery class、data maintenance、activation。现代 ADT 里可以通过 New -&gt; Other ABAP Repository Object -&gt; Database Table 创建源代码式 Dictionary object；经典系统里也常见 SE11。无论入口是 ADT 还是 SE11，核心都是同一件事：定义一个全局可复用的持久化表对象。</p>
+<p>第二层是 field list：哪些字段组成主键，哪些字段存业务数据，字段是否 <code>not null</code>，类型来自 built-in dictionary type 还是 data element。字段不是只有“列名 + 类型”。字段顺序、key 设计、client 字段、金额/数量的参考语义、时间戳、状态字段、外键和搜索帮助，都会影响后续读取、维护和排查。</p>
+<p>第三层是 data element 和 domain。Data element 偏语义层，常用于 field label、documentation、默认 component name 等；domain 偏技术和值域层，定义 data type、length、decimal places、fixed values 等。这里有一个初学者很容易误会的边界：在 database table 的 field list 里，字段可以直接使用 built-in dictionary type 或 data element；domain 通常不能直接写成字段类型，而是通过 data element 间接发挥作用。后面几节会分别展开 <a class="wiki" href="section-01-033-table-field-953fa24a.html">Table field 字段定义</a>、<a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a> 和 <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a>，本节先建立总图：table field 通常通过 data element 取得可复用的业务语义，再通过 data element 关联到 domain 的技术属性和值域。</p>
+<p>第四层是 client dependency。很多业务表是 client-dependent table，第一 key field 通常是 type <code>CLNT</code> 的 client 字段，常见字段名是 <code>MANDT</code> 或 <code>client</code>。这表示同一张表的定义在系统中是全局的，但数据按 client 隔离。ABAP SQL 对 client-dependent table 有 implicit client handling，初学者不要一上来手写 <code>MANDT = sy-mandt</code>；但读表结构时必须知道 <code>MANDT</code> 为什么在主键最前面。这个自动处理只适用于 ABAP SQL 的正常访问路径；Native SQL、AMDP 或直接数据库访问不会自动继承同一层 SAP 语义，跨 client 风险要单独审查。Client-independent table 则跨 client，共享范围更大，项目审查更谨慎。</p>
+<p>下面是一个简化的 ADT Dictionary DDL 风格片段，用来读懂结构，不要求照抄到项目里：</p>
+<pre><code class="language-abap">@EndUserText.label : &#x27;Training order header&#x27;
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.dataMaintenance : #RESTRICTED
+define table zxx_order_h {
+  key client   : abap.clnt not null;
+  key order_id : zxx_order_id not null;
+  created_by   : abap.char(12);
+  created_at   : abap.utclong;
+  status       : zxx_order_status;
+}</code></pre>
+<p>这段代码要读出几件事。<code>define table</code> 声明一个 DDIC database table。<code>client</code> 是 client-dependent table 的 client key。<code>order_id</code> 和 <code>status</code> 使用自定义 data element，因此字段语义可以复用；这些 data element 背后可以再关联 domain，但 domain 本身不要直接拿来写成表字段类型。<code>created_by</code> 则直接使用 built-in dictionary type，说明练习表里既可能直接写内置字典类型，也可能引用 data element。<code>created_at</code> 使用 <code>utclong</code>，说明它是 UTC timestamp。<code>deliveryClass</code> 和 <code>dataMaintenance</code> 不是装饰，它们会影响安装、升级、client copy、数据维护入口和项目治理。<code>@AbapCatalog.deliveryClass : #A</code> 通常表示应用表，也就是主数据或交易数据一类的业务数据；<code>@AbapCatalog.dataMaintenance : #RESTRICTED</code> 表示显示/维护受限制，不能理解成“生产可以随便改表内容”。真正项目里还会继续考虑 currency/quantity reference、foreign key、search help、authorization、buffering、data aging、change document、table maintenance generator 等，但 Day 05 第一节先不要全吃下去。</p>
+<p>再补两条语法层面的安全线。第一，primary key fields 要连续放在 field list 开头，且 key field 数量有上限；这和很多 Java/Python 开发者“字段随便排列，最后再声明 primary key”的习惯不同。第二，<code>not null</code> 在 key field 上是 Dictionary DDL 里的标准写法，ADT 编辑器也可能自动补齐；初学时先把它当作“key field 定义的一部分”来读，不要把它误解成所有非 key 字段都能靠这一句获得额外业务校验。</p>
+<p>从交付角度看，字典表设计直接决定很多后续问题。字段长度太短，接口后面会截断；client dependency 选错，测试数据和生产数据隔离会出问题；key 设计不合理，ABAP SQL 查询、锁对象和 RAP BO key 都会受影响；data element 不复用、domain 设计不一致，UI label、翻译、值域和文档会散落；delivery class 和 maintenance 设置不清，移送和本番反映时就会争论“这到底是业务数据、customizing，还是技术控制表”。</p>
+<p>本节的最小心智模型是：DDIC database table 是“SAP repository 中的数据库表定义”，不是单纯物理表。看一张表时，至少要看 table properties、field list、key/client、data element 到 domain 的间接关系，以及 activation/transport 状态。等这张图稳定后，再进入字段、数据元素、域、结构、视图、外键、搜索帮助和锁对象。</p>
+<h4 id="32-3-e8b08825" class="semantic-heading semantic-why">32.3 为什么重要</h4>
+<ul>
+<li>ABAP 程序、ABAP SQL、CDS、RAP、OData、报表和接口都经常围绕 DDIC table 读写数据。</li>
+<li>字典表不只是存储结构，还承载字段语义、文本标签、值域、client 规则和维护治理。</li>
+<li>表定义错误会扩散到代码、测试数据、权限、性能、移送、数据迁移和生产障害调查。</li>
+<li>Java/Python 背景学习者容易只看 SQL schema；SAP 项目必须同时看 repository object、activation、transport、client、data element 和 domain。</li>
+<li>日本项目里，表设计经常出现在基本设计、详细设计、レビュー、移送前确认和障害調査中。</li>
+</ul>
+<h4 id="32-4-key-mechanism-bdc7edca" class="semantic-heading semantic-mechanism">32.4 Key mechanism / 核心机制</h4>
+<ul>
+<li>ABAP Dictionary：集中管理表、结构、数据元素、域、视图、搜索帮助、锁对象等数据定义的 repository 世界。</li>
+<li>DDIC database table：ABAP Dictionary 中对数据库表的定义，独立于具体数据库平台细节。</li>
+<li>Table field：表中的列，必须有名称、类型、key/null 等属性；字段类型可以直接使用 built-in dictionary type 或 data element。</li>
+<li>Data element：字段的语义定义，常承载 label、documentation、默认 component name。</li>
+<li>Domain：字段的技术和值域定义，常承载 data type、length、decimal places、fixed values；domain 通常通过 data element 间接用于表字段，不要直接写成 field type。</li>
+<li>Primary key：至少要有 key field；key fields 要连续位于 field list 开头，复合主键不能无限扩张。</li>
+<li>Client-dependent table：通常以 type <code>CLNT</code> 的 client 字段作为第一 key field，常见字段名 <code>MANDT</code> 或 <code>client</code>。</li>
+<li>Client-independent table：没有 client 字段，数据跨 client，需要更谨慎的治理。</li>
+<li>Table category：例如普通 transparent table 和较少见的 global temporary table；初学阶段重点认识 transparent table。</li>
+<li>Delivery class：影响表数据在安装、升级、client copy、transport、table maintenance 中的处理语义；不要把它简化成“对象能不能移送”。</li>
+<li>Data maintenance：定义表内容能否通过工具显示/维护，以及显示/维护是否受限制。</li>
+<li>ABAP SQL client handling：ABAP SQL 正常访问 client-dependent table 时会处理当前 client；Native SQL、AMDP、直接数据库访问需要额外审查 client 条件。</li>
+<li>Activation：表定义只有激活后才成为可用的 repository object，并可能影响底层数据库对象。</li>
+<li>Data preview / table contents：用于观察数据，但受权限、client、data maintenance 和系统规则限制。</li>
+</ul>
+<h4 id="32-5-4b0881d2" class="semantic-heading semantic-japan">32.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>データディクショナリ</code>、<code>DBテーブル</code>、<code>透過テーブル</code>、<code>テーブル定義</code>、<code>項目</code>、<code>主キー</code>、<code>キー項目</code>。</li>
+<li>字段语义：<code>データエレメント</code>、<code>ドメイン</code>、<code>技術属性</code>、<code>項目ラベル</code>、<code>値域</code>、<code>固定値</code>。</li>
+<li>client/治理：<code>クライアント依存</code>、<code>クライアント非依存</code>、<code>MANDT</code>、<code>デリバリクラス</code>、<code>テーブルメンテナンス</code>。</li>
+<li>工具/动作：<code>有効化</code>、<code>移送依頼</code>、<code>データプレビュー</code>、<code>SE11</code>、<code>ADT</code>。</li>
+<li>说明句：このテーブルは、ABAP Dictionary で定義されたクライアント依存の業務データテーブルです。</li>
+<li>Review 句：主キー設計、MANDT の有無、デリバリクラス、データメンテナンス可否を確認してください。</li>
+<li>Review 句：項目の意味はデータエレメント、技術的な型と値域はドメインで確認してください。</li>
+</ul>
+<h4 id="32-6-english-terms-1b5ce66d" class="semantic-heading semantic-terms">32.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP Dictionary</code></li>
+<li>Official / search term: <code>DDIC database table</code></li>
+<li>Official / search term: <code>database table definition</code></li>
+<li>Official / search term: <code>Dictionary DDL</code></li>
+<li>Official / search term: <code>transparent table</code></li>
+<li>Official / search term: <code>global temporary table</code></li>
+<li>Official / search term: <code>table field</code></li>
+<li>Official / search term: <code>data element</code></li>
+<li>Official / search term: <code>domain</code></li>
+<li>Official / search term: <code>built-in dictionary type</code></li>
+<li>Official / search term: <code>client-dependent table</code></li>
+<li>Official / search term: <code>client-independent table</code></li>
+<li>Official / search term: <code>MANDT</code></li>
+<li>Official / search term: <code>delivery class</code></li>
+<li>Official / search term: <code>data maintenance</code></li>
+<li>Official / search term: <code>activation</code></li>
+<li>Official / search term: <code>Data Preview</code></li>
+<li>Recommended search pattern: <code>ABAP Dictionary database table SAP Learning</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、annotation 名称和 transaction code。</li>
+</ul>
+<h4 id="32-7-example-116bf228" class="semantic-heading semantic-example">32.7 Example / 学习例子</h4>
+<p>观察一张表时，不要只记表名。按这个顺序读：</p>
+<ol>
+<li>Table properties：table category、delivery class、data maintenance、description、package。</li>
+<li>Field list：key fields、client field、business fields、technical fields。</li>
+<li>Field typing：每个字段直接使用 built-in dictionary type 还是 data element；domain 是否通过 data element 间接参与。</li>
+<li>Client：是否有 <code>MANDT</code> / <code>client</code>，是否 client-dependent。</li>
+<li>Activation / transport：对象是否激活，是否挂在正确 transport request。</li>
+<li>Data Preview：能否查看数据，查看的是哪个 client，是否有权限。</li>
+</ol>
+<p>可以在 ADT 中找一张练习表或项目表，写出类似摘要：</p>
+<pre><code class="language-text">Table:
+Purpose:
+Client-dependent:
+Primary key:
+Main business fields:
+Important data elements:
+Important domains / fixed values:
+Data maintenance:
+Project risk if changed:</code></pre>
+<h4 id="32-8-counterexample-failure-mode-8580dc7b" class="semantic-heading semantic-example">32.8 Counterexample / Failure mode</h4>
+<ul>
+<li>只看表名和字段名，不看 data element/domain：会漏掉字段语义、长度、取值限制、UI 标签和翻译。</li>
+<li>把 DDIC table 当成普通 SQL table：会忽略 package、transport、activation、client handling 和 SAP 工具链。</li>
+<li>在表字段里直接写 domain 名称：会把“domain 是技术和值域层”误读成“domain 可以直接当字段类型”，实际应通过 data element 间接使用。</li>
+<li>手写 <code>MANDT = sy-mandt</code> 当成默认习惯：可能和 ABAP SQL client handling 重复或制造错误假设；如果是 Native SQL、AMDP 或直接数据库访问，则又必须另行确认 client 条件。</li>
+<li>不区分业务数据表和 customizing / 控制表：delivery class、维护方式、移送策略会被误判。</li>
+<li>不看 key 设计就写 SELECT：性能、唯一性、锁对象和后续 RAP key 都可能出问题。</li>
+<li>在生产系统用 Data Preview 随意查看敏感数据：权限、审计和数据保护都可能有问题。</li>
+<li>修改表结构前不做 where-used / 影响分析：Open SQL、CDS、RAP、接口、报表和迁移程序都可能受影响。</li>
+</ul>
+<h4 id="32-9-48a68563" class="semantic-heading semantic-practice">32.9 思考问题</h4>
+<ul>
+<li>DDIC database table 和物理数据库表有什么区别？</li>
+<li>为什么 SAP 表字段通常要看 data element 和 domain？</li>
+<li>Client-dependent table 的 <code>MANDT</code> 为什么通常在主键最前面？</li>
+<li>为什么不应把 <code>MANDT = sy-mandt</code> 当作所有 SELECT 的默认写法？</li>
+<li>为什么 Native SQL / AMDP / 直接数据库访问不能简单套用 ABAP SQL 的 automatic client handling？</li>
+<li>Delivery class / data maintenance 会影响哪些项目交付动作？</li>
+<li>如果一个字段长度改短，会影响哪些程序、接口和测试数据？</li>
+<li>在日本项目里如何说明 <code>クライアント依存</code> 和 <code>デリバリクラス</code>？</li>
+</ul>
+<h4 id="32-10-c8476764" class="semantic-heading semantic-reference">32.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/exploring-abap-dictionary_af8fdedf-0a10-43ab-aa1b-20abbece9d8b" target="_blank" rel="noopener noreferrer">SAP Learning - Exploring ABAP Dictionary</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/creating-database-tables_ebc1477d-96ed-414b-82d4-4171da43f4a6" target="_blank" rel="noopener noreferrer">SAP Learning - Creating Database Tables</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/defining-domains-and-data-elements_b65b511a-4ad1-4437-80f5-5ad689cab833" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Domains and Data Elements</a> (accessed 2026-06-13)</li>
+<li><a href="https://developers.sap.com/tutorials/abap-dev-create-table..html" target="_blank" rel="noopener noreferrer">SAP Developers - Create an ABAP Database Table and Relevant ABAP Dictionary Objects</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDIC_DATABASE_TABLES.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Database Tables</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDICDDL_DEFINE_TABLE_COMPS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC DDL DEFINE TABLE, field</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDIC_DATABASE_TABLES_KEY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Key Fields of Database Tables</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDICDDL_DEFINE_TABLE_PROPS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC DDL DEFINE TABLE, table annotations</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDIC_DATABASE_TABLES_TAB_CAT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Table Category of Database Tables</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDIC_DATA_ELEMENTS_SEMA.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Semantic Properties of Data Elements</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_CLIENT_HANDLING.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP SQL Client Handling</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCLIENT_HANDLING_GUIDL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Client Handling Guideline</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/26_ABAP_Dictionary.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP Dictionary Cheat Sheet</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="32-11-connections-532786d2">32.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-01-031-runtime-error-and-short-dump-b6d3f032.html">Runtime error and short dump 运行时错误</a></li>
+<li>Downstream: <a class="wiki" href="section-01-033-table-field-953fa24a.html">Table field 字段定义</a></li>
+<li>Related: <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a></li>
+<li>Related: <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a></li>
+<li>Related: <a class="wiki" href="section-01-018-client-strategy-in-dev-qas-prd-f855e422.html">Client strategy in DEV QAS PRD</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 05 - ABAP Dictionary 核心对象</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="32-12-291c87e6" class="semantic-heading semantic-practice">32.12 学习任务</h4>
+<ul>
+<li>找一张标准 SAP 表或练习表，写出 table purpose、primary key、client dependency。</li>
+<li>任选 3 个字段，追踪 field -&gt; data element -&gt; domain。</li>
+<li>用中文解释 <code>MANDT</code> 为什么通常是 client-dependent table 的第一 key field。</li>
+<li>写 1 个日本项目 review 句子，必须包含 <code>主キー設計</code>、<code>MANDT</code>、<code>デリバリクラス</code> 或 <code>データエレメント</code>。</li>
+<li>找 1 个 SAP 官方页面，说明 ABAP Dictionary、database table、data element/domain 或 client-dependent table 中任意一个边界。</li>
+</ul>
+<h4 id="32-13-confidence-next-action-bffb7d30" class="semantic-heading semantic-status">32.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level framing after SAP Learning / ABAP Keyword Documentation / SAP Developers / SAP Samples, Joule partial SAP review, and Claude CLI follow-up pass. Joule output was truncated in the Japanese phrasing section, but its complete must-fix items on domain direct usage, <code>not null</code>, and ABAP SQL client handling were integrated and accepted by Claude.</li>
+<li>Next action: 进入 <a class="wiki" href="section-01-033-table-field-953fa24a.html">Table field 字段定义</a>，继续展开 Day 05 的字段、data element、domain 主线。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-032-ddic-database-table-e05a6263.html">DDIC database table 字典表</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-031-runtime-error-and-short-dump-b6d3f032.html">Previous section</a><a href="section-01-033-table-field-953fa24a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

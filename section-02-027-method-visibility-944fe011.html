@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Method visibility 可见性 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="27-method-visibility-9b5f6933" class="chapter-title">27. Method visibility 可见性</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 27</li><li>self-contained study note</li></ul><h4 id="27-1-eb8299ea" class="semantic-heading semantic-concept">27.1 一句话结论</h4>
+<p>Method visibility 可见性是 OO ABAP class definition 中用 <code>PUBLIC SECTION</code>、<code>PROTECTED SECTION</code>、<code>PRIVATE SECTION</code> 控制 method、attribute、type 等 class components 谁能访问的规则。它回答的不是“这个代码能不能运行”，而是“这个能力要不要成为外部 contract、子类 contract，还是只属于本类内部实现”。</p>
+<p>初学者最重要的判断是：public 越多，外部依赖越多，后续改动成本越高；private 越清楚，内部重构越自由；protected 不是“比 private 稍微开放一点”这么简单，它会把子类也纳入 contract，因此要结合 <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a> 谨慎使用。</p>
+<h4 id="27-2-d98d54ad" class="semantic-heading semantic-concept">27.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a> 讲的是 method 对外承诺“怎么调用、传什么、返回什么、可能抛什么”。本节讲的是：这个 method 该不该被外部调用者看到。</p>
+<p>本节要掌握五个边界：</p>
+<ul>
+<li><code>PUBLIC SECTION</code>：外部调用者、其他 repository object、测试代码或框架能依赖的入口。</li>
+<li><code>PRIVATE SECTION</code>：本类内部实现细节，适合 helper method、内部状态和局部计算步骤。</li>
+<li><code>PROTECTED SECTION</code>：本类和子类可见，通常服务于 inheritance 设计。</li>
+<li><code>PUBLIC SECTION</code> 不等于 SAP released API，也不等于 Clean Core 允许调用。</li>
+<li>visibility 不负责权限控制；业务权限要靠 <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">Authorization check 权限检查</a>、RAP authorization、DCL 或项目权限设计。</li>
+</ul>
+<p>一个典型 class definition 会像这样：</p>
+<pre><code class="language-abap">CLASS lcl_status_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+
+  PRIVATE SECTION.
+    CLASS-METHODS normalize_status
+      CHANGING cv_status TYPE string.
+ENDCLASS.</code></pre>
+<p><code>get_text</code> 是调用者真正需要的入口，因此 public。<code>normalize_status</code> 只是 <code>get_text</code> 内部用来整理输入的小步骤，因此 private。这样主流程可以使用 class 的能力，却不会依赖内部实现步骤。</p>
+<h4 id="27-3-ffb5fce5" class="semantic-heading semantic-why">27.3 为什么重要</h4>
+<p>在项目里，visibility 是设计质量最早暴露的位置之一。很多“后期不好改”的问题，不是因为实现很复杂，而是因为一开始把太多东西放进了 public。</p>
+<p>例如：</p>
+<ul>
+<li>public method 太多，调用者不知道哪个才是稳定入口。</li>
+<li>public attribute 直接暴露内部状态，任何调用者都能改，类的不变量失效。</li>
+<li>本来只是 private helper 的 method 被外部对象调用，后续想重构就会破坏调用方。</li>
+<li>protected method 被子类依赖，父类内部改动会影响继承链。</li>
+<li>把 <code>PUBLIC SECTION</code> 当成“授权通过”，忽略了真正的 SAP authorization。</li>
+</ul>
+<p>Java/Python 背景学习者可以把它类比为 access modifier，但 ABAP 项目还要多想一层：global class 是 repository object，会被 transport，会被其他对象 where-used，会进入项目 review；public surface 一旦被别人用上，就不只是“一个类里的小改动”。</p>
+<h4 id="27-4-key-mechanism-f46cfa39" class="semantic-heading semantic-mechanism">27.4 Key mechanism / 核心机制</h4>
+<h5 id="27-4-1-visibility-section-controls-components-5a465315">27.4.1 visibility section controls components</h5>
+<p>ABAP class definition 里，components 放在哪个 section 下，就决定了它们的可见性：</p>
+<pre><code class="language-abap">CLASS lcl_order_rule DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS is_valid
+      IMPORTING is_order        TYPE zstr_order
+      RETURNING VALUE(rv_valid) TYPE abap_bool.
+
+  PROTECTED SECTION.
+    &quot; reserved for subclass extension when inheritance is intentionally designed
+
+  PRIVATE SECTION.
+    CLASS-METHODS has_items
+      IMPORTING is_order        TYPE zstr_order
+      RETURNING VALUE(rv_valid) TYPE abap_bool.
+
+    CLASS-METHODS has_customer
+      IMPORTING is_order        TYPE zstr_order
+      RETURNING VALUE(rv_valid) TYPE abap_bool.
+ENDCLASS.</code></pre>
+<p>外部调用者只需要知道：</p>
+<pre><code class="language-abap">IF lcl_order_rule=&gt;is_valid( ls_order ) = abap_true.
+  &quot; ...
+ENDIF.</code></pre>
+<p>外部不应该知道 <code>has_items</code> 和 <code>has_customer</code> 两个内部步骤。这样以后内部校验规则可以拆分、合并、改名，而 public contract 不变。</p>
+<h5 id="27-4-2-public-is-contract-afcac507">27.4.2 public is contract</h5>
+<p><code>PUBLIC SECTION</code> 的 method 是外部可见入口。更精确地说：public component 对 class 自身可见，也对所有能够引用这个 class 的使用者可见。对 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a> 来说，这通常意味着其他 repository object 只要能引用该 class，就可能调用它；对 <a class="wiki" href="section-02-025-local-class-4c6dbe23.html">Local class 局部类</a> 来说，这只发生在 local context 内，不会变成系统级 public API。无论是 global 还是 local，public surface 都应该小而稳定。</p>
+<p>这里还要加一个 SAP 项目里的现实提醒：如果 global class 后续被 release 成稳定接口，public components 的变更会受到更强约束。因此 public method 不只是“今天能被调用”，也可能成为以后 transport、where-used、回归测试和升级兼容性都要保护的 contract。</p>
+<p>好的 public method 通常具备这些特征：</p>
+<ul>
+<li>名字表达业务能力，而不是内部步骤。</li>
+<li><a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a> 清楚，输入输出少而明确。</li>
+<li>不暴露临时结构、内部缓存、技术中间状态。</li>
+<li>失败路径明确：返回 result object、<code>RAISING</code> class-based exception，或遵守 RAP framework 约定。</li>
+<li>可以被 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a> 通过行为测试验证。</li>
+</ul>
+<p>坏的 public surface 往往像这样：</p>
+<pre><code class="language-abap">CLASS lcl_price_calculator DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-DATA gv_discount TYPE decfloat34.
+
+    CLASS-METHODS read_customizing.
+    CLASS-METHODS calculate_step_1.
+    CLASS-METHODS calculate_step_2.
+    CLASS-METHODS round_internal_amount.
+    CLASS-METHODS clear_cache.
+ENDCLASS.</code></pre>
+<p>这会把内部步骤、缓存状态、计算顺序都暴露出去。调用方可能开始直接调用 <code>calculate_step_1</code> 或修改 <code>gv_discount</code>，之后 class 内部就很难重构。</p>
+<p>更合理的 public surface 是：</p>
+<pre><code class="language-abap">CLASS lcl_price_calculator DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS calculate
+      IMPORTING is_item         TYPE zstr_item
+      RETURNING VALUE(rv_price) TYPE decfloat34
+      RAISING   zcx_price_error.
+
+  PRIVATE SECTION.
+    CLASS-METHODS read_customizing
+      RETURNING VALUE(rs_config) TYPE zstr_price_config.
+
+    CLASS-METHODS round_amount
+      CHANGING cv_amount TYPE decfloat34.
+ENDCLASS.</code></pre>
+<p>调用者只依赖 <code>calculate</code>。内部怎样读 customizing、怎样 round，都留给 class 自己。</p>
+<h5 id="27-4-3-private-is-implementation-freedom-79c447c7">27.4.3 private is implementation freedom</h5>
+<p><code>PRIVATE SECTION</code> 是本类内部的实现空间。private method 的价值不是“藏起来显得高级”，而是让 public method 更短、更清楚，让内部步骤可以命名、测试间接验证、必要时重构。</p>
+<p>严格说，private component 也可能被声明为 friend 的 class 访问；<code>FRIENDS</code> 是 OO ABAP 中明确的语言级例外。初学阶段先把 private 理解为“外部普通调用者不应依赖的实现细节”，等学到 friend class、test seam 或框架扩展时，再补充这个例外即可。</p>
+<p>private method 适合：</p>
+<ul>
+<li>输入规范化。</li>
+<li>小的计算步骤。</li>
+<li>格式转换。</li>
+<li>内部判断。</li>
+<li>只服务于当前 class 的 helper。</li>
+<li>不应该被外部调用者直接依赖的缓存或状态管理。</li>
+</ul>
+<p>private 也不是万能。如果某个 private helper 开始被多个 class 复制，说明它可能已经不只是 private helper，而是应该抽成新的 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a>、<a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a> 或稳定工具类。visibility 不能用来掩盖职责边界错误。</p>
+<p>还有一个容易忽略的封装漏洞：private attribute 本身不可被普通外部调用者直接访问，但 class method 如果把指向内部 attribute 的 data reference 或 field symbol 传出去，外部仍可能间接看到甚至修改内部状态。因此 private 只是访问规则，不能替代谨慎的 API 设计。</p>
+<h5 id="27-4-4-protected-is-inheritance-contract-cc28c55b">27.4.4 protected is inheritance contract</h5>
+<p><code>PROTECTED SECTION</code> 常被误解为“给未来留扩展点”。实际上 protected 是给子类看的 contract。只要子类开始依赖 protected method，父类就不能随便改它。</p>
+<p>和 private 类似，protected 也有 friend class 例外：被声明为 friend 的 class 可以访问相应 component。另一个更细的 ABAP 规则是：子类并不是在任何情况下都能通过“父类静态类型的引用变量”随意访问父类 protected component；继承访问仍然受对象动态类型和引用静态类型约束。初学阶段不需要死记这条边界，但要知道 protected 不是“随便给继承树开后门”。</p>
+<p>例如：</p>
+<pre><code class="language-abap">CLASS lcl_base_formatter DEFINITION.
+  PUBLIC SECTION.
+    METHODS format
+      IMPORTING iv_text        TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+
+  PROTECTED SECTION.
+    METHODS normalize
+      IMPORTING iv_text        TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+ENDCLASS.</code></pre>
+<p>如果后续子类 redefine 或调用 <code>normalize</code>，父类内部调整就会影响子类。初学阶段不应把 protected 当作默认选择。除非正在明确设计 <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a> 或 framework extension point，否则先用 private；确实需要外部稳定调用时，再设计 public method 或 interface。</p>
+<h5 id="27-4-5-public-section-is-not-released-api-9a0d01c2">27.4.5 public section is not released API</h5>
+<p>这是 SAP 项目里非常重要的区别：ABAP 的 <code>PUBLIC SECTION</code> 只说明 ABAP 语言层面可以访问，并不自动说明它是 SAP released API，也不自动符合 Clean Core。</p>
+<p>在 ABAP Cloud / Clean Core 语境中：</p>
+<ul>
+<li>一个 class 的 public method 可以是语言层面的 public，但仍然不是 released API。</li>
+<li>只有被 SAP 或项目治理明确释放、允许使用的 API 才能作为稳定依赖。</li>
+<li>自定义 global class 的 public method 也要遵守 package/use-access、released API、dependency boundary 等规则。</li>
+<li>RAP handler、behavior implementation、saver、authorization 等 framework 方法的可见性和签名通常由框架或父类/接口约束，不应随意扩大 public surface。</li>
+</ul>
+<p>所以，review 时不能只问“能不能调用”。还要问：“应不应该调用？这是不是稳定契约？是不是 Clean Core 允许的依赖？”</p>
+<h5 id="27-4-6-visibility-is-not-authorization-ec14559c">27.4.6 visibility is not authorization</h5>
+<p>visibility 不是权限检查。<code>PRIVATE SECTION</code> 防止外部代码直接访问内部 component；它不防止业务用户执行某个操作。<code>PUBLIC SECTION</code> 也不代表所有业务用户都有权限。</p>
+<p>例如一个 public method：</p>
+<pre><code class="language-abap">METHODS approve_order
+  IMPORTING iv_order_id TYPE zorder_id
+  RAISING   zcx_authorization_error.</code></pre>
+<p>它是 public，因为外部应用层需要调用审批动作。但 method 内部或上游 RAP authorization 仍然必须检查用户是否有审批权限。visibility 管代码访问边界；authorization 管业务访问权限。</p>
+<h4 id="27-5-4275cf74" class="semantic-heading semantic-japan">27.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>可視性</code></li>
+<li><code>公開範囲</code></li>
+<li><code>PUBLIC SECTION</code></li>
+<li><code>PROTECTED SECTION</code></li>
+<li><code>PRIVATE SECTION</code></li>
+<li><code>公開メソッド</code></li>
+<li><code>内部実装</code></li>
+<li><code>外部契約</code></li>
+<li><code>パブリックコントラクト</code></li>
+<li><code>副作用</code></li>
+<li><code>継承</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>このメソッドは外部から呼び出す必要があるため、<code>PUBLIC SECTION</code> に置いています。</li>
+<li>この処理は内部実装なので、<code>PRIVATE SECTION</code> に移して公開範囲を狭くしています。</li>
+<li><code>PUBLIC SECTION</code> が大きすぎるため、外部契約として必要なメソッドだけに絞ってください。</li>
+<li><code>PROTECTED SECTION</code> は継承前提の契約になるため、安易に増やさない方がよいです。</li>
+<li><code>PUBLIC SECTION</code> であっても released API とは限らないため、Clean Core の観点で利用可否を確認してください。</li>
+<li>可視性は権限制御ではないため、業務権限は別途 authorization で確認してください。</li>
+</ul>
+<p>日本项目 review 中，<code>公開範囲を絞る</code>、<code>外部契約を明確にする</code>、<code>内部実装を隠蔽する</code> 这些表达很实用。它们通常是在要求把“能调用”改成“应该调用的入口才公开”。</p>
+<h4 id="27-6-english-terms-7b8ffb5e" class="semantic-heading semantic-terms">27.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Visibility Sections in Classes</code></li>
+<li>Official / search term: <code>PUBLIC SECTION</code></li>
+<li>Official / search term: <code>PROTECTED SECTION</code></li>
+<li>Official / search term: <code>PRIVATE SECTION</code></li>
+<li>Official / search term: <code>class components</code></li>
+<li>Official / search term: <code>public components</code></li>
+<li>Official / search term: <code>protected components</code></li>
+<li>Official / search term: <code>private components</code></li>
+<li>Design term: <code>public contract</code></li>
+<li>Design term: <code>encapsulation</code></li>
+<li>SAP project term: <code>released API</code></li>
+<li>SAP project term: <code>Clean Core</code></li>
+</ul>
+<p>检索官方资料时，优先用 <code>Visibility Sections in Classes ABAP Keyword Documentation</code>、<code>ABAP PUBLIC SECTION PROTECTED SECTION PRIVATE SECTION</code>。读到 <code>PUBLIC</code> 时要看上下文：它可能指 class option <code>CLASS ... DEFINITION PUBLIC</code>，也可能指 <code>PUBLIC SECTION</code>，两者不是同一件事。</p>
+<h4 id="27-7-example-85a42ad5" class="semantic-heading semantic-example">27.7 Example / 学习例子</h4>
+<h5 id="27-7-1-1-private-8d5b25db">27.7.1 例 1：把内部步骤藏到 private</h5>
+<p>不好的版本：</p>
+<pre><code class="language-abap">CLASS lcl_status_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+
+    CLASS-METHODS normalize_status
+      CHANGING cv_status TYPE string.
+ENDCLASS.</code></pre>
+<p><code>normalize_status</code> 是内部步骤，不应该让调用者直接依赖。改成：</p>
+<pre><code class="language-abap">CLASS lcl_status_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS get_text
+      IMPORTING iv_status      TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
+
+  PRIVATE SECTION.
+    CLASS-METHODS normalize_status
+      CHANGING cv_status TYPE string.
+ENDCLASS.
+
+CLASS lcl_status_service IMPLEMENTATION.
+  METHOD get_text.
+    DATA(lv_status) = iv_status.
+
+    normalize_status(
+      CHANGING cv_status = lv_status ).
+
+    CASE lv_status.
+      WHEN &#x27;O&#x27;.
+        rv_text = &#x27;Open&#x27;.
+      WHEN &#x27;C&#x27;.
+        rv_text = &#x27;Closed&#x27;.
+      WHEN OTHERS.
+        rv_text = &#x27;Unknown&#x27;.
+    ENDCASE.
+  ENDMETHOD.
+
+  METHOD normalize_status.
+    CONDENSE cv_status.
+    cv_status = to_upper( cv_status ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>调用者只知道 <code>get_text</code>。内部 <code>CONDENSE</code>、<code>to_upper</code>、case mapping 都可以改，不破坏 public contract。</p>
+<h5 id="27-7-2-2-public-attribute-20f091e0">27.7.2 例 2：public attribute 的风险</h5>
+<p>不建议：</p>
+<pre><code class="language-abap">CLASS lcl_counter DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-DATA gv_count TYPE i.
+ENDCLASS.</code></pre>
+<p>任何调用者都可以改 <code>gv_count</code>，class 无法保证状态合法。更好的写法是：</p>
+<pre><code class="language-abap">CLASS lcl_counter DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS increment.
+    CLASS-METHODS get_count
+      RETURNING VALUE(rv_count) TYPE i.
+
+  PRIVATE SECTION.
+    CLASS-DATA gv_count TYPE i.
+ENDCLASS.</code></pre>
+<p>这样外部只能通过 method 使用状态，class 可以控制如何变更。</p>
+<p>如果确实需要让外部读取某个稳定状态，也可以在 <code>PUBLIC SECTION</code> 中使用 <code>READ-ONLY</code> attribute，让外部只能读、不能直接写。它不是 private + getter 的完全替代品，但比完全可写的 public attribute 更安全。</p>
+<h5 id="27-7-3-3-protected-d5486d55">27.7.3 例 3：protected 不是默认扩展点</h5>
+<p>如果还没有明确的继承设计，不要为了“以后可能要扩展”先把 helper 放 protected：</p>
+<pre><code class="language-abap">PROTECTED SECTION.
+  METHODS calculate_internal_score.</code></pre>
+<p>这会暗示子类可以依赖它。初学阶段更保守的做法：</p>
+<pre><code class="language-abap">PRIVATE SECTION.
+  METHODS calculate_internal_score.</code></pre>
+<p>等真的出现继承需求，再设计 protected contract，并配合 <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a> 说明子类应该如何使用。</p>
+<h4 id="27-8-counterexample-failure-mode-14a986bc" class="semantic-heading semantic-example">27.8 Counterexample / Failure mode</h4>
+<h5 id="27-8-1-1-public-6247dd1f" class="semantic-heading semantic-failure">27.8.1 误区 1：先 public，之后再收回</h5>
+<p>public method 一旦被调用方使用，再改名、改参数、改返回值都会影响 where-used。项目里“先 public 以后再说”通常会变成长期技术债。</p>
+<p>修正动作：默认 private；只有外部真正需要依赖的入口才 public。</p>
+<h5 id="27-8-2-2-public-attribute-4ec5157a" class="semantic-heading semantic-failure">27.8.2 误区 2：public attribute 暴露内部状态</h5>
+<p>public attribute 让外部绕过 class 的业务规则直接改状态。更准确地说，风险最大的是可被外部直接写入的 public instance attribute 或 public class attribute；除非是非常稳定、只读、常量式的 public constant，或者明确使用 <code>READ-ONLY</code> 控制写入，否则业务状态不应轻易 public。</p>
+<p>修正动作：用 private attribute + public method 管理读取和变更；必要时返回只读结果或结构副本。</p>
+<h5 id="27-8-3-3-protected-8afbc875" class="semantic-heading semantic-failure">27.8.3 误区 3：protected 滥用造成继承耦合</h5>
+<p>protected method 被子类调用后，父类内部实现就变成子类 contract。后续重构需要考虑整个继承树。</p>
+<p>修正动作：没有明确继承设计时用 private；需要多态扩展时，先设计清楚 abstract/final/redefinition 规则。</p>
+<h5 id="27-8-4-4-visibility-c2b591ee" class="semantic-heading semantic-failure">27.8.4 误区 4：把 visibility 当权限控制</h5>
+<p><code>PUBLIC SECTION</code> 只是代码可访问，不代表业务用户有权限；<code>PRIVATE SECTION</code> 只是代码不可访问，不代表业务动作安全。</p>
+<p>修正动作：权限逻辑回到 <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">Authorization check 权限检查</a>、RAP authorization、DCL、业务角色和审计要求。</p>
+<h5 id="27-8-5-5-public-section-released-api-68dfc9c9" class="semantic-heading semantic-failure">27.8.5 误区 5：把 PUBLIC SECTION 当 released API</h5>
+<p>在 SAP 标准对象或 ABAP Cloud/Clean Core 场景中，能在 ABAP 语法上看到 public method，不等于它是 released API。</p>
+<p>修正动作：查 released API 状态、package/use-access、SAP Help / SAP API Business Hub / ADT release contract；不要只凭 <code>PUBLIC SECTION</code> 判断能不能依赖。</p>
+<h4 id="27-9-07a752df" class="semantic-heading semantic-practice">27.9 思考问题</h4>
+<ul>
+<li>这个 method 是否真的需要外部调用？如果不是，为什么不是 private？</li>
+<li>这个 public method 是否表达业务能力，而不是内部步骤？</li>
+<li>如果明天重命名 private helper，会影响哪些调用者？</li>
+<li>这个 protected method 是否已经承诺给子类使用？有没有对应继承设计？</li>
+<li>这个 public attribute 是否会让外部绕过业务规则改状态？</li>
+<li>如果必须暴露 attribute，它是否应该是 <code>READ-ONLY</code>，还是应该改成 private attribute + method？</li>
+<li><code>PUBLIC SECTION</code> 中的类型和方法是否会变成长期 contract？</li>
+<li>这个 public method 是否还需要 authorization、RAP authorization 或 DCL，而不是只靠 visibility？</li>
+<li>在 Clean Core 语境下，它是否是 released API 或项目允许依赖的 API？</li>
+</ul>
+<h4 id="27-10-70ab121e" class="semantic-heading semantic-reference">27.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASS_VISIBILITY.html" target="_blank" rel="noopener noreferrer">Visibility Sections in Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPPUBLIC.html" target="_blank" rel="noopener noreferrer">PUBLIC SECTION</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPPRIVATE.html" target="_blank" rel="noopener noreferrer">PRIVATE SECTION</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPPROTECTED.html" target="_blank" rel="noopener noreferrer">PROTECTED SECTION</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASSES.html" target="_blank" rel="noopener noreferrer">ABAP Objects - Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCLASS_DEFINITION.html" target="_blank" rel="noopener noreferrer">CLASS, class options</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASS_METHODS.html" target="_blank" rel="noopener noreferrer">Methods of Classes</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+</ul>
+<h4 id="27-11-connections-c5463101">27.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li>Downstream: <a class="wiki" href="section-02-028-static-vs-instance-e9b8f033.html">Static vs instance 静态与实例</a></li>
+<li>Related: <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a></li>
+<li>Related: <a class="wiki" href="section-02-025-local-class-4c6dbe23.html">Local class 局部类</a></li>
+<li>Related: <a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a></li>
+<li>Related: <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a></li>
+<li>Related: <a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">Authorization check 权限检查</a></li>
+<li>Related: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core 核心干净</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 11 - OO ABAP 类与方法基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="27-12-773f2334" class="semantic-heading semantic-practice">27.12 学习任务</h4>
+<ul>
+<li>找一个已经扩写过的 class 例子，把 <code>PUBLIC SECTION</code> 和 <code>PRIVATE SECTION</code> 分别圈出来。</li>
+<li>把一个 public helper method 改成 private，并说明调用者为什么不应该依赖它。</li>
+<li>写一个只有一个 public method、两个 private helper method 的 local class。</li>
+<li>找一个 public attribute 的例子，改写成 private attribute + public getter / operation。</li>
+<li>用日语写一句 review comment，指出 <code>PUBLIC SECTION</code> 太大或 protected 滥用。</li>
+<li>打开 SAP Help 的 <code>Visibility Sections in Classes</code>，确认 <code>PUBLIC SECTION</code>、<code>PROTECTED SECTION</code>、<code>PRIVATE SECTION</code> 的官方边界。</li>
+</ul>
+<h4 id="27-13-confidence-next-action-3b4cc4e4" class="semantic-heading semantic-status">27.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容基于 SAP Help / ABAP Keyword Documentation visibility section、<code>PUBLIC SECTION</code>、<code>PRIVATE SECTION</code>、<code>PROTECTED SECTION</code>、class option 入口，并已按 Joule <code>Pass with fixes</code> 的要点补入 <code>FRIENDS</code>、private reference / field-symbol 泄漏、protected 访问边界、<code>READ-ONLY</code>、public surface 与 released API 的区别。</li>
+<li>Next action: 已完成官方资料与 Joule 证据闭环并同步到 Chapter 02 与离线书稿；Claude 2026-06-13 超时且 2026-06-18 当前 CLI 仍有 credentials provider 问题，后续 Claude 恢复后可做补充复核。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-026-method-signature-78cdcab2.html">Previous section</a><a href="section-02-028-static-vs-instance-e9b8f033.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

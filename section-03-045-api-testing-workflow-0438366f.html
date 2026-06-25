@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>API testing workflow 接口测试流 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="45-api-testing-workflow-2cbc03b5" class="chapter-title">45. API testing workflow 接口测试流</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 45</li><li>self-contained study note</li></ul><h4 id="45-1-7296d961" class="semantic-heading semantic-concept">45.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a> 是把 RAP/OData 服务从“preview 能打开”推进到“可以交付”的固定验证流程。它要求把 metadata、成功请求、失败请求、权限、并发、重复请求、错误 payload、目标系统验证和证据归档都做成可重复动作，而不是临时点几下页面。</p>
+<p>一句话记忆：API 测试不是证明“能通一次”，而是证明“按契约成功、按契约失败、换用户换系统仍可解释”。</p>
+<p>在一本实战书里，API testing workflow 要回答的不是“用 Postman 还是 curl”，而是“怎样让接口交付可被信任”。一个 RAP/OData 服务在 ADT 里 preview 成功，只说明服务入口大概率能打开；它没有证明业务契约正确、权限正确、错误可被消费、重复请求安全、移送后配置一致，也没有证明出现障害时团队能复现问题。</p>
+<p>因此，本节把接口测试看成一条证据链：从 <code>$metadata</code> 到请求集合，从 happy path 到 negative path，从开发者用户到业务用户，从 DEV 到 QAS，从 response body 到 backend log。读者学完以后，应该能拿任何一个 OData/RAP API，写出一张可执行的测试矩阵，而不是只说“我点过，能通”。</p>
+<h4 id="45-2-ce5b6141" class="semantic-heading semantic-concept">45.2 到底学什么</h4>
+<p>前一节 <a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a> 解决“服务是否活着”。本节解决“服务是否可交付”。在真实项目中，接口测试不能只靠 Fiori preview 或一次 GET 成功。你需要固定记录：调用者是谁、调用哪个系统、URL 是什么、metadata 是否正确、payload 是什么、返回码是什么、错误长什么样、重复调用会怎样、权限不足会怎样、QAS/PRD 是否一致。</p>
+<p>API testing workflow 不是某个工具名。Postman、Bruno、curl、HTTPie、SAP Gateway Client、ADT preview、自动化测试都可以成为工具。关键是流程：先确认 contract，再跑 happy path，再跑 negative path，再跑权限和并发，再保存证据。</p>
+<p>本节的目标，是让初学者以后看到任何 OData/RAP 服务，都能按同一套清单验证，而不是只凭经验临时测试。</p>
+<p>API 测试至少要覆盖三种层次。第一层是技术连通性：URL、authentication、CSRF token、headers、content type、metadata、service binding 或 Gateway endpoint 是否可用。第二层是业务契约：哪些 entity/action/function 可以调用，字段含义、key、status code、message、side effect 是否符合设计。第三层是项目可交付性：谁测的、在哪个系统测的、用什么用户、什么数据、什么时间、证据放在哪里，移送后如何复验。</p>
+<p>本节也要建立一个边界：API testing workflow 不等于完整自动化测试平台。它可以用手工工具开始，也可以逐步沉淀成 collection、script、CI smoke test 或验收证据。初学阶段先把测试矩阵和证据格式做对，再考虑工具自动化。否则很容易出现“工具很专业，但测试内容只覆盖一次 GET”的假进步。</p>
+<p>一套最小可交付 API 测试矩阵通常包括：</p>
+<div class="table-wrap"><table><thead><tr><th>类别</th><th>要证明什么</th><th>常见证据</th></tr></thead><tbody><tr><td>Contract</td><td><code>$metadata</code>、entity、key、action、property 与设计一致</td><td>metadata 片段、OpenAPI/接口说明、版本</td></tr><tr><td>Connectivity</td><td>目标系统 endpoint 可访问，认证方式正确</td><td>URL、status code、headers</td></tr><tr><td>Happy path</td><td>正常读写/action 返回正确业务结果</td><td>request/response、DB 或 status 后验</td></tr><tr><td>Negative path</td><td>非法输入、状态不允许、对象不存在时可解释失败</td><td>OData error payload、business message</td></tr><tr><td>Authorization</td><td>不同用户/角色/technical user 的结果符合授权</td><td>用户、role、SU53/trace 或拒绝响应</td></tr><tr><td>Concurrency</td><td>ETag、If-Match、锁、并发更新语义正确</td><td>412/409 等冲突证据、前后状态</td></tr><tr><td>Idempotency</td><td>重试不导致重复副作用</td><td>重复请求、日志/状态/业务表后验</td></tr><tr><td>Environment</td><td>DEV/QAS/PRD 配置差异被复验</td><td>系统、client、publish/role/destination 记录</td></tr></tbody></table></div>
+<p>书稿里建议把每个关键 API 用例都沉淀成一个最小 evidence packet，而不是只保存截图。最小 evidence packet 至少包含：系统/client、用户或 technical client、service binding / endpoint、HTTP method、URL、关键 headers、request payload、status code、response body、业务后验、backend log 或 trace 入口、测试时间、测试人、未覆盖项。这样 defect、review、受入测试和障害調査可以复用同一份材料。</p>
+<p>还要提醒读者：HTTP status code 不能孤立解释。比如 403 可能是业务角色缺失，也可能是 communication arrangement、OAuth scope、DCL/RAP authorization、CSRF token 或 endpoint 暴露问题；412 可能是 ETag/If-Match 并发控制；400 可能是 payload 格式，也可能是 RAP validation message。好的 API 测试不是只写“返回 400”，而是把 response payload、业务语义和后端证据连起来。</p>
+<h4 id="45-3-2692ffb2" class="semantic-heading semantic-why">45.3 为什么重要</h4>
+<p>API 测试流程重要，是因为接口问题通常不是“完全不能用”，而是“某个边界不可解释”。开发者自己用户能调用，业务用户没权限；GET 能成功，POST 因 CSRF/ETag/authorization 失败；正常数据能保存，validation failure 的 error payload 前端解析不了；DEV 能通，QAS publish 或 role 缺失；第一次调用成功，重复请求生成重复数据。</p>
+<p>对项目交付来说，接口测试证据是设计、开发、联调、验收和障害調査之间的共同语言。没有证据，问题会变成“我这边没问题”“你那边再试试”。有证据，就能定位到 request、response、用户、系统、时间、错误码、backend log 和业务规则。</p>
+<p>对 Java/Python 背景学习者，API testing workflow 类似 contract test + integration test + negative test 的组合。但 SAP OData/RAP 还要特别关注 <code>$metadata</code>、entity set、action/function、authorization、DCL/RAP auth、CSRF/ETag、draft、save sequence、Gateway/RAP runtime log 和 transport 后配置。</p>
+<p>这也是为什么 API 测试是 Week 3 到 Week 4 的桥。Week 3 学 RAP/OData 的建模和暴露，Week 4 学 authorization、transaction、log、test、performance、Clean Core。真正的接口验收会把这些全部连起来：一个 POST 失败，可能是 validation；一个 PATCH 被拒绝，可能是 ETag；一个 GET 少数据，可能是 DCL；一个 action 重复执行，可能是 idempotency；一个 QAS 不通，可能是 service binding、role、communication arrangement 或 transport 后缓存问题。</p>
+<p>对团队交付来说，好的 API 测试证据能减少“口头排查”。例如缺陷单里写“API 失败”价值很低；写“QAS client 100，user <code>Z_API_TEST_02</code>，<code>PATCH /Travel(&#x27;4711&#x27;)</code>，header <code>If-Match</code> 使用过期 ETag，返回 412，response payload 如附件，Application Log 编号 BAL-xxx，无 DB 更新”，团队立刻知道该看并发控制而不是泛泛检查网络。</p>
+<h4 id="45-4-key-mechanism-6904094e" class="semantic-heading semantic-mechanism">45.4 Key mechanism / 核心机制</h4>
+<p>第一步是 contract check。打开 <code>$metadata</code>，确认 entity set、property、key、navigation、action/function 是否符合设计。若 metadata 已经不对，后面的调用成功也只是偶然。</p>
+<p>第二步是 authentication / identity check。确认调用者是谁：开发者用户、业务用户、技术用户、communication user、OAuth client、principal propagation。不同身份看到的数据和权限可能完全不同。</p>
+<p>第三步是 happy path。至少测试读取列表、读取单条、创建/更新/action 中的核心成功路径。每个请求都记录 method、URL、headers、payload、status code、response body、业务解释。</p>
+<p>第四步是 negative path。故意构造非法字段、缺少必填、状态不允许、主数据不存在、权限不足、对象不存在、并发冲突、重复请求。好的 API 不只会成功，也要可解释地失败。</p>
+<p>第五步是 transaction / idempotency check。对于 RAP action、save sequence、外部副作用、日志和 outbox，要测试重复点击、重试、部分失败、rollback 后是否残留数据。尤其是前面学过的 <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a> 和 <a class="wiki" href="section-03-038-rap-action-handler-anti-pattern-direct-insert-7325d509.html">Direct INSERT 反模式</a>，都要通过 API 测试暴露出来。</p>
+<p>第六步是 environment check。DEV、QAS、PRD 的 binding publish、role、communication arrangement、destination、ICF/OData runtime、metadata cache 可能不同。至少在移送后做一次目标系统 smoke + contract + 权限验证。</p>
+<p>第七步是 evidence archive。把测试结果保存成可复用证据：请求集合、截图、response JSON、metadata 片段、错误日志编号、测试用户、系统、时间、结论和未覆盖风险。</p>
+<p>可以把 workflow 固定成下面的顺序：</p>
+<pre><code class="language-text">1. Identify service and scope
+2. Capture contract
+3. Prepare identities and test data
+4. Execute happy path
+5. Execute negative path
+6. Execute authorization patterns
+7. Execute concurrency / retry / idempotency checks
+8. Cross-check backend evidence
+9. Repeat target-system smoke test after transport
+10. Archive evidence and open defects for gaps</code></pre>
+<p>每一步都要有输入和输出。比如 contract check 的输入是 service binding URL 和设计说明，输出是 <code>$metadata</code> 片段和接口字段确认；authorization check 的输入是用户/role 矩阵，输出是不同行为的 response 和后端授权证据；idempotency check 的输入是同一业务键或 idempotency key，输出是重复执行后的状态、日志和副作用记录。</p>
+<p>下面是一个更接近项目现场的 evidence packet：</p>
+<pre><code class="language-text">API Test Evidence Packet
+
+Service:
+  Name / binding / endpoint:
+  Version or transport:
+
+System:
+  DEV / QAS / PRD:
+  Client:
+  Timestamp:
+
+Identity:
+  User / technical user / OAuth client:
+  Role or authorization pattern:
+
+Contract:
+  Metadata captured:
+  Entity/action/function under test:
+  Key fields:
+
+Request:
+  Method:
+  URL:
+  Headers:
+  Payload:
+
+Expected result:
+  HTTP status:
+  Business status:
+  Error/message contract:
+  Side effect expectation:
+
+Actual result:
+  Status code:
+  Response body:
+  Backend log / trace / application log:
+  Database/status after-check:
+
+Conclusion:
+  Pass / Fail:
+  Defect / change request:
+  Residual risk:</code></pre>
+<p>对 RAP/OData，几个检查点特别容易被漏掉：</p>
+<div class="table-wrap"><table><thead><tr><th>检查点</th><th>为什么容易漏</th><th>项目风险</th></tr></thead><tbody><tr><td><code>$metadata</code></td><td>preview 页面能打开时，初学者以为 contract 已正确</td><td>前端或外部系统按错误字段开发</td></tr><tr><td>CSRF token</td><td>GET 成功，POST/PATCH 才失败</td><td>写操作联调才暴露</td></tr><tr><td>ETag / <code>If-Match</code></td><td>单人测试不触发并发</td><td>多用户更新覆盖或冲突不可解释</td></tr><tr><td>Authorization / DCL</td><td>开发者用户权限太大</td><td>业务用户看不到数据或越权</td></tr><tr><td>Error payload</td><td>只看 status code，不看 body</td><td>UI/外部系统无法展示稳定错误</td></tr><tr><td>Idempotency</td><td>正常点一次没问题</td><td>重试造成重复订单、重复日志、重复外部调用</td></tr><tr><td>Target system</td><td>DEV 配好，QAS 未配</td><td>移送后联调失败</td></tr></tbody></table></div>
+<h5 id="api-defect-triage-map-544871e2">API defect triage map</h5>
+<p>接口测试发现失败时，不要只按 HTTP status 归类。更可靠的做法是把“看到的现象”映射到 SAP/RAP 的可能层级，再决定谁来处理。</p>
+<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Likely layer</th><th>First evidence to collect</th><th>Typical owner</th></tr></thead><tbody><tr><td><code>404</code> 或 service root 不存在</td><td>binding publish、endpoint、ICF/Gateway/runtime registration</td><td>binding name、publish status、URL、目标系统</td><td>ABAP/RAP developer + Basis/Gateway</td></tr><tr><td><code>$metadata</code> 缺 entity/action</td><td>service definition、projection、behavior projection、annotation</td><td>metadata snapshot、service definition、projection source</td><td>ABAP/RAP developer</td></tr><tr><td><code>401</code> / login failure</td><td>authentication、communication arrangement、destination、OAuth/basic</td><td>auth method、technical client、destination/communication setup</td><td>Integration/Basis/Security</td></tr><tr><td><code>403</code> / allowed user mismatch</td><td>business role、catalog、DCL、RAP authorization、instance authorization</td><td>user、role、SU53/trace、DCL/RAP auth evidence</td><td>Security + ABAP/RAP developer</td></tr><tr><td><code>400</code> with business message</td><td>validation、payload contract、mandatory fields、state transition</td><td>request payload、OData error payload、message id</td><td>Functional + ABAP/RAP developer</td></tr><tr><td><code>409</code> / <code>412</code> conflict</td><td>ETag、optimistic lock、state conflict、concurrent update</td><td>ETag/If-Match headers、before/after status、lock evidence</td><td>ABAP/RAP developer</td></tr><tr><td><code>500</code> / dump</td><td>runtime exception、uncaught error、legacy API failure</td><td>response body、short dump、application log、trace time</td><td>ABAP/RAP developer</td></tr><tr><td>Duplicate business effect</td><td>idempotency、retry handling、action design、external side effect</td><td>repeated request ids、business key、log/status after-check</td><td>ABAP/RAP developer + Integration</td></tr><tr><td>DEV passes but QAS fails</td><td>transport、publish、role、destination、metadata cache、system alias</td><td>DEV/QAS diff、transport list、publish/role/cache evidence</td><td>ABAP/RAP developer + Basis/Security</td></tr></tbody></table></div>
+<p>这张表的目的不是让初学者立刻解决所有问题，而是让缺陷单从“API 不通”变成可分派、可复现、可讨论的材料。一个好的 defect 至少应该带上：系统/client、用户或 technical client、method、URL、headers、payload、status code、response body、时间、业务键、后端日志入口，以及判断它更像 contract、authorization、runtime、transport 还是数据问题。</p>
+<h4 id="45-5-c1bb5b0c" class="semantic-heading semantic-japan">45.5 日本项目现场说法</h4>
+<ul>
+<li><code>APIテスト</code>：API testing。</li>
+<li><code>正常系</code>：happy path / normal case。</li>
+<li><code>異常系</code>：negative/error case。</li>
+<li><code>権限パターン</code>：authorization pattern。</li>
+<li><code>テスト証跡</code>：test evidence。</li>
+<li><code>リクエスト</code> / <code>レスポンス</code>：request / response。</li>
+<li><code>エラーペイロード</code>：error payload。</li>
+<li><code>再実行</code> / <code>リトライ</code>：rerun / retry。</li>
+</ul>
+<p>プレビューだけではなく、正常系、異常系、権限パターンの API テスト証跡を残してください。</p>
+<p>意思是：不要只做 preview，请留下正常路径、异常路径、权限模式的 API 测试证据。</p>
+<p>障害調査のため、リクエスト URL、ペイロード、レスポンス、ユーザ、実行時刻を記録してください。</p>
+<p>意思是：为了故障调查，请记录 request URL、payload、response、用户和执行时间。</p>
+<p>同じリクエストを再実行した場合に二重登録されないか確認してください。</p>
+<p>意思是：请确认同一个请求重复执行时是否不会重复登记。</p>
+<p>更像项目邮件或测试说明的写法：</p>
+<pre><code class="language-text">$metadata、正常系、異常系、権限パターン、再実行時の結果を同一証跡セットとして保管します。</code></pre>
+<p>含义：把 metadata、正常路径、异常路径、权限模式和重复执行结果作为同一套证据保存。</p>
+<pre><code class="language-text">QAS 移送後に、サービスバインディング、ロール、通信設定、メタデータキャッシュを含めて疎通確認を実施します。</code></pre>
+<p>含义：QAS 移送后，连同 service binding、role、communication setting、metadata cache 一起做连通确认。</p>
+<pre><code class="language-text">異常系では HTTP ステータスだけでなく、OData エラーペイロードと業務メッセージも確認対象にしてください。</code></pre>
+<p>含义：异常路径不仅确认 HTTP status，也要确认 OData error payload 和业务消息。</p>
+<pre><code class="language-text">リトライ時に外部副作用やアプリケーションログが重複しないことを後続確認します。</code></pre>
+<p>含义：重试时要后验确认外部副作用和 application log 不重复。</p>
+<p>现场表达要尽量避免“APIテスト完了です”这种空泛结论。更好的结论是“正常系 3 件、異常系 4 件、権限 2 パターン、再実行 1 パターンを確認済み。未確認範囲は draft 編集競合と外部連携タイムアウトです”。这能让读者养成报告覆盖范围和残余风险的习惯。</p>
+<h4 id="45-6-english-terms-2f3df5f3" class="semantic-heading semantic-terms">45.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>API testing workflow</code></li>
+<li>Related terms: <code>contract test</code>, <code>happy path</code>, <code>negative test</code>, <code>authorization test</code>, <code>error payload</code>, <code>metadata</code>, <code>$metadata</code>, <code>ETag</code>, <code>If-Match</code>, <code>CSRF token</code>, <code>idempotency</code>, <code>retry</code>, <code>test evidence</code>, <code>Postman collection</code>, <code>curl</code>, <code>SAP Gateway Client</code></li>
+<li>Recommended search pattern: <code>SAP OData API testing metadata authorization error payload</code></li>
+<li>Evidence terms to keep in English: <code>method</code>, <code>URL</code>, <code>headers</code>, <code>payload</code>, <code>status code</code>, <code>response body</code>, <code>timestamp</code>, <code>test user</code></li>
+</ul>
+<h4 id="45-7-example-6d3422f7" class="semantic-heading semantic-example">45.7 Example / 学习例子</h4>
+<p>一个最小 API 测试表可以这样写：</p>
+<pre><code class="language-text">Service: ZUI_TRAVEL_O4
+System: DEV
+User: TRAVEL_TEST_01
+Metadata: /.../$metadata captured
+
+TC01 Read list
+  GET /Travel?$top=5
+  Expected: 200, list returned
+
+TC02 Read single
+  GET /Travel(&#x27;&lt;key&gt;&#x27;)
+  Expected: 200, key fields match
+
+TC03 Execute action
+  POST /Travel(&#x27;&lt;key&gt;&#x27;)/AcceptTravel
+  Expected: 200/204, status changes or action result returned
+
+TC04 Validation failure
+  PATCH /Travel(&#x27;&lt;key&gt;&#x27;) with invalid BeginDate
+  Expected: 4xx or OData error payload with field/business message
+
+TC05 Authorization failure
+  Same request with unauthorized user
+  Expected: denied, no database change
+
+TC06 Retry / duplicate request
+  Repeat action request
+  Expected: no duplicate log, no duplicate external side effect</code></pre>
+<p>测试后要保存 request/response，而不是只写“OK”。如果错误发生，要记录 backend evidence：RAP message、Gateway log、dump、authorization trace、application log 或业务表状态。</p>
+<p>对 AC0567C POC，可以把 <code>/validate</code>、<code>/execute</code>、<code>/status</code> 做成三组测试：validate 只校验不落库；execute 成功后状态可查询；重复 execute 不应制造重复结果；status 对不存在 job id 要返回可解释错误。</p>
+<p>把 AC0567C 写成矩阵会更清楚：</p>
+<div class="table-wrap"><table><thead><tr><th>Test ID</th><th>API</th><th>Case</th><th>Expected</th></tr></thead><tbody><tr><td>AC-API-01</td><td><code>/validate</code></td><td>合法 payload</td><td>返回可执行判断，不创建最终业务结果</td></tr><tr><td>AC-API-02</td><td><code>/validate</code></td><td>缺少必填字段</td><td>返回业务错误 payload，错误字段可定位</td></tr><tr><td>AC-API-03</td><td><code>/execute</code></td><td>合法 payload</td><td>创建 job/result，返回可追踪 id</td></tr><tr><td>AC-API-04</td><td><code>/execute</code></td><td>重复业务键或重复 idempotency key</td><td>不产生重复副作用，返回既有状态或可解释拒绝</td></tr><tr><td>AC-API-05</td><td><code>/status</code></td><td>已存在 job id</td><td>返回当前状态、消息和可追踪时间</td></tr><tr><td>AC-API-06</td><td><code>/status</code></td><td>不存在 job id</td><td>返回可解释错误，不 dump，不泄漏内部表名</td></tr><tr><td>AC-API-07</td><td><code>/execute</code></td><td>无权限用户</td><td>拒绝执行，无 DB 更新，无外部副作用</td></tr><tr><td>AC-API-08</td><td><code>/execute</code></td><td>部分数据失败</td><td>明确成功/失败边界，日志能追踪每条记录</td></tr></tbody></table></div>
+<p>一个测试证据可以这样写：</p>
+<pre><code class="language-text">TC: AC-API-04 Retry execute
+System: QAS 100
+User: Z_API_TECH_BATCH
+Request 1:
+  POST /execute
+  Payload businessKey = BATCH-2026-0001
+  Header Idempotency-Key = 8b7...
+  Expected: 201/202, jobId returned
+
+Request 2:
+  POST /execute
+  Same businessKey and same Idempotency-Key
+  Expected: no duplicate job/result; response returns existing jobId or duplicate-safe message
+
+Backend evidence:
+  Status table has one active job for BATCH-2026-0001.
+  Application Log has one business execution record plus optional retry audit record.
+  No second external side effect was triggered.</code></pre>
+<p>这类例子让读者看到 API testing workflow 不是“点接口”，而是把接口行为、事务边界、幂等性、日志和业务后验串成一套检查。</p>
+<h4 id="45-8-counterexample-failure-mode-b2b9ee4c" class="semantic-heading semantic-example">45.8 Counterexample / Failure mode</h4>
+<p>反例一：只测 GET。读取成功，但创建、更新、action、错误路径全没测。修正方式是覆盖 read + write/action + negative。</p>
+<p>反例二：只用开发者用户。开发者能通，业务角色不通。修正方式是测试业务用户和技术用户。</p>
+<p>反例三：只测正常数据。非法日期、缺少主数据、状态不允许、重复请求都没测。修正方式是把 negative path 写成固定用例。</p>
+<p>反例四：不保存 response。联调出错时没人知道当时返回了什么。修正方式是归档 response body、status code、headers。</p>
+<p>反例五：DEV 通过就结束。QAS 缺 publish/role/communication arrangement。修正方式是移送后目标系统复验。</p>
+<p>反例六：不测幂等。用户或外部系统重试后重复插日志、重复调用外部接口。修正方式是设计 retry test 和数据后验检查。</p>
+<p>反例七：只看 HTTP 200。某些业务错误可能包装在 response body 里，也可能返回 4xx/5xx；只看 status code 不看 OData error payload、business message 和后端状态，会错过真正的契约问题。</p>
+<p>反例八：忽略 headers。写操作常涉及 CSRF token、ETag、<code>If-Match</code>、content type、language、correlation id。headers 不记录，复现时很容易“同一个 URL，结果不一样”。</p>
+<p>反例九：把开发工具请求当成生产调用。ADT preview、浏览器、Postman、外部系统、communication user、principal propagation 的身份和 headers 可能不同。preview 通过不代表外部系统通过。</p>
+<p>反例十：没有后验检查。接口返回成功，但数据库状态、application log、outbox、业务状态或外部副作用不一致。API 测试不能只停在 response，还要看后端事实。</p>
+<p>反例十一：异常路径太笼统。只写“invalid data”没有价值；要明确是缺少必填、格式错误、业务状态不允许、主数据不存在、授权不足、并发冲突还是重复请求。</p>
+<h4 id="45-9-e3b835e1" class="semantic-heading semantic-practice">45.9 思考问题</h4>
+<ul>
+<li>这个 API 的 contract evidence 是 <code>$metadata</code>、OpenAPI 文档，还是测试集合？</li>
+<li>哪些请求证明 happy path？哪些请求证明 negative path？</li>
+<li>权限测试覆盖了哪些用户/角色/technical user？</li>
+<li>错误 payload 是否能被 UI 或外部系统稳定解析？</li>
+<li>重复请求是否安全？如果不安全，是否需要 idempotency key/outbox/status check？</li>
+<li>移送到 QAS 后，哪些证据必须重新采集？</li>
+<li>AC0567C 的 validate/execute/status 分别需要哪些测试用例？</li>
+<li>对同一个 API，开发者用户、业务用户、technical user 的期望差异是什么？</li>
+<li>如果 UI 只说“保存失败”，后端 API 测试证据要怎样帮助定位问题？</li>
+<li>哪些测试必须在 transport 后重新跑，哪些可以只保留 DEV 证据？</li>
+</ul>
+<h4 id="45-10-c69fe1dc" class="semantic-heading semantic-reference">45.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://docs.oasis-open.org/odata/odata/v4.01/odata-v4.01-part1-protocol.html" target="_blank" rel="noopener noreferrer">OASIS OData V4.01 - Protocol</a> (accessed 2026-06-18)</li>
+<li><a href="https://docs.oasis-open.org/odata/odata/v4.01/odata-v4.01-part2-url-conventions.html" target="_blank" rel="noopener noreferrer">OASIS OData V4.01 - URL Conventions</a> (accessed 2026-06-18)</li>
+<li><a href="https://www.odata.org/documentation/odata-version-2-0/" target="_blank" rel="noopener noreferrer">OData Version 2.0 documentation</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-binding" target="_blank" rel="noopener noreferrer">SAP Help - Service Binding</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/using-service-binding-editor-for-odata-v4-service" target="_blank" rel="noopener noreferrer">SAP Help - Using Service Binding Editor for OData V4 Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-an-odata-ui-service" target="_blank" rel="noopener noreferrer">SAP Learning - Defining OData UI Services</a> (accessed 2026-06-18)</li>
+<li><a href="https://api.sap.com/" target="_blank" rel="noopener noreferrer">SAP Business Accelerator Hub</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/search?q=OData%20CSRF%20token" target="_blank" rel="noopener noreferrer">SAP Help search - OData CSRF token, pending precise page</a></li>
+<li><a href="https://help.sap.com/docs/search?q=OData%20error%20response" target="_blank" rel="noopener noreferrer">SAP Help search - OData error response, pending precise page</a></li>
+<li><a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a></li>
+<li><a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li><a class="wiki" href="section-03-041-odata-v2-9ff5a688.html">OData V2 基础差异</a></li>
+<li><a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a></li>
+<li><a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li><a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li><a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="45-11-connections-44312e2c">45.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a></li>
+<li>Downstream: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="45-12-e519afa2" class="semantic-heading semantic-practice">45.12 学习任务</h4>
+<ul>
+<li>为一个 OData/RAP service 写 6 个测试用例：metadata、read、action/update、validation failure、authorization failure、retry。</li>
+<li>补 2 个日语现场句子：一条要求保留测试证据，一条要求补异常系。</li>
+<li>用 Postman/curl/HTTP 工具记录一次 request/response，并解释 status code。</li>
+<li>写出 DEV 通过后 QAS 还要复验的 5 项。</li>
+<li>如果进入 Week 4，把 AC0567C POC 的 validate/execute/status 写成 API 测试矩阵。</li>
+<li>用 evidence packet 模板补一条 authorization failure 的测试证据。</li>
+<li>设计一个 ETag 或重复请求测试，并写出后端状态后验方式。</li>
+<li>给一个 API error payload 写中文解释和日语报告句子。</li>
+</ul>
+<h4 id="45-13-confidence-next-action-e49ea6d4" class="semantic-heading semantic-status">45.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-facing API testing workflow after official-source closure。正文已补并于 2026-06-18 复核 OASIS OData V4.01 protocol / URL conventions 入口、OData V2 官方资料、SAP Help <code>Service Binding</code>、ADT OData V4 service binding editor、SAP Learning <code>Defining OData UI Services</code> 和 SAP Business Accelerator Hub。它们支撑 <code>$metadata</code>、query option、endpoint / binding、preview-to-test 边界、positive / negative request、authorization failure、retry / idempotency、DEV -&gt; QAS evidence 和 API contract evidence。CSRF token、error payload 细节、日志入口、认证方式和目标系统配置仍需按项目系统与 SAP Help 精确页复核。</li>
+<li>Review status: prior Joule / Claude review artifacts for this section are deferred or timed out and explicitly state that no usable verdict was obtained；2026-06-18 Claude CLI 当前 session expired，外部 review debt 保留。由于本节已完成官方资料闭环和 API evidence packet / defect triage map 说明，不再停留在提纲草稿状态。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；下一节继续 <a class="wiki" href="section-03-046-cds-table-function-vs-cds-view-entity-048e0553.html">CDS table function vs CDS view entity</a>，并把本节测试矩阵复用到 Week 4 AC0567C <code>validate</code> / <code>execute</code> / <code>status</code> API evidence。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-044-service-preview-1b5668a5.html">Previous section</a><a href="section-03-046-cds-table-function-vs-cds-view-entity-048e0553.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

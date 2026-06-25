@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SWITCH expression 多分支表达式 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="41-switch-expression-f0559971" class="chapter-title">41. SWITCH expression 多分支表达式</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 41</li><li>self-contained study note</li></ul><h4 id="41-1-44306b0c" class="semantic-heading semantic-concept">41.1 一句话结论</h4>
+<p><code>SWITCH expression</code> 是 ABAP 的 conditional expression / conditional operator，用来根据“同一个 operand 的不同取值”构造一个结果值。它最适合小而稳定的 code-to-value mapping，例如把状态码、消息类型、操作符、枚举式代码转换成显示文本、分类值或测试期望值。</p>
+<pre><code class="language-abap">DATA(status_text) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  WHEN &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).</code></pre>
+<p>这段代码的核心不是“执行多个分支动作”，而是“产生一个值”。<code>lv_status</code> 是被比较的 operand；每个 <code>WHEN</code> 都拿自己的候选值和这个 operand 比较；第一个匹配的 <code>WHEN</code> 决定结果。如果没有匹配且没有 <code>ELSE</code>，结果不是“未定义行为”，而是指定或推断出来的 result type 的 type-specific initial value。学习 <code>SWITCH</code> 时，最重要的是把它和 <a class="wiki" href="section-02-040-cond-expression-4810482a.html">COND expression 条件表达式</a>、<code>CASE</code> statement 分清楚：<code>SWITCH</code> 适合单一 operand 的值映射，<code>COND</code> 适合任意 logical expression，<code>CASE</code> 适合需要执行多条 statement 的流程分支。</p>
+<h4 id="41-2-5ce1a7e7" class="semantic-heading semantic-concept">41.2 到底学什么</h4>
+<p>本节要掌握五件事。</p>
+<ul>
+<li><code>SWITCH type( operand WHEN value THEN result ... ELSE result )</code> 的基本形状。</li>
+<li><code>SWITCH #( ... )</code> 的类型推断边界，以及什么时候应该显式写 <code>string</code>、<code>abap_bool</code>、日期类型或自定义类型。</li>
+<li><code>WHEN</code> 的判断模型：比较的是同一个 operand，不是每个分支写一套任意条件。</li>
+<li><code>ELSE</code> 省略后的初始值行为，以及为什么业务代码通常要显式写 <code>ELSE</code> 或 <code>ELSE THROW</code>。</li>
+<li>在 SAP 项目里如何判断一段映射应该留在 <code>SWITCH</code>，还是移动到 domain fixed values、customizing table、mapping table、message class、value help 或 helper method。</li>
+</ul>
+<p>初学者可以把 <code>SWITCH</code> 先理解成“表达式版本的 <code>CASE</code>”，但这个类比只能帮助入门。严格地说，<code>CASE</code> 是 statement，可以在每个分支里执行多步逻辑；<code>SWITCH</code> 是 expression，必须整体产生一个结果值。只要分支里开始出现日志、数据库写入、消息收集、多行处理，通常就已经越过了 <code>SWITCH</code> 的舒适区。</p>
+<h4 id="41-3-93a76c08" class="semantic-heading semantic-why">41.3 为什么重要</h4>
+<p>SAP 项目中有大量“代码值转换”：订单状态到显示文本、消息类型到 severity、接口字段代码到内部枚举、测试数据状态到期望结果、ALV/报表显示值到说明文本。传统写法常用 <code>CASE</code> 或一串 <code>IF / ELSEIF</code>：</p>
+<pre><code class="language-abap">CASE lv_status.
+  WHEN &#x27;A&#x27;.
+    lv_status_text = `Active`.
+  WHEN &#x27;B&#x27;.
+    lv_status_text = `Blocked`.
+  WHEN OTHERS.
+    lv_status_text = `Unknown`.
+ENDCASE.</code></pre>
+<p>如果目标只是给一个变量赋值，<code>SWITCH</code> 可以把“判断”和“结果”收束到同一处：</p>
+<pre><code class="language-abap">DATA(lv_status_text) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  WHEN &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).</code></pre>
+<p>这对代码 review 很有帮助。reviewer 一眼可以看到：比较对象是什么、有哪些已知取值、未知值如何处理、结果类型是什么。尤其在 ABAP Unit、RAP validation 前置转换、UI 显示字段、接口 code list 适配里，<code>SWITCH</code> 能让小型映射更集中。</p>
+<p>但它也有风险。SAP 项目的 code list 往往来自业务配置、domain fixed values、customizing、外部接口规范或消息文本。如果这些值会由业务或配置维护人员改变，就不应该把越来越多的 <code>WHEN</code> 硬编码散落在代码中。<code>SWITCH</code> 适合“小而稳定的技术映射”，不适合承载可配置业务规则。</p>
+<h4 id="41-4-key-mechanism-7f8b3dd9" class="semantic-heading semantic-mechanism">41.4 Key mechanism / 核心机制</h4>
+<h5 id="basic-form-is-case-like-value-selection-58410d5d">Basic form is CASE-like value selection</h5>
+<p>基本形状如下。</p>
+<pre><code class="language-abap">DATA(text) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  WHEN &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).</code></pre>
+<p>可以读成：构造一个 <code>string</code> 类型的结果，检查 <code>lv_status</code>，如果等于 <code>&#x27;A&#x27;</code> 就返回 <code>Active</code>，如果等于 <code>&#x27;B&#x27;</code> 就返回 <code>Blocked</code>，否则返回 <code>Unknown</code>。它的 mental model 接近 <code>CASE lv_status. WHEN ...</code>，但 <code>SWITCH</code> 本身是表达式，所以它出现在 operand position，并且最终只返回一个值。</p>
+<h5 id="operand-is-the-center-84dfd595">Operand is the center</h5>
+<p><code>SWITCH</code> 的第一个核心参数是 operand。</p>
+<pre><code class="language-abap">SWITCH string( lv_status ... )</code></pre>
+<p>后面的每个 <code>WHEN</code> 都围绕同一个 <code>lv_status</code> 比较。不要把 <code>SWITCH</code> 写成“多条件判断工具”。下面这种需求不适合 <code>SWITCH</code>：</p>
+<pre><code class="language-abap">&quot; 这种判断更适合 COND 或 IF
+lv_status = &#x27;A&#x27; AND lv_amount &gt; 0</code></pre>
+<p>判断标准很简单：</p>
+<ul>
+<li>同一个字段或表达式的不同取值决定一个结果：优先考虑 <code>SWITCH</code>。</li>
+<li>每个分支条件都不同，包含 <code>AND</code>、<code>OR</code>、范围判断、方法调用组合：优先考虑 <code>COND</code> 或 <code>IF</code>。</li>
+<li>每个分支要执行多条 statement：优先考虑 <code>CASE</code> 或 <code>IF</code>。</li>
+</ul>
+<h5 id="needs-result-type-context-2094055b"><code>#</code> needs result type context</h5>
+<p><code>SWITCH #( ... )</code> 依赖上下文推断 result type。</p>
+<pre><code class="language-abap">DATA lv_text TYPE string.
+
+lv_text = SWITCH #( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  ELSE `Unknown`
+).</code></pre>
+<p>这里左侧 <code>lv_text TYPE string</code> 给了 <code>#</code> 足够的上下文。如果是 inline declaration、generic formal parameter、复杂 method actual parameter，类型推断可能不够清楚。面向初学者和项目 review，业务字段建议显式写出类型。</p>
+<pre><code class="language-abap">DATA(lv_text) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  ELSE `Unknown`
+).</code></pre>
+<p>这不是因为 <code>#</code> 不好，而是因为书稿、review、交付文档需要读者快速知道：结果到底是 <code>string</code>、<code>abap_bool</code>、金额、日期、还是某个 DDIC 类型。</p>
+<h5 id="when-is-checked-in-order-6f42832e">WHEN is checked in order</h5>
+<p>多个 <code>WHEN</code> 按顺序检查，第一个匹配项决定结果。对普通、互斥的代码值来说，这个顺序通常不敏感；但如果候选值重复、常量定义混乱、或者分支含义重叠，就会出现“后面的分支永远不会到达”的阅读风险。</p>
+<pre><code class="language-abap">DATA(text) = SWITCH string( lv_status
+  WHEN lc_status_open THEN `Open`
+  WHEN lc_status_closed THEN `Closed`
+  ELSE `Unknown`
+).</code></pre>
+<p>项目中更推荐用常量命名业务含义，而不是到处写裸字面量。字面量越多，reviewer 越难判断它们是否来自同一个 domain、同一份接口规范或同一张 customizing 表。</p>
+<h5 id="else-omission-means-type-specific-initial-value-2d33a0e0">ELSE omission means type-specific initial value</h5>
+<p>如果没有任何 <code>WHEN</code> 匹配，并且没有写 <code>ELSE</code>，<code>SWITCH</code> 的结果是 result type 的 type-specific initial value。</p>
+<pre><code class="language-abap">DATA(lv_text) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+).</code></pre>
+<p>如果 <code>lv_status</code> 不是 <code>&#x27;A&#x27;</code>，<code>lv_text</code> 会是 <code>string</code> 的初始值，也就是空字符串。对数字可能是 <code>0</code>，对 <code>abap_bool</code> 可能是 <code>abap_false</code>，对日期可能是初始日期。这在语法上成立，但在业务上经常危险，因为 unknown value 被悄悄吞掉了。</p>
+<p>面向接口字段、状态字段、消息类型、权限判断结果时，通常应显式处理未知值。</p>
+<pre><code class="language-abap">DATA(lv_text) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  WHEN &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).</code></pre>
+<p>如果未知值表示数据不合法，可以考虑 <code>ELSE THROW</code>。不过在 RAP 场景中，是否抛异常、填 <code>reported</code> / <code>failed</code>，或返回业务消息，要遵守当前行为实现和错误处理设计，不要为了“看起来现代”随意抛异常。</p>
+<h5 id="result-values-share-one-result-type-4aa679fc">Result values share one result type</h5>
+<p><code>THEN</code> 和 <code>ELSE</code> 后面的结果要能转换到同一个 result type。</p>
+<pre><code class="language-abap">DATA(category) = SWITCH string( lv_type
+  WHEN &#x27;C&#x27; THEN `Customer`
+  WHEN &#x27;V&#x27; THEN `Vendor`
+  ELSE `Other`
+).</code></pre>
+<p>不要让一个分支返回文本、另一个分支返回数字、第三个分支返回日期，然后依赖隐式转换“碰巧能过”。在 SAP 项目中，代码值、金额、日期、布尔值、消息 severity 要尽量保持类型清晰。类型清晰，后续 OData 暴露、RAP behavior、ALV 显示、ABAP Unit 断言都会更稳定。</p>
+<h5 id="throw-is-a-special-result-position-65fceb4b">THROW is a special result position</h5>
+<p><code>THROW</code> 可以出现在 <code>THEN</code> 或 <code>ELSE</code> 的 result position，用来抛出 class-based exception。Joule review 的重要提醒是：<code>THROW</code> 不是普通“产生值的 operand”，它不需要和 result type 做类型兼容；它是特殊的异常路径。</p>
+<pre><code class="language-abap">DATA(status_text) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  WHEN &#x27;B&#x27; THEN `Blocked`
+  ELSE THROW zcx_invalid_status( )
+).</code></pre>
+<p>示例里的 <code>zcx_invalid_status</code> 代表项目自定义 exception class。真实项目里要使用已经定义好的异常类型，并考虑调用方是否会 <code>TRY...CATCH</code>。<code>THROW SHORTDUMP</code> 也存在，但它会触发 runtime error，不应该在普通业务代码里轻易使用。对初学者来说，优先理解 class-based exception 和 RAP 消息返回模型，比追求短写法更重要。</p>
+<h5 id="let-can-reduce-repeated-helper-values-0e2e0d60">LET can reduce repeated helper values</h5>
+<p><code>SWITCH</code> 可以配合 <code>LET ... IN</code> 定义表达式内部的临时辅助值。</p>
+<pre><code class="language-abap">DATA(result) = SWITCH string(
+  LET lv_code = to_upper( lv_status ) IN lv_code
+  WHEN &#x27;A&#x27; THEN `Active`
+  WHEN &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).</code></pre>
+<p>这里先把 <code>lv_status</code> 转成大写，再用 <code>lv_code</code> 做 operand。<code>LET</code> 适合“一次性、局部、简单”的预处理。只要预处理本身开始有多步逻辑、异常处理、数据库访问或业务规则，就应抽到 helper method 或普通 statement 中。</p>
+<h5 id="switch-vs-cond-vs-case-4fe7eba8">SWITCH vs COND vs CASE</h5>
+<p>三者的区别可以这样记。</p>
+<div class="table-wrap"><table><thead><tr><th>选择</th><th>适合什么</th><th>不适合什么</th></tr></thead><tbody><tr><td><code>SWITCH</code></td><td>一个 operand 的多个固定取值映射成一个结果</td><td>任意复杂条件、多步动作、大型业务规则</td></tr><tr><td><code>COND</code></td><td>多个 logical expression 中第一个成立者产生结果</td><td>简单 code list 映射时可能不如 <code>SWITCH</code> 直观</td></tr><tr><td><code>CASE</code></td><td>一个 operand 的分支控制，每个分支可执行多条 statement</td><td>只为构造一个小结果值时略显冗长</td></tr></tbody></table></div>
+<p>对比示例：</p>
+<pre><code class="language-abap">&quot; SWITCH: one operand
+DATA(text) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  ELSE `Unknown`
+).
+
+&quot; COND: arbitrary logical expression
+DATA(flag) = COND abap_bool(
+  WHEN lv_status = &#x27;A&#x27; AND lv_amount &gt; 0 THEN abap_true
+  ELSE abap_false
+).
+
+&quot; CASE: multiple actions
+CASE lv_status.
+  WHEN &#x27;A&#x27;.
+    append_message( ).
+    update_display( ).
+  WHEN OTHERS.
+    log_unknown_status( ).
+ENDCASE.</code></pre>
+<p>不要把 Modern ABAP 理解成“所有 <code>CASE</code> 都要改成 <code>SWITCH</code>”。正确的判断是：值映射用 expression，流程控制用 statement，复杂业务规则用清晰的 method、配置或表驱动设计。</p>
+<h5 id="switch-mapping-review-checklist-9c473904">SWITCH mapping review checklist</h5>
+<p>在项目 review 时，可以用这张小表判断是否适合 <code>SWITCH</code>。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th><code>SWITCH</code> usually fits when...</th><th>Prefer another design when...</th></tr></thead><tbody><tr><td>Is there one operand?</td><td>所有分支都围绕同一个 status/type/operator 比较</td><td>每个分支条件不同，需要组合条件</td></tr><tr><td>Is the mapping small and stable?</td><td>分支少，值集合稳定，接近技术枚举</td><td>值来自客户配置、主数据、外部系统或频繁变更</td></tr><tr><td>Is unknown value handled?</td><td>有明确 <code>ELSE</code> 或 <code>ELSE THROW</code></td><td>省略 <code>ELSE</code> 导致 unknown value 静默变成初始值</td></tr><tr><td>Is result type explicit enough?</td><td>result type 清楚，<code>#</code> 不影响阅读</td><td>类型推断依赖复杂上下文，reviewer 需要猜</td></tr><tr><td>Is hard-coding acceptable?</td><td>代码值属于技术常量，低变化</td><td>显示文本、多语言文本、业务规则应该放到配置或消息机制</td></tr><tr><td>Is test coverage present?</td><td>ABAP Unit 覆盖 normal / unknown / initial path</td><td>映射影响接口或画面，却没有固定断言</td></tr><tr><td>Is <code>CASE</code> clearer?</td><td>每个分支只返回一个值</td><td>分支需要日志、消息、数据库操作或多行处理</td></tr></tbody></table></div>
+<h4 id="41-5-810ce82a" class="semantic-heading semantic-japan">41.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>SWITCH式</code></li>
+<li><code>CASE相当</code></li>
+<li><code>単一オペランド</code></li>
+<li><code>値マッピング</code></li>
+<li><code>コード値変換</code></li>
+<li><code>WHEN句</code>、<code>THEN句</code>、<code>ELSE句</code></li>
+<li><code>型推論</code></li>
+<li><code>型固有の初期値</code></li>
+<li><code>未想定値</code> / <code>未定義値</code></li>
+<li><code>可読性</code></li>
+<li><code>保守性</code></li>
+<li><code>CASE文に戻す</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>この <code>SWITCH式</code> は、単一オペランドのコード値を結果値に変換するための式です。</li>
+<li>複雑な論理条件が必要な場合は、<code>SWITCH式</code> ではなく <code>COND式</code> または <code>IF文</code> を検討してください。</li>
+<li><code>ELSE句</code> がない場合、未想定値ではなく型固有の初期値が返るため、業務上正しいか確認してください。</li>
+<li>このコード値変換は複数箇所に散在させず、domain fixed values、customizing、mapping table、または共通変換メソッドに寄せるべきではないでしょうか。</li>
+<li>分岐が長くなっているため、可読性と保守性を考慮して <code>CASE文</code> または helper method に戻してください。</li>
+</ul>
+<p>这里要特别说明“未想定値 / 未定義値”。在本节语境里，它不是 ABAP 的 undefined behavior，而是“<code>WHEN</code> 中没有列出的 operand 值”或“业务上没有预期到的代码值”。如果没有 <code>ELSE</code>，ABAP 返回的是 type-specific initial value；如果业务上不能接受，就应显式 <code>ELSE</code> 或异常处理。</p>
+<h4 id="41-6-english-terms-3fb14d2d" class="semantic-heading semantic-terms">41.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>SWITCH</code>, <code>SWITCH, Conditional Operator</code>, <code>conditional expression</code>, <code>conditional operator</code></li>
+<li>ABAP syntax: <code>SWITCH type( operand WHEN value THEN result ... ELSE result )</code>, <code>SWITCH #( ... )</code>, <code>WHEN</code>, <code>THEN</code>, <code>ELSE</code>, <code>LET ... IN</code>, <code>THROW</code>, <code>THROW SHORTDUMP</code></li>
+<li>Type terms: <code>operand</code>, <code>result type</code>, <code>operand type</code>, <code>type inference</code>, <code>type-specific initial value</code></li>
+<li>Comparison terms: <code>CASE statement</code>, <code>COND expression</code>, <code>IF statement</code>, <code>logical expression</code>, <code>value mapping</code>, <code>code list</code></li>
+<li>SAP project terms: <code>domain fixed values</code>, <code>customizing</code>, <code>mapping table</code>, <code>message class</code>, <code>value help</code></li>
+<li>Recommended search pattern: <code>ABAP SWITCH conditional operator SAP Help</code>, <code>ABAP SWITCH WHEN THEN ELSE</code>, <code>ABAP SWITCH THROW SAP Help</code></li>
+</ul>
+<p>读官方资料时要注意：<code>COND</code> 和 <code>SWITCH</code> 都属于 conditional expressions / conditional operators，但 <code>COND</code> 的 <code>WHEN</code> 后面是 logical expression，<code>SWITCH</code> 是围绕 operand 的取值选择结果。</p>
+<h4 id="41-7-example-ed748bc8" class="semantic-heading semantic-example">41.7 Example / 学习例子</h4>
+<h5 id="1-0b92c2bf">例 1：状态码转显示文本</h5>
+<pre><code class="language-abap">DATA(status_text) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  WHEN &#x27;B&#x27; THEN `Blocked`
+  WHEN &#x27;C&#x27; THEN `Closed`
+  ELSE `Unknown`
+).</code></pre>
+<p>适合场景：小型、稳定、技术性的状态码显示。review 时要问：这些状态码是否来自同一个 domain 或接口规范？<code>Unknown</code> 是否满足业务要求？是否需要 ABAP Unit 覆盖未知值？</p>
+<h5 id="2-severity-ebe910f3">例 2：消息类型转 severity</h5>
+<pre><code class="language-abap">DATA(severity) = SWITCH string( lv_msgty
+  WHEN &#x27;E&#x27; THEN `Error`
+  WHEN &#x27;W&#x27; THEN `Warning`
+  WHEN &#x27;I&#x27; THEN `Information`
+  WHEN &#x27;S&#x27; THEN `Success`
+  ELSE `Unknown`
+).</code></pre>
+<p>如果这个映射用于 UI 或 OData 响应，后续可能需要和前端规范、Fiori message handling、RAP reported messages 对齐。<code>SWITCH</code> 只解决本地值映射，不等于完整错误处理设计。</p>
+<h5 id="3-547f0513">例 3：未知操作符抛异常</h5>
+<pre><code class="language-abap">DATA(operator_text) = SWITCH string( lv_operator
+  WHEN &#x27;+&#x27; THEN `Addition`
+  WHEN &#x27;-&#x27; THEN `Subtraction`
+  WHEN &#x27;*&#x27; THEN `Multiplication`
+  WHEN &#x27;/&#x27; THEN `Division`
+  ELSE THROW zcx_invalid_operator( )
+).</code></pre>
+<p>这里 unknown value 被视为非法输入，所以使用异常路径。真实项目中要确认调用方能捕获该异常，或者该异常会按项目规范转换成消息。</p>
+<h5 id="4-abap-unit-d46cc654">例 4：ABAP Unit 固定期望值</h5>
+<pre><code class="language-abap">DATA(actual) = SWITCH string( lv_status
+  WHEN &#x27;A&#x27; THEN `Active`
+  WHEN &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).
+
+cl_abap_unit_assert=&gt;assert_equals(
+  exp = `Blocked`
+  act = actual
+).</code></pre>
+<p>测试代码里使用 <code>SWITCH</code> 很常见，因为测试经常需要把输入状态映射成期望值。但测试里的映射也不能太聪明；如果测试逻辑复制了生产逻辑，测试就失去验证价值。</p>
+<h4 id="41-8-counterexample-failure-mode-8c3fb0bb" class="semantic-heading semantic-example">41.8 Counterexample / Failure mode</h4>
+<h5 id="1-switch-cond-5a22d407" class="semantic-heading semantic-failure">误区 1：把 <code>SWITCH</code> 当成 <code>COND</code></h5>
+<p>错误心智：只要有多个分支，就用 <code>SWITCH</code>。</p>
+<p>修正：如果分支条件是 <code>lv_amount &gt; 0 AND lv_status = &#x27;A&#x27;</code> 这类 logical expression，应使用 <code>COND</code> 或 <code>IF</code>。</p>
+<h5 id="2-else-unknown-value-3ffaf02a" class="semantic-heading semantic-failure">误区 2：省略 <code>ELSE</code> 让 unknown value 静默通过</h5>
+<p>错误心智：没有匹配就“不返回值”。</p>
+<p>修正：ABAP 会返回 result type 的 type-specific initial value。业务字段通常要显式写 <code>ELSE</code>，至少让 unknown value 在代码中可见。</p>
+<h5 id="3-switch-790ca452" class="semantic-heading semantic-failure">误区 3：把配置型业务规则写死在 <code>SWITCH</code></h5>
+<p>错误心智：映射多一点也没关系，继续加 <code>WHEN</code>。</p>
+<p>修正：如果值来自客户配置、主数据、外部接口、权限矩阵、多语言文本或经常变化的业务规则，就应考虑 customizing table、mapping table、domain fixed values、message class 或 helper method。</p>
+<h5 id="4-dff5ba41" class="semantic-heading semantic-failure">误区 4：过度相信 <code>#</code></h5>
+<p>错误心智：<code>SWITCH #( ... )</code> 越短越现代。</p>
+<p>修正：在书稿、交付代码、review 截图、接口字段中，显式 result type 往往更可维护。短写法不是目标，可读性才是目标。</p>
+<h5 id="5-throw-c583c87b" class="semantic-heading semantic-failure">误区 5：把 <code>THROW</code> 当成普通返回值</h5>
+<p>错误心智：<code>THROW</code> 也必须能转换成 <code>string</code> 或 <code>abap_bool</code>。</p>
+<p>修正：<code>THROW</code> 是特殊 result position，用于异常路径，不是 value-producing operand。真正要 review 的是：异常类型是否合适、调用方是否处理、RAP 或 OData 场景是否应该返回业务消息。</p>
+<h4 id="41-9-ad4c5c56" class="semantic-heading semantic-practice">41.9 思考问题</h4>
+<ul>
+<li>这段 <code>SWITCH</code> 的 operand 是什么？所有分支是否都围绕同一个 operand？</li>
+<li>result type 是什么？使用 <code>#</code> 时，读者是否能看懂推断来源？</li>
+<li>如果没有任何 <code>WHEN</code> 匹配，当前代码返回 <code>ELSE</code>、抛异常，还是返回 type-specific initial value？</li>
+<li>这个 mapping 是技术常量、domain fixed value、customizing、外部接口 code list，还是业务可配置规则？</li>
+<li>如果新增一个 code value，需要改几处代码？是否应该集中到 helper method 或 mapping table？</li>
+<li>在日本项目 review 中，应该说 <code>SWITCH式</code>、<code>値マッピング</code>、<code>コード値変換</code>，还是 <code>CASE文に戻す</code>？</li>
+<li>是否需要 ABAP Unit 覆盖 normal value、unknown value、initial value 三条路径？</li>
+<li>这段逻辑在 RAP validation、OData 响应或 UI 显示中是否会影响错误处理和消息语义？</li>
+</ul>
+<h4 id="41-10-9661f9dc" class="semantic-heading semantic-reference">41.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONDITIONAL_EXPRESSION_SWITCH.html" target="_blank" rel="noopener noreferrer">SWITCH, Conditional Operator</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONDITIONAL_EXPRESSION_RESULT.html" target="_blank" rel="noopener noreferrer">COND, SWITCH, result</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONDITIONAL_EXPRESSIONS.html" target="_blank" rel="noopener noreferrer">Conditional Expressions</a></li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/05_Constructor_Expressions.md" target="_blank" rel="noopener noreferrer">ABAP Cheat Sheets - Constructor Expressions</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="41-11-connections-692e4173">41.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-040-cond-expression-4810482a.html">COND expression 条件表达式</a></li>
+<li>Related: <a class="wiki" href="section-02-038-value-expression-a0792b7e.html">VALUE expression 值构造表达式</a></li>
+<li>Related: <a class="wiki" href="section-02-037-inline-declaration-d2da10ac.html">Inline declaration 内联声明</a></li>
+<li>Related: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Downstream: <a class="wiki" href="section-02-042-reduce-expression-f12baa21.html">REDUCE expression 归约表达式</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="41-12-e4b7542f" class="semantic-heading semantic-practice">41.12 学习任务</h4>
+<ul>
+<li>写一个 <code>SWITCH string( lv_status ... )</code>，把三个状态码映射成显示文本，并显式处理 unknown value。</li>
+<li>写一个 <code>SWITCH string( lv_operator ... )</code>，把 <code>+ - * /</code> 映射成说明文本。</li>
+<li>写一个没有 <code>ELSE</code> 的 <code>SWITCH</code>，说明未匹配时的 type-specific initial value 是什么。</li>
+<li>写一个 <code>ELSE THROW zcx_...( )</code> 的示意例子，并说明调用方应该如何处理异常。</li>
+<li>把一段简单 <code>CASE</code> 改成 <code>SWITCH</code>，说明为什么它更像值映射。</li>
+<li>把一段过长 <code>SWITCH</code> 改成 mapping table 或 helper method，并说明为什么更可维护。</li>
+<li>用 ABAP Unit 覆盖 normal value、unknown value、initial value 三条路径。</li>
+<li>用 English Terms 找到 SAP Help 的 <code>SWITCH, Conditional Operator</code> 页面，并把关键句用自己的中文解释一遍。</li>
+</ul>
+<h4 id="41-13-confidence-next-action-75bf5b23" class="semantic-heading semantic-status">41.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High。内容已根据 SAP Help / ABAP Keyword Documentation 的 <code>SWITCH, Conditional Operator</code>、<code>COND, SWITCH, result</code>、<code>Conditional Expressions</code> 以及 SAP-samples constructor-expression cheat sheet 校正；已有 Joule 专节快照 <code>90-Review/joule-switch-expression-snapshot-2026-06-13.txt</code> 给出 <code>Pass with fixes</code>，本稿已纳入 <code>SWITCH</code> vs <code>COND</code> 判断标准、<code>THROW</code> 作为特殊 result position、<code>未想定値 / 未定義値</code> 定义、<code>CASE</code> 对比、显式 result type、以及映射过长时转向配置或 helper method 的修正。Claude CLI 在本轮上下文中仍存在健康检查超时/历史 credential error 记录，因此 Claude 复审作为外部 review debt 保留。</li>
+<li>Next action: 本节已同步到 Chapter 02 Section 41 和完整离线书稿；如果后续 Claude CLI 确认可用，再对 Section 41 做补充文件式 review。学习者下一步可继续 <a class="wiki" href="section-02-042-reduce-expression-f12baa21.html">REDUCE expression 归约表达式</a>，并用 ABAP Unit 固定 normal value、unknown value 和 initial value 三条路径。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-041-switch-expression-12d08ab5.html">SWITCH expression 多分支表达式</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-040-cond-expression-4810482a.html">Previous section</a><a href="section-02-042-reduce-expression-f12baa21.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

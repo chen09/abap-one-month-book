@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Date arithmetic 日期计算 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="29-date-arithmetic-01e3cadf" class="chapter-title">29. Date arithmetic 日期计算</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 29</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Date arithmetic 日期计算 是用 ABAP 正确处理“今天、到期日、有效期间、相差天数”的基础。Day 04 要先掌握 <code>TYPE d</code> 的内部格式、日期加减天数、两个日期相减得到天数、有效期判断，以及一个重要边界：月份、工作日、节假日、时区和 timestamp 不能只靠简单 <code>+ 1</code> 或字符串截取解决。</p>
+<p><strong>正文</strong></p>
+<p>SAP 项目里日期无处不在：订单日期、交货日期、有效开始日、有效结束日、价格条件期间、合同到期日、批处理基准日、测试数据日期、接口文件名日期、OData filter 日期。初学者容易把日期当成字符串，例如看到 <code>20260613</code> 就想用 substring 改月份、拼字符串、或者把今天加 30 当作“一个月后”。但 ABAP 里的 date 是一个专门的 built-in type：<code>d</code>。它看起来像 8 位字符，内部格式是 <code>YYYYMMDD</code>，但在很多计算位置里，ABAP 会把合法日期转换成从 <code>01.01.0001</code> 起算的天数来做加减。</p>
+<p>最小的日期加减先从“天”开始。SAP Learning 明确把 direct date calculation 讲成三类：给日期加天数、从日期减天数、两个日期相减得到相差天数。例子：</p>
+<pre><code class="language-abap">DATA today    TYPE d.
+DATA due_date TYPE d.
+DATA days_open TYPE i.
+
+today    = cl_abap_context_info=&gt;get_system_date( ).
+due_date = today + 7.
+days_open = today - ls_order-created_on.</code></pre>
+<p>这里 <code>today + 7</code> 表示 7 个 calendar days 之后，不是 7 个 working days。<code>today - ls_order-created_on</code> 得到的是相差天数，适合写“创建后经过几天”“是否超过 N 天未处理”这类逻辑。对 Java/Python 背景的人，可以把它类比成 date object 的 day-based arithmetic；但 ABAP 里 <code>d</code> 仍然是 character-like date field，不是 Python <code>datetime.date</code> 对象，输出格式、用户格式和 offset 访问都有 ABAP 规则。</p>
+<p>当前日期的来源也要说清楚。老代码里常见 <code>sy-datum</code>，它是系统字段，表示当前 ABAP runtime 语境里的 system date。还会看到 <code>sy-datlo</code>、<code>sy-timlo</code> 这类 user local date / user local time 字段，用来区别系统时间和用户本地时间。现代 ABAP，尤其 ABAP Cloud / BTP ABAP Environment 教材里，更推荐用 <code>cl_abap_context_info=&gt;get_system_date( )</code> 这类上下文 API 来表达“我要当前系统日期”；注意它表达的仍然是 system date，不是 user-local date。这里和前一节 <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a> 的纪律一致：<code>sy-*</code> 可以读，但不要把它当成业务时间设计的万能来源。只要需求牵涉“用户所在时区的今天”“过去 24 小时”“审计时间”，就不要只看 <code>sy-datum</code>。</p>
+<p>日期字段虽然能用 offset/length 访问年月日，但这只是读取组成部分，不是业务计算方法：</p>
+<pre><code class="language-abap">DATA valid_from TYPE d VALUE &#x27;20260601&#x27;.
+
+DATA(year)  = valid_from(4).
+DATA(month) = valid_from+4(2).
+DATA(day)   = valid_from+6(2).</code></pre>
+<p>这段代码可以用于显示、日志、简单检查或构造解释文本。不要据此写“月份 + 1”的业务逻辑。月末、闰年、不同月份天数、财政期间、客户定义日历都不是字符串截取能解决的。比如从 <code>20240831</code> 得到“下个月同一天”就不是简单把月份改成 9，因为 9 月没有 31 日。也不要用 <code>lv_date + 30</code> 假装“加一个月”：这是加 30 个 calendar days，不是 month arithmetic。遇到月份、年、月末、财务期间、账期、工厂日历，先找 SAP 提供的 date/time function、业务对象 API、配置日历或项目既有工具，而不是自己手写规则。</p>
+<p>在 ABAP Cloud / 现代 ABAP 语境里，SAP 的 XCO date/time API 会把 month-end 规则显式化，例如 preserving mode 和 ultimo mode 对 “2024-08-31 + 1 month” 的处理不同：前者保留“31 日”语义，目标月份没有 31 日时应让调用者处理异常；后者按月末语义落到 2024-09-30。这一层不是 Day 04 要背的 API，但它证明了一件事：月份/年/月末不是 raw <code>TYPE d</code> 的整数加减问题。在 ECC / on-premise 既存代码里，也可能看到 <code>CL_RECA_DATE</code> 或 <code>DATE_CONVERT_TO_FACTORYDATE</code> 这类 classic 工具；新代码尤其 ABAP Cloud 要优先确认 released API 和项目标准。</p>
+<p>有效期判断是 SAP 项目里最常见的 date arithmetic。典型逻辑是：某条记录从 <code>valid_from</code> 开始生效，到 <code>valid_to</code> 结束失效。初学者要先写清 inclusive / exclusive 边界。多数业务表字段名如果叫 “valid from / valid to”，现场常常按首尾都包含理解，但真实项目必须看字段定义和功能顾问说明：</p>
+<pre><code class="language-abap">DATA(today) = cl_abap_context_info=&gt;get_system_date( ).
+
+IF ls_price-valid_from &lt;= today
+   AND ls_price-valid_to   &gt;= today.
+  out-&gt;write( |Price is valid today| ).
+ENDIF.</code></pre>
+<p>这段代码最重要的不是语法，而是边界说明：<code>valid_to &gt;= today</code> 表示到当天仍有效。如果项目规则是“结束日当天 00:00 已失效”，写法就不同。日本项目设计书里经常会把这种条件写成 <code>有効開始日 &lt;= 基準日 &lt;= 有効終了日</code>，实现时要和设计书完全一致。</p>
+<p>还要处理 initial date。<code>TYPE d</code> 的初始值是 <code>00000000</code>（8 个 0）。它可以表示“未设置”，但它不是一个有效的日历日期。日期计算前要先检查：</p>
+<pre><code class="language-abap">IF ls_order-requested_date IS INITIAL.
+  out-&gt;write( |Requested date is missing| ).
+ELSEIF ls_order-requested_date &lt; today.
+  out-&gt;write( |Requested date is already past| ).
+ENDIF.</code></pre>
+<p>不要把 <code>00000000</code> 当成真实日期参与加减，也不要把“未设置日期”和“无限期有效”混成一个意思。很多 SAP 表会用特定高值日期表示开放结束，例如 <code>99991231</code>，但这属于具体业务字段约定，不能看到一个 date 字段就自动假设它代表无限期。教材里只建立纪律：initial date、open-ended validity、business default date 必须分开解释。</p>
+<p>working day / business calendar 是另一个边界。<code>today + 7</code> 是 calendar days；如果需求写的是 “7 営業日後” 或 “next working day”，就需要 factory calendar / holiday calendar 语义。SAP 的 factory calendar 基于 holiday calendar 定义哪些天是 working days。日本项目里，这通常牵涉公司日历、工厂、国家/地区、客户自定义休假日。Classic ABAP 里可能会遇到 <code>DATE_CONVERT_TO_FACTORYDATE</code> 这类 function module，并且 calendar ID 往往来自 plant 等主数据；ABAP Cloud / S/4HANA Cloud 场景则要确认 released API 或业务对象提供的日历能力。Day 04 不要求掌握具体 calendar API，只要求知道：不要用 <code>+ 7</code> 假装自己算了 7 个营业日，也不要自己写“周六周日跳过”就认为完整，因为日本节假日、公司假、工厂日历都会改变结果。</p>
+<p>最后，把 date 和 timestamp 分开。<code>TYPE d</code> 只表示本地日期，没有时分秒，也没有时区。跨时区的起飞/到达、UTC 记录、审计时间、接口时间戳、OData timestamp、过去 24 小时统计，都要进入 <a class="wiki" href="section-01-030-time-and-timestamp-43cc512e.html">Time and timestamp 时间戳</a>。SAP Learning 里用 <code>utclong_current( )</code>、<code>utclong_add( )</code>、<code>utclong_diff( )</code> 和 <code>CONVERT UTCLONG ... INTO DATE ... TIME ... TIME ZONE ...</code> 展示 timestamp 计算；这些不是 Day 04 日期加减的主战场，但要知道何时该升级到 timestamp。</p>
+<p>本节的最小心智模型是：如果只是“加/减 N 天、算相差天数、判断是否在有效期间内”，<code>TYPE d</code> 和直接 date arithmetic 可以胜任；如果是“月份、月末、财务期间、工作日、节假日、跨时区、UTC timestamp”，就不要手写小聪明，要找 SAP 官方函数、业务 API、配置日历或项目标准。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li>订单、价格、合同、交货、批处理、授权有效期、接口筛选都离不开日期。</li>
+<li><code>YYYYMMDD</code> 看起来像字符串，但 date arithmetic 不是普通字符串处理。</li>
+<li>有效期边界错误会导致价格误用、数据筛选漏取、测试用例不稳定、上线后按日期才暴露缺陷。</li>
+<li>calendar days 和 working days 混用，会让日本节假日、公司日历、工厂日历相关逻辑出错。</li>
+<li>Java/Python 背景学习者容易相信 date library 会自动处理所有语义；SAP 项目还要看 DDIC 字段、业务配置、factory calendar、time zone 和功能设计书。</li>
+</ul>
+<p><strong>核心机制</strong></p>
+<ul>
+<li><code>TYPE d</code>：ABAP built-in date type，内部格式 <code>YYYYMMDD</code>，表示 local date。</li>
+<li>合法日期计算：ABAP 可把合法 date 转成从 <code>01.01.0001</code> 起算的天数后做加减。</li>
+<li><code>date + n</code> / <code>date - n</code>：按 calendar days 加减。</li>
+<li><code>date1 - date2</code>：得到两个日期之间的天数差。</li>
+<li><code>cl_abap_context_info=&gt;get_system_date( )</code>：现代 ABAP 中表达当前系统日期的上下文 API。</li>
+<li><code>sy-datum</code>：老代码常见 current system date system field；能读，但不要滥用为业务时间设计。</li>
+<li><code>sy-datlo</code> / <code>sy-timlo</code>：老代码里可见的 user local date / time；如果服务器和业务用户时区不同，要先确认语义。</li>
+<li>offset/length：<code>date(4)</code>、<code>date+4(2)</code>、<code>date+6(2)</code> 可取年月日片段，但不等于月/年业务计算。</li>
+<li>month/year arithmetic：月份、年、月末要用 released API、XCO date/time API、业务 API 或项目标准，不用 <code>+ 30</code> 或 offset 手写。</li>
+<li>initial date：<code>00000000</code> 常表示未设置，不是有效日历日期；计算前要先检查。</li>
+<li>validity interval：要明确 <code>valid_from &lt;= key_date &lt;= valid_to</code> 是否首尾包含。</li>
+<li>factory calendar / holiday calendar：working day 逻辑需要日历配置、calendar ID、released API 或项目标准，不是简单跳过周末。</li>
+<li>timestamp / timezone：跨时区、UTC、审计时间进入 timestamp 主题，不用 <code>TYPE d</code> 硬算。</li>
+</ul>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>日付計算</code>、<code>基準日</code>、<code>処理日</code>、<code>システム日付</code>、<code>有効開始日</code>、<code>有効終了日</code>、<code>有効期間</code>。</li>
+<li>期限相关：<code>期限日</code>、<code>締切日</code>、<code>支払期日</code>、<code>納期</code>、<code>経過日数</code>、<code>日数差</code>。</li>
+<li>日历相关：<code>営業日</code>、<code>稼働日</code>、<code>休日カレンダー</code>、<code>ファクトリカレンダー</code>、<code>祝日考慮</code>。</li>
+<li>边界相关：<code>期間判定</code>、<code>日付範囲チェック</code>、<code>初期日付</code>、<code>月末日</code>、<code>タイムゾーン</code>、<code>UTCタイムスタンプ</code>。</li>
+<li>说明句：この判定は <code>有効開始日 &lt;= 基準日 &lt;= 有効終了日</code> の条件で有効期間内かどうかを確認します。</li>
+<li>Review 句：<code>7営業日後</code> の要件であるため、単純な日付加算ではなくファクトリカレンダーを考慮してください。</li>
+<li>Review 句：初期日付 <code>00000000</code> を日付計算に使用する前に、未設定として扱うか業務ルールを確認してください。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>date arithmetic</code></li>
+<li>Official / search term: <code>date field</code></li>
+<li>Official / search term: <code>time field</code></li>
+<li>Official / search term: <code>date calculations</code></li>
+<li>Official / search term: <code>validity of date fields</code></li>
+<li>Official / search term: <code>offset length date fields</code></li>
+<li>Official / search term: <code>cl_abap_context_info get_system_date</code></li>
+<li>Official / search term: <code>system date</code></li>
+<li>Official / search term: <code>sy-datlo sy-timlo</code></li>
+<li>Official / search term: <code>factory calendar</code></li>
+<li>Official / search term: <code>holiday calendar</code></li>
+<li>Official / search term: <code>XCO date calculation preserving ultimo</code></li>
+<li>Official / search term: <code>DATE_CONVERT_TO_FACTORYDATE</code></li>
+<li>Official / search term: <code>CL_RECA_DATE</code></li>
+<li>Official / search term: <code>DATS_ADD_DAYS</code></li>
+<li>Official / search term: <code>DATS_DAYS_BETWEEN</code></li>
+<li>Official / search term: <code>utclong_current</code></li>
+<li>Official / search term: <code>utclong_add</code></li>
+<li>Official / search term: <code>utclong_diff</code></li>
+<li>Recommended search pattern: <code>ABAP date calculations type d cl_abap_context_info SAP</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>先算到期日和经过天数：</p>
+<pre><code class="language-abap">DATA today TYPE d.
+DATA due_date TYPE d.
+DATA days_open TYPE i.
+
+today = cl_abap_context_info=&gt;get_system_date( ).
+due_date = today + 14.
+days_open = today - ls_ticket-created_on.
+
+out-&gt;write( |Due date: { due_date DATE = USER }| ).
+out-&gt;write( |Open for { days_open } days| ).</code></pre>
+<p>再判断是否在有效期间：</p>
+<pre><code class="language-abap">IF ls_condition-valid_from &lt;= today
+   AND ls_condition-valid_to   &gt;= today.
+  out-&gt;write( |Condition is valid| ).
+ELSE.
+  out-&gt;write( |Condition is not valid on { today DATE = USER }| ).
+ENDIF.</code></pre>
+<p>取年月日片段只用于观察，不用于月份计算：</p>
+<pre><code class="language-abap">DATA doc_date TYPE d VALUE &#x27;20260613&#x27;.
+
+DATA(doc_year)  = doc_date(4).
+DATA(doc_month) = doc_date+4(2).
+DATA(doc_day)   = doc_date+6(2).</code></pre>
+<p>这些例子都故意只处理 calendar day。若需求出现 <code>営業日</code>、<code>稼働日</code>、<code>月末</code>、<code>UTC</code>、<code>タイムゾーン</code>，就要进入项目日历、timestamp 或业务 API，而不是继续堆简单加减。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>用字符串拼接构造日期，例如把 <code>&#x27;20260231&#x27;</code> 当作“2 月 31 日”，直到运行或校验时才出错。</li>
+<li>把 <code>today + 30</code> 当作“下个月”：月长、月末、闰年、业务期间都会让结果不可靠。</li>
+<li>把 <code>today + 7</code> 当作“7 个营业日后”：没有考虑 factory calendar、holiday calendar、公司假日。</li>
+<li>把 initial date <code>00000000</code> 当作真实日期参与计算：未设置日期和有效日期被混在一起。</li>
+<li>有效期判断不写清边界：<code>valid_to &gt;= today</code> 和 <code>valid_to &gt; today</code> 含义不同。</li>
+<li>用 offset 修改月份或日：看起来像在处理日期，实际是在改字符。</li>
+<li>把 <code>sy-datum</code> 当作审计时间或跨时区时间戳：它不是 UTC timestamp，也不解决 user time zone。</li>
+<li>在单元测试里直接依赖“今天”：测试跨日期运行时结果变动，应该隔离基准日或注入 key date。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li><code>TYPE d</code> 为什么既像字符字段，又能参与日期加减？</li>
+<li><code>today + 7</code> 是 calendar days 还是 working days？</li>
+<li>两个 date 相减得到什么类型的结果？它适合哪些业务判断？</li>
+<li><code>00000000</code> 可以直接参与日期计算吗？为什么？</li>
+<li>有效期判断里，<code>valid_to &gt;= today</code> 和 <code>valid_to &gt; today</code> 的业务差异是什么？</li>
+<li>为什么不能用 offset/length 手写“下个月”？</li>
+<li>什么时候必须从 date arithmetic 升级到 timestamp / time zone 处理？</li>
+</ul>
+<p><strong>参考资料入口</strong></p>
+<ul>
+<li><a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/calculating-with-dates-times-and-timestamps_a393cf01-946e-487b-a690-0aab8fc49a39" target="_blank" rel="noopener noreferrer">SAP Learning - Calculating with Dates, Times, and Timestamps</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/classifying-technical-data-types-in-abap_ed59d255-3bb4-478c-b245-a1403d4252db" target="_blank" rel="noopener noreferrer">SAP Learning - Classifying Technical Data Types in ABAP</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/using-special-built-in-functions-in-abap-sql_b9611c6a-756c-43b9-a2ff-0db681000e7d" target="_blank" rel="noopener noreferrer">SAP Learning - Using Special Built-in Functions in ABAP SQL</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCHARACTER_DATE_TIME.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Date Fields and Time Fields</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/LATEST/en-US/ABENCHAR_DATE_TIME_FIELDS_VALIDITY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Validity of Date Fields and Time Fields</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenchar_date_time_fields_access.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Access to Date Fields and Time Fields</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSQL_DATS_DATE_FUNC.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - SQL Functions for DATS</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENUTCLONG_ADD.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - utclong_add</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENTIME_SYSTEM_FIELDS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - System Fields for Date and Time</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/b5670aaaa2364a29935f40b16499972d/f7cbd3c336f84dc09c85639c55b4309f.html" target="_blank" rel="noopener noreferrer">ABAP Platform - Factory Calendar</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/23_Date_and_Time.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP Cheat Sheet: Date and Time</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/29_Numeric_Operations.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP Cheat Sheet: Numeric Operations / XCO date calculation</a> (accessed 2026-06-13)</li>
+<li><a href="https://community.sap.com/t5/application-development-and-automation-blog-posts/safe-dating-in-abap/ba-p/13484565" target="_blank" rel="noopener noreferrer">SAP Community - Safe dating in ABAP</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-01-028-string-processing-6715ed4e.html">String processing 字符串处理</a></li>
+<li>Related: <a class="wiki" href="section-01-020-abap-data-object-e568a611.html">ABAP data object 数据对象</a></li>
+<li>Related: <a class="wiki" href="section-01-021-elementary-data-types-70039e9a.html">Elementary data types 基础技术类型</a></li>
+<li>Related: <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a></li>
+<li>Downstream: <a class="wiki" href="section-01-030-time-and-timestamp-43cc512e.html">Time and timestamp 时间戳</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 04 - 控制流、字符串、日期时间与 Runtime Error</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>学习任务</strong></p>
+<ul>
+<li>在 ADT 里写一个小类：用 <code>cl_abap_context_info=&gt;get_system_date( )</code> 得到今天，再计算 14 天后的 due date。</li>
+<li>写一个 <code>valid_from &lt;= today AND valid_to &gt;= today</code> 的有效期判断，并用中文说明边界是否包含结束日。</li>
+<li>用 <code>date(4)</code>、<code>date+4(2)</code>、<code>date+6(2)</code> 取出年月日，然后说明为什么不能用这种方式手写“下个月”。</li>
+<li>写 1 个日本项目 review 句子，必须包含 <code>営業日</code>、<code>ファクトリカレンダー</code> 或 <code>有効期間</code>。</li>
+<li>找 1 个 SAP 官方页面，说明 date calculation、DATS SQL function 或 factory calendar 中任意一个边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-029-date-arithmetic-d02254d5.html">Date arithmetic 日期计算</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-028-string-processing-6715ed4e.html">Previous section</a><a href="section-01-030-time-and-timestamp-43cc512e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

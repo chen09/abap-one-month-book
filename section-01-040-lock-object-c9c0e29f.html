@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Lock object 锁对象 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="40-lock-object-61cdcc27" class="chapter-title">40. Lock object 锁对象</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 40</li><li>self-contained study note</li></ul><h4 id="40-1-72bfa2e3" class="semantic-heading semantic-concept">40.1 一句话结论</h4>
+<p>Lock object 锁对象，是 ABAP Dictionary 中用于定义 SAP logical lock 的 repository object。它告诉系统：当程序要保护某张业务表或某组业务 key 时，应该按哪些 table/key fields 组成 lock argument，并通过 SAP enqueue 机制协调多个用户、事务或程序对同一业务对象的并发访问。</p>
+<p>本节要学的是：理解 lock object、enqueue server、lock entry、<code>ENQUEUE_...</code> / <code>DEQUEUE_...</code>、lock mode、SAP LUW、database LUW 和 <code>SELECT FOR UPDATE</code> 的边界。最重要的结论是：SAP enqueue lock 不是数据库锁，也不是授权、校验或提交；它是一种应用层并发控制协议，只有参与这个协议的程序才会被它保护。</p>
+<h4 id="40-2-ac8317df" class="semantic-heading semantic-concept">40.2 到底学什么</h4>
+<p>先从真实业务冲突看。两个用户同时打开同一张订单、同一条申请、同一笔预订或同一条配置记录。如果两个人都能编辑，最后谁的保存覆盖谁？如果第一个用户改了价格，第二个用户又用旧数据保存，系统是否会丢失第一个人的修改？普通数据库会在 <code>UPDATE</code> 执行的一瞬间设置 database lock，但 SAP 业务事务往往不是一条 SQL 就结束。用户可能先读数据、进入编辑画面、停留几分钟、再保存。这个过程可能跨越多个 database LUWs，因此只靠数据库锁时间太短，不足以表达“这个业务对象正在被某个用户编辑”。</p>
+<p>SAP lock concept 就是为这种业务事务设计的。程序在准备修改某个业务对象前，先发出 enqueue request。如果没有冲突，enqueue server 记录一个 lock entry；其他程序再请求同一 lock argument 时，系统会检查是否冲突。修改完成、取消或事务结束时，再通过 dequeue 或系统清理释放锁。这样多个程序之间可以通过同一把 SAP logical lock 协调，而不是各自随便更新表。</p>
+<p>Lock object 是这个机制的 DDIC 定义部分。它通常以 <code>E</code> 开头命名，例如 <code>EZXX_BOOKING</code>、<code>EZROOMXXX</code>。激活 classic lock object 后，系统会生成两个 function modules：</p>
+<pre><code class="language-text">ENQUEUE_EZXX_BOOKING
+DEQUEUE_EZXX_BOOKING</code></pre>
+<p><code>ENQUEUE_...</code> 用于请求锁，<code>DEQUEUE_...</code> 用于释放锁。这些 generated function modules 不应手工修改；真正要维护的是 lock object 定义本身。ABAP Keyword Documentation 和 SAP Help 都强调，生成模块的名字由 <code>ENQUEUE_</code> / <code>DEQUEUE_</code> 加 lock object name 组成。由于 lock object name 通常以 <code>E</code> 开头，所以项目里常会看到 <code>ENQUEUE_E...</code> 和 <code>DEQUEUE_E...</code>。</p>
+<p>一个 lock object 至少要回答三件事：</p>
+<pre><code class="language-text">保护哪张主表或哪组相关表？
+用哪些 key fields 组成 lock argument？
+使用哪种 lock mode？</code></pre>
+<p>假设要保护一张预订表 <code>zxx_booking</code>，主键是 <code>client</code> 和 <code>booking_id</code>。Lock object 可以定义为保护 <code>zxx_booking</code> 的这组 key。程序调用 <code>ENQUEUE_EZXX_BOOKING</code> 时传入 <code>client</code> 和 <code>booking_id</code>，系统就不是“锁整张表”，而是锁住这一个业务 key 所代表的对象。其他用户如果请求同一个 key 的 incompatible lock，就会收到 foreign lock / lock failure 类结果。</p>
+<p>经典 ABAP 里会看到类似这样的调用形状：</p>
+<pre><code class="language-abap">CALL FUNCTION &#x27;ENQUEUE_EZXX_BOOKING&#x27;
+  EXPORTING
+    mode_zxx_booking = &#x27;E&#x27;
+    client           = sy-mandt
+    booking_id       = lv_booking_id
+  EXCEPTIONS
+    foreign_lock     = 1
+    system_failure   = 2
+    OTHERS           = 3.
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; Another user or process already holds an incompatible lock.
+  RETURN.
+ENDIF.
+
+&quot; Read, check, change, and save the protected business object.
+
+CALL FUNCTION &#x27;DEQUEUE_EZXX_BOOKING&#x27;
+  EXPORTING
+    client     = sy-mandt
+    booking_id = lv_booking_id.</code></pre>
+<p>这个例子只是帮助读者看懂形状，不是完整生产代码。真实项目里还要考虑 update task、异常路径、message、commit/rollback、<code>_WAIT</code>、<code>_SCOPE</code>、<code>DEQUEUE_ALL</code>、错误日志和用户提示。初学阶段先抓住主线：先 enqueue，成功后修改，最后 dequeue；如果 enqueue 失败，就不要继续假装自己可以安全修改。</p>
+<p>还要区分 classic ABAP、ABAP Cloud 和 RAP。Classic on-premise 代码常直接调用 generated enqueue/dequeue function modules。ABAP Cloud 中，未 released 的 classic function module 调用可能被 ATC / cloud readiness 检查拦住，现代方式要看 released API，例如 <code>CL_ABAP_LOCK_OBJECT_FACTORY</code>。RAP 又有自己的 locking model：managed RAP business object 的锁通常由 RAP framework 处理；unmanaged RAP 或 BAPI-wrapper 场景可能需要实现 lock handler，并在正确的 RAP 事务阶段使用 released locking API。本节先建立地图，Week 3/4 会在 <a class="wiki" href="section-03-016-sap-locking-architecture-overview-d3a88b67.html">SAP Locking Architecture Overview</a> 和 <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a> 中展开。</p>
+<h4 id="40-3-3376d29a" class="semantic-heading semantic-why">40.3 为什么重要</h4>
+<p>Lock object 重要，是因为并发问题通常在开发机上不明显，却会在测试、上线和月末高峰时突然出现。单人测试时，一个保存按钮似乎永远成功；多用户同时修改时，才会看到丢失更新、覆盖修改、重复编号、状态跳变、审批记录不一致等问题。SAP 项目不只追求“代码能更新数据库”，还要保证多人同时操作时业务对象仍然一致。</p>
+<p>对 Java/Python 背景学习者，最容易误解的是“锁就是数据库锁”。在很多 Web 应用里，开发者首先想到 database transaction、row lock、<code>SELECT ... FOR UPDATE</code>、ORM optimistic locking。SAP 当然也有 database LUW 和数据库锁，但 SAP business transaction 的生命周期常常比数据库事务长。用户从进入编辑画面到保存，可能经历多个屏幕、多个 function module、update task、commit 逻辑和后台处理。SAP enqueue lock 提供的是应用层约定：大家都先问 enqueue server“这把锁能不能拿”，而不是只依赖数据库在一条 SQL 上短暂加锁。</p>
+<p>另一个容易误解的点是：lock object 不会自动保护所有数据库访问。它不是魔法，也不是数据库触发器。只有程序在合适的时机调用 enqueue 或使用 RAP 框架提供的 locking 机制，才会产生 lock entry。绕过这个机制直接 <code>UPDATE</code> 数据库表的代码，不会被 lock object 自动阻止。这也是为什么 SAP Samples 的 LUW 说明会强调 locking must be done proactively，应用实现必须检查 lock entries。</p>
+<p>日本项目里，lock object 还经常和事故调查、基盘团队和运维操作相关。用户说“保存时提示被其他用户锁定”，开发者要知道这可能是 SAP enqueue lock，而不是普通 SQL error。Basis 团队可能用 SM12 查看 lock entries，确认是否有残留锁。设计书里可能写 <code>排他制御方針</code>，说明哪个业务对象在编辑开始时 enqueue、保存/取消时 dequeue。测试书里也可能要求双用户并发测试：A 用户进入编辑，B 用户尝试同一对象，应看到锁冲突消息。</p>
+<p>最后，lock object 是连接 Week 1 DDIC、Week 2 SQL/LUW、Week 3 RAP 和 Week 4 生产排障的桥。今天先懂 classic DDIC lock object，后面才能真正理解 <a class="wiki" href="section-04-012-select-for-update-vs-sap-enqueue-17d18ae8.html">SELECT FOR UPDATE vs SAP enqueue</a>、<a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a>、<a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a> 和 RAP locking。</p>
+<h4 id="40-4-key-mechanism-3dae6943" class="semantic-heading semantic-mechanism">40.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 lock object definition。Lock object 定义在 ABAP Dictionary 中，是 repository object。它指定相关 database tables 和 key fields。一个简单 lock object 只保护一张 base table；如果业务对象分布在多张表中，也可能把相关表纳入同一 lock object，但这些表之间通常需要有清晰的 key / foreign key 关系。Lock object 定义的是“锁参数如何组成”，不是“什么时候自动上锁”。</p>
+<p>第二层机制是 generated lock modules。Classic lock object 激活后，系统生成 <code>ENQUEUE_&lt;lock object&gt;</code> 和 <code>DEQUEUE_&lt;lock object&gt;</code> function modules。它们把 lock request 发送给 enqueue server，而不是直接在数据库表上写一行记录。生成模块通常有 table key 对应参数、<code>MODE_...</code> lock mode 参数，以及一些控制参数。项目上只需要先认识常见形状；不要一开始就试图背完 <code>_WAIT</code>、<code>_SCOPE</code>、<code>_COLLECT</code>、<code>_SYNCHRON</code>。</p>
+<p>第三层机制是 enqueue server 和 lock entry。SAP locks 由 enqueue server 管理。项目里常说 <code>lock table</code>，但这里不要理解成一张可用 ABAP SQL 查询的普通数据库表；更准确地说，是 enqueue server 管理的内存中的 lock entries，可以用 SM12 等工具在 on-premise 系统中查看、检查和必要时删除。日本项目文档里如果写 <code>ロックテーブル</code>，最好补一句 <code>エンキューサーバのメモリ上のロックエントリ（SM12で確認可能）</code>，避免初学者去数据库里找表。对于 SAP BTP ABAP Environment / ABAP Cloud，不能假设有同样的 on-premise 事务码入口；要按该环境提供的监控、管理或平台工具确认 lock entry。</p>
+<p>第四层机制是 SAP lock 与 database lock 的区别。Database lock 由数据库管理，通常伴随数据库修改语句和 database LUW，commit 后释放。SAP enqueue lock 是应用层逻辑锁，可以在一个 SAP LUW 内覆盖多个 database LUWs，甚至可以锁定“理论上可能存在的 key”。也就是说，lock collision 是按 lock argument 的逻辑重叠判断，不要求对应 database row 现在一定存在。这对编号、创建新对象、防止重复创建等场景很重要。</p>
+<p>第五层机制是 lock mode。初学阶段重点记住 shared lock 和 exclusive lock。Shared lock 允许多个读者共享，但会阻止不兼容的写锁；exclusive lock 用来保护写操作，通常不允许其他事务对同一对象取得冲突锁。SAP lock concept 还包含 exclusive non-cumulative 和 optimistic lock 等模式，但要注意：DDIC lock object 章节主要讲 classic enqueue 的悲观锁思路；RAP 里的 optimistic concurrency 常通过 ETag / total ETag 等机制表达，不应把 <code>楽観ロック</code> 直接等同于 DDIC lock object。</p>
+<p>第六层机制是 collision handling。<code>ENQUEUE_...</code> 成功后，程序可以继续；失败时通常会遇到 <code>foreign_lock</code> 或 lock failure。Classic generated function module 常通过 <code>sy-subrc</code> 和 message variables 告诉调用者锁冲突；ABAP Cloud / released API 路线则可能通过 <code>cx_abap_foreign_lock</code>、<code>cx_abap_lock_failure</code> 等异常表达。无论哪种方式，都不能忽略失败结果。忽略锁失败继续保存，是并发事故的典型来源。</p>
+<p>第七层机制是 release。锁拿到以后必须释放。Classic 场景可以调用 <code>DEQUEUE_...</code>；事务结束时也可能发生 implicit <code>DEQUEUE_ALL</code>；update task 与 <code>_SCOPE</code> 会影响锁生命周期。这里先不要把 release 简化成“commit 自动解决一切”。更安全的心智模型是：程序要清楚自己什么时候拿锁、什么时候释放锁、异常路径是否释放锁、锁是否转交给 update task、用户取消或出错时是否残留。</p>
+<p>第八层机制是 ABAP Cloud / RAP 分界。ABAP Cloud 中不能随意调用 unreleased <code>ENQUEUE_...</code> / <code>DEQUEUE_...</code> function modules，应优先看 released class <code>CL_ABAP_LOCK_OBJECT_FACTORY</code>。RAP managed business object 的 lock master / lock dependent 由 RAP framework 管理较多细节；unmanaged RAP 的 lock operation 可能需要在 behavior pool 中实现 <code>FOR LOCK</code>。本节只给方向，不把 RAP locking 提前讲完。</p>
+<h4 id="40-5-e4218906" class="semantic-heading semantic-japan">40.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ロックオブジェクト</code>、<code>排他制御</code>、<code>エンキュー</code>、<code>デキュー</code>、<code>エンキューサーバ</code>、<code>ロックエントリ</code>、<code>ロックテーブル</code>、<code>共有ロック</code>、<code>排他ロック</code>、<code>悲観ロック</code>、<code>楽観ロック</code>、<code>外部ロック</code>、<code>同時更新</code>、<code>競合</code>、<code>SM12</code>、<code>ENQUEUE汎用モジュール</code>、<code>DEQUEUE汎用モジュール</code>。</li>
+<li>设计说明句：排他制御方針として、編集開始時にロックオブジェクトでエンキューし、保存または取消時にデキューします。</li>
+<li>障害调查句：オンプレミスでは SM12 で対象キーのロックエントリを確認し、残存ロックか通常の編集中ロックかを切り分けます。</li>
+<li>Review 句：この更新処理では、DBロックではなくSAPエンキューによる排他制御が必要です。</li>
+<li>RAP 句：Managed RAP の場合はフレームワークのロック制御を確認し、Unmanaged RAP の場合は <code>FOR LOCK</code> 実装と released API の利用可否を確認します。</li>
+<li>边界句：ロックオブジェクトは権限チェック、入力チェック、コミット処理の代替ではありません。</li>
+<li>术语 caveat：<code>ロックテーブル</code> と言う場合でも、通常は物理DBテーブルではなく、エンキューサーバ上のロックエントリを指すことを明記します。</li>
+<li>Cloud caveat：SAP BTP ABAP Environment では、オンプレミスの SM12 と同じ前提で説明せず、利用可能なモニタリング／管理ツールを確認します。</li>
+</ul>
+<h4 id="40-6-english-terms-9e441a28" class="semantic-heading semantic-terms">40.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>lock object</code></li>
+<li>Official / search term: <code>SAP lock</code></li>
+<li>Official / search term: <code>enqueue</code></li>
+<li>Official / search term: <code>dequeue</code></li>
+<li>Official / search term: <code>enqueue server</code></li>
+<li>Official / search term: <code>lock entry</code></li>
+<li>Official / search term: <code>lock table</code></li>
+<li>Official / search term: <code>ENQUEUE_&lt;lock object&gt;</code></li>
+<li>Official / search term: <code>DEQUEUE_&lt;lock object&gt;</code></li>
+<li>Official / search term: <code>shared lock</code></li>
+<li>Official / search term: <code>exclusive lock</code></li>
+<li>Official / search term: <code>exclusive non-cumulative lock</code></li>
+<li>Official / search term: <code>optimistic lock</code></li>
+<li>Official / search term: <code>SAP LUW</code></li>
+<li>Official / search term: <code>database LUW</code></li>
+<li>Official / search term: <code>SELECT FOR UPDATE</code></li>
+<li>Official / search term: <code>CL_ABAP_LOCK_OBJECT_FACTORY</code></li>
+<li>Official / search term: <code>cx_abap_foreign_lock</code></li>
+<li>Official / search term: <code>cx_abap_lock_failure</code></li>
+<li>Official / search term: <code>SM12</code></li>
+<li>Recommended search pattern: <code>ABAP Dictionary lock object ENQUEUE DEQUEUE SAP Help</code></li>
+<li>Recommended search pattern: <code>SAP lock concept database lock SAP LUW enqueue server</code></li>
+<li>Recommended search pattern: <code>RAP lock master FOR LOCK CL_ABAP_LOCK_OBJECT_FACTORY SAP Help</code></li>
+<li>读官方资料时优先保留英文对象名、function module 名称、class 名称、exception 名称和 RAP behavior 关键字。</li>
+</ul>
+<h4 id="40-7-example-26b2b0ee" class="semantic-heading semantic-example">40.7 Example / 学习例子</h4>
+<p>以订单编辑为例。<code>zxx_booking</code> 的主键是 <code>client</code>、<code>booking_id</code>。业务要求：同一个 booking 只能被一个用户编辑。设计时可以这样记录：</p>
+<pre><code class="language-text">Business object: Booking
+Protected table: zxx_booking
+Lock object: EZXX_BOOKING
+Lock argument: client + booking_id
+Default lock mode: E, exclusive
+Classic modules: ENQUEUE_EZXX_BOOKING / DEQUEUE_EZXX_BOOKING
+Conflict behavior: show message &quot;Currently locked by another user&quot;
+Admin check: SM12 lock entry by key
+Modern caveat: RAP managed/unmanaged locking must be checked separately</code></pre>
+<p>读 classic ABAP 代码时，可以找三段证据：</p>
+<pre><code class="language-text">1. 保存或进入编辑前，是否调用 ENQUEUE_E...
+2. 锁失败时，是否处理 foreign_lock / system_failure
+3. 保存、取消、异常或离开画面时，是否调用 DEQUEUE_E... 或有明确 release 策略</code></pre>
+<p>一个简化流程如下：</p>
+<pre><code class="language-text">User A opens Booking 1001 in edit mode.
+Program calls ENQUEUE_EZXX_BOOKING(client=100, booking_id=1001).
+Enqueue server creates a lock entry.
+User B tries to edit Booking 1001.
+Program calls the same ENQUEUE module.
+Collision check fails because User A holds an exclusive lock.
+User B receives a message and cannot edit.
+User A saves or cancels.
+Program calls DEQUEUE_EZXX_BOOKING.
+Lock entry is removed.</code></pre>
+<p>如果是 ABAP Cloud / released API 风格，代码形状会更接近：</p>
+<pre><code class="language-abap">TRY.
+    DATA(lock) = cl_abap_lock_object_factory=&gt;get_instance(
+      iv_name = &#x27;EZXX_BOOKING&#x27; ).
+
+    lock-&gt;enqueue( it_parameter = VALUE #(
+      ( name = &#x27;CLIENT&#x27;     value = REF #( sy-mandt ) )
+      ( name = &#x27;BOOKING_ID&#x27; value = REF #( lv_booking_id ) ) ) ).
+
+    &quot; Change the protected business object.
+
+    lock-&gt;dequeue( it_parameter = VALUE #(
+      ( name = &#x27;CLIENT&#x27;     value = REF #( sy-mandt ) )
+      ( name = &#x27;BOOKING_ID&#x27; value = REF #( lv_booking_id ) ) ) ).
+
+  CATCH cx_abap_foreign_lock cx_abap_lock_failure.
+    &quot; Report a lock conflict or lock-management failure.
+ENDTRY.</code></pre>
+<p>这个例子不是要求读者现在就会写 ABAP Cloud 锁代码，而是让读者看到：现代环境下不一定直接调用 generated function modules；要看 released API 和 RAP locking contract。</p>
+<p>最后做一个排错练习。用户说“我无法保存，提示对象被锁”。调查时不要马上删除 SM12 lock entry。先确认：</p>
+<pre><code class="language-text">谁持有锁？
+锁的 key 是否就是当前业务对象？
+持锁用户是否仍在编辑？
+是否存在程序异常退出导致的残留锁？
+是否有后台 job 或接口程序持锁？
+删除锁会不会让两个事务同时写入，造成数据不一致？</code></pre>
+<p>项目上手动删除锁属于高风险操作，通常要和 Basis / 业务负责人确认。</p>
+<h4 id="40-8-counterexample-failure-mode-4bf7a6b9" class="semantic-heading semantic-example">40.8 Counterexample / Failure mode</h4>
+<ul>
+<li>以为创建 lock object 就会自动锁表：lock object 只是定义，必须由程序、框架或 released API 实际请求锁。</li>
+<li>把 SAP enqueue lock 当成 database row lock：会误用 <code>SELECT FOR UPDATE</code>，忽视 SAP LUW 跨多个 database LUWs 的生命周期。</li>
+<li>把 <code>lock table</code> 当成普通数据库表：项目上看到的是 enqueue server 管理的 lock entries，可通过 SM12 等工具查看，不是让业务程序用 SQL 查询的表。</li>
+<li>忽略 enqueue 失败：<code>foreign_lock</code> / lock exception 后继续修改，等于锁没拿到还在写。</li>
+<li>忘记 release：异常、取消、返回、update task 或长事务路径没有正确释放，导致残留锁或用户长时间无法操作。</li>
+<li>锁粒度太粗：锁整张表或过大范围 key，造成大量用户互相阻塞。</li>
+<li>锁粒度太细：只锁明细行，不锁真正的业务 root，导致同一业务对象仍然被并发修改。</li>
+<li>把 lock object 当成 authorization：锁只协调并发，不判断用户有没有权限。</li>
+<li>把 lock object 当成 validation：锁不检查业务规则，不保证输入值合法。</li>
+<li>在 ABAP Cloud 中直接调用 unreleased generated function module：可能触发 ATC / cloud readiness 问题，应检查 released API。</li>
+<li>把 DDIC lock object 当成 RAP optimistic lock：RAP 的 ETag / total ETag 是另一条并发控制线，不应和 classic enqueue 混为一谈。</li>
+<li>看到 SM12 有锁就立刻删除：可能破坏正在进行的业务事务，造成更严重的数据不一致。</li>
+</ul>
+<h4 id="40-9-0ae17777" class="semantic-heading semantic-practice">40.9 思考问题</h4>
+<ul>
+<li>为什么数据库锁不足以覆盖很多 SAP 业务事务的生命周期？</li>
+<li>Lock object 定义了什么？它什么时候才真正产生 lock entry？</li>
+<li><code>ENQUEUE_E...</code> 和 <code>DEQUEUE_E...</code> 的命名从哪里来？</li>
+<li>为什么 lock object 名称通常以 <code>E</code> 开头？</li>
+<li>什么是 enqueue server？为什么 <code>lock table</code> 不应被理解成普通数据库表？</li>
+<li><code>foreign_lock</code> 或 <code>cx_abap_foreign_lock</code> 出现时，程序应该怎么处理？</li>
+<li><code>SELECT FOR UPDATE</code> 和 SAP enqueue lock 的差异是什么？</li>
+<li>什么时候锁粒度太粗？什么时候锁粒度太细？</li>
+<li>为什么 lock object 不能替代 authorization、validation 和 commit？</li>
+<li>Managed RAP、unmanaged RAP、classic ABAP 在 locking 责任上有什么差异？</li>
+<li>在日本项目中如何说明 <code>排他制御方針</code>、<code>ロックエントリ</code>、<code>SM12確認</code> 和 <code>残存ロック</code>？</li>
+</ul>
+<h4 id="40-10-68869792" class="semantic-heading semantic-reference">40.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/b5670aaaa2364a29935f40b16499972d/06d03eda843643b7a64acfb67edf521b.html" target="_blank" rel="noopener noreferrer">SAP Help - Lock Objects</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/6568469cf5a1460a8d85c58b83d21ec2/47df116e6abf296fe10000000a42189b" target="_blank" rel="noopener noreferrer">SAP Help - SAP Lock Concept</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/6568469cf5a1460a8d85c58b83d21ec2/cf21eebf446011d189700000e8322d00.html" target="_blank" rel="noopener noreferrer">SAP Help - Function Modules for Lock Requests</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENSAP_LOCK.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - SAP Locks</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/lock-definition" target="_blank" rel="noopener noreferrer">SAP Help - RAP Lock Definition</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/lock-implementation" target="_blank" rel="noopener noreferrer">SAP Help - RAP Lock Implementation</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/17_SAP_LUW.md" target="_blank" rel="noopener noreferrer">SAP Samples - SAP LUW Cheat Sheet</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="40-11-connections-0ce7e87e">40.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-01-039-search-help-5766da52.html">Search help 搜索帮助</a></li>
+<li>Downstream: <a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a></li>
+<li>Related: <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-04-012-select-for-update-vs-sap-enqueue-17d18ae8.html">SELECT FOR UPDATE vs SAP enqueue</a></li>
+<li>Related: <a class="wiki" href="section-03-016-sap-locking-architecture-overview-d3a88b67.html">SAP Locking Architecture Overview</a></li>
+<li>Related: <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a></li>
+<li>Related: <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 06 - 外键、搜索帮助与锁对象</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="40-12-dff8d136" class="semantic-heading semantic-practice">40.12 学习任务</h4>
+<ul>
+<li>用中文画出“用户 A 编辑、用户 B 冲突、A 保存后释放”的 enqueue 流程。</li>
+<li>用 5 行说明 SAP enqueue lock 和 database lock 的差异。</li>
+<li>写一段日语说明：<code>DBロックではなく、SAPエンキューによる排他制御が必要です。</code></li>
+<li>在 SAP Help 中找到 lock object 生成 <code>ENQUEUE_...</code> / <code>DEQUEUE_...</code> 的说明，并记录链接。</li>
+<li>设计一个订单或申请单场景，说明 lock argument 应该用 root key 还是 item key，并解释原因。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span>，观察 POC 中是否有 RAP lock、ETag、unmanaged lock handler 或 enqueue 证据。</li>
+</ul>
+<h4 id="40-13-confidence-next-action-188cd08e" class="semantic-heading semantic-status">40.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for classic ABAP Dictionary lock object / enqueue concepts; Medium for ABAP Cloud and RAP details because exact implementation depends on release, language version, managed/unmanaged scenario, draft mode, and released API availability. 已结合 SAP Help、ABAP Keyword Documentation、SAP Learning/RAP 帮助入口、SAP Samples 和 Joule SAP review；Claude follow-up 因当前 CLI session expired 暂缓。</li>
+<li>Next action: 同步到离线书稿；后续如果 Claude CLI 恢复，再对本节做补充复核。后续在 <a class="wiki" href="section-03-016-sap-locking-architecture-overview-d3a88b67.html">SAP Locking Architecture Overview</a> 中统一讲 DDIC lock object、<code>SELECT FOR UPDATE</code>、RAP locking、ETag 和生产排障。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-039-search-help-5766da52.html">Previous section</a><a href="section-02-001-abap-sql-overview-3115f94b.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

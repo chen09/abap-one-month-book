@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SAP LUW 逻辑事务单元 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="12-sap-luw-66a6433e" class="chapter-title">12. SAP LUW 逻辑事务单元</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 12</li><li>self-contained study note</li></ul><h4 id="12-1-58ffd09c" class="semantic-heading semantic-concept">12.1 一句话结论</h4>
+<p>SAP LUW 是 SAP 应用层的 logical unit of work，用来表达“一组业务相关的数据变更必须一起成功或一起放弃”。它不是普通数据库连接上的一段 transaction，而是把 ABAP SQL 写入、update task、transactional buffer、enqueue lock、<code>COMMIT WORK</code> / <code>ROLLBACK WORK</code>、BAPI commit pattern 和 RAP save sequence 放在同一个业务一致性边界里理解。学习重点是判断：这次业务动作从哪里开始、到哪里结束、谁有权 commit、失败时 rollback 能撤回哪些内容、哪些副作用已经不能自动撤回。</p>
+<h4 id="12-2-4559f450" class="semantic-heading semantic-concept">12.2 到底学什么</h4>
+<p>先把边界说清楚：<code>SAP LUW</code> 不等于 <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW</a>。Database LUW 是数据库层的提交/回滚边界；SAP LUW 是 AS ABAP / 应用层为了保持业务一致性组织出来的逻辑边界。一个 SAP LUW 可能包含多个 ABAP 处理步骤、update task registration、锁、校验、消息、日志、BAPI 调用或 RAP transactional buffer；最终由合适的事务 owner 决定提交或回滚。</p>
+<p>最小心智模型如下：</p>
+<pre><code class="language-text">业务动作开始
+  -&gt; 读数据、校验、权限检查、加锁
+  -&gt; 准备新增/修改/删除
+  -&gt; 注册 update task 或写入 transactional buffer
+  -&gt; 由事务 owner 统一 COMMIT / ROLLBACK
+业务动作结束</code></pre>
+<p>初学者最容易误解的是：写了 <code>INSERT</code> / <code>UPDATE</code> / <code>MODIFY</code> / <code>DELETE</code>，不代表业务已经安全完成；调用了一个 helper method，也不代表这个 helper method 有权 <code>COMMIT WORK</code>。真正要问的是“谁拥有这次 SAP LUW”。如果一个可复用方法、BAdI、RAP handler、BAPI 内部或框架回调擅自提交，就可能提前结束调用方还没有完成的业务事务。</p>
+<p>一个极简的自有 report 可能这样结束事务：</p>
+<pre><code class="language-abap">IF lv_has_error = abap_false.
+  COMMIT WORK.
+ELSE.
+  ROLLBACK WORK.
+ENDIF.</code></pre>
+<p>但这段代码只有在当前 report 拥有完整事务边界时才合理。放到通用 service class、enhancement implementation、RAP handler 或被其他程序调用的方法里，就可能成为严重缺陷。</p>
+<h4 id="12-3-57f6a6d8" class="semantic-heading semantic-why">12.3 为什么重要</h4>
+<p>SAP 项目里的写入错误，很多不是单条 SQL 写错，而是事务边界写错。比如创建订单时 header 已经提交、item 没提交；接口重试时第一次提交成功但调用方没收到响应，第二次又重复创建；BAdI 里手动 <code>COMMIT WORK</code>，后续标准程序想 rollback 已经来不及；RAP action 里直接落库，validation 失败后数据库却已经有副作用。这些问题都不是多背几个 SQL 语法能解决的。</p>
+<p>SAP LUW 的第一层价值，是把业务一致性从“数据库语句执行成功”提升到“业务动作完整成功”。一次转账不是 debit 成功就算成功，也不是 credit 成功就算成功，而是 debit 和 credit 一起构成一个一致性单元。SAP 业务对象也是一样：header、item、status、log、number range、change document、application log、output、workflow/event 等，经常需要作为一个整体设计。</p>
+<p>第二层价值，是理解 classic ABAP 为什么有 update task。经典 dynpro 或复杂业务处理可能跨多个 dialog steps 和 work processes；不能简单持有一个数据库事务等待用户几分钟。SAP 通过 update task、transactional buffer、enqueue lock 等方式，把中间状态和最终落库分开，让真正的数据库写入在合适时机集中完成。</p>
+<p>第三层价值，是判断 commit 权限。不是“我写了数据库，所以我 commit”，而是“我是否拥有完整业务事务”。批处理 report 可能拥有；单元测试 setup 可能拥有；一个被复用的保存方法通常不拥有；RAP handler 通常不拥有；BAPI 调用方通常需要按 BAPI 文档负责 <code>BAPI_TRANSACTION_COMMIT</code> / rollback。</p>
+<p>第四层价值，是排查事故。发生“部分成功”“重复提交”“锁没释放”“明明 rollback 了却还有数据”“COMMIT WORK AND WAIT 后还是读不到预期结果”等问题时，必须沿着 SAP LUW / Database LUW / update task / enqueue / RFC / background job / RAP save sequence 的边界找证据。</p>
+<h4 id="12-4-key-mechanism-1ab56012" class="semantic-heading semantic-mechanism">12.4 Key mechanism / 核心机制</h4>
+<h5 id="12-4-1-business-transaction-luw-sap-luw-9aa11a62">12.4.1 Business transaction、LUW 与 SAP LUW</h5>
+<p><code>LUW</code> 的一般意思，是 logical unit of work：从一个一致状态过渡到另一个一致状态的一段工作。它应该满足 all-or-nothing：要么所有相关变更一起提交，要么出错时一起放弃。</p>
+<p>在 AS ABAP 里，至少要区分两层：</p>
+<pre><code class="language-text">Database LUW : 数据库系统层的事务，一次 database commit / rollback 结束。
+SAP LUW      : SAP 应用层的业务一致性边界，由 COMMIT WORK / ROLLBACK WORK 等机制结束。</code></pre>
+<p>Database LUW 关注“数据库已经写入还是回滚”；SAP LUW 关注“业务动作是否作为整体完成”。如果把两者混成一个词，就会误以为一次 SAP GUI 保存、一个 BAPI 调用、一个 RAP request 或一个批处理对象只是一段普通 SQL transaction。</p>
+<h5 id="12-4-2-sap-luw-1c609fb5">12.4.2 为什么 SAP LUW 不能简单等同于数据库事务</h5>
+<p>在典型数据库应用里，一个服务方法可以打开 transaction，执行几条 SQL，然后 commit。SAP 经典应用更复杂：一个用户可能在画面上停留、多个 dialog steps 之间可能切换 work process、系统可能触发 implicit database commit、更新逻辑可能被注册到 update task，真正的业务保存可能在后面集中执行。</p>
+<p>因此，SAP 不能要求一个数据库事务长时间锁住资源等待用户操作。数据库锁通常只覆盖一个 Database LUW；而业务锁需要跨越更长的业务处理时间。这就是为什么 <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">SAP lock object</a>、enqueue lock、update task 和 SAP LUW 要一起看。</p>
+<p>可以这样理解：</p>
+<pre><code class="language-text">Database LUW 解决数据库层原子性。
+SAP LUW 解决 SAP 应用层业务一致性。
+SAP enqueue lock 解决多个入口之间的业务对象并发协调。</code></pre>
+<p>这三者互相关联，但不能互相替代。</p>
+<h5 id="12-4-3-commit-work-sap-luw-sap-luw-ffb18d6d">12.4.3 <code>COMMIT WORK</code>：结束当前 SAP LUW 并开启新的 SAP LUW</h5>
+<p><code>COMMIT WORK</code> 的核心作用，是关闭当前 SAP LUW 并打开新的 SAP LUW。它会提交当前 SAP LUW 中的变更请求，并触发相关机制，例如：</p>
+<ul>
+<li>处理已注册的 update function modules。</li>
+<li>触发当前打开数据库连接上的 database commit。</li>
+<li>结束当前 Database LUW。</li>
+<li>关闭数据库 cursor。</li>
+<li>触发系统事务状态相关事件。</li>
+</ul>
+<p>基础写法：</p>
+<pre><code class="language-abap">COMMIT WORK.</code></pre>
+<p>如果使用 update task，<code>COMMIT WORK</code> 和 <code>COMMIT WORK AND WAIT</code> 的区别很重要：</p>
+<pre><code class="language-abap">COMMIT WORK.          &quot; Starts asynchronous update processing.
+COMMIT WORK AND WAIT. &quot; Waits for the update result.</code></pre>
+<p>没有 <code>AND WAIT</code> 时，调用方不等待异步 update 完成；这不适合“提交后马上读取结果并依赖它”的场景。使用 <code>AND WAIT</code> 时，<code>sy-subrc</code> 可以反映 update function modules 是否成功；没有 <code>AND WAIT</code> 时，不要把 <code>sy-subrc = 0</code> 当成“所有后续更新已经成功落库”。</p>
+<h5 id="12-4-4-rollback-work-sap-luw-8566a3d6">12.4.4 <code>ROLLBACK WORK</code>：结束当前 SAP LUW 并放弃当前注册内容</h5>
+<p><code>ROLLBACK WORK</code> 也会关闭当前 SAP LUW 并打开新的 SAP LUW。它的作用是撤销当前 SAP LUW 中尚未提交的变更、移除当前 SAP LUW 中的相关 registrations，并触发当前打开数据库连接上的 database rollback。</p>
+<p>基础写法：</p>
+<pre><code class="language-abap">ROLLBACK WORK.</code></pre>
+<p>但要注意：rollback 只能撤回仍在当前 LUW 中、尚未提交的内容。已经在之前 <code>COMMIT WORK</code>、<code>BAPI_TRANSACTION_COMMIT</code>、update task 完成、外部系统调用、邮件发送、spool 输出、application log 持久化、background job step 或其他事务边界中完成的副作用，不能因为后面一句 <code>ROLLBACK WORK</code> 自动消失。</p>
+<p>这也是为什么“不要过早 commit”如此重要。一旦边界被提前切开，后续 rollback 只能回到上一个 commit 之后的状态。</p>
+<h5 id="12-4-5-update-task-38b4023c">12.4.5 Update task：把最终写入推迟到提交阶段</h5>
+<p>classic ABAP 里，update task 是理解 SAP LUW 的关键。程序可以先注册 update function module：</p>
+<pre><code class="language-abap">CALL FUNCTION &#x27;Z_UPDATE_ORDER_AUDIT&#x27; IN UPDATE TASK
+  EXPORTING
+    is_log = ls_log.</code></pre>
+<p>这句不是马上执行 <code>Z_UPDATE_ORDER_AUDIT</code>。它把一个更新请求登记到当前 SAP LUW。真正执行通常由后面的 <code>COMMIT WORK</code> 触发：</p>
+<pre><code class="language-abap">COMMIT WORK AND WAIT.</code></pre>
+<p>这让主程序可以先完成校验、授权、锁、状态判断和其他业务步骤，再把最终数据库修改集中处理。SAP Samples 的 SAP LUW cheat sheet 也把 update function modules、<code>CALL FUNCTION ... IN UPDATE TASK</code>、<code>COMMIT WORK</code>、synchronous update、asynchronous update、local update 放在同一个 SAP LUW 机制里说明。</p>
+<p>对初学者来说，先记住三种更新方式：</p>
+<pre><code class="language-text">Asynchronous update : COMMIT WORK 触发，调用方不等待更新完成。
+Synchronous update  : COMMIT WORK AND WAIT 触发，调用方等待更新完成。
+Local update        : SET UPDATE TASK LOCAL 后，在当前 work process 的新 internal session 中处理。</code></pre>
+<p>不要一开始陷入 update work process 的所有 Basis 细节；本节只要知道“注册”和“执行”不是同一时刻。还要补一条运行环境 caveat：classic update function module 是经典 ABAP 的重要机制；在 ABAP Cloud 中，update function module 这类经典机制不可用，<code>COMMIT WORK</code> / <code>COMMIT WORK AND WAIT</code> 的差异也不能直接按 classic update task 经验照搬。项目里讨论同步/异步更新时，要先确认运行环境是 classic ABAP、SAP S/4HANA on-premise 还是 ABAP Cloud。</p>
+<h5 id="12-4-6-database-lock-sap-lock-1fc5aeed">12.4.6 Database lock 不等于 SAP lock</h5>
+<p>ABAP SQL 修改数据库行时，数据库系统会设置数据库锁；database commit 之后这些锁会释放。问题是：一个 SAP LUW 可能涉及多个 Database LUWs，用户业务动作可能持续更长时间，单靠数据库锁不够表达“这个业务对象正在被处理”。</p>
+<p>因此，SAP 项目常用 lock object / enqueue 机制：</p>
+<pre><code class="language-text">ENQUEUE_... : 请求业务对象锁。
+DEQUEUE_... : 释放业务对象锁。</code></pre>
+<p>数据库锁自动发生，但生命周期通常短；SAP enqueue lock 要应用程序主动请求，生命周期服务于业务对象并发控制。两个程序只有都遵守同一个 lock object 协议，才能被这把锁协调。</p>
+<h5 id="12-4-7-commit-work-48d80c7c">12.4.7 <code>COMMIT WORK</code> 不是权限、校验或日志</h5>
+<p>SAP LUW 只解决事务边界，不自动替代业务检查。ABAP SQL 不会自动完成业务授权；<code>COMMIT WORK</code> 不会自动判断用户是否能修改这张表；rollback 也不会自动生成审计说明。</p>
+<p>在 classic ABAP 中，写入前仍然要考虑：</p>
+<ul>
+<li><code>AUTHORITY-CHECK</code></li>
+<li>数据状态校验</li>
+<li>enqueue lock</li>
+<li>变更文档或 application log</li>
+<li>错误消息</li>
+<li>重试和幂等设计</li>
+</ul>
+<p>在 RAP 中，要看 global authorization、instance authorization、feature control、validation、determination、lock、reported/failed messages 和 save sequence。</p>
+<h5 id="12-4-8-commit-transaction-owner-d5dd0551">12.4.8 谁拥有 commit：transaction owner</h5>
+<p>项目 review 里最关键的问题之一是：</p>
+<pre><code class="language-text">Who owns the transaction boundary?</code></pre>
+<p>可以按下面原则判断：</p>
+<pre><code class="language-text">拥有完整业务动作的外层 report / transaction / service facade：可能可以 commit。
+被多个调用方复用的 helper method / repository method：通常不应该 commit。
+BAdI / user exit / enhancement：通常不应该擅自 commit，要遵守标准程序边界。
+BAPI 调用方：按 BAPI 文档检查 RETURN 后调用 BAPI_TRANSACTION_COMMIT 或 rollback。
+RAP handler / validation / determination：通常由 RAP framework / save sequence 管理。</code></pre>
+<p>所以，下面这种代码很危险：</p>
+<pre><code class="language-abap">METHOD save_note.
+  INSERT zorder_note FROM @is_note.
+  COMMIT WORK.
+ENDMETHOD.</code></pre>
+<p>这个 method 看起来“自我完成”，实际可能提前提交调用方还没校验完的 header、item、status 或其他对象。更好的做法是让 method 返回结果，由外层事务 owner 统一 commit 或 rollback。</p>
+<h5 id="12-4-9-bapi-commit-pattern-9dfa4095">12.4.9 BAPI commit pattern</h5>
+<p>很多 BAPI 不在内部直接提交，而是让调用方在检查返回消息后显式提交或回滚：</p>
+<pre><code class="language-abap">CALL FUNCTION &#x27;BAPI_SOME_OBJECT_CREATE&#x27;
+  EXPORTING
+    ...
+  TABLES
+    return = lt_return.
+
+IF line_exists( lt_return[ type = &#x27;E&#x27; ] ).
+  CALL FUNCTION &#x27;BAPI_TRANSACTION_ROLLBACK&#x27;.
+ELSE.
+  CALL FUNCTION &#x27;BAPI_TRANSACTION_COMMIT&#x27;
+    EXPORTING
+      wait = abap_true.
+ENDIF.</code></pre>
+<p>本节不展开 BAPI 全部规范，只建立边界意识：BAPI 的事务 owner 常常是调用方；不要在 BAPI 调用链中随便插入普通 <code>COMMIT WORK</code>；也不要以为 <code>ROLLBACK WORK</code> 能撤回之前已经 commit 的 BAPI 结果。后面 <a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a> 会专门讲。</p>
+<h5 id="12-4-10-rap-eml-commit-entities-f71eb4eb">12.4.10 RAP、EML 与 <code>COMMIT ENTITIES</code></h5>
+<p>RAP 是现代 ABAP / ABAP Cloud 中最重要的事务型应用模型之一。RAP 修改通常先进入 transactional buffer；在 behavior pool 外部使用 EML 修改后，需要 <code>COMMIT ENTITIES</code> 触发 RAP 保存序列并持久化，同时返回 RAP 的 <code>FAILED</code> / <code>REPORTED</code> 信息。不要把它简化成“写完底表再 commit”，也不要用 classic <code>COMMIT WORK</code> 替代 RAP 的事务协议。</p>
+<p>因此，RAP 里不要把 classic <code>COMMIT WORK</code> 习惯直接搬进去：</p>
+<pre><code class="language-abap">MODIFY ENTITIES OF zi_sales_order
+  ENTITY SalesOrder
+  UPDATE FIELDS ( Note )
+  WITH lt_update
+  FAILED   DATA(lt_failed)
+  REPORTED DATA(lt_reported).
+
+COMMIT ENTITIES
+  RESPONSE OF zi_sales_order
+  FAILED   DATA(lt_commit_failed)
+  REPORTED DATA(lt_commit_reported).</code></pre>
+<p>在 RAP handler / saver method 中，哪些操作允许、哪些语句禁止，要遵守 RAP transactional phases 和 SAP Help 的 restrictions。比如在 modify phase 直接执行数据库修改、在 handler 中 <code>COMMIT WORK</code>，都可能违反框架事务契约。</p>
+<h4 id="12-5-30f72fa4" class="semantic-heading semantic-japan">12.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>SAP LUW</code></li>
+<li><code>データベースLUW</code></li>
+<li><code>論理作業単位</code></li>
+<li><code>トランザクション境界</code></li>
+<li><code>コミット</code></li>
+<li><code>ロールバック</code></li>
+<li><code>コミット責任</code></li>
+<li><code>更新タスク</code></li>
+<li><code>同期更新</code></li>
+<li><code>非同期更新</code></li>
+<li><code>整合性</code></li>
+<li><code>ロック</code></li>
+<li><code>保存シーケンス</code></li>
+<li><code>呼び出し元</code></li>
+</ul>
+<p>设计说明里可以这样说：</p>
+<pre><code class="language-text">この処理のコミット責任は呼び出し元にあります。</code></pre>
+<p>代码 review 里可以这样问：</p>
+<pre><code class="language-text">このメソッド内で COMMIT WORK を実行すると、呼び出し元の SAP LUW を途中で終了させる可能性があります。</code></pre>
+<p>update task 场景可以这样说：</p>
+<pre><code class="language-text">更新タスクを使用しているため、COMMIT WORK AND WAIT の要否を設計で確認してください。</code></pre>
+<p>RAP 场景可以这样说：</p>
+<pre><code class="language-text">RAP では保存シーケンスがトランザクション境界を管理するため、handler 内で直接 COMMIT WORK しないでください。</code></pre>
+<p>障害调查时可以这样说：</p>
+<pre><code class="language-text">どの時点でコミットされたか、どこまでロールバック可能かをログと更新タスクの状態から確認します。</code></pre>
+<h4 id="12-6-english-terms-2a962e70" class="semantic-heading semantic-terms">12.6 English Terms</h4>
+<ul>
+<li><code>SAP LUW</code></li>
+<li><code>database LUW</code></li>
+<li><code>logical unit of work</code></li>
+<li><code>transaction boundary</code></li>
+<li><code>transaction owner</code></li>
+<li><code>COMMIT WORK</code></li>
+<li><code>COMMIT WORK AND WAIT</code></li>
+<li><code>ROLLBACK WORK</code></li>
+<li><code>CALL FUNCTION ... IN UPDATE TASK</code></li>
+<li><code>update function module</code></li>
+<li><code>update task</code></li>
+<li><code>synchronous update</code></li>
+<li><code>asynchronous update</code></li>
+<li><code>local update</code></li>
+<li><code>SET UPDATE TASK LOCAL</code></li>
+<li><code>database commit</code></li>
+<li><code>database rollback</code></li>
+<li><code>database cursor</code></li>
+<li><code>enqueue lock</code></li>
+<li><code>lock object</code></li>
+<li><code>BAPI_TRANSACTION_COMMIT</code></li>
+<li><code>BAPI_TRANSACTION_ROLLBACK</code></li>
+<li><code>COMMIT ENTITIES</code></li>
+<li><code>RAP save sequence</code></li>
+<li><code>transactional buffer</code></li>
+<li><code>controlled SAP LUW</code></li>
+</ul>
+<p>Recommended search patterns:</p>
+<ul>
+<li><code>SAP LUW ABAP COMMIT WORK ROLLBACK WORK</code></li>
+<li><code>ABAP update task SAP LUW COMMIT WORK AND WAIT</code></li>
+<li><code>SAP LUW database LUW difference</code></li>
+<li><code>RAP transactional model SAP LUW COMMIT ENTITIES</code></li>
+<li><code>BAPI_TRANSACTION_COMMIT versus COMMIT WORK</code></li>
+</ul>
+<h4 id="12-7-example-a6c38ce8" class="semantic-heading semantic-example">12.7 Example / 学习例子</h4>
+<h5 id="12-7-1-1-report-a9edb9c4">12.7.1 例 1：当前 report 拥有事务边界</h5>
+<pre><code class="language-abap">INSERT zrequest_state FROM @ls_state.
+
+IF sy-subrc &lt;&gt; 0.
+  lv_has_error = abap_true.
+ENDIF.
+
+UPDATE zrequest_state
+   SET status = @lc_status_finished
+ WHERE request_id = @ls_state-request_id.
+
+IF sy-dbcnt &lt;&gt; 1.
+  lv_has_error = abap_true.
+ENDIF.
+
+IF lv_has_error = abap_false.
+  COMMIT WORK.
+ELSE.
+  ROLLBACK WORK.
+ENDIF.</code></pre>
+<p>这个例子只适合当前 report 确实拥有完整业务动作的场景。它不是让所有保存方法都自己 commit，而是演示外层 transaction owner 如何统一结束 SAP LUW。</p>
+<h5 id="12-7-2-2-commit-d88cf73a">12.7.2 例 2：可复用方法不应该擅自 commit</h5>
+<pre><code class="language-abap">METHOD save_state.
+  MODIFY zrequest_state FROM @is_state.
+
+  &quot; Do not COMMIT WORK here.
+  &quot; The caller owns the transaction boundary.
+ENDMETHOD.</code></pre>
+<p>调用方可能还要保存 header、item、log、message、event 或其他对象。这个方法只负责准备写入结果；是否 commit，由调用方决定。</p>
+<h5 id="12-7-3-3-update-task-1da1895c">12.7.3 例 3：update task 注册与提交</h5>
+<pre><code class="language-abap">CALL FUNCTION &#x27;Z_UPDATE_REQUEST_LOG&#x27; IN UPDATE TASK
+  EXPORTING
+    is_log = ls_log.
+
+IF lv_has_error = abap_false.
+  COMMIT WORK AND WAIT.
+ELSE.
+  ROLLBACK WORK.
+ENDIF.</code></pre>
+<p>这里 <code>CALL FUNCTION ... IN UPDATE TASK</code> 是登记，<code>COMMIT WORK AND WAIT</code> 才触发并等待更新处理。读取后续结果前是否必须等待，要由业务需求决定。</p>
+<h5 id="12-7-4-4-rap-eml-3f81bbcf">12.7.4 例 4：RAP 外部 EML 的提交</h5>
+<pre><code class="language-abap">MODIFY ENTITIES OF zi_request
+  ENTITY Request
+  UPDATE FIELDS ( Status )
+  WITH lt_update
+  FAILED   DATA(lt_failed)
+  REPORTED DATA(lt_reported).
+
+IF lt_failed IS INITIAL.
+  COMMIT ENTITIES
+    RESPONSE OF zi_request
+    FAILED   DATA(lt_commit_failed)
+    REPORTED DATA(lt_commit_reported).
+ENDIF.</code></pre>
+<p>这不是 classic <code>COMMIT WORK</code> 习惯的简单替代，而是 RAP transactional model 的入口。RAP handler 内部还要遵守 framework 管理的 save sequence。</p>
+<h4 id="12-8-counterexample-failure-mode-b7102f9c" class="semantic-heading semantic-example">12.8 Counterexample / Failure mode</h4>
+<p>失败模式一：在 helper method 里随手 <code>COMMIT WORK</code>。这会提前提交调用方还没完成的业务动作。</p>
+<p>失败模式二：在 BAdI / user exit / enhancement 里 commit。标准程序后续如果需要 rollback，你的变更可能已经无法撤回。</p>
+<p>失败模式三：以为 <code>INSERT</code> / <code>UPDATE</code> 成功就等于业务完成。写入语句成功只是当前处理的一步，是否最终提交还要看 SAP LUW。</p>
+<p>失败模式四：以为 <code>ROLLBACK WORK</code> 能撤回所有历史副作用。已经 commit 的数据、外部系统调用、邮件、spool、某些日志或 background job 副作用，未必能自动撤回。</p>
+<p>失败模式五：update task 后马上读数据，却没有考虑 <code>COMMIT WORK</code> 与 <code>COMMIT WORK AND WAIT</code> 的差异。异步更新还没完成时，读到的结果可能不是预期。</p>
+<p>失败模式六：只依赖数据库锁。database lock 生命周期通常短，不能替代跨业务步骤的 SAP enqueue lock。</p>
+<p>失败模式七：在 RAP handler 中直接 <code>COMMIT WORK</code> 或直接数据库修改。RAP 有自己的 transactional phases、buffer、authorization、validation、reported/failed message 和 save sequence。</p>
+<p>失败模式八：在循环里每处理一行就 commit。这样会制造部分成功，失败后无法整体 rollback；批处理应明确 batch size、checkpoint、日志和重试策略。</p>
+<h4 id="12-9-2f5b9e57" class="semantic-heading semantic-practice">12.9 思考问题</h4>
+<ul>
+<li>这段代码是否拥有完整业务事务边界？</li>
+<li>如果这里 commit，调用方还有没有未完成的校验或写入？</li>
+<li>如果后续失败，rollback 能撤回哪些内容？哪些内容已经不能撤回？</li>
+<li>是否使用 update task？调用方需要 <code>COMMIT WORK</code> 还是 <code>COMMIT WORK AND WAIT</code>？</li>
+<li>是否需要 SAP enqueue lock 来覆盖整个业务处理时间？</li>
+<li>这个写入是在 classic ABAP report、BAdI、BAPI 调用链、RAP handler，还是 RAP 外部 EML 程序里？</li>
+<li>如果是 BAPI，是否应该由调用方检查 <code>RETURN</code> 后调用 <code>BAPI_TRANSACTION_COMMIT</code> / rollback？</li>
+<li>如果是 RAP，是否应该用 <code>COMMIT ENTITIES</code> 或让 framework save sequence 管理？</li>
+<li>是否有 application log、变更文档、幂等键和重试设计来支持失败排查？</li>
+</ul>
+<h4 id="12-10-d8b7b4f9" class="semantic-heading semantic-reference">12.10 参考资料入口</h4>
+<ul>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/17_SAP_LUW.md" target="_blank" rel="noopener noreferrer">SAP LUW Cheat Sheet</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENSAP_LUW.html" target="_blank" rel="noopener noreferrer">SAP LUW</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT.html" target="_blank" rel="noopener noreferrer">COMMIT WORK</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPROLLBACK.html" target="_blank" rel="noopener noreferrer">ROLLBACK WORK</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCONTROLLING_SAP_LUW.html" target="_blank" rel="noopener noreferrer">Controlled SAP LUW</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPINVALID_STMTS_IN_RAP_METHODS.html" target="_blank" rel="noopener noreferrer">Restrictions in RAP Handler and Saver Methods</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapmodify_entity_entities.html" target="_blank" rel="noopener noreferrer">MODIFY ENTITY, ENTITIES</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT_ENTITIES.html" target="_blank" rel="noopener noreferrer">COMMIT ENTITIES</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/SUPPORT_CONTENT/abap/3353526184.html" target="_blank" rel="noopener noreferrer">BAPI_TRANSACTION_COMMIT versus COMMIT WORK</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="12-11-connections-bb9aa9fc">12.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-02-011-modify-statement-e9a9a916.html">MODIFY statement 修改语义</a></li>
+<li>Related: <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a></li>
+<li>Related: <a class="wiki" href="section-02-014-sap-transaction-boundary-and-luw-model-3b5ad622.html">SAP Transaction Boundary and LUW Model</a></li>
+<li>Related: <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a></li>
+<li>Related: <a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Related: <a class="wiki" href="section-03-036-rap-save-modified-implementation-84f70d3a.html">RAP save_modified implementation</a></li>
+<li>Related: <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a></li>
+<li>Downstream: <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 09 - ABAP SQL 写入、聚合与事务</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="12-12-a3476f8c" class="semantic-heading semantic-practice">12.12 学习任务</h4>
+<ul>
+<li>用 8 行中文解释 SAP LUW 与 Database LUW 的差异。</li>
+<li>写一句日语 review 说明：<code>この処理のコミット責任は呼び出し元にあります。</code></li>
+<li>找一个你前面写过的 <code>INSERT</code> / <code>UPDATE</code> / <code>MODIFY</code> 示例，标出谁负责 commit 或 rollback。</li>
+<li>写一个反例：为什么 helper method 里不应该随手 <code>COMMIT WORK</code>。</li>
+<li>用自己的话解释 <code>COMMIT WORK</code> 与 <code>COMMIT WORK AND WAIT</code> 对 update task 的差异。</li>
+<li>对照 RAP 章节，说明 <code>COMMIT WORK</code> 与 <code>COMMIT ENTITIES</code> 的边界。</li>
+</ul>
+<h4 id="12-13-confidence-next-action-6ed8f821" class="semantic-heading semantic-status">12.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。核心概念已用 SAP Help / ABAP Keyword Documentation、SAP Samples SAP LUW cheat sheet、RAP restrictions 与 <code>COMMIT ENTITIES</code> 官方资料复核；旧 Claude 记录为 timeout，旧 Joule 记录为通用 UI 错误，本轮已创建 follow-up prompt，等待外部工具恢复后可补审。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a>，把 SAP LUW 的应用层边界和 database commit / rollback 的底层边界拆开对照。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-011-modify-statement-e9a9a916.html">Previous section</a><a href="section-02-013-database-luw-f6a232eb.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

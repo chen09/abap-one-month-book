@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Read Access Logging 读取访问日志 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="15-read-access-logging-b054cf9a" class="chapter-title">15. Read Access Logging 读取访问日志</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 15</li><li>self-contained study note</li></ul><h4 id="15-1-ba1b3fa6" class="semantic-heading semantic-concept">15.1 一句话结论</h4>
+<p>Read Access Logging 读取访问日志 是 SAP 用来记录敏感数据“被读取”这一事实的合规证据；在本教程里要学的是：它和 <a class="wiki" href="section-04-014-security-audit-log-d91a6c87.html">Security Audit Log 安全审计日志</a>、<a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 不同，重点不是业务处理是否成功，而是谁在什么时候通过什么入口看到了哪些受保护数据。</p>
+<p>很多初学者会以为“只读数据没有改动，所以风险小”。在企业系统里，这个判断不成立。工资、个人身份信息、银行账号、客户隐私、医疗信息、供应商敏感资料、价格条件、财务明细等数据，即使没有被修改，只要被不该看的人读取，就可能构成合规风险。Read Access Logging 的价值就在这里：它为“读取行为”留下证据。</p>
+<p>本节可以把 Read Access Logging 理解为 sensitive data read audit。授权控制回答“是否允许读取”；Security Audit Log 回答“是否发生安全事件”；Application Log 回答“业务处理过程怎样”；Read Access Logging 回答“受保护数据是否被读取、由谁读取、通过哪个通道读取”。这四者经常在同一个事故中相关，但职责不同。</p>
+<p>初学者可以用一个非常朴素的判断来记：如果某个功能让用户“看见了不该随便看的信息”，就不能只按普通报表或普通 API 来设计。即使没有 <code>UPDATE</code>、没有 <code>COMMIT WORK</code>、没有业务凭证变化，读取本身也可能需要受控和留痕。Read Access Logging 的学习重点，正是把“只读”从低风险直觉中拿出来，放回合规、隐私和审计语境里看。</p>
+<p>例如，一个 HR 报表只显示员工姓名、部门、工资等级和银行账号后四位；一个客户服务 OData API 返回客户邮箱、电话、地址；一个财务查询服务返回供应商银行信息。开发者可能觉得这些只是 <code>SELECT</code> 结果，但客户的安全团队会问：这些字段是不是个人信息或敏感信息？谁可以看？是否可以下载？是否需要记录访问？日志保留多久？谁可以查看日志？这些问题不是代码细节，而是生产系统的控制要求。</p>
+<h4 id="15-2-f3791d7f" class="semantic-heading semantic-concept">15.2 到底学什么</h4>
+<p>第一，要学 RAL 的边界。Read Access Logging 不是普通技术日志，不是错误消息，也不是接口运行日志。它的核心对象是敏感数据读取访问。一个用户打开客户主数据画面、一个报表导出员工信息、一个 OData 服务返回个人字段、一个 RFC 被外部系统调用并读出受保护字段，都可能进入读取访问审计的讨论范围。</p>
+<p>第二，要学“读取”本身为什么需要审计。传统 ABAP 学习常把重点放在 <code>SELECT</code>、权限检查、更新和提交上，容易忽略只读场景。现实项目中，隐私、个人信息保护、内部审计和客户合规要求会问：谁看过这些数据？什么时候看？通过哪个应用、服务或报表看？是否有业务理由？能不能追踪导出或外部传输？这些问题不是靠业务日志随便写两行就能解决的。</p>
+<p>第三，要学 RAL 和授权的关系。授权是事前控制，RAL 是事后证据。用户有权限读取，不代表读取行为不需要审计；用户没有权限读取，应该先由 <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a>、DCL、RAP authorization、角色配置等机制阻止。RAL 不应该被设计成权限控制的替代品。</p>
+<p>第四，要理解 ABAP 开发者的责任。开发者通常不单独决定全系统 RAL 配置，但在设计 CDS、OData、报表、接口、批量导出和日志字段时，要识别是否涉及个人信息或敏感字段，并和安全/合规/Basis/功能顾问确认是否需要 RAL、脱敏、字段屏蔽、授权限制或导出控制。</p>
+<p>第五，要学最小化原则。敏感数据不应该因为“以后也许有用”就出现在报表、API、日志或导出文件里。能不返回就不返回；必须返回时，确认字段级授权、显示格式、脱敏、导出限制和读取审计。RAL 不是给过度暴露兜底，而是对必要读取留下合规证据。</p>
+<p>第六，要学日志本身也是数据。读取访问日志通常应该证明“发生过访问”，但不应无节制保存完整敏感值。否则审计日志会变成另一个高风险数据源。设计时要同时问：记录哪些字段、保留多久、谁能查看、如何防止日志被滥用。</p>
+<h4 id="15-3-cca0b409" class="semantic-heading semantic-why">15.3 为什么重要</h4>
+<p>Read Access Logging 重要，是因为企业系统中的“查看”也可能是风险。一次错误的修改可以从变更记录和业务凭证中发现；一次不该发生的读取，如果没有审计证据，事后可能完全无法证明。对于 GDPR、个人信息保护、内部合规、客户隐私和集团审计来说，这一点尤其关键。</p>
+<p>对 SAP 项目交付而言，RAL 影响的不只是安全团队，也影响开发设计。一个报表如果能按任意条件导出大量个人数据，那么它不只是一个 ALV 或 Fiori 列表，而是一个敏感数据访问入口。一个 OData 服务如果把身份证号、手机号、银行账号和工资字段一起暴露给前端，就需要考虑授权、字段最小化、日志、缓存、导出和前端展示。</p>
+<p>对 Java/Python 背景学习者来说，可以把 RAL 类比为合规审计中的 data access audit，但 SAP 场景往往和业务对象、角色、服务、报表、client、用户主数据、系统配置结合更紧。开发者需要从“代码能查出来”转向“这个字段是否应该被查出来、被谁查、被记录到哪里”。</p>
+<p>在项目验收中，RAL 常常不是由 ABAP 开发者单独签字，但 ABAP 开发者必须提供输入：哪些自开发对象读取敏感字段，哪些字段会通过 CDS/OData/Fiori/report/RFC 暴露，哪些地方支持下载，哪些日志可能包含 payload。没有这些信息，安全团队很难判断配置范围；有了这些信息，RAL 才能和 authorization、masking、monitoring、retention policy 一起形成控制链。</p>
+<p>尤其在日本项目里，个人信息保护、内部审计和客户安全审查会把“閲覧できること”和“閲覧したこと”分开看。前者是权限，后者是证迹。一个人有权限看工资信息，并不意味着系统不需要记录他什么时候看过。反过来，一个人没有权限，就应该被授权机制挡住，而不是让他先看到、再靠 RAL 事后追责。</p>
+<h4 id="15-4-key-mechanism-6f2207c2" class="semantic-heading semantic-mechanism">15.4 Key mechanism / 核心机制</h4>
+<p>Read Access Logging 的核心机制可以概括为：先定义哪些数据和访问路径需要审计，再在运行时记录符合条件的读取访问。具体配置方式会因 SAP 版本、部署模式和客户策略不同而变化，但概念上通常包括三个要素：被保护的数据、访问通道、记录内容。</p>
+<p>被保护的数据，是指需要审计的字段或数据类别。例如个人姓名、地址、电话、邮箱、身份证件、银行账号、工资、医疗信息、客户隐私字段、供应商敏感字段等。项目中不能只按表名粗略判断，因为一个表里可能只有部分字段敏感，也可能一个 CDS/OData 服务把多个来源字段组合后产生新的敏感视图。</p>
+<p>访问通道，是指用户或系统通过什么路径读取数据。常见入口包括 SAP GUI 事务、报表、CDS view、OData 服务、Fiori app、RFC、接口、批量导出、打印或下载。对 ABAP 开发者来说，尤其要注意自开发报表和自开发服务：这些对象常常绕过标准应用的成熟控制，如果设计时没有合规意识，就容易成为敏感数据泄漏入口。</p>
+<p>记录内容，通常围绕用户、client、时间、应用/服务/报表、被访问对象、字段或数据类别、访问条件、调用来源等展开。并不是所有项目都会记录完整业务数据值；出于最小披露原则，日志本身也要避免变成另一个敏感数据仓库。记录“谁访问了哪类数据”与记录“完整敏感值”是两件不同的事。</p>
+<p>RAL 还要和 <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a> 配合。授权控制应尽量限制谁能访问敏感数据；RAL 则在允许访问或需要追踪的访问上留下证据。不能因为配置了 RAL，就放宽授权；也不能因为有授权，就忽略合规审计。</p>
+<p>上面的三个要素说明“RAL 要审计什么”；下面的五步则把这三个要素展开成项目设计时的检查顺序。</p>
+<p>第一步，识别敏感字段。不要只看表名，要看字段含义。例如姓名、电话、邮箱、地址、身份证件、银行账号、工资、健康信息、合同价格、客户联系人、供应商银行信息都可能触发讨论。字段是否敏感最终要由客户安全/合规规则确认。</p>
+<p>第二步，识别访问对象。字段可能从 transparent table、CDS view、projection view、OData service、Fiori app、report、RFC/BAPI wrapper、download function 或 background export 流出。一个底层字段被多个 CDS view 复用时，审计范围要看实际消费路径。</p>
+<p>第三步，识别访问主体。谁读？dialog user、communication user、background user、RFC user、middleware technical user 都可能读。技术用户尤其要小心，因为它可能代表多个外部业务用户，日志中如果只看到一个 technical user，后续追责会困难。</p>
+<p>第四步，确定记录粒度。项目要决定记录用户、时间、client、入口、对象、字段类别、选择条件、调用来源、请求 ID，还是更细的业务 key。粒度太粗，审计时没法判断；粒度太细，日志本身可能泄漏数据。</p>
+<p>第五步，确认保留与查看权限。读取访问日志不是谁都能看。日志保留期间、删除策略、查看角色、导出限制和审计流程，都要符合客户规则。ABAP 开发者至少要知道：不能随便把敏感值写进普通 application log 或 error message。</p>
+<p>一个实用的设计审查表可以这样写：</p>
+<div class="table-wrap"><table><thead><tr><th>问题</th><th>设计时要确认</th></tr></thead><tbody><tr><td>是否涉及个人/敏感数据</td><td>字段清单、数据分类、客户合规定义</td></tr><tr><td>通过哪些入口读取</td><td>SAP GUI、report、CDS/OData、Fiori、RFC、download</td></tr><tr><td>谁会读取</td><td>dialog user、technical user、role、外部系统</td></tr><tr><td>是否已经最小化</td><td>不必要字段删除、脱敏、字段级显示控制</td></tr><tr><td>是否需要 RAL</td><td>安全/合规/Basis 确认配置范围</td></tr><tr><td>日志记录什么</td><td>用户、时间、入口、对象/字段类别、请求 ID</td></tr><tr><td>日志不能记录什么</td><td>完整身份证、银行账号、工资、token、payload</td></tr><tr><td>如何验收</td><td>测试用户、读取动作、RAL 证据、日志查看权限</td></tr></tbody></table></div>
+<h4 id="15-5-9a14b3c5" class="semantic-heading semantic-japan">15.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>Read Access Logging</code>、<code>読み取りアクセスログ</code>、<code>アクセスログ</code>、<code>個人情報</code>、<code>機微情報</code>、<code>監査証跡</code>、<code>閲覧履歴</code>、<code>参照履歴</code>、<code>データ保護</code>、<code>証跡管理</code>。</p>
+<p>设计说明中可以这样说：</p>
+<ul>
+<li>本機能では、個人情報を含む項目を参照するため、読み取りアクセスログの対象要否を確認します。</li>
+<li>権限チェックは事前制御であり、Read Access Logging は参照実績の証跡として位置付けます。</li>
+<li>ログ自体に機微情報を過剰に保持しないよう、記録項目と保持期間をセキュリティ担当と確認します。</li>
+</ul>
+<p>审计或障碍调查时可以这样问：</p>
+<ul>
+<li>該当ユーザが対象期間に個人情報を参照した証跡はありますか。</li>
+<li>どのアプリケーションまたはサービス経由で参照されましたか。</li>
+<li>業務上必要な参照か、過剰な参照かを判断するための条件を確認できますか。</li>
+</ul>
+<p>设计 review 中还可以这样说：</p>
+<ul>
+<li>本APIは個人情報を返却するため、返却項目の最小化、権限制御、読み取りアクセスログ対象要否を確認します。</li>
+<li>通信ユーザ経由の参照については、実利用者またはリクエストIDを追跡できる設計にします。</li>
+<li>アプリケーションログには、個人情報の値そのものではなく、追跡に必要なIDとメッセージコードのみを記録します。</li>
+<li>RALの対象範囲、保持期間、参照権限は、セキュリティ担当および運用担当と合意します。</li>
+</ul>
+<p>现场切分时要注意日语表达的差异：<code>監査ログ</code> 是广义审计日志，<code>セキュリティ監査ログ</code> 更偏安全事件，<code>業務ログ</code> 更偏业务处理过程，<code>読み取りアクセスログ</code> 更聚焦敏感数据读取事实。不要把所有日志都叫 <code>ログ</code> 后就结束说明。</p>
+<h4 id="15-6-english-terms-4e741cc0" class="semantic-heading semantic-terms">15.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Read Access Logging</code>, <code>RAL</code>, <code>SAP Read Access Logging</code>, <code>sensitive data access logging</code>.</li>
+<li>Related terms: <code>personal data</code>, <code>sensitive data</code>, <code>data privacy</code>, <code>audit trail</code>, <code>read access</code>, <code>access log</code>, <code>data protection</code>, <code>field-level access</code>.</li>
+<li>Common search terms in SAP contexts: <code>Read Access Logging configuration</code>, <code>Read Access Logging OData</code>, <code>Read Access Logging CDS</code>, <code>Read Access Logging ABAP</code>.</li>
+<li>Recommended search pattern: <code>SAP Help Read Access Logging</code>, <code>SAP Read Access Logging RAL</code>, <code>SAP data privacy read access logging</code>.</li>
+</ul>
+<h4 id="15-7-example-22bf49a0" class="semantic-heading semantic-example">15.7 Example / 学习例子</h4>
+<p>设想一个自开发员工信息查询报表。报表输入公司代码、部门和日期范围，输出员工姓名、邮箱、手机号、银行账号和工资相关字段。功能上它只是一个 <code>SELECT</code> 加列表展示，但从合规角度看，它是一个敏感数据读取入口。</p>
+<p>设计时至少要问：</p>
+<ul>
+<li>哪些字段是个人信息或敏感信息？</li>
+<li>哪些角色可以查看这些字段？</li>
+<li>是否需要字段级隐藏、脱敏或只显示后四位？</li>
+<li>是否允许下载到 Excel？</li>
+<li>用户读取这些字段时，是否需要留下 Read Access Logging 证据？</li>
+<li>如果有人一次性查询大量员工数据，是否需要额外审批或监控？</li>
+</ul>
+<p>如果这个报表只是写 Application Log：“用户执行了报表”，证据是不够的。Application Log 可能说明报表运行成功，但不能充分回答“用户是否读取了敏感字段”。Security Audit Log 可能记录某些安全事件，但也不一定说明具体敏感数据读取范围。Read Access Logging 的位置，就是把敏感数据读取作为独立审计对象。</p>
+<p>再看 AC0567C 的 API 场景。如果某个 OData 服务返回客户联系人姓名、电话、邮箱和银行信息，那么项目不应只验证服务返回 200，也不应只看业务错误消息。还要确认服务暴露的字段是否最小化、调用用户是否具备授权、读取访问是否需要审计、日志中是否避免保存完整敏感值。</p>
+<p>可以把 AC0567C 的读取访问审查写成一个小矩阵：</p>
+<div class="table-wrap"><table><thead><tr><th>API / 画面</th><th>可能返回的敏感字段</th><th>风险</th><th>设计动作</th></tr></thead><tbody><tr><td>batch status query</td><td>上传者、客户联系人、错误明细</td><td>查询者看到他人数据</td><td>instance authorization / DCL / 字段最小化</td></tr><tr><td>error detail download</td><td>原始 payload、个人字段、银行字段</td><td>下载后扩散</td><td>下载权限、脱敏、审计证据</td></tr><tr><td>operation log view</td><td>message、request id、payload fragment</td><td>log 中泄漏敏感值</td><td>只保存 trace id 和 message code</td></tr><tr><td>external OData read</td><td>customer contact / email / phone</td><td>技术用户批量读取</td><td>communication user 范围、request trace、RAL 确认</td></tr></tbody></table></div>
+<p>再看一个错误写法。下面两段是说明用的日志记录示例，不是 ABAP 语法：</p>
+<pre><code class="language-text">Application Log:
+  User X read customer bank account 1234-5678-9012 for customer C100.</code></pre>
+<p>这看似证据充分，实际可能把完整敏感值写进普通业务日志。更好的方向是：</p>
+<pre><code class="language-text">Application Log:
+  Sensitive customer payment data was requested.
+  request_id = REQ-20260616-001
+  service = ZUI_AC0567C_STATUS
+  message = AC0567C_SEC_010</code></pre>
+<p>是否读取、读取范围和审计详情，应交给合规设计中的 RAL / audit evidence 处理；业务日志只保留排障所需、且不会扩大泄漏面的最小信息。</p>
+<p>测试时，不要只验证“字段能显示”。还要验证：</p>
+<ul>
+<li>无权限用户看不到敏感字段。</li>
+<li>有权限用户可以看到必要字段，但不多返回额外字段。</li>
+<li>下载/导出是否受控。</li>
+<li>Application Log / error response 没有完整敏感值。</li>
+<li>如项目要求 RAL，读取动作后能找到对应审计证据。</li>
+<li>技术用户调用时，能否追到业务请求来源。</li>
+</ul>
+<h4 id="15-8-counterexample-failure-mode-3654cb2d" class="semantic-heading semantic-example">15.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十类。</p>
+<p>第一，把 RAL 当成普通访问统计。Read Access Logging 不是为了做页面 PV 或性能分析，而是为了合规和审计。把它和普通操作日志混用，会让审计证据不可用。</p>
+<p>第二，认为“有权限就不需要记录”。权限允许访问，只说明访问被授权；合规上仍可能要求记录谁实际访问了敏感数据。尤其是管理员、共享服务中心、HR、财务等角色，即使有合法权限，也常常需要更强的审计证据。</p>
+<p>第三，在业务日志中记录完整敏感数据。为了排障，把身份证号、银行账号、工资、token、完整 payload 写入 Application Log 或错误消息，会造成二次泄漏。读取访问审计应该遵循最小披露原则。</p>
+<p>第四，自开发对象绕开标准控制。标准 SAP 应用可能已有成熟授权、屏蔽和日志设计，但一个自开发报表、CDS、OData 或 RFC 如果直接读表并导出敏感字段，就可能破坏整个控制链。</p>
+<p>第五，只在上线后补合规。RAL、脱敏、授权、导出控制、保留期限和审计权限都需要设计阶段确认。上线前才发现敏感字段无控制，往往会导致返工。</p>
+<p>第六，把 RAL 当成开发者随手写日志。RAL 是产品/平台能力和合规配置，不是开发者在代码里 <code>WRITE</code> 或 <code>BAL_LOG_MSG_ADD</code> 几行就能等价实现的东西。自制日志可以辅助排障，但不能冒充合规审计。</p>
+<p>第七，忽略 technical user 的追踪问题。外部系统用一个通信用户批量读取数据时，如果没有 request id、source system、业务用户或业务目的，日志只能看到一个技术用户，很难回答“实际是谁触发的读取”。</p>
+<p>第八，忘记缓存和下载。即使 SAP 侧有读取证据，前端缓存、Excel 下载、接口中间层落盘、第三方系统复制也可能造成后续扩散。设计时至少要标明 SAP 控制边界和外部系统责任。</p>
+<p>第九，把字段隐藏当成审计。字段不显示可以减少暴露，但不能说明谁访问过已显示的数据；读取审计和显示控制是互补关系。</p>
+<p>第十，测试环境和生产环境差异没说明。合规日志在 DEV/QAS/PRD 的配置、保留、查看权限可能不同，测试 evidence 要说明在哪个环境验证，不能简单假设生产同样开启。</p>
+<h4 id="15-9-de455251" class="semantic-heading semantic-practice">15.9 思考问题</h4>
+<ul>
+<li>如果一个报表只读取不修改个人信息，为什么仍然可能需要 Read Access Logging？</li>
+<li>Security Audit Log 和 Read Access Logging 都叫审计证据，它们关注点有什么不同？</li>
+<li>Application Log 中为什么不应该保存完整个人信息或 token？</li>
+<li>自开发 OData 服务返回客户敏感字段时，开发者需要和安全/合规团队确认哪些事项？</li>
+<li>在日本项目里，<code>読み取りアクセスログ</code>、<code>監査ログ</code>、<code>業務ログ</code> 分别应该怎么使用？</li>
+</ul>
+<h4 id="15-10-b7d4be70" class="semantic-heading semantic-reference">15.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>SAP Help Portal: search <code>Read Access Logging</code>, <code>RAL</code>, <code>sensitive data access logging</code>.</li>
+<li>SAP Help Portal: search target-release documentation for RAL configuration and supported channels.</li>
+<li>SAP Learning: search <code>data privacy</code>, <code>SAP authorization</code>, <code>SAP security audit</code>, <code>Read Access Logging</code>.</li>
+<li><a href="https://help.sap.com/docs/search?q=Read%20Access%20Logging" target="_blank" rel="noopener noreferrer">SAP Help search - Read Access Logging</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20data%20privacy" target="_blank" rel="noopener noreferrer">SAP Help search - SAP data privacy</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Security%20Audit%20Log" target="_blank" rel="noopener noreferrer">SAP Help search - Security Audit Log</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Application%20Log%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - Application Log ABAP</a></li>
+</ul>
+<h4 id="15-11-connections-dd0b04d8">15.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-014-security-audit-log-d91a6c87.html">Security Audit Log 安全审计日志</a></li>
+<li>Downstream: <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 24 - 错误消息、应用日志与审计日志</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="15-12-a559b6a2" class="semantic-heading semantic-practice">15.12 学习任务</h4>
+<ul>
+<li>选一个自开发报表或 API，列出其中可能属于个人信息或敏感信息的字段。</li>
+<li>用中文说明授权控制、Security Audit Log、Read Access Logging、Application Log 的差异。</li>
+<li>写 2 句日语现场表达：一句询问是否需要读取访问日志，一句说明日志中不应保存过多敏感值。</li>
+<li>为一个 OData 服务设计最小化输出字段清单，并说明哪些字段需要隐藏、脱敏或审计。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认目标系统版本中 RAL 的配置入口和支持范围。</li>
+</ul>
+<h4 id="15-13-confidence-next-action-0a1cc0fa" class="semantic-heading semantic-status">15.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the Read Access Logging positioning as sensitive-data read-audit evidence, boundaries against authorization / Security Audit Log / Application Log, developer responsibility for CDS/OData/report/RFC/download sensitive-field exposure, log minimization, technical-user traceability, and the ten failure-mode framing; Claude 2026-06-18 follow-up returned <code>Pass with fixes</code>, and the prior hard blocker (<code>五类</code> versus ten failure modes) is already fixed. Medium-High for concrete RAL configuration objects, supported channels, tool/transaction names, retention tooling, and cloud/on-premise differences because these depend on SAP release, deployment model, customer security policy, and compliance requirements. This section intentionally avoids hard-coding unverified RAL tool names; later editors should not add <code>SRAL*</code> or similar names without target-release confirmation. Joule review remains deferred for this section.</li>
+</ul>
+<ul>
+<li>Next action: 继续学习 <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a>，把错误消息、应用日志、安全审计和读取访问审计整合成 Day 24 的生产排障与合规视角；后续如果找到稳定 SAP Help 精确页，再替换当前 search-style references。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-015-read-access-logging-3f099ea9.html">Read Access Logging 读取访问日志</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-014-security-audit-log-d91a6c87.html">Previous section</a><a href="section-04-016-error-message-design-c05159c6.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>FIELD-SYMBOL vs DATA reference | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="22-field-symbol-vs-data-reference-a7f2a59c" class="chapter-title">22. FIELD-SYMBOL vs DATA reference</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 22</li><li>self-contained study note</li></ul><h4 id="22-1-738a6b42" class="semantic-heading semantic-concept">22.1 一句话结论</h4>
+<p>FIELD-SYMBOL 和 DATA reference 都能让 ABAP 代码“不是复制值，而是指向已有数据”，但它们不是同一个东西：field symbol 是运行时临时别名，常用于局部循环、动态字段和直接修改当前 table row；data reference 是真正的数据引用变量，可以保存、传递、返回，也可以通过 <code>CREATE DATA</code> 指向匿名数据对象。初学者要学会用一句话区分：field symbol 更像“当前这段代码里的别名”，data reference 更像“一个变量里装着指向数据对象的引用”。</p>
+<h4 id="22-2-5b8f1860" class="semantic-heading semantic-concept">22.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a> 已经说明，field symbol 本身不保存业务值，而是在 <code>ASSIGN</code> 或 <code>LOOP AT ... ASSIGNING</code> 成功后指向某个数据对象或 internal table 行。</p>
+<p>data reference 则是另一种机制：</p>
+<pre><code class="language-abap">DATA lr_amount TYPE REF TO i.
+
+GET REFERENCE OF lv_amount INTO lr_amount.
+
+IF lr_amount IS BOUND.
+  lr_amount-&gt;* = lr_amount-&gt;* + 1.
+ENDIF.</code></pre>
+<p>这里 <code>lr_amount</code> 是一个变量，它的内容是“指向 <code>lv_amount</code> 的引用”。通过 <code>lr_amount-&gt;*</code> dereference 后，才访问到被引用的数据对象。</p>
+<p>本节要学的核心问题：</p>
+<ul>
+<li>field symbol 和 data reference 都能避免复制，但语义差异是什么？</li>
+<li><code>&lt;fs&gt; IS ASSIGNED</code> 和 <code>lr_data IS BOUND</code> 分别检查什么？</li>
+<li><code>ASSIGN ... TO &lt;fs&gt;</code>、<code>GET REFERENCE OF ... INTO lr_ref</code>、<code>REF #( ... )</code>、<code>CREATE DATA lr_ref</code> 分别解决什么问题？</li>
+<li><code>LOOP AT ... ASSIGNING</code> 和 <code>LOOP AT ... REFERENCE INTO</code> 怎么选？</li>
+<li>为什么 data reference 更适合跨方法传递、动态对象和引用型 API，而 field symbol 更适合局部处理？</li>
+<li>为什么两者都可能直接修改原始数据，review 时不能只看语法短不短？</li>
+</ul>
+<h4 id="22-3-6d08c99b" class="semantic-heading semantic-why">22.3 为什么重要</h4>
+<p>在 ABAP 项目里，这一节解决的是一个非常实际的阅读障碍：看到 <code>&lt;ls_item&gt;</code>、<code>lr_item-&gt;*</code>、<code>REFERENCE INTO DATA(lr_item)</code> 时，初学者必须马上判断“这是复制、别名，还是引用变量”。</p>
+<p>如果分不清，常见后果是：</p>
+<ul>
+<li>以为 <code>LOOP AT ... ASSIGNING</code> 只是更短的 <code>INTO</code>，结果不小心直接改了 internal table。</li>
+<li>以为 data reference 和 field symbol 一样只能在局部用，结果错过了需要传递引用的设计。</li>
+<li>以为 reference variable 一定安全，忘了检查 <code>IS BOUND</code> 或误用已经失效的 stack/table-row reference。</li>
+<li>为了“性能”把简单代码改成引用式写法，但没有改善真正瓶颈，反而降低可读性。</li>
+</ul>
+<p>对 Java/Python 背景学习者，可以这样类比：field symbol 像一段代码里临时绑定到某个对象/字段的别名；data reference 更接近一个可以赋值、传参、放到结构或 internal table 里的 reference value。但 ABAP 有自己的 <code>ASSIGN</code>、<code>IS ASSIGNED</code>、<code>IS BOUND</code>、<code>-&gt;*</code>、stack/heap reference 规则，不能完全照搬 Java/Python。</p>
+<h4 id="22-4-key-mechanism-031f953e" class="semantic-heading semantic-mechanism">22.4 Key mechanism / 核心机制</h4>
+<h5 id="22-4-1-field-symbol-alias-reference-variable-d2a8f11d">22.4.1 field symbol 是 alias，不是 reference variable</h5>
+<pre><code class="language-abap">FIELD-SYMBOLS &lt;amount&gt; TYPE i.
+
+ASSIGN lv_amount TO &lt;amount&gt;.
+
+IF &lt;amount&gt; IS ASSIGNED.
+  &lt;amount&gt; = &lt;amount&gt; + 1.
+ENDIF.</code></pre>
+<p><code>&lt;amount&gt;</code> 指向 <code>lv_amount</code>，但 <code>&lt;amount&gt;</code> 不是一个装着 reference value 的普通变量。它不能像 <code>lr_amount</code> 那样赋值给另一个 reference variable，也不能作为 structure/internal table 的组件保存或跨调用栈返回。它是当前程序位置上的运行时别名。</p>
+<h5 id="22-4-2-data-reference-reference-e7e883e9">22.4.2 data reference 是变量，里面的值是 reference</h5>
+<pre><code class="language-abap">DATA lr_amount TYPE REF TO i.
+
+GET REFERENCE OF lv_amount INTO lr_amount.
+
+IF lr_amount IS BOUND.
+  lr_amount-&gt;* = lr_amount-&gt;* + 1.
+ENDIF.</code></pre>
+<p><code>lr_amount</code> 是一个 data reference variable。它可以是 initial，也可以 bound 到某个数据对象。访问被引用对象时要 dereference，最基本形式是 <code>lr_amount-&gt;*</code>。</p>
+<h5 id="22-4-3-create-data-7e9ddd60">22.4.3 CREATE DATA 创建匿名数据对象</h5>
+<p>field symbol 只能指向已经存在或已被创建的数据对象。data reference 可以配合 <code>CREATE DATA</code> 在 heap 上创建匿名数据对象：</p>
+<pre><code class="language-abap">DATA lr_item TYPE REF TO ty_item.
+
+CREATE DATA lr_item.
+
+lr_item-&gt;*-status = &#x27;N&#x27;.
+&quot; If the referenced type is known and structured, lr_item-&gt;status is also common.</code></pre>
+<p>这里新建的数据对象没有普通变量名，只有 <code>lr_item</code> 指向它。动态框架、通用容器、运行时类型处理经常需要这种能力。</p>
+<h5 id="22-4-4-get-reference-ref-6bee9176">22.4.4 GET REFERENCE / REF 取得已有对象的引用</h5>
+<pre><code class="language-abap">DATA lr_item TYPE REF TO ty_item.
+
+GET REFERENCE OF ls_item INTO lr_item.</code></pre>
+<p>现代写法也可以用 <code>REF #( ... )</code>：</p>
+<pre><code class="language-abap">DATA(lr_item) = REF #( ls_item ).</code></pre>
+<p>这类 reference 指向已有数据对象。review 时要问：这个 reference 会不会被保存到当前对象或返回给调用方？被引用数据对象的生命周期是否足够长？</p>
+<h5 id="22-4-5-loop-at-assigning-vs-reference-into-e4b80896">22.4.5 LOOP AT ASSIGNING vs REFERENCE INTO</h5>
+<p>field symbol 版：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p>reference 版：</p>
+<pre><code class="language-abap">LOOP AT lt_items REFERENCE INTO DATA(lr_item).
+  lr_item-&gt;status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p>两者都不是复制当前行。<code>ASSIGNING</code> 直接给你一个 field symbol；<code>REFERENCE INTO</code> 给你一个 data reference。局部直接更新一行时，<code>ASSIGNING</code> 往往更直接；如果后续 API 需要 reference variable，或你要把引用传给方法，<code>REFERENCE INTO</code> 才有意义。</p>
+<h5 id="22-4-6-assigned-vs-bound-a281f42b">22.4.6 ASSIGNED vs BOUND</h5>
+<p>field symbol 用：</p>
+<pre><code class="language-abap">IF &lt;ls_item&gt; IS ASSIGNED.
+  ...
+ENDIF.</code></pre>
+<p>data reference 用：</p>
+<pre><code class="language-abap">IF lr_item IS BOUND.
+  ...
+ENDIF.</code></pre>
+<p>不要混用概念。<code>IS ASSIGNED</code> 检查 field symbol 当前是否指向某个内存区域；<code>IS BOUND</code> 检查 reference variable 是否非空、已经绑定。它不保证被引用对象当前仍然有效：某些失效的 stack reference 或 table-row reference 仍可能 <code>IS BOUND</code> 为真，但 dereference 时出错。</p>
+<h5 id="22-4-7-d39aecb5">22.4.7 生命周期和保存范围</h5>
+<p>field symbol 通常是局部处理工具。data reference 可以被保存、传递、返回，但这并不表示所有 reference 都适合长期保存。<code>GET REFERENCE OF</code> 局部变量取得的是 stack 相关引用，过程结束后就有生命周期风险；<code>CREATE DATA</code> 创建的是 heap 上的数据对象，只要还有 reference 持有它就可以继续存在。指向 internal table 当前行的 reference，如果 table 后续被删除、重排、清空，也可能变成失效设计。业务上需要长期定位一行时，很多时候更稳的是保存 business key，再按 key 重新读取。</p>
+<h4 id="22-5-ca68aa36" class="semantic-heading semantic-japan">22.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>フィールドシンボル</code>、<code>データ参照</code>、<code>参照変数</code>、<code>別名</code>、<code>参照渡し</code>、<code>逆参照</code>、<code>IS BOUND</code>、<code>IS ASSIGNED</code>。</li>
+<li>说明句：フィールドシンボルは一時的な別名として元データを直接参照しますが、データ参照は参照値を保持する変数として受け渡しできます。</li>
+<li>Review 句：この参照をメソッド外へ渡す場合、参照先データのライフタイムと <code>IS BOUND</code> チェックを必ず確認してください。</li>
+<li>行参照の注意：内部テーブルの行参照を長期保持すると、後続の <code>DELETE</code> / <code>SORT</code> / <code>CLEAR</code> で無効になる可能性があるため、業務キーを保存して都度読み直す方式を優先します。</li>
+<li>直接更新说明：<code>ASSIGNING</code> も <code>REFERENCE INTO</code> もコピーではないため、変更が元の内部テーブル行に反映される点をレビューで確認します。</li>
+<li>使用场景：内部表更新、动态数据对象、通用框架、接口参数设计、性能 review、缺陷调查中确认“是否保存了不该保存的引用”。</li>
+</ul>
+<h4 id="22-6-english-terms-3b1eee5f" class="semantic-heading semantic-terms">22.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>field symbol</code></li>
+<li>Official / search term: <code>data reference</code></li>
+<li>ABAP declaration: <code>DATA lr_data TYPE REF TO ...</code></li>
+<li>ABAP creation: <code>CREATE DATA</code></li>
+<li>Existing-object reference: <code>GET REFERENCE</code></li>
+<li>Constructor operator: <code>REF #( ... )</code></li>
+<li>Dereferencing operator: <code>-&gt;*</code></li>
+<li>Field-symbol check: <code>IS ASSIGNED</code></li>
+<li>Reference check: <code>IS BOUND</code></li>
+<li>Internal table result: <code>ASSIGNING</code></li>
+<li>Internal table result: <code>REFERENCE INTO</code></li>
+<li>Related concept: <code>stack reference</code></li>
+<li>Related concept: <code>heap reference</code></li>
+</ul>
+<h4 id="22-7-example-01299ece" class="semantic-heading semantic-example">22.7 Example / 学习例子</h4>
+<h5 id="22-7-1-1-field-symbol-b98b649a">22.7.1 例 1：同一个变量，用 field symbol 修改</h5>
+<pre><code class="language-abap">DATA lv_amount TYPE i VALUE 10.
+
+ASSIGN lv_amount TO FIELD-SYMBOL(&lt;amount&gt;).
+
+IF &lt;amount&gt; IS ASSIGNED.
+  &lt;amount&gt; += 5.
+ENDIF.
+
+&quot; lv_amount is now 15</code></pre>
+<p><code>&lt;amount&gt;</code> 是 <code>lv_amount</code> 的别名。它不是副本。</p>
+<h5 id="22-7-2-2-data-reference-cfccdd83">22.7.2 例 2：同一个变量，用 data reference 修改</h5>
+<pre><code class="language-abap">DATA lv_amount TYPE i VALUE 10.
+DATA lr_amount TYPE REF TO i.
+
+GET REFERENCE OF lv_amount INTO lr_amount.
+
+IF lr_amount IS BOUND.
+  lr_amount-&gt;* += 5.
+ENDIF.
+
+&quot; lv_amount is now 15</code></pre>
+<p><code>lr_amount</code> 是 reference variable，必须通过 <code>-&gt;*</code> dereference 才能访问 <code>lv_amount</code>。</p>
+<h5 id="22-7-3-3-internal-table-2a154c6b">22.7.3 例 3：更新 internal table 当前行</h5>
+<p>局部更新时，field symbol 更直接：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p>如果 API 或后续设计需要 reference variable，可以使用：</p>
+<pre><code class="language-abap">LOOP AT lt_items REFERENCE INTO DATA(lr_item).
+  lr_item-&gt;status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p>后者不要只是为了“看起来现代”而使用。它多了一层 reference 语义，适合需要 reference variable 的场景。</p>
+<h5 id="22-7-4-4-521c9d16">22.7.4 例 4：动态创建数据</h5>
+<pre><code class="language-abap">DATA lr_text TYPE REF TO string.
+
+CREATE DATA lr_text.
+
+lr_text-&gt;* = |Created at runtime|.</code></pre>
+<p>这是 data reference 的典型能力：创建 heap 上、没有普通变量名的匿名数据对象。field symbol 本身不能单独创建数据，它只能指向已有或已创建的数据。</p>
+<h5 id="22-7-5-5-field-symbol-fb485e13">22.7.5 例 5：动态引用再转 field symbol</h5>
+<pre><code class="language-abap">DATA lr_data TYPE REF TO data.
+
+CREATE DATA lr_data TYPE string.
+
+ASSIGN lr_data-&gt;* TO FIELD-SYMBOL(&lt;value&gt;).
+
+IF sy-subrc = 0.
+  &lt;value&gt; = |dynamic value|.
+ENDIF.</code></pre>
+<p><code>ASSIGN dref-&gt;* TO &lt;fs&gt;</code> 和普通 <code>ASSIGN</code> 一样会设置 <code>sy-subrc</code>。很多动态编程里，两者会一起出现：data reference 负责“拥有/保存引用”，field symbol 负责“用一个可操作的别名访问实际数据”。</p>
+<h4 id="22-8-counterexample-failure-mode-3088e7df" class="semantic-heading semantic-example">22.8 Counterexample / Failure mode</h4>
+<h5 id="22-8-1-1-field-symbol-reference-27ef6139" class="semantic-heading semantic-failure">22.8.1 误区 1：把 field symbol 当成可保存 reference</h5>
+<p>field symbol 适合局部处理，不能作为长期对象关系保存到结构、internal table 或对象属性里，也不能跨调用栈返回。需要跨方法传递、保存到对象属性、放到 internal table 中时，应该考虑 data reference、object reference 或直接保存业务 key。</p>
+<h5 id="22-8-2-2-30e922b5" class="semantic-heading semantic-failure">22.8.2 误区 2：忘记检查不同状态</h5>
+<pre><code class="language-abap">IF &lt;fs&gt; IS BOUND.      &quot; wrong concept
+ENDIF.
+
+IF lr_data IS ASSIGNED. &quot; wrong concept
+ENDIF.</code></pre>
+<p>field symbol 检查 <code>IS ASSIGNED</code>，data reference 检查 <code>IS BOUND</code>。概念混乱通常说明作者没有真正区分两种机制。</p>
+<h5 id="22-8-3-3-table-row-reference-5836b78c" class="semantic-heading semantic-failure">22.8.3 误区 3：保存 table row reference 太久</h5>
+<p><code>REFERENCE INTO</code> 可以取得 internal table 行的 reference，但如果 table 后续会 delete、sort、clear 或重新构造，长期保存 row reference 会让代码变脆。跨步骤、跨方法、跨 LUW 的业务定位，通常保存 key 更稳。</p>
+<h5 id="22-8-4-4-data-reference-field-symbol-eb96fe12" class="semantic-heading semantic-failure">22.8.4 误区 4：认为 data reference 一定比 field symbol 更现代</h5>
+<p>data reference 是更适合传递/保存的引用变量，但不是所有局部循环都应该改成 <code>REFERENCE INTO</code>。如果只是当前 loop 内直接更新行，<code>ASSIGNING FIELD-SYMBOL(&lt;line&gt;)</code> 往往更清楚。</p>
+<h5 id="22-8-5-5-19c386ce" class="semantic-heading semantic-failure">22.8.5 误区 5：为了性能隐藏副作用</h5>
+<p>无论 field symbol 还是 data reference，只要指向原数据，修改后都可能影响原对象。性能优化不能替代可读性和副作用说明。review 时要看：这次修改是业务上有意的，还是误把副本当原件？</p>
+<h4 id="22-9-45049b86" class="semantic-heading semantic-practice">22.9 思考问题</h4>
+<ul>
+<li>这段代码使用的是 field symbol、data reference，还是普通 work area？</li>
+<li><code>&lt;fs&gt; IS ASSIGNED</code> 和 <code>lr_data IS BOUND</code> 分别检查什么？</li>
+<li>这段代码修改的是副本，还是原数据对象？</li>
+<li>这个 reference 是否会被保存到方法外、对象属性或 internal table 里？</li>
+<li>被引用的数据对象生命周期是否足够长？</li>
+<li>如果只是局部循环更新，<code>ASSIGNING</code> 是否比 <code>REFERENCE INTO</code> 更清楚？</li>
+<li>如果需要动态创建数据，是否必须使用 data reference / <code>CREATE DATA</code>？</li>
+<li>在日本项目 review 中，应该提醒 <code>ライフタイム</code>、<code>直接更新</code>，还是 <code>IS BOUND</code> 检查？</li>
+</ul>
+<h4 id="22-10-fd1e88bb" class="semantic-heading semantic-reference">22.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_FIELD_SYMBOLS.html" target="_blank" rel="noopener noreferrer">Field Symbols</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPDATA_REFERENCES.html" target="_blank" rel="noopener noreferrer">DATA, REF TO</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDATA_REFERENCES.html" target="_blank" rel="noopener noreferrer">References</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenset_references.html" target="_blank" rel="noopener noreferrer">Assigning Reference Variables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPGET_REFERENCE.html" target="_blank" rel="noopener noreferrer">GET REFERENCE</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCONSTRUCTOR_EXPRESSION_REF.html" target="_blank" rel="noopener noreferrer">REF, Reference Operator</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapcreate_data.html" target="_blank" rel="noopener noreferrer">CREATE DATA</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENOBJECT_COMPONENT_SELECTOR.html" target="_blank" rel="noopener noreferrer">Object Component Selector / Dereferencing</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPLOOP_AT_ITAB_RESULT.html" target="_blank" rel="noopener noreferrer">LOOP AT itab, result</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPREAD_TABLE_OUTDESC.html" target="_blank" rel="noopener noreferrer">READ TABLE, result</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENHEAP_STACK_REFERENCE.html" target="_blank" rel="noopener noreferrer">Heap References and Stack References</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/06_Dynamic_Programming.md" target="_blank" rel="noopener noreferrer">Dynamic Programming Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="22-11-connections-c7c040b0">22.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a></li>
+<li><a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li><a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li><a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li><a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li><a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li><a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></li>
+<li>Upstream: <a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a></li>
+<li>Downstream: <a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 10 - 内部表类型与读取方式</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="22-12-93cfaee1" class="semantic-heading semantic-practice">22.12 学习任务</h4>
+<ul>
+<li>用中文写一句话区分 field symbol 和 data reference。</li>
+<li>写一个 <code>ASSIGN lv_amount TO FIELD-SYMBOL(&lt;amount&gt;)</code> 的例子，并用 <code>&lt;amount&gt; IS ASSIGNED</code> 检查。</li>
+<li>写一个 <code>GET REFERENCE OF lv_amount INTO lr_amount</code> 的例子，并用 <code>lr_amount IS BOUND</code> 检查。</li>
+<li>写一个 <code>CREATE DATA lr_text TYPE string</code> 的例子，用 <code>lr_text-&gt;*</code> 赋值。</li>
+<li>对比 <code>LOOP AT ... ASSIGNING</code> 和 <code>LOOP AT ... REFERENCE INTO</code>，说明哪个更适合局部 table row 更新，哪个更适合传递 reference。</li>
+<li>用日语写一句 review 说明：保存 data reference 时需要确认参照先数据的 lifetime。</li>
+</ul>
+<h4 id="22-13-confidence-next-action-45968b9c" class="semantic-heading semantic-status">22.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，核心语义来自 SAP Help / ABAP Keyword Documentation；对 internal table row reference 的长期保存风险采用保守项目写法，不把局部引用当长期业务身份。</li>
+<li>Next action: 用 Joule 复核 field symbol vs data reference 的区分、<code>IS ASSIGNED</code>/<code>IS BOUND</code>、<code>REFERENCE INTO</code>、<code>CREATE DATA</code>、lifetime 表述和日本项目说法；再同步到 Chapter 02 与离线书稿。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-022-field-symbol-vs-data-reference-b4fb9e9a.html">FIELD-SYMBOL vs DATA reference</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-021-field-symbol-201aafdf.html">Previous section</a><a href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

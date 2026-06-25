@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>sy-subrc discipline and silent failure patterns | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="43-sy-subrc-discipline-and-silent-failure-patterns-bc8341bd" class="chapter-title">43. sy-subrc discipline and silent failure patterns</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 43</li><li>self-contained study note</li></ul><h4 id="43-1-f5c1ffcf" class="semantic-heading semantic-concept">43.1 一句话结论</h4>
+<p><code>sy-subrc</code> 是 ABAP system field 中最常见的返回码字段，用来表达“上一条会设置返回码的 ABAP 语句”执行后的语句级结果。所谓 <code>sy-subrc discipline</code>，不是要求到处写 <code>IF sy-subrc = 0</code>，而是要求先确认该语句是否真的设置 <code>sy-subrc</code>，再在 <code>READ TABLE</code>、<code>SELECT</code>、动态 <code>ASSIGN</code>、<code>AUTHORITY-CHECK</code>、经典 function module 调用等语句之后，立刻、按该语句的文档语义检查结果；否则程序可能不会 dump，却会沿着错误数据、旧数据、未授权路径或未处理的空结果继续运行，形成 silent failure。</p>
+<h4 id="43-2-bcca1d3c" class="semantic-heading semantic-concept">43.2 到底学什么</h4>
+<p>本节接在 <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a>、<a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a> 和 <a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a> 之后。前面已经知道 <code>sy-*</code> 是 ABAP runtime 提供的一组系统字段，也知道 internal table 既可以用 <code>READ TABLE</code>，也可以用 <code>itab[ ... ]</code> 读取。本节要补上的，是项目里真正会被 code review 追问的一层：哪一类语句需要看 <code>sy-subrc</code>，什么时候要马上看，什么时候应该改用 table expression、<code>line_exists</code>、异常类或明确的返回对象。</p>
+<p>先看一个经典例子：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id.
+
+IF sy-subrc = 0.
+  process_item( ls_item ).
+ENDIF.</code></pre>
+<p>这里 <code>sy-subrc = 0</code> 的意思不是“程序没有错误”，而是“这次 <code>READ TABLE</code> 按当前写法找到了匹配行，并且该语句对应的成功条件成立”。如果 <code>READ TABLE</code> 之后先执行了另一个会设置 <code>sy-subrc</code> 的语句，再回来检查，检查到的就不一定是这次读取的结果。更稳的写法是把返回码立即判断，或者在必须隔开时保存下来：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id.
+
+DATA(read_subrc) = sy-subrc.
+
+IF read_subrc &lt;&gt; 0.
+  RETURN.
+ENDIF.
+
+process_item( ls_item ).</code></pre>
+<p>本节的学习目标有四个：</p>
+<ul>
+<li>理解 <code>sy-subrc</code> 是 statement-specific return code，不是统一异常对象。</li>
+<li>记住 <code>sy-subrc</code> 要在相关语句之后立即处理，必要时保存到本地变量。</li>
+<li>能区分经典返回码风格、现代 table expression 风格和 class-based exception 风格。</li>
+<li>能在日本 SAP 项目 review 中说明“未检查戻りコード”为什么会造成 silent failure。</li>
+</ul>
+<h4 id="43-3-184519c9" class="semantic-heading semantic-why">43.3 为什么重要</h4>
+<p><code>sy-subrc</code> 的危险之处在于：很多错误不会立刻变成 runtime error。比如 <code>READ TABLE</code> 没找到行，程序却继续使用 <code>ls_item</code>；<code>SELECT SINGLE</code> 没有读到数据，后续逻辑却把目标变量当成有效业务数据；<code>AUTHORITY-CHECK</code> 没检查返回码，未授权用户可能继续进入处理；<code>ASSIGN</code> 没检查是否成功，后面使用 field symbol 时可能短 dump，也可能在某些动态写法中误用旧状态。</p>
+<p>这类问题和 Java/Python 的异常不同。Java/Python 初学者习惯用 exception、<code>None</code>、<code>Optional</code>、返回对象表达失败；ABAP 的经典语句大量使用 <code>sy-subrc</code> 表达“语句执行后的技术状态”。它比 exception 更轻，但也更容易被忽略。项目代码里最糟糕的不是“失败时 dump”，而是“失败时继续跑，还看起来像成功了”。这就是 silent failure。</p>
+<p>在 SAP 项目交付中，<code>sy-subrc</code> discipline 影响四件事：</p>
+<ul>
+<li>正确性：没有找到业务对象时，不能继续按“找到了”处理。</li>
+<li>安全性：权限检查失败不能被当成普通空结果。</li>
+<li>可维护性：reviewer 必须能看到失败分支的业务意图。</li>
+<li>可测试性：ABAP Unit 要能覆盖 found / not found / unauthorized / exception path。</li>
+</ul>
+<h4 id="43-4-key-mechanism-fe36f165" class="semantic-heading semantic-mechanism">43.4 Key mechanism / 核心机制</h4>
+<h5 id="43-4-1-sy-subrc-9cba1dc9">43.4.1 <code>sy-subrc</code> 是语句级返回码</h5>
+<p><code>sy-subrc</code> 属于系统字段 <code>sy</code> 结构。它由特定 ABAP 语句设置，具体值必须按该语句的 ABAP Keyword Documentation 解释。常见约定是 <code>0</code> 表示成功或条件满足，非 <code>0</code> 表示失败、未找到、未完全处理或某种语句特定状态；但不能把所有非 <code>0</code> 都解释成同一种错误，也不能假设每一条 ABAP 语句都会刷新 <code>sy-subrc</code>。如果文档没有说明该语句设置返回码，就不要用残留的 <code>sy-subrc</code> 猜测执行结果。</p>
+<p><code>READ TABLE</code> 是最适合初学者理解的例子。常见情况下，<code>0</code> 表示找到匹配行，<code>4</code> 表示未找到；如果使用 <code>COMPARING</code>，<code>2</code> 可以表示“找到了行，但比较字段不同”；在某些读取变体中，<code>sy-subrc = 8</code> 与未找到相关，但 <code>sy-tabix</code> 的设置方式不同；如果使用 <code>WHERE</code> 条件，常见语义又会收敛到找到/未找到。旧式 <code>BINARY SEARCH</code> 还要求 standard table 已按搜索 key 正确排序，排序不满足时不能指望 <code>sy-subrc</code> 帮你识别错误。项目里不能只背“0 成功、4 失败”，而要知道当前语句和 additions 的含义。</p>
+<h5 id="43-4-2-e53f1f27">43.4.2 必须在正确位置检查</h5>
+<p>返回码最常见的 bug，是检查位置错了：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id.
+
+helper-&gt;write_trace( lv_item_id ).
+
+IF sy-subrc = 0.
+  process_item( ls_item ).
+ENDIF.</code></pre>
+<p>这段代码的问题不在于 trace 一定会改写 <code>sy-subrc</code>，而在于读者已经无法一眼确认 <code>IF sy-subrc = 0</code> 检查的是哪条语句。一个普通方法调用、数据库语句、table 操作或动态处理都可能让返回码语义变得不可追踪。ABAP Keyword Documentation 还特别提醒：functional method call 成功时会把 <code>sy-subrc</code> 设为 <code>0</code>，<code>NEW</code> 创建实例也有类似影响。因此，在 <code>READ TABLE</code> 和检查之间插入一个看似无害的 helper method，也可能把原本的 not-found 返回码覆盖掉。项目标准里通常会要求“直後に確認”：在需要的语句之后立刻判断，或者保存为本地变量，并给变量起一个能说明来源的名字。</p>
+<p>更清楚的写法是：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id.
+
+IF sy-subrc &lt;&gt; 0.
+  RETURN.
+ENDIF.
+
+helper-&gt;write_trace( lv_item_id ).
+process_item( ls_item ).</code></pre>
+<p>如果确实要延迟判断：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id.
+
+DATA(item_read_subrc) = sy-subrc.
+
+helper-&gt;write_trace( lv_item_id ).
+
+IF item_read_subrc = 0.
+  process_item( ls_item ).
+ENDIF.</code></pre>
+<h5 id="43-4-3-read-table-c483d7e6">43.4.3 <code>READ TABLE</code> 后不要信任目标变量</h5>
+<p>经典错误是：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id.
+
+process_item( ls_item ).</code></pre>
+<p>读者看不出 <code>ls_item</code> 是否真的来自当前 key。安全的心智模型是：只有在 <code>sy-subrc = 0</code> 的分支里，才把 <code>READ TABLE ... INTO</code> 的目标变量当成“本次读取成功得到的数据”。如果未找到是正常业务场景，就写清楚 fallback；如果未找到是异常业务场景，就抛出 exception 或返回明确错误。</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH KEY item_id = lv_item_id.
+
+IF sy-subrc &lt;&gt; 0.
+  RAISE EXCEPTION TYPE zcx_item_not_found
+    EXPORTING item_id = lv_item_id.
+ENDIF.
+
+process_item( ls_item ).</code></pre>
+<h5 id="43-4-4-select-sy-dbcnt-c0b1b3c1">43.4.4 <code>SELECT</code> 与 <code>sy-dbcnt</code></h5>
+<p>ABAP SQL 语句也会设置系统字段。对 <code>SELECT ... INTO TABLE</code>，常见判断是：<code>sy-subrc = 0</code> 表示有结果传入目标对象，<code>sy-subrc = 4</code> 表示没有读到行；<code>sy-dbcnt</code> 表示处理行数。写书时要避免一句“SELECT 成功了”带过，因为空结果在业务上可能是正常、警告或错误，必须按场景说明。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id, customer_id, status
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_orders).
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; No rows found. Decide whether this is normal or an error.
+  RETURN.
+ENDIF.
+
+DATA(selected_rows) = sy-dbcnt.</code></pre>
+<p>这里还要提醒初学者：<code>SELECT</code> 本身不是权限设计，也不是业务存在性的全部证明。读取不到数据可能是条件不匹配、权限/DCL 过滤、client、数据状态、测试数据缺失等原因；读到了数据也不代表后续 action 一定被授权。权限要连接 <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a>、<a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a> 和 <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a>。</p>
+<p><code>SELECT SINGLE</code> 还要多一层警惕：如果 <code>WHERE</code> 条件不是唯一业务 key 或完整主 key，读到一行并设置 <code>sy-subrc = 0</code> 并不等于“唯一且稳定地找到了那条业务记录”。它只说明当前语句传回了一行。需要“最新一条”“最大一条”“唯一一条”时，应使用明确的 key、<code>ORDER BY</code>、聚合或业务约束，而不是把 <code>SELECT SINGLE</code> 当成稳定选择器。</p>
+<p>ABAP SQL 写入语句也类似。<code>INSERT</code>、<code>UPDATE</code>、<code>MODIFY</code>、<code>DELETE</code> 会设置 <code>sy-subrc</code> / <code>sy-dbcnt</code>，<code>sy-dbcnt</code> 可以辅助判断影响行数或部分处理，但不能替代返回码语义。比如使用 <code>ACCEPTING DUPLICATE KEYS</code> 时，重复 key 可能不会抛出异常，而是通过返回码和处理行数体现；如果完全不看这些字段，写入失败或部分写入也会变成 silent failure。</p>
+<h5 id="43-4-5-assign-field-symbol-3fbc2e70">43.4.5 <code>ASSIGN</code> 与 field symbol</h5>
+<p>这里必须非常精确。不是所有 <code>ASSIGN</code> 都用 <code>sy-subrc</code> 判断。静态形式：</p>
+<pre><code class="language-abap">ASSIGN ls_item TO FIELD-SYMBOL(&lt;ls_item&gt;).</code></pre>
+<p>这个 static <code>ASSIGN</code> / 静态 <code>ASSIGN</code> 不要写成：</p>
+<pre><code class="language-abap">IF sy-subrc = 0.
+  ...
+ENDIF.</code></pre>
+<p>这种静态 <code>ASSIGN</code> 不是通过 <code>sy-subrc</code> 表达成功与否；更合适的保护方式是使用 <code>&lt;ls_item&gt; IS ASSIGNED</code>，尤其是在 field symbol 可能来自不同代码路径时。</p>
+<p>动态 <code>ASSIGN</code>、table expression 赋值给 field symbol 时，才需要结合具体语句语义看 <code>sy-subrc</code>：</p>
+<pre><code class="language-abap">ASSIGN lt_items[ item_id = lv_item_id ]
+  TO FIELD-SYMBOL(&lt;ls_item&gt;).
+
+IF sy-subrc = 0.
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+ENDIF.</code></pre>
+<p>这里的重点是：普通 table expression 找不到行时通常走 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>，但 <code>ASSIGN itab[ ... ] TO &lt;fs&gt;</code> 是重要例外，可以用 <code>sy-subrc</code> 判断是否赋值成功。动态 <code>ASSIGN</code> 也可以通过 <code>sy-subrc</code> 表达赋值失败。除此之外，field symbol 的 assigned 状态仍要明确处理。复杂场景下可以搭配 <code>ELSE UNASSIGN</code>、<code>UNASSIGN</code> 或 <code>&lt;fs&gt; IS ASSIGNED</code>，让读者看得出失败时不会误用旧绑定。</p>
+<h5 id="43-4-6-authority-check-cab2f3ed">43.4.6 <code>AUTHORITY-CHECK</code> 必须检查</h5>
+<p>权限检查是 <code>sy-subrc</code> discipline 的安全分水岭：</p>
+<pre><code class="language-abap">AUTHORITY-CHECK OBJECT &#x27;Z_SALES&#x27;
+  ID &#x27;ACTVT&#x27; FIELD &#x27;03&#x27;
+  ID &#x27;VKORG&#x27; FIELD lv_sales_org.
+
+IF sy-subrc &lt;&gt; 0.
+  RAISE EXCEPTION TYPE zcx_not_authorized.
+ENDIF.</code></pre>
+<p>这里不要写成“先检查一下权限，失败也继续跑”。<code>AUTHORITY-CHECK</code> 的非 <code>0</code> 返回值有具体语义，初学阶段不需要死背所有值，但必须知道：<code>0</code> 才是授权通过；非 <code>0</code> 必须进入拒绝、错误消息、日志或上层错误转换。未检查的 <code>AUTHORITY-CHECK</code> 不是普通 code smell，而是安全缺陷：代码表面上做了权限检查，实际上失败后仍然放行。日本项目里这常被 review 为 <code>権限チェック後の戻りコード未確認</code> 或 <code>AUTHORITY-CHECK後のsy-subrcチェック漏れ</code>。</p>
+<h5 id="43-4-7-function-module-exception-372d3244">43.4.7 经典 function module 与现代 exception</h5>
+<p>经典 function module 常见写法是：</p>
+<pre><code class="language-abap">CALL FUNCTION &#x27;Z_READ_ITEM&#x27;
+  EXPORTING
+    iv_item_id = lv_item_id
+  IMPORTING
+    es_item    = ls_item
+  EXCEPTIONS
+    not_found  = 1
+    OTHERS     = 2.
+
+IF sy-subrc &lt;&gt; 0.
+  RAISE EXCEPTION TYPE zcx_item_read_failed.
+ENDIF.</code></pre>
+<p>在这种风格里，<code>sy-subrc</code> 和 <code>EXCEPTIONS</code> 的编号映射有关。<code>OTHERS = n</code> 会把未单独列出的异常折叠成同一个返回码；如果后面不检查 <code>sy-subrc</code>，就等于把 function module 的失败吞掉了。某些 function module 还会通过 <code>error_message</code> 或经典 exception 机制把消息类错误映射到返回码。维护 legacy ABAP 时，<code>CALL FUNCTION ... EXCEPTIONS</code> 后面的检查必须写清楚。</p>
+<p>现代 class-based exception 则不同，<code>TRY...CATCH</code> 处理的是 exception object，不应强行把所有失败都压回 <code>sy-subrc</code>。也就是说，本节不是鼓励到处使用返回码，而是要求在遇到返回码式 API 时，把它处理干净；在新设计的方法里，优先考虑清晰的返回值、异常类或 RAP 的 <code>failed</code> / <code>reported</code> 结构。</p>
+<h5 id="43-4-8-table-expression-sy-subrc-7f6e9cad">43.4.8 table expression 不是 <code>sy-subrc</code> 写法</h5>
+<p>对 internal table 的现代读取，很多场景可以不用 <code>sy-subrc</code>：</p>
+<pre><code class="language-abap">IF line_exists( lt_items[ item_id = lv_item_id ] ).
+  &quot; exists
+ENDIF.</code></pre>
+<p>或者：</p>
+<pre><code class="language-abap">DATA(ls_item) = VALUE ty_item(
+  lt_items[ item_id = lv_item_id ] OPTIONAL ).</code></pre>
+<p>这类写法要小心两点。第一，普通 table expression 找不到行时不是设置 <code>sy-subrc</code>，而是抛出 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>，除非使用 <code>OPTIONAL</code>、<code>DEFAULT</code>、<code>line_exists</code> 等显式处理。第二，<code>OPTIONAL</code> 会把 not-found 变成 initial value，不抛异常，也不设置返回码；如果 initial value 和真实业务值无法区分，就可能把 silent failure 换成另一种 silent failure。能用，但要有业务意图。</p>
+<h5 id="43-4-9-return-code-handling-checklist-21223aa1">43.4.9 return-code handling checklist</h5>
+<p>Review 返回码式 ABAP 时，可以用下面的表快速判断是否存在 silent failure 风险：</p>
+<div class="table-wrap"><table><thead><tr><th>Statement / API</th><th>What to check immediately</th><th>Failure should become...</th></tr></thead><tbody><tr><td><code>READ TABLE</code></td><td><code>sy-subrc</code>、目标变量是否来自本次读取。</td><td>not-found 分支、<code>line_exists</code>、<code>OPTIONAL</code> with explicit intent，或 exception。</td></tr><tr><td><code>SELECT ... INTO</code></td><td><code>sy-subrc</code>、<code>sy-dbcnt</code>、目标变量是否保留旧值。</td><td>empty result handling、message、或业务允许为空的明确分支。</td></tr><tr><td><code>ASSIGN ... TO &lt;fs&gt;</code></td><td>static <code>ASSIGN</code> 用 <code>&lt;fs&gt; IS ASSIGNED</code>；dynamic <code>ASSIGN</code> / <code>ASSIGN itab[ ... ] TO &lt;fs&gt;</code> 结合 <code>sy-subrc</code> 与 assigned state。</td><td>明确跳过、raise exception、<code>UNASSIGN</code> 或 fallback value。</td></tr><tr><td><code>AUTHORITY-CHECK</code></td><td><code>sy-subrc = 0</code> 才允许继续。</td><td>authorization error message、RAP authorization failure、或安全日志证据。</td></tr><tr><td><code>CALL FUNCTION ... EXCEPTIONS</code></td><td><code>sy-subrc</code> 与 exception number mapping。</td><td>转换为 class-based exception、return object、message 或终止流程。</td></tr><tr><td>table expression</td><td>是否使用 <code>OPTIONAL</code> / <code>DEFAULT</code> / <code>line_exists</code> / <code>TRY...CATCH</code>。</td><td>不要误以为它会设置 <code>sy-subrc</code>。</td></tr></tbody></table></div>
+<p>最重要的 review 问题是：失败路径有没有被命名？如果代码只是“找不到就继续、没权限也继续、ASSIGN 失败也继续”，那不是宽容设计，而是 silent failure。返回码检查后的动作应当让维护者看懂：继续、跳过、报错、记录、重试，还是把失败交给上层。</p>
+<p>团队层面不要只靠人工记忆。ATC / Extended Program Check 可以帮助发现未检查返回码、在不设置 <code>sy-subrc</code> 的语句后检查返回码、以及一些容易误导维护者的写法。工具不能替代业务判断，但它能把“忘了检查”这类低级错误提前暴露出来。</p>
+<h4 id="43-5-5693b2e6" class="semantic-heading semantic-japan">43.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>戻りコード</code></li>
+<li><code>リターンコード</code></li>
+<li><code>sy-subrc確認</code></li>
+<li><code>直後に確認</code></li>
+<li><code>戻りコード未確認</code></li>
+<li><code>戻りコード確認漏れ</code></li>
+<li><code>sy-subrcチェック漏れ</code></li>
+<li><code>未チェック</code></li>
+<li><code>サイレント失敗</code></li>
+<li><code>暗黙的な失敗</code></li>
+<li><code>READ TABLE後の判定</code></li>
+<li><code>SELECT後の判定</code></li>
+<li><code>ASSIGN後の判定</code></li>
+<li><code>AUTHORITY-CHECK後の判定</code></li>
+<li><code>権限チェック</code></li>
+<li><code>存在チェック</code></li>
+<li><code>例外処理</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li><code>READ TABLEの直後にsy-subrcを確認しないと、未取得のワークエリアを後続処理で使用する可能性があります。</code></li>
+<li><code>AUTHORITY-CHECK後の戻りコード未確認は、権限制御上の重大な不備になります。</code></li>
+<li><code>AUTHORITY-CHECK後のsy-subrcチェック漏れは、コード品質ではなくセキュリティ上の脆弱性として扱います。</code></li>
+<li><code>このケースではsy-subrcではなく、line_existsまたは例外処理で未存在ケースを明示した方が読みやすいです。</code></li>
+<li><code>sy-subrcを確認する前に別処理が入っているため、戻りコードをローカル変数に退避してください。</code></li>
+<li><code>メソッド呼び出しでsy-subrcが上書きされる可能性があるため、戻りコードは設定した文の直後で確認してください。</code></li>
+<li><code>静的なASSIGNではsy-subrcではなく、&lt;fs&gt; IS ASSIGNEDで判定してください。</code></li>
+</ul>
+<p>项目 review 时，更自然的表达不是“请检查错误”，而是“请说明未找到、未授权、未赋值时业务上要怎么处理”。这能把 <code>sy-subrc</code> 从机械语法变成业务分支。</p>
+<h4 id="43-6-english-terms-718c9871" class="semantic-heading semantic-terms">43.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>sy-subrc</code></li>
+<li>Official / search term: <code>ABAP system fields</code></li>
+<li>Official / search term: <code>return code</code></li>
+<li>Official / search term: <code>READ TABLE sy-subrc</code></li>
+<li>Official / search term: <code>SELECT sy-subrc sy-dbcnt</code></li>
+<li>Official / search term: <code>ASSIGN sy-subrc</code></li>
+<li>Official / search term: <code>static ASSIGN</code></li>
+<li>Official / search term: <code>IS ASSIGNED</code></li>
+<li>Official / search term: <code>AUTHORITY-CHECK sy-subrc</code></li>
+<li>Official / search term: <code>CALL FUNCTION EXCEPTIONS sy-subrc</code></li>
+<li>Official / search term: <code>CX_SY_ITAB_LINE_NOT_FOUND</code></li>
+<li>Official / search term: <code>line_exists</code></li>
+<li>Official / search term: <code>line_index</code></li>
+<li>Recommended search pattern: <code>ABAP Keyword Documentation sy-subrc READ TABLE SELECT ASSIGN AUTHORITY-CHECK</code></li>
+</ul>
+<h4 id="43-7-example-2844721d" class="semantic-heading semantic-example">43.7 Example / 学习例子</h4>
+<h5 id="43-7-1-05bb77f4" class="semantic-heading semantic-example">43.7.1 例子一：存在检查</h5>
+<p>如果只是判断是否存在，不一定要读取整行：</p>
+<pre><code class="language-abap">IF line_exists( lt_items[ item_id = lv_item_id ] ).
+  mark_item_seen( lv_item_id ).
+ENDIF.</code></pre>
+<p>这比下面的旧式写法更表达意图：</p>
+<pre><code class="language-abap">READ TABLE lt_items TRANSPORTING NO FIELDS
+  WITH KEY item_id = lv_item_id.
+
+IF sy-subrc = 0.
+  mark_item_seen( lv_item_id ).
+ENDIF.</code></pre>
+<p>但旧式写法不是错。需要 <code>sy-tabix</code>、需要兼容旧代码风格、需要和周围 <code>READ TABLE</code> 代码保持一致时，<code>READ TABLE ... TRANSPORTING NO FIELDS</code> 仍然可读。关键是：不要读了以后不判断。</p>
+<h5 id="43-7-2-ad1e01cf" class="semantic-heading semantic-example">43.7.2 例子二：读取后立即失败</h5>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item)
+  WITH TABLE KEY item_id = lv_item_id.
+
+IF sy-subrc &lt;&gt; 0.
+  APPEND VALUE #( item_id = lv_item_id
+                  message = &#x27;Item was not found&#x27; ) TO et_messages.
+  RETURN.
+ENDIF.
+
+calculate_item_amount( ls_item ).</code></pre>
+<p>这段代码比“只在成功分支里处理，失败时什么也不做”更适合教程。因为读者能看到失败分支的业务含义。</p>
+<h5 id="43-7-3-a5ce967e" class="semantic-heading semantic-example">43.7.3 例子三：权限检查</h5>
+<pre><code class="language-abap">AUTHORITY-CHECK OBJECT &#x27;Z_SALES&#x27;
+  ID &#x27;ACTVT&#x27; FIELD &#x27;02&#x27;
+  ID &#x27;VKORG&#x27; FIELD lv_sales_org.
+
+IF sy-subrc &lt;&gt; 0.
+  APPEND VALUE #( type = &#x27;E&#x27;
+                  text = |No authorization for sales org { lv_sales_org }| )
+         TO et_messages.
+  RETURN.
+ENDIF.
+
+update_sales_document( ).</code></pre>
+<p>这里不要把 <code>sy-subrc &lt;&gt; 0</code> 写成 <code>CONTINUE</code> 然后不留痕迹。权限失败必须能被用户、日志、测试或上层调用方看见。</p>
+<h4 id="43-8-counterexample-failure-mode-07d5c5a6" class="semantic-heading semantic-example">43.8 Counterexample / Failure mode</h4>
+<p>常见 silent failure 模式：</p>
+<ul>
+<li><code>READ TABLE ... INTO wa</code> 后不检查 <code>sy-subrc</code>，继续使用 <code>wa</code>。</li>
+<li><code>SELECT SINGLE ... INTO ls_data</code> 后不检查空结果，后续把目标变量当成真实业务对象。</li>
+<li><code>SELECT SINGLE</code> 的 <code>WHERE</code> 不是唯一条件，却把 <code>sy-subrc = 0</code> 理解成唯一且稳定地找到了业务记录。</li>
+<li><code>AUTHORITY-CHECK</code> 后不检查返回码，权限失败没有阻断。</li>
+<li><code>ASSIGN ... TO &lt;fs&gt;</code> 后直接使用 <code>&lt;fs&gt;</code>，失败时可能未分配或语义不清。</li>
+<li>静态 <code>ASSIGN dobj TO &lt;fs&gt;</code> 后检查 <code>sy-subrc</code>，误以为该语句设置了返回码。</li>
+<li>先执行 A 语句，之后执行 B 语句，再用 <code>sy-subrc</code> 判断 A 的结果。</li>
+<li>把所有 <code>sy-subrc &lt;&gt; 0</code> 都写成 <code>CONTINUE</code> 或 <code>RETURN</code>，没有消息、日志、异常或业务说明。</li>
+<li>在新方法设计中仍然模仿 function module 风格，用裸 <code>sy-subrc</code> 表达复杂业务失败。</li>
+<li><code>CALL FUNCTION ... EXCEPTIONS OTHERS = 1</code> 后不检查 <code>sy-subrc</code>，把所有经典 function module 错误吞掉。</li>
+<li>用 <code>OPTIONAL</code> 吃掉 table expression 的 not-found，但没有区分“真 initial value”和“没找到”。</li>
+</ul>
+<p>一个危险反例：</p>
+<pre><code class="language-abap">READ TABLE lt_price INTO DATA(ls_price)
+  WITH KEY material = lv_material.
+
+DATA(lv_amount) = ls_price-price * lv_quantity.</code></pre>
+<p>更好的写法：</p>
+<pre><code class="language-abap">READ TABLE lt_price INTO DATA(ls_price)
+  WITH KEY material = lv_material.
+
+IF sy-subrc &lt;&gt; 0.
+  RAISE EXCEPTION TYPE zcx_price_missing
+    EXPORTING material = lv_material.
+ENDIF.
+
+DATA(lv_amount) = ls_price-price * lv_quantity.</code></pre>
+<p>如果未维护价格是允许的业务场景，也要写出 fallback：</p>
+<pre><code class="language-abap">READ TABLE lt_price INTO DATA(ls_price)
+  WITH KEY material = lv_material.
+
+IF sy-subrc &lt;&gt; 0.
+  DATA(lv_amount) = 0.
+  RETURN.
+ENDIF.
+
+lv_amount = ls_price-price * lv_quantity.</code></pre>
+<p>重点不是每次都抛异常，而是失败路径必须显式。</p>
+<h4 id="43-9-08a3b7f0" class="semantic-heading semantic-practice">43.9 思考问题</h4>
+<ul>
+<li>当前语句是否真的会设置 <code>sy-subrc</code>？具体值由哪一页 ABAP Keyword Documentation 定义？</li>
+<li><code>sy-subrc</code> 检查是否紧跟在相关语句之后？如果没有，是否保存到了本地变量？</li>
+<li><code>sy-subrc &lt;&gt; 0</code> 在当前业务里代表未找到、未授权、未赋值、未更新，还是系统级失败？</li>
+<li>如果改用 table expression，not-found 是抛异常、<code>OPTIONAL</code>、<code>DEFAULT</code>，还是 <code>line_exists</code>？</li>
+<li>对权限检查、数据库更新、外部接口调用，失败路径有没有消息、日志、异常或返回对象？</li>
+<li>ABAP Unit 是否覆盖了 <code>sy-subrc = 0</code> 和 <code>sy-subrc &lt;&gt; 0</code> 两条路径？</li>
+<li>在日本项目 review 中，这段代码会不会被指出 <code>戻りコード確認漏れ</code>？</li>
+</ul>
+<h4 id="43-10-4ea7c413" class="semantic-heading semantic-reference">43.10 参考资料入口</h4>
+<ul>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENSYSTEM_FIELDS.html" target="_blank" rel="noopener noreferrer">ABAP System Fields</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENRETURN_CODE_GUIDL.html" target="_blank" rel="noopener noreferrer">Return Code</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENEVALUATION_GUIDL.html" target="_blank" rel="noopener noreferrer">System Fields - Evaluation</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENEXTENDED_PROGRAM_CHECK_GUIDL.html" target="_blank" rel="noopener noreferrer">Extended Program Check</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPREAD_TABLE.html" target="_blank" rel="noopener noreferrer">READ TABLE itab</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSELECT.html" target="_blank" rel="noopener noreferrer">SELECT</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPASSIGN.html" target="_blank" rel="noopener noreferrer">ASSIGN</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPAUTHORITY-CHECK.html" target="_blank" rel="noopener noreferrer">AUTHORITY-CHECK OBJECT</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCALL_FUNCTION_PARAMETER.html" target="_blank" rel="noopener noreferrer">CALL FUNCTION, parameter_list</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENTABLE_EXPRESSIONS.html" target="_blank" rel="noopener noreferrer">itab - Table Expressions</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENLINE_EXISTS_FUNCTION.html" target="_blank" rel="noopener noreferrer">line_exists</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENLINE_INDEX_FUNCTION.html" target="_blank" rel="noopener noreferrer">line_index</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md#evaluating-abap-system-fields-after-abap-sql-statements" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet - Evaluating ABAP System Fields</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="43-11-connections-d6a16589">43.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a></li>
+<li>Related: <a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li>Related: <a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li>Related: <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Downstream: <a class="wiki" href="section-02-044-corresponding-fields-and-move-corresponding-risks-209a3881.html">CORRESPONDING FIELDS and MOVE-CORRESPONDING risks</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="43-12-8f61bd66" class="semantic-heading semantic-practice">43.12 学习任务</h4>
+<ul>
+<li>找一段 <code>READ TABLE</code> 代码，把 <code>sy-subrc = 0</code> 和 <code>sy-subrc &lt;&gt; 0</code> 两条路径都写出来。</li>
+<li>把一段 <code>READ TABLE ... TRANSPORTING NO FIELDS</code> 改写成 <code>line_exists( itab[ ... ] )</code>，比较哪一个更清楚。</li>
+<li>找一个 <code>AUTHORITY-CHECK</code> 例子，说明非 <code>0</code> 时应该返回消息、抛异常还是阻断流程。</li>
+<li>用一句日语说明：为什么 <code>sy-subrc</code> 必须在相关语句之后立即检查。</li>
+<li>为一个 not-found 场景写 ABAP Unit：一条测试 found path，一条测试 not-found path。</li>
+</ul>
+<h4 id="43-13-confidence-next-action-7ac309f4" class="semantic-heading semantic-status">43.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容基于 SAP Help / ABAP Keyword Documentation、SAP Samples cheat sheets 和已扩写的 internal table / table expression / exception 章节整理；已整合 <code>90-Review/joule-sy-subrc-discipline-snapshot-2026-06-13.txt</code> 中的 <code>Pass with fixes</code> 要点，包括 statement-specific、functional method 覆盖、<code>READ TABLE</code> 特殊返回值、static <code>ASSIGN</code>、<code>AUTHORITY-CHECK</code> 安全缺陷、table expression not-found 和 ATC/Extended Program Check。</li>
+<li>Next action: Claude 文件式 review 在 <code>90-Review/Claude Day14 sy-subrc Discipline Section Review 2026-06-13.md</code> 中记录为超时，后续 Claude CLI 稳定后可重跑；本节可作为 <code>expanded-review</code> 继续进入下一节。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-043-sy-subrc-discipline-and-silent-failure-patterns-17a684f1.html">sy-subrc discipline and silent failure patterns</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-042-reduce-expression-f12baa21.html">Previous section</a><a href="section-02-044-corresponding-fields-and-move-corresponding-risks-209a3881.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

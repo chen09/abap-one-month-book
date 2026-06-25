@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP debugger 调试器入口 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="16-abap-debugger-2ece02d0" class="chapter-title">16. ABAP debugger 调试器入口</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 16</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>ABAP debugger 调试器入口，是在某一次真实运行路径中暂停程序、观察变量、调用栈和控制流的工具；本节要学的是：debugger 能解释“这一次为什么这样跑”，但不能替代 <a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a>、测试、日志、ATC、trace、生产监控（monitoring）和正式缺陷分析。</p>
+<p><strong>正文</strong></p>
+<p>Where-used list 帮你回答“谁可能静态引用这个对象”。Debugger 帮你回答另一类问题：当程序真的运行到这里时，变量是什么值？哪个分支被执行？哪个 method 调用了当前 method？<code>sy-subrc</code> 为什么不是 0？internal table 为什么少了一行？异常在哪里被 raise 或 catch？这就是 runtime observation。</p>
+<p>在 ADT 里最基本的流程是：先让对象成功 <a class="wiki" href="section-01-013-activation-ff7e1caa.html">activation</a>；在源代码左侧边栏设置 breakpoint；像平常一样运行程序、class、unit test、service 或业务操作；当程序流到达 active breakpoint 时，系统中断执行并打开 ABAP Debug perspective。SAP Learning 对 Debug perspective 的说明很适合初学者：它包含 source code、Variables view、Breakpoints view、Debug / call stack 等用于分析运行时状态的视图。</p>
+<p>第一次学 debugger，不要急着记所有按钮。先记四件事。第一，看当前停在哪一行；第二，看 Variables view 里的 local variables、method parameters、internal tables、system fields；第三，看 call stack，确认是谁调用了这里；第四，用 Step Into / Step Over / Step Return / Resume 控制接下来怎么走。能做到这四件事，就能把很多“感觉不对”的问题变成可描述的调查结果。</p>
+<p>Debugger 也有危险边界。你可以 step、watch、inspect；在有权限时甚至可以改变量值或跳转执行位置。但这不等于“修复了问题”。在 debugger 里改变量只是调查或模拟，不能代替代码修正、测试和 transport。尤其是 production system：即使 read-only debugging 也涉及数据保护和审计，debug-change authorization 更应该极其严格。日本项目中，<code>本番デバッグ</code> 通常需要正式申请、审批、操作记录和事后说明。</p>
+<p>本节只讲 Day 02 入门：line breakpoint、conditional breakpoint、statement / exception breakpoint、watchpoint、call stack、变量查看、基本 step 操作，以及 HTTP/OData/RAP/Fiori 这类不是从编辑器直接启动的场景为什么需要 external breakpoint。更深的 cross-user debugging、debugger scripting、update task debugging、background job debugging、AMDP debugging、performance trace，后面按专题再学。</p>
+<p><strong>为什么重要</strong></p>
+<p>Debugger 是把“猜测”变成“证据”的工具。没有 debugger，初学者常靠 <code>WRITE</code>、临时 log 或脑补去判断程序路径；在 SAP 项目里，这样很快会失控。一个业务动作可能穿过 class、function module、BAdI、CDS、authorization check、RAP handler、update task 和 message handling。Debugger 能让你看到至少某一次执行路径上的真实变量和调用顺序。</p>
+<p>它也补上了 where-used 的盲区。Where-used 告诉你某个 method 被哪些对象静态引用；debugger 告诉你这一次操作是否真的走到了这个 method，传入参数是什么，哪个 <code>IF</code> 分支被选中，<code>sy-subrc</code> 是否被正确检查。两者结合，才像一个完整的排查动作：先看可能影响谁，再看实际怎么跑。</p>
+<p>对 Java/Python 背景学习者来说，ABAP debugger 的概念不陌生，但 SAP 的运行环境更复杂。代码在远端 SAP system 中执行；breakpoint 与用户、session、外部请求有关；断点可能 persistent；HTTP/OData/RAP 请求不一定由你在 editor 中直接启动；生产系统还涉及授权和审计。把这些差异理解清楚，才能避免“我在本地能 debug，为什么 SAP 服务断不下来”的挫败。</p>
+<p>对日本项目来说，debugger 结果要能转化为 <code>調査結果</code>。比如：<code>再現手順</code> 是什么，断点设在哪里，实际进入哪个 method，关键变量是什么值，哪个分支与设计不一致，是否需要修正代码、customizing、权限或测试数据。只说“debug 了一下”没有项目价值；能写清楚“在哪一步观察到什么证据”，才有交付价值。</p>
+<p><strong>核心机制</strong></p>
+<p>第一层机制是 breakpoint。line breakpoint 是最常用入口：在 editor 左侧边栏双击或通过 context menu 设置。ADT line breakpoints 默认是 user-specific 且 persistent 的，也就是说它们属于当前用户，并且可能在你退出 ADT 后仍然有效。用完后要 delete 或 deactivate，否则后续执行会意外再次进入 debugger。多人共用 training user 时，这一点尤其容易造成混乱。</p>
+<p>第二层机制是 Debug perspective。程序命中 breakpoint 后，ADT 切到 Debug perspective。Source code 显示当前执行位置；Variables view 显示当前上下文变量；Breakpoints view 管理断点；Debug view / call stack 显示当前调用层级。点击 call stack 中的上层条目，可以回到调用点理解“是谁把我带到这里”。</p>
+<p>第三层机制是 step navigation。常用键是：<code>F5</code> Step Into，进入下一条语句或被调用过程；<code>F6</code> Step Over，把下一次 procedure call 当作一个整体跑过；<code>F7</code> Step Return，跑到当前 procedure 返回；<code>F8</code> Resume，运行到下一个 breakpoint 或程序结束；<code>Shift+F8</code> Run to Line，跑到当前光标行；<code>Shift+F12</code> Jump to Line，把执行指针直接移动到某行。这些是 SAP/ADT 文档中的常见快捷键，实际项目中还应以当前 ADT 版本和 Eclipse Preferences -&gt; Keys 设置为准。Jump to Line 很危险：它是跳，不是执行；向后跳不会回滚已经改变的变量值，向前跳可能跳过必要逻辑。Day 02 只在 sandbox 里认识它，不把它当日常手段。</p>
+<p>第四层机制是变量与 internal table。Variables view 可以查看 local variables、importing/exporting/changing parameters、object references、structures、internal tables 和 system fields。internal table 通常可以在专门视图里展开行与列。对初学者最有价值的是盯住几个点：输入参数是否符合预期，<code>sy-subrc</code> / <code>sy-tabix</code> / <code>sy-dbcnt</code> 是否被正确解释，internal table 行数是否变化，message 相关变量是否被设置。</p>
+<p>第五层机制是 advanced breakpoint awareness。conditional breakpoint 只在条件满足时停；statement breakpoint 可以在某个 ABAP statement 出现时停，例如 <code>MESSAGE</code>、<code>RAISE EXCEPTION</code>、<code>SELECT</code> 或 <code>COMMIT WORK</code>；exception breakpoint 在指定 exception 被 raise 时停；watchpoint 在变量值变化时停。Day 02 只要知道这些工具存在，真正的系统化使用放到后面错误处理、SQL、RAP 和性能排查章节。</p>
+<p>第六层机制是 external breakpoint。普通 console/class run 可以直接从 ADT 启动；但 HTTP/OData/RAP/Fiori/service call 往往是浏览器、UI、Postman、外部系统或另一个用户触发的。要让这类请求进入 debugger，通常需要为正确 user/session 设置 external breakpoint 或在 ADT Project Properties 的 Debug user 相关配置中确认目标用户。初学者只需记住：服务请求 debug 不等于在 editor 里按 F9，用户和入口必须对上。</p>
+<p>第七层机制是 authorization。SAP 里 debugging 受权限控制。read-only debugging 与 debug-change authorization 不是一回事；后者可能允许改变变量值、跳转执行、影响程序流程。SAP Note 对 production system 中 debug-change authorization 的建议非常严格，read-only production debugging 也应尽量避免或严格审批。在 SAP S/4HANA Cloud Public Edition / ABAP Cloud 场景里，客户开发者通常只能 read-only debugging，debug-change 由平台限制，不对外开放。日本项目里遇到 <code>本番デバッグ</code>，要先确认 <code>本番環境デバッグ申請</code>、权限、时间窗口、操作记录和客户批准，而不是自己尝试。</p>
+<p>第八层机制是 terminate / cleanup。<code>Terminate</code> 会直接结束当前 debug session；当你卡在不想继续执行的路径、误入大型 framework 代码或已经收集完证据时需要知道它。完成调试后，要 remove/deactivate breakpoint，回到 ABAP perspective，并把关键观察写到 defect / review note。一个干净的调试会话，最后应该留下调查结果，而不是留下忘记删除的 breakpoint。</p>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>デバッグ</code>、<code>ABAPデバッガ</code>、<code>ブレークポイント</code>、<code>外部ブレークポイント</code>、<code>条件付きブレークポイント</code>、<code>ウォッチポイント</code>、<code>変数</code>、<code>内部テーブル</code>、<code>コールスタック</code>、<code>ステップ実行</code>、<code>ステップイン</code>、<code>ステップオーバー</code>、<code>ステップリターン</code>、<code>続行</code>、<code>デバッグ権限</code>、<code>デバッグ表示権限</code>、<code>デバッグ変更権限</code>、<code>本番デバッグ</code>、<code>本番環境デバッグ申請</code>、<code>再現手順</code>、<code>調査結果</code>。</li>
+<li>说明句：再現手順に従ってデバッグし、コールスタックと主要変数の値を調査結果に記載してください。</li>
+<li>说明句：本番環境でのデバッグは、事前申請と承認がない限り実施しないでください。</li>
+<li>使用场景：缺陷再现、単体テスト异常调查、结合测试缺陷分析、service call 排查、RAP handler 调查、权限/数据问题切分、上线后紧急调查审批。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>ABAP Debugger</code>, <code>Debug perspective</code>, <code>Debug view</code>, <code>Variables view</code>, <code>Breakpoints view</code>, <code>Call Stack</code></li>
+<li>Breakpoint terms: <code>line breakpoint</code>, <code>conditional breakpoint</code>, <code>statement breakpoint</code>, <code>exception breakpoint</code>, <code>watchpoint</code>, <code>external breakpoint</code></li>
+<li>Navigation terms: <code>Step Into</code>, <code>Step Over</code>, <code>Step Return</code>, <code>Resume</code>, <code>Run to Line</code>, <code>Jump to Line</code>, <code>Terminate</code></li>
+<li>Authorization terms: <code>debug-read-only authorization</code>, <code>debug-change authorization</code>, <code>S_DEVELOP</code>, <code>S_DBG</code></li>
+<li>Recommended search pattern: <code>ABAP Debugger ADT Step Into F5</code>, <code>ABAP external breakpoint ADT</code>, <code>ABAP debugger change variables authorization</code></li>
+</ul>
+<p><strong>学习例子</strong></p>
+<ul>
+<li>新建或打开一个实现 <code>IF_OO_ADT_CLASSRUN</code> 的 class，激活后在第一条 executable statement 上设置 breakpoint，按 <code>F9</code> 运行，观察 Debug perspective 是否打开。</li>
+<li>在 Variables view 中查看一个 simple variable、一个 structure、一个 internal table；单步执行 <code>F5</code> / <code>F6</code>，记录每一步变量值如何变化。</li>
+<li>在一个 <code>IF</code> 或 <code>CASE</code> 前设置 breakpoint，观察实际进入哪个 branch。用一句中文解释为什么进入这个分支。</li>
+<li>在 method call 前分别尝试 <code>F5</code> Step Into 和 <code>F6</code> Step Over，比较二者差异。不要在真实业务对象上随意使用 Jump to Line。</li>
+<li>Week 3/4 后，用一个 RAP action 或 OData call 练习 external breakpoint：确认触发请求的 user、breakpoint 类型、call stack 和 handler method。</li>
+</ul>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>误区一：以为 debugger 通过一次就代表代码质量没问题。Debugger 只证明某一次运行路径的观察结果，不等于测试覆盖。</li>
+<li>误区二：忘记删除 persistent breakpoint，导致后续操作反复进入 debugger。</li>
+<li>误区三：用 Jump to Line 跳过逻辑后，把观察到的结果当成正常业务行为。Jump 改变执行指针，不会回滚变量。</li>
+<li>误区四：在 debugger 里改变量后，以为问题已经修复。变量修改只是模拟或调查，真正修复要改代码/配置/数据并走 transport。</li>
+<li>误区五：用自己的 user 设置 breakpoint，却让别的 technical user / HTTP user / batch user 触发请求，结果断点永远不命中。</li>
+<li>误区六：在 PRD 里随便 debug。即使 read-only debugging 也可能违反数据保护和审计要求，debug-change authorization 更不能随意使用。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>Where-used list 和 debugger 分别回答什么问题？为什么二者不能互相替代？</li>
+<li>为什么 breakpoint 要记得 deactivate 或 delete？</li>
+<li>Step Into、Step Over、Step Return、Resume 的使用场景分别是什么？</li>
+<li>Jump to Line 为什么危险？它和普通 step 的本质差异是什么？</li>
+<li>如果 OData / RAP 请求没有进入断点，应该检查 user、external breakpoint、service path、activation，还是权限？</li>
+<li>在日本项目里，如何把一次 debugger 观察结果写成 <code>調査結果</code>？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/abap-debugger" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Debugger</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-for-visual-studio-code/debugging-abap-code" target="_blank" rel="noopener noreferrer">SAP Help - Debugging ABAP Code</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/navigating-in-debugger" target="_blank" rel="noopener noreferrer">SAP Help - Navigating in the Debugger</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/adding-conditions-to-breakpoints" target="_blank" rel="noopener noreferrer">SAP Help - Adding Conditions to Breakpoints</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/ba879a6e2ea04d9bb94c7ccd7cdac446/5f0c3343255a42e18d3a9b6894ce0bb5.html" target="_blank" rel="noopener noreferrer">SAP Help - Breakpoints and Breakpoint Statements</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/debugging-an-abap-program_d070e545-efd5-4d87-8b75-20f18d7b7d3b" target="_blank" rel="noopener noreferrer">SAP Learning - Debugging an ABAP Program</a> (accessed 2026-06-13).</li>
+<li><a href="https://me.sap.com/notes/3484500" target="_blank" rel="noopener noreferrer">SAP Note 3484500 - Debug authorizations in production systems</a> (SAP login may be required; accessed 2026-06-13).</li>
+<li><a href="https://me.sap.com/notes/65968" target="_blank" rel="noopener noreferrer">SAP Note 65968 - Debug authorization concept</a> (SAP login may be required; accessed 2026-06-13).</li>
+<li><a href="https://me.sap.com/notes/3037455" target="_blank" rel="noopener noreferrer">SAP Note 3037455 - ADT external debugging user configuration</a> (SAP login may be required; accessed 2026-06-13).</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p>原子笔记入口: <a class="wiki" href="section-01-016-abap-debugger-05add8e6.html">ABAP debugger 调试器入口</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-015-where-used-list-1b8d2818.html">Previous section</a><a href="section-01-017-transport-task-request-import-queue-e945d7ef.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

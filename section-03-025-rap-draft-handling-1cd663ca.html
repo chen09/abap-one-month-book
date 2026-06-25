@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP draft handling | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="25-rap-draft-handling-6d33dad9" class="chapter-title">25. RAP draft handling</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 25</li><li>self-contained study note</li></ul><h4 id="25-1-a5ea08c8" class="semantic-heading semantic-concept">25.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-025-rap-draft-handling-1cd663ca.html">RAP draft handling</a> 是 RAP 为事务型 Fiori 应用提供的草稿机制：用户可以先把未完成或尚未通过校验的数据保存在 draft persistence 中，继续编辑、丢弃或激活；真正写入 active persistence 的动作由 RAP draft runtime、draft actions 和 save sequence 共同完成，而不是由开发者随手插一张“临时表”解决。</p>
+<p>一句话记忆：draft 不是“未保存字段缓存”，而是 RAP BO 的受控生命周期；它让复杂对象可以先保存为草稿，再通过 <code>EDIT</code>、<code>PREPARE</code>、<code>ACTIVATE</code>、<code>DISCARD</code>、<code>RESUME</code> 等动作进入或离开 active data。</p>
+<h4 id="25-2-dfe888cf">25.2 概念说明</h4>
+<p>在普通非 draft 应用中，用户点 Create / Edit 后，前端通常要在一次提交前把数据填完整；保存失败时，页面、消息和后端状态的协调会变复杂。draft-enabled RAP BO 的思路不同：用户正在编辑的数据先成为 draft instance，存入 draft database table。active table 保持原业务数据，draft table 保存尚未激活的工作副本。</p>
+<p>SAP Learning 明确说明：draft business object 的 draft life cycle 由 RAP draft runtime 管理。应用开发者要做的是在 behavior definition、draft table、ETag、projection behavior、authorization / feature control 等设计点上把条件声明清楚；不需要自己写“如何创建 draft、如何写 draft table、如何激活 draft instance”的底层流程。</p>
+<p>必须先分清两类 draft：</p>
+<ul>
+<li>New-Draft：新建对象时产生的 draft，还没有对应 active instance。用户可以逐步补字段、触发 prepare、最后 activate 成 active data。</li>
+<li>Edit-Draft：从已有 active instance 通过 <code>EDIT</code> 复制出来的 draft，draft 与 active data 并存。用户编辑的是 draft；激活时，draft 中的变化覆盖 active instance。</li>
+</ul>
+<p>所以，draft 的核心不是“Fiori 自动保存一下页面”，而是“同一个 BO 同时有 active state 与 draft state，RAP runtime 负责二者之间的状态转换”。这也是为什么 draft 会牵涉 <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a>、draft table、lock、total ETag、projection、OData 和 <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a>。</p>
+<h4 id="25-3-1b057436" class="semantic-heading semantic-why">25.3 为什么重要</h4>
+<p>复杂业务对象通常不是一屏填完。例如旅行申请、采购请求、报价单、维护通知、主数据申请，都可能有 header、item、附件、长文本、审批前校验和跨系统检查。如果没有 draft，用户要么必须一次性输入完成，要么项目自己造临时表、状态字段和恢复逻辑，最后很容易变成“半成品数据污染正式表”。</p>
+<p>Draft 让 Fiori Elements 事务应用更接近业务现场：用户可以保存未完成输入、离开页面再回来、看到上次的 state message、修正错误后再激活。对后台来说，active persistence 保持一致，未完成数据被隔离到 draft persistence；对前端来说，草稿保存、继续编辑、丢弃、激活等动作有框架语义。</p>
+<p>对项目交付来说，draft 直接影响四件事。第一，数据库设计：每个 draft-enabled entity 通常需要 active table 和 draft table。第二，并发控制：编辑 active instance 时要防止多人互相覆盖。第三，校验时机：哪些 validation 在 prepare 执行，哪些在 activate/save 时执行。第四，服务行为：projection behavior 和 OData UI service 是否真的暴露 draft 能力。</p>
+<p>对 Java/Python 背景学习者，可以把 draft 粗略类比成“可恢复的工作副本 + unit of work + optimistic/pessimistic concurrency control”的组合。但 RAP draft 不是普通 session cache：它有持久化 draft table、标准 draft actions、total ETag、message persistence 和 OData/Fiori 协议语义。</p>
+<h4 id="25-4-0839292e">25.4 边界</h4>
+<p>第一条边界：draft 不是业务状态字段。业务上的 <code>Status = Draft</code> 可能只是流程状态，而 RAP draft 是框架层的 active/draft 双态机制。不能把业务状态叫 Draft 就等于启用了 RAP draft handling。</p>
+<p>第二条边界：draft 不是浏览器缓存。Fiori 页面上看到“draft saved”时，后端 draft table 已经保存了草稿状态；用户离开页面后仍可以恢复。浏览器刷新或会话变化不应被当作草稿生命周期的唯一依据。</p>
+<p>第三条边界：draft table 不是开发者随便写的 staging table。draft table 要符合 RAP 要求，通常由 ADT quick fix 生成或按规则维护，并由 RAP runtime 管理。项目代码不应把 draft table 当普通临时表直接 <code>INSERT</code> / <code>UPDATE</code>。</p>
+<p>第四条边界：<code>ACTIVATE</code> 不等于“已经提交数据库”。SAP Learning 特别说明，draft action <code>ACTIVATE</code> 会把 draft data 复制到 active data 的 application buffer，并包含隐式 <code>PREPARE</code>；真正保存到数据库仍由后续 <code>COMMIT ENTITIES</code> 或 OData save sequence 完成。把 activate 和 commit 混成一个动作，是调试 draft 问题时的常见误区。</p>
+<p>第五条边界：draft 不是所有服务都天然需要。简单只读报表、一次性 API、后台批处理、稳定 master data 查询，未必需要 draft。Draft 适合复杂交互式 transactional UI；如果只是批量接口，额外的 draft table、ETag、actions、锁和测试成本可能不划算。</p>
+<h4 id="25-5-6b79fdf6" class="semantic-heading semantic-mechanism">25.5 核心机制</h4>
+<p>第一层机制是 BDEF 开关。Managed draft BO 常在 behavior definition header 中声明 <code>with draft;</code>，并在 entity behavior 中指定 <code>draft table ...</code>。这表示 BO 支持 draft lifecycle，并告诉 RAP runtime 对应的 draft persistence 在哪里。</p>
+<pre><code class="language-abap">managed implementation in class zbp_i_travel unique;
+strict ( 2 );
+with draft;
+
+define behavior for ZI_Travel alias Travel
+  persistent table ztravel
+  draft table ztravel_d
+  lock master total etag LastChangedAt
+  etag master LocalLastChangedAt
+{
+  create;
+  update;
+  delete;
+
+  draft action Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare;
+}</code></pre>
+<p>这段只是教学示意。真实项目中字段名、draft table、draft actions、ETag 字段、mapping、composition child、authorization 和 projection behavior 都要按目标系统语法与生成模板确认。<code>Activate optimized</code> 表示激活时优化处理变化字段；不同 ABAP release 或模板生成结果可能略有差异，项目中以目标系统 ADT syntax check 和 SAP 文档为准。</p>
+<p>第二层机制是 draft table。Draft-enabled BO 通常对每个 entity 准备 active persistence 和 draft persistence。SAP Learning 说明，draft database table 基于 CDS view entity 字段，还包含 RAP runtime 需要的 technical information。ABAP Keyword Documentation 也把 RAP draft table 定义为用于存储 draft data 的 DDIC database table，并要求它反映底层 CDS entity 的字段。</p>
+<p>第三层机制是 draft lifecycle。New-Draft 从“新建草稿”开始，数据即使不完整也可进入 draft persistence；<code>PREPARE</code> 可以执行校验和派生；<code>ACTIVATE</code> 把 draft 数据转为 active 修改请求；成功保存后 draft 被删除。Edit-Draft 则先通过 <code>EDIT</code> 把 active instance 复制成 draft，用户修改 draft；<code>DISCARD</code> 删除 draft 并保留 active data；<code>ACTIVATE</code> 将 draft 变化应用到 active instance。</p>
+<p>第四层机制是 draft actions。Draft-enabled BO 会有一组标准草稿动作：</p>
+<ul>
+<li><code>EDIT</code>：从 active instance 创建 edit-draft。</li>
+<li><code>ACTIVATE</code>：激活 draft，内部包含 <code>PREPARE</code>，再触发 create/update 语义。</li>
+<li><code>DISCARD</code>：丢弃 draft，删除 draft persistence 中的工作副本。</li>
+<li><code>RESUME</code>：在锁超时后继续编辑 draft，重新建立必要的锁。</li>
+<li><code>PREPARE</code>：draft determine action，可挂 validation / determination，用于激活前整理和检查 draft 数据。</li>
+</ul>
+<p>这些动作会暴露给 EML 和 OData，但严格模式下通常需要在 BDEF 或 projection behavior 中显式列出相应使用声明。初学者不用一开始背全语法，但要理解这些动作不是普通自定义 action，而是 draft runtime 的生命周期入口。</p>
+<p>第五层机制是并发控制。Draft 编辑已有 active instance 时，RAP runtime 会使用悲观锁和乐观锁组合。创建 edit-draft 时，active instance 会被独占锁保护，防止其他用户同时创建第二个 draft 或直接修改 active data。New-Draft 没有对应 active instance，所以不会锁住某个已有 active row；它的风险更多在后续编号、唯一性校验和激活时的业务一致性。锁可能超时；超时后 draft 仍存在，但进入 optimistic phase，需要 total ETag 判断 active data 是否已被别人改过。</p>
+<p>第六层机制是 total ETag 与 local instance ETag。Draft 场景下必须设计 total ETag，用来判断 draft 是否还能安全 resume。普通 active-last-changed 时间戳可用于 total ETag；而 BDEF 中的 <code>etag master</code> 面向 OData optimistic concurrency control，active instance 和 draft instance 都会受它影响。Draft 场景通常还需要 local instance last changed 字段，让 draft instance 的每次写访问都能更新本地实例时间戳。SAP Learning 提到，<code>@Semantics.systemDateTime.localInstanceLastChangedAt: true</code> 对应的字段会在每次 draft instance 写访问时由 runtime 更新。</p>
+<p>第七层机制是 projection behavior。即使 base BO 已经 <code>with draft;</code>，projection 或 BO interface 是否也暴露 draft 能力仍要明确决定。SAP Learning 说明，如果希望 projection draft-enabled，需要在 projection behavior 中添加 <code>use draft;</code>；composition association 也可能需要 <code>with draft</code>。否则 UI service 看起来可能不像 draft-enabled 应用。</p>
+<p>第八层机制是 prepare 与 state message。Draft 应用中，validation 不一定只在最终 save 时一次性出现。把 validation / determination 分配给 <code>draft determine action Prepare</code>，可以在激活前检查并调整 draft data。SAP-samples 的 openSAP RAP 练习也展示了将 <code>validateAgency</code>、<code>validateCustomer</code>、<code>validateDates</code> 挂到 <code>Prepare</code> 的方式。这样 Fiori 用户可以看到可恢复的状态消息，而不是每次重新进入页面都丢失上下文。</p>
+<h4 id="25-6-d4199202" class="semantic-heading semantic-why">25.6 项目意义</h4>
+<p>设计评审时，draft 要回答：“这个应用是否真的需要用户保存半成品？”如果业务对象简单、一次性提交、没有长表单、没有 item 编辑，draft 可能不是第一优先级。如果用户经常中断、需要跨页面编辑 header/item、需要保存未完成输入、需要恢复错误消息，draft 就是高价值设计。</p>
+<p>开发评审时，要看五类对象是否一致。第一，base behavior definition 是否 <code>with draft</code> 并定义 draft table。第二，active table / draft table / CDS view 字段是否同步。第三，lock master、total ETag、ETag master 是否符合 draft 场景。第四，projection behavior 是否 <code>use draft</code>，association 是否暴露 draft。第五，prepare、validation、authorization、feature control 是否覆盖 <code>EDIT</code> / <code>PREPARE</code> / <code>RESUME</code> 等草稿动作。</p>
+<p>测试时，不能只测“Save 成功”。至少要测新建草稿、编辑已有对象、离开后恢复、校验失败保留消息、丢弃草稿、激活成功、并发修改、锁超时后 resume、active data 被别人修改后的 outdated draft。否则上线后最容易出问题的不是 create/update 本身，而是用户真实操作路径。</p>
+<p>日本项目中，draft 常出现在 Fiori Elements 事务应用设计、结合测试和缺陷调查中。现场会问：<code>ドラフト対応にしますか</code>、<code>ドラフトテーブルは生成済みですか</code>、<code>Prepare でバリデーションを実行していますか</code>、<code>有効化時にエラーになります</code>。这些问题本质上都在确认 draft lifecycle 是否和业务流程、UI 操作、权限、并发控制一致。</p>
+<h4 id="25-7-example-0f9aa698" class="semantic-heading semantic-example">25.7 Example / 学习例子</h4>
+<p>以 Travel BO 为例，非 draft 应用里，用户创建 Travel 时可能必须一次填完 Agency、Customer、BeginDate、EndDate、Booking 等信息。启用 draft 后，第一步是用户创建 New-Draft，系统把尚不完整的 Travel 数据保存在 draft table。此时 active travel 还不存在，正式业务表保持干净。</p>
+<p>第二步，用户继续补字段，Fiori Elements 可能显示草稿保存状态。后台 draft table 中能看到当前输入；on modify determination 可以给默认值，state message 可以跟随 draft instance。用户即使离开页面，下次也可以回到这个草稿。</p>
+<p>第三步，用户点击 Save / Activate。RAP runtime 执行 <code>PREPARE</code>，运行挂在 prepare 上的 validation / determination。如果 Agency 不存在或日期不合法，激活失败，错误消息保留在 draft 上，用户可以修正后再激活。</p>
+<p>第四步，校验通过后，<code>ACTIVATE</code> 把 draft 变化转成 active create/update 请求，随后由 save sequence 和 <code>COMMIT ENTITIES</code> / OData save flow 完成真正持久化。成功后 draft table 中对应数据被清理，active table 中出现正式 Travel。</p>
+<p>可以用一个极简流程来记：</p>
+<pre><code class="language-text">Create/Edit in UI
+  -&gt; draft instance in draft table
+  -&gt; Prepare: validate and adjust draft data
+  -&gt; Activate: move draft changes into active request
+  -&gt; Save sequence / COMMIT ENTITIES
+  -&gt; active data persisted, draft discarded</code></pre>
+<p>这个流程也解释了为什么 <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a> 一节讲的 <code>%is_draft</code>、<code>%tky</code>、<code>COMMIT ENTITIES</code> 会和 draft 相关：EML 调用 RAP BO 时，也要知道当前操作的是 active instance、draft instance，还是从 draft 到 active 的生命周期动作。</p>
+<h4 id="25-8-counterexample-failure-mode-94f67b51" class="semantic-heading semantic-example">25.8 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 draft 当业务状态。项目在 active table 里加 <code>Status = &#x27;DRAFT&#x27;</code>，然后自己写一堆保存、恢复、删除逻辑，却没有 RAP draft table、draft actions、total ETag 和 Fiori draft protocol。结果是 UI 行为、并发控制和消息都无法和框架对齐。</p>
+<p>第二个失败模式是启用 <code>with draft</code>，但 projection behavior 忘记 <code>use draft</code>。Base BO 看起来支持草稿，服务预览或 Fiori UI 却没有预期的 draft 行为。修正时要同时检查 base BDEF、projection BDEF、service binding 和 exposed associations。</p>
+<p>第三个失败模式是 draft table 和 CDS entity 不一致。新增字段后只改 active table 或 CDS view，忘记调整 draft table，导致 activation、runtime 写草稿或数据恢复出错。使用 ADT quick fix 生成或调整 draft table 后，也要把对象一起传输和测试。</p>
+<p>第四个失败模式是把 <code>ACTIVATE</code> 当最终提交。开发者在调试时看到 activate 成功，就以为数据库已保存；但真正保存仍取决于 save sequence / commit。要结合 reported/failed、save sequence 日志、数据库状态和 OData response 一起判断。</p>
+<p>第五个失败模式是忽视 total ETag。锁超时后，active data 可能已被别人修改；如果 total ETag 设计不正确，用户可能 resume 一个过期 draft，激活时覆盖别人修改。Draft 并发问题往往不是语法错误，而是数据一致性风险。</p>
+<p>第六个失败模式是 validation 只放在最终 save，导致用户在长时间编辑后才发现基础字段错误。Draft 场景更适合把可提前发现的检查挂到 <code>PREPARE</code> 或合适的 validation，使 state message 能跟随 draft 保留和恢复。</p>
+<h4 id="25-9-a1f3140e" class="semantic-heading semantic-japan">25.9 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ドラフト処理</code>、<code>ドラフト対応</code>、<code>ドラフトテーブル</code>、<code>有効化</code>、<code>破棄</code>、<code>再開</code>、<code>排他ロック</code>、<code>ETag</code>、<code>Prepare アクション</code>。</li>
+<li>说明句：RAP のドラフト処理は、未完成の入力内容をドラフトテーブルに保持し、ユーザーが後で再開・破棄・有効化できるようにする仕組みです。</li>
+<li>设计句：この画面は入力項目が多く中断も想定されるため、ドラフト対応にするかを設計段階で判断する必要があります。</li>
+<li>Review 句：ベース BDEF だけでなく、投影 BDEF の <code>use draft</code> と関連の <code>with draft</code> も確認してください。</li>
+<li>调查句：有効化時のエラーか、Prepare のバリデーションエラーか、COMMIT / 保存シーケンスのエラーかを切り分けます。</li>
+</ul>
+<h4 id="25-10-english-terms-38265bcf" class="semantic-heading semantic-terms">25.10 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP draft handling</code></li>
+<li>Official / search term: <code>draft-enabled business object</code></li>
+<li>Official / search term: <code>draft database table</code></li>
+<li>Official / search term: <code>draft action EDIT ACTIVATE DISCARD RESUME PREPARE</code></li>
+<li>Official / search term: <code>with draft</code></li>
+<li>Official / search term: <code>use draft</code></li>
+<li>Official / search term: <code>total etag</code></li>
+<li>Official / search term: <code>local instance last changed at</code></li>
+<li>Recommended search pattern: <code>RAP draft handling SAP Learning with draft total etag</code></li>
+<li>Recommended search pattern: <code>ABAP Keyword Documentation RAP draft table</code></li>
+</ul>
+<h4 id="25-11-07f97bdb" class="semantic-heading semantic-reference">25.11 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/draft" target="_blank" rel="noopener noreferrer">Draft</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/draft-database-table" target="_blank" rel="noopener noreferrer">Draft Database Table</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/understanding-the-draft-concept" target="_blank" rel="noopener noreferrer">Understanding the Draft Concept</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_DRAFT_TABLE.html" target="_blank" rel="noopener noreferrer">RAP - draft table</a> (accessed 2026-06-18)</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-platform-rap-opensap/blob/main/week3/unit7.md" target="_blank" rel="noopener noreferrer">abap-platform-rap-opensap week3 unit7 - enabling draft handling</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="25-12-connections-5756f10b">25.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li><a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li><a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a></li>
+<li><a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a></li>
+<li>Upstream: <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a></li>
+<li>Downstream: <a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="25-13-6fc704f7" class="semantic-heading semantic-practice">25.13 学习任务</h4>
+<ul>
+<li>用 5-8 行中文解释 New-Draft 与 Edit-Draft 的区别。</li>
+<li>画出一条从 Create/Edit 到 Prepare、Activate、Save sequence 的 draft lifecycle。</li>
+<li>在一个 BDEF 示例中找出 <code>with draft</code>、<code>draft table</code>、<code>lock master total etag</code>、<code>etag master</code>。</li>
+<li>用日语写一句 review 问题：projection behavior 是否也启用了 <code>use draft</code>。</li>
+<li>设计一个测试用例：用户创建 draft 后离开页面，再回来修正 validation message 并成功激活。</li>
+</ul>
+<h4 id="25-14-confidence-next-action-46f0242a" class="semantic-heading semantic-status">25.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level RAP draft concepts, lifecycle, draft table, draft actions, total ETag, projection behavior, and Fiori Elements context based on SAP Help, SAP Learning, ABAP Keyword Documentation, and SAP-samples evidence. 2026-06-18 已重新访问官方资料入口，Claude 初审 <code>Pass with fixes</code>、follow-up <code>Pass</code>。Release-specific BDL syntax details still require target-system ADT syntax check; Joule 因前序 timeout 未重试，已记录为后续可补充依赖。</li>
+<li>Review state: 已同步到 Chapter 03 与离线书稿；Claude initial review 返回 <code>Pass with fixes</code>，follow-up 返回 <code>Pass</code>；Joule 因前序 timeout / slow 状态未重试，已记录依赖。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a>，继续展开字段/动作可用性控制与 draft、authorization、UI 行为之间的边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-025-rap-draft-handling-1cd663ca.html">RAP draft handling</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-024-eml-entity-manipulation-language-546d081f.html">Previous section</a><a href="section-03-026-rap-feature-control-ec5d5296.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Production hardening checklist | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="31-production-hardening-checklist-4e426679" class="chapter-title">31. Production hardening checklist</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 31</li><li>self-contained study note</li></ul><h4 id="31-1-0f32841f" class="semantic-heading semantic-concept">31.1 一句话结论</h4>
+<p>Production hardening checklist 是把一个“能在开发机跑通”的 ABAP/RAP/OData/后台处理，整理成“可以进入生产系统、可以被运维、可以被审计、可以回退”的上线前检查清单；在本教程里要学的是：从 POC 走向项目交付时，必须补齐哪些证据。</p>
+<p>POC 的目标是证明技术路线可行，生产交付的目标是让真实用户、真实数据、真实权限、真实负载和真实故障场景下也可控。一个接口在 service preview 里能打开，不代表授权正确；一个 job 在小数据量下能跑，不代表月末批量稳定；一个 enhancement 能编译，不代表符合 <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a>；一个 transport 能导入，不代表上线后能回退。</p>
+<p>本节不是再介绍一个 SAP 工具，而是把前面学过的 <a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a>、<a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a>、<a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a>、<a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a>、<a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a>、<a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a>、transport 和日本项目交付语言串成一张“上线前证据表”。</p>
+<p>因此，Production hardening 的重点不是“多加一张表”，而是把所有散落的技术事实变成上线判断。它要回答三个问题：这个对象是否能承受真实生产条件；如果失败，团队是否知道怎么发现和恢复；如果某些风险还没完全消除，谁明确接受这些风险。没有这三点，checklist 只是形式文档。</p>
+<h4 id="31-2-dcb698b2" class="semantic-heading semantic-concept">31.2 到底学什么</h4>
+<p>第一，要学 checklist 的边界。它不是项目经理的形式文档，也不是把所有风险写成“已确认”。它是开发、测试、Basis/运维、业务、权限和交付负责人共同使用的证据清单，用来确认上线前最重要的风险已经被看见、处理或接受。</p>
+<p>第二，要学检查维度。ABAP 项目的 hardening 至少包括功能正确性、授权、事务一致性、错误处理、应用日志、性能、数据量、并发/锁、后台 job、API 契约、transport、Clean Core/released API、监控、回退和交接文档。</p>
+<p>第三，要学证据形式。好的 checklist 不是“OK/NG”两个字，而要能指向证据：测试结果、ATC 结果、trace/profiler 记录、SQL Monitor 观察、授权测试、错误 payload、job 日志、transport 号、release API 证据、回退步骤、运维手顺。</p>
+<p>第四，要学权衡。不是所有项目都需要同等深度；一个内部只读报表、一个财务更新接口、一个外部公开 API、一个月末批处理的 hardening 深度不同。但越接近核心业务、更新数据、外部集成、自动执行和高数据量，证据要求越高。</p>
+<p>第五，要学判定语言。上线前的判断不应该只有“OK”。更好的状态包括：<code>Done with evidence</code>、<code>Not applicable</code>、<code>Open risk accepted</code>、<code>Blocked</code>、<code>Deferred with owner</code>。例如一个内部只读报表可能不需要幂等测试，可以写 <code>N/A: read-only report, no update or external side effect</code>；一个外部 API 未做性能测试，则不能写 OK，只能写 <code>Open risk: performance test not executed with production-like volume; accepted by owner until pilot phase</code>。</p>
+<p>第六，要学 owner。每一项证据都要有人负责：开发者负责代码、日志、API 证据；权限负责人负责 role 和 authorization test；Basis/运维负责 job、monitoring、transport/import、system log；业务负责人负责业务场景和残风险接受。没有 owner 的 checklist，事故发生时就会变成“大家都以为别人确认了”。</p>
+<p>可以把每一个上线对象都整理成一个最小 hardening evidence packet：</p>
+<pre><code class="language-text">Production Hardening Evidence Packet
+
+Object / function:
+Business owner:
+Technical owner:
+System/client tested:
+Transport request:
+Functional evidence:
+Authorization evidence:
+Error/log evidence:
+Performance/volume evidence:
+Clean Core / released API evidence:
+Monitoring and operation handover:
+Rollback / recovery note:
+Open risks and accepter:
+Final decision:</code></pre>
+<p>这个模板的价值，是把“已确认”改成“可追溯”。上线判定时，reviewer 不需要相信口头说明，而是能沿着 transport、测试、日志、性能、权限、回退和残风险接受人一路追到证据。</p>
+<h4 id="31-3-20e6a933" class="semantic-heading semantic-why">31.3 为什么重要</h4>
+<p>上线失败往往不是因为“代码完全不能跑”，而是因为边界场景没有准备好：某个角色没有权限、错误消息看不懂、失败后重复执行导致重复数据、后台 job 超时、transport 顺序错误、标准对象依赖不合规、性能在真实数据量下崩溃、运维不知道看哪里。</p>
+<p>Production hardening checklist 的价值，是把这些隐性风险提前显性化。它帮助团队把“开发完成”改成“可上线”，把“口头确认”改成“证据确认”，把“出了问题再查”改成“上线前知道怎么查、谁来查、怎么回退”。</p>
+<p>对 Java/Python 背景学习者来说，可以把它类比为 production readiness review、go-live checklist、operational readiness、release gate。但 SAP 的特殊点在于：transport、client、authorization object、business transaction、batch job、application log、system landscape、Clean Core 和 released API 都是上线质量的一部分。</p>
+<p>在日本项目现场，这类清单经常进入 <code>本番移行判定会議</code>、<code>リリース判定</code>、<code>運用引継ぎ</code> 或 <code>切り戻し判定</code>。开发者如果只说“単体テストは完了しました”，还不够；需要能指向证据：ATC 结果在哪里、移送番号是什么、QAS 是否复验、性能数据量是多少、失败时看哪个 application log、回退是否会影响已生成数据。</p>
+<h4 id="31-4-key-mechanism-92d54e2d" class="semantic-heading semantic-mechanism">31.4 Key mechanism / 核心机制</h4>
+<p>一个实用的 production hardening checklist 可以按十个维度组织。</p>
+<ol>
+<li>功能与业务场景：正常路径、边界值、空数据、大数据、异常输入、重复请求、取消/重试、业务日历、跨公司/工厂/组织单位是否覆盖。</li>
+</ol>
+<ol>
+<li>授权：关键角色是否测试过，缺权限时是否返回可解释错误，是否有 <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a> / instance authorization 或传统 authorization check 证据，SU53（最后一次失败授权检查）或 STAUTHTRACE / ST01（授权 trace）结果是否可用于问题定位。</li>
+</ol>
+<ol>
+<li>事务与一致性：commit/rollback 边界是否清楚，失败后是否会留下半成品，锁/enqueue 是否正确，重复执行是否幂等，RAP save sequence 或 BAPI commit 使用是否符合预期。</li>
+</ol>
+<ol>
+<li>错误处理与日志：错误消息是否面向业务可读，技术异常是否被捕获，<a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 是否能按对象、子对象、外部 ID、时间和用户查到，接口错误 payload 是否稳定。</li>
+</ol>
+<ol>
+<li>性能与数据量：小数据和生产相当数据是否都测过，是否有 SQL Trace/ABAP Profiler/SQL Monitor 证据，是否说明了测试数据量、时间窗口、用户、系统负载和改善前后对比。</li>
+</ol>
+<ol>
+<li>API 契约：OData/API 的请求、响应、错误语义、状态码、幂等、分页、过滤、排序、并发更新、元数据、版本兼容和消费方影响是否明确。</li>
+</ol>
+<ol>
+<li>Clean Core 与依赖：是否检查 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a>，是否有未释放对象例外，是否通过 ATC/Cloud readiness 或项目质量门禁，是否避免修改标准和复制标准逻辑。</li>
+</ol>
+<ol>
+<li>Transport 与系统路径：transport request、task、依赖顺序、import queue、目标 client、前置配置、后置配置、权限角色、job 定义、number range、通信配置是否写清。典型 S/4HANA on-premise / Private Edition / ECC 棕地项目会更多遇到 CTS/STMS、import queue、client、role 和后置配置；BTP 或云扩展 landscape 才会更多遇到 Cloud Transport Management 这类云传输服务。</li>
+</ol>
+<ol>
+<li>运维与监控：上线后谁监控、看哪些日志、看哪些 job、如何判断成功/失败、报警阈值、重处理手顺、问题升级路径是否明确。</li>
+</ol>
+<ol>
+<li>回退与交接：回退条件、回退步骤、数据修正策略、业务通知、维护负责人、设计文档、测试证据和限制事项是否交付。</li>
+</ol>
+<p>checklist 的关键不是每项都写很多，而是每项都能回答：是否适用？证据在哪里？未完成的风险由谁接受？</p>
+<p>可以使用下面的表头：</p>
+<pre><code class="language-text">Production Hardening Checklist
+
+Item:
+  Check item name
+
+Applicability:
+  Applicable / Not applicable
+
+Evidence:
+  Test result / log id / ATC run / trace / transport / design doc / approval
+
+Owner:
+  Developer / Basis / Security / Business / PMO
+
+Status:
+  Done / Open / Blocked / N/A / Accepted risk
+
+Residual risk:
+  What remains true even after the check
+
+Decision:
+  Go / No-go / Go with accepted risk</code></pre>
+<p>上线判定时，尤其要警惕三类“假 OK”：</p>
+<div class="table-wrap"><table><thead><tr><th>假 OK</th><th>为什么危险</th><th>更好的写法</th></tr></thead><tbody><tr><td><code>tested</code></td><td>不知道测了什么、数据量多少、谁测的</td><td><code>QAS system, client 100, user X, 10k records, evidence link</code></td></tr><tr><td><code>no issue found</code></td><td>没说明检查范围</td><td><code>ATC variant Y, no priority 1/2 findings</code></td></tr><tr><td><code>rollback possible</code></td><td>没有步骤和数据影响</td><td><code>rollback code transport only; posted data requires correction procedure</code></td></tr></tbody></table></div>
+<p>Production hardening 也应该和 AC0567C 这类 POC 复盘结合。POC 证明“能做”；hardening 证明“可以交给别人用”。从学习角度看，读者要能把每个技术点映射到上线证据，而不是只停在“我知道这个概念”。</p>
+<h4 id="31-5-abf4bb3b" class="semantic-heading semantic-japan">31.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>本番化</code>、<code>本番移行前チェック</code>、<code>リリース判定</code>、<code>品質ゲート</code>、<code>移送前確認</code>、<code>運用引継ぎ</code>、<code>切り戻し手順</code>、<code>障害時対応</code>、<code>性能検証</code>、<code>権限確認</code>、<code>ログ確認</code>、<code>未解決リスク</code>。</p>
+<p>上线判定会议中可以这样说：</p>
+<ul>
+<li>本番移行前チェックとして、機能、権限、性能、ログ、移送、切り戻し手順の証跡を確認します。</li>
+<li>未リリースAPI利用や未対応ATC指摘がある場合は、残リスクとして承認要否を整理します。</li>
+<li>障害発生時に運用チームが確認すべきログ、ジョブ、再処理手順を引き継ぎます。</li>
+</ul>
+<p>review 时可以这样问：</p>
+<ul>
+<li>このチェック項目の証跡はどの資料またはログに残っていますか。</li>
+<li>本番相当データ量での性能確認は実施済みですか。</li>
+<li>切り戻し不可の場合、その理由と代替対応は承認されていますか。</li>
+</ul>
+<p>更接近会议纪要的表达：</p>
+<pre><code class="language-text">未完了項目については、残リスク、影響範囲、対応期限、承認者を明記します。</code></pre>
+<p>含义：未完成项要写明残余风险、影响范围、处理期限和批准者。</p>
+<pre><code class="language-text">本番移行判定は、開発完了ではなく、証跡と運用準備の確認結果に基づいて行います。</code></pre>
+<p>含义：生产移行判定不是基于开发完成，而是基于证据和运维准备确认结果。</p>
+<pre><code class="language-text">切り戻し不可のデータ変更については、訂正手順または業務承認を事前に取得してください。</code></pre>
+<p>含义：无法简单回退的数据变更，要预先取得修正步骤或业务批准。</p>
+<h4 id="31-6-english-terms-04fb4d04" class="semantic-heading semantic-terms">31.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>production readiness</code>, <code>go-live checklist</code>, <code>release readiness</code>, <code>operational readiness</code>, <code>SAP application log</code>, <code>ATC</code>, <code>Clean Core</code>, <code>transport management</code>.</li>
+<li>Related terms: <code>cutover</code>, <code>rollback plan</code>, <code>transport request</code>, <code>import queue</code>, <code>CTS</code>, <code>STMS</code>, <code>Cloud Transport Management</code>, <code>authorization test</code>, <code>performance trace</code>, <code>job monitoring</code>, <code>error handling</code>, <code>SLA</code>, <code>runbook</code>.</li>
+<li>Recommended search pattern: <code>SAP go-live checklist</code>, <code>SAP production readiness ABAP</code>, <code>SAP STMS transport import queue</code>, <code>SAP CTS transport management</code>, <code>SAP Cloud Transport Management BTP</code>, <code>SAP application log operational readiness</code>.</li>
+<li>官方资料通常不会给出适用于所有项目的一张万能 checklist；项目应结合 SAP Activate、客户交付模板、系统架构和本书前面章节定制。</li>
+</ul>
+<h4 id="31-7-example-c91d1b78" class="semantic-heading semantic-example">31.7 Example / 学习例子</h4>
+<p>以 AC0567C batch upload API 进入生产前为例，可以整理成这样：</p>
+<pre><code class="language-text">Function:
+  - 正常上传、空文件、重复文件、格式错误、部分失败、重复请求已测试。
+
+Authorization:
+  - 上传用户、查询用户、运维用户分别测试。
+  - 缺权限时返回明确错误，不暴露内部细节。
+
+Transaction:
+  - 单批次失败不会提交半成品。
+  - 重复请求不会生成重复业务结果。
+
+Log:
+  - 每次上传有 application log / request id。
+  - 运维可按时间、用户、batch id 查到结果。
+
+Performance:
+  - 生产相当数据量已测。
+  - SQL Trace / Profiler 证据已保存。
+
+Clean Core:
+  - 未直接修改标准对象。
+  - SAP 标准依赖已做 released API check。
+
+Transport:
+  - 程序、DDIC、服务、权限、job、配置的 transport 顺序明确。
+
+Rollback:
+  - 代码回退、job 停止、数据修正和业务通知步骤明确。</code></pre>
+<p>这份清单不需要华丽，但必须能让新接手的人知道：上线前测了什么、没测什么、风险在哪里、出了问题看哪里。</p>
+<p>一个更具体的 AC0567C hardening 示例：</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Evidence</th><th>Owner</th><th>Status</th></tr></thead><tbody><tr><td>API contract</td><td><code>/validate</code>, <code>/execute</code>, <code>/status</code> request/response collection</td><td>Developer</td><td>Done</td></tr><tr><td>Authorization</td><td>business user / technical user / no-role user matrix</td><td>Security + Dev</td><td>Done</td></tr><tr><td>Idempotency</td><td>duplicate execute test with same business key</td><td>Developer</td><td>Done</td></tr><tr><td>Application Log</td><td>log object/subobject and request id lookup screenshot</td><td>Developer/Ops</td><td>Done</td></tr><tr><td>Performance</td><td>10k-row QAS run, SQL Trace or Profiler evidence</td><td>Developer</td><td>Open risk</td></tr><tr><td>Transport</td><td>code, DDIC, service binding, role, job, communication config list</td><td>Dev + Basis</td><td>Done</td></tr><tr><td>Rollback</td><td>code rollback possible; processed business data requires correction runbook</td><td>Business + Dev</td><td>Accepted risk</td></tr></tbody></table></div>
+<p>这个表的重点是“证据可追”。如果 performance 还没完成，就不要写 OK；可以写 Open risk，并说明 pilot 阶段限制、数据量限制或批准者。真实项目允许带风险上线，但不允许假装风险不存在。</p>
+<h4 id="31-8-counterexample-failure-mode-0b8cc6fe" class="semantic-heading semantic-example">31.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十一类。</p>
+<p>第一，把“开发完成”当成“生产可用”。开发系统里的成功路径不能覆盖真实权限、真实数据量和运维场景。</p>
+<p>第二，checklist 只有 OK，没有证据。上线后发生问题，没人知道当时的 OK 是谁确认、怎么确认的。</p>
+<p>第三，只测正常路径。异常、重复、取消、重试、部分失败、权限不足和数据量变化才是生产事故高发区。</p>
+<p>第四，没有日志和重处理手顺。功能可能成功，但失败时业务和运维不知道如何定位和恢复。</p>
+<p>第五，性能测试数据量不真实。小数据量通过，生产数据量超时，是 SAP 项目常见风险。</p>
+<p>第六，transport 只看代码。角色、配置、job、number range、通信设置、后置步骤漏掉，会导致上线后功能不可用。</p>
+<p>第七，没有回退策略。某些数据变更不可简单回退，必须提前说明和批准。</p>
+<p>第八，忽略未解决风险。真实项目可以带风险上线，但必须明确风险、影响、责任人和接受者。</p>
+<p>第九，把 hardening 当成上线当天才做。很多证据需要提前准备，例如性能数据、权限矩阵、application log 设计、rollback runbook。如果到 cutover 前一天才补，往往只能补表面文档。</p>
+<p>第十，只关注代码 transport。SAP 上线经常失败在非代码项：role 未导入、job 未建、number range 未维护、communication arrangement 未配置、metadata cache 未刷新、ICF/OData 服务未激活。这里也要区分环境：on-premise / Gateway 场景常见 SICF、service maintenance 和 cache 相关检查；ABAP Cloud / RAP 场景更多关注 service binding publish、communication scenario / arrangement 和 released API 约束。</p>
+<p>第十一，没有 runbook。上线后 job 失败或 API 报错，运维不知道看哪个日志、如何重跑、何时升级给开发，导致小故障变成长时间停机。</p>
+<h4 id="31-9-59e02ab1" class="semantic-heading semantic-practice">31.9 思考问题</h4>
+<ul>
+<li>POC 到生产交付之间，最容易漏掉哪三类证据？</li>
+<li>为什么 transport 顺序、权限角色、job 和配置也属于开发交付质量？</li>
+<li>一个接口上线前，错误处理、日志、幂等和回退分别要确认什么？</li>
+<li>如果某项检查未完成，如何写残风险和承认路径？</li>
+<li>AC0567C POC 当前最需要补哪一类 production hardening evidence？</li>
+<li>为什么 <code>tested</code> 不是足够的上线证据？</li>
+<li>哪些检查项必须在 QAS 复验，而不能只依赖 DEV？</li>
+<li>如果 rollback 不可行，应该如何写替代策略？</li>
+</ul>
+<h4 id="31-10-cfe5a34f" class="semantic-heading semantic-reference">31.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/docs/search?q=Application%20Log%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - Application Log ABAP</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20Test%20Cockpit%20ATC" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP Test Cockpit ATC</a></li>
+<li><a href="https://help.sap.com/docs/search?q=STMS%20CTS%20transport%20import%20queue" target="_blank" rel="noopener noreferrer">SAP Help search - STMS CTS transport import queue</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20Cloud%20Transport%20Management" target="_blank" rel="noopener noreferrer">SAP Help search - SAP Cloud Transport Management</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Clean%20Core%20released%20APIs" target="_blank" rel="noopener noreferrer">SAP Help search - Clean Core released APIs</a></li>
+<li><a href="https://learning.sap.com/courses/discovering-sap-activate-implementation-tools-and-methodology/accessing-content" target="_blank" rel="noopener noreferrer">SAP Activate Roadmap Viewer</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><a class="wiki" href="section-04-014-security-audit-log-d91a6c87.html">Security Audit Log 安全审计日志</a></li>
+<li><a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a></li>
+<li><a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+</ul>
+<h4 id="31-11-connections-021b87c8">31.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Downstream: <a class="wiki" href="section-04-039-ac0567c-poc-architecture-replay-be4cadf1.html">AC0567C POC architecture replay</a></li>
+<li>Related: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-01-017-transport-task-request-import-queue-e945d7ef.html">Transport task request import queue governance</a></li>
+<li>Related: <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></li>
+<li>Related: <a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a></li>
+<li>Related: <a class="wiki" href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">ABAP Profiler performance analysis</a></li>
+<li>Related: <a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 27 - Clean Core 与上线前加固</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="31-12-9a88e70f" class="semantic-heading semantic-practice">31.12 学习任务</h4>
+<ul>
+<li>为一个 ABAP API 写一张 10 行 production hardening checklist。</li>
+<li>给每一行 checklist 补一个证据类型：测试结果、日志、ATC、trace、transport、设计文档、审批记录等。</li>
+<li>用日语写 2 句上线判定会议用语：一句说明证据确认，一句说明残风险。</li>
+<li>在 AC0567C POC 中挑一个上线风险，写出“风险、影响、证据、责任人、处理方式”。</li>
+<li>找一个 SAP 官方资料入口，补充 application log、ATC、transport 或 Clean Core 的证据来源。</li>
+<li>用本节表头写一张 8 项 <code>Production Hardening Checklist</code>。</li>
+<li>把 3 个 <code>OK</code> 改写成可审计的 evidence statement。</li>
+<li>为一个不可回退的数据变更写 <code>Go with accepted risk</code> 说明。</li>
+</ul>
+<h4 id="31-13-confidence-next-action-b828356f" class="semantic-heading semantic-status">31.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High，production hardening 的检查维度和证据结构适用于多数 ABAP 项目，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已补足 STMS/CTS 与 Cloud Transport Management 的部署边界、<code>QAS system, client 100</code> 这类证据表述、on-premise/Gateway 激活路径与 ABAP Cloud/RAP service binding 路径的差异，以及 SU53 与 STAUTHTRACE/ST01 的定位区别。具体上线模板、审批流、运维手顺和 cutover 规则必须按客户项目方法论、SAP Activate/客户 PMO、系统架构和组织职责调整，Joule scoped review 仍保留为 deferred 证据。</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-032-classic-enhancement-options-awareness-fc045290.html">Classic enhancement options awareness</a>，补充 classic enhancement / BAdI / user exit 等传统增强方式的风险意识，并和 Clean Core 进行边界对照。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-030-released-api-dependency-check-14931541.html">Previous section</a><a href="section-04-032-classic-enhancement-options-awareness-fc045290.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>TRY CATCH exception handling | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="34-try-catch-exception-handling-bce37fff" class="chapter-title">34. TRY CATCH exception handling</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 34</li><li>self-contained study note</li></ul><h4 id="34-1-4129e632" class="semantic-heading semantic-concept">34.1 一句话结论</h4>
+<p>TRY CATCH exception handling 是 ABAP 处理 class-based exception 的控制结构。<code>TRY</code> 包住可能抛异常的代码，<code>CATCH</code> 按 exception class 类型处理错误，未被处理的异常会沿调用链继续传播；真正好的异常处理不是“把错误挡住”，而是把错误转换成调用方、用户、日志、测试或框架能理解的结果。</p>
+<p>上一节 <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a> 讲的是“错误用什么类型表达”。本节讲的是“错误发生后控制流怎么走”。初学者要特别记住：<code>TRY...CATCH</code> 不是到处套一层 <code>CATCH cx_root</code> 让程序继续跑，而是把异常路径写成可读、可测试、可追踪的流程。能处理的地方处理，不能处理的地方保留上下文继续传播。</p>
+<h4 id="34-2-d169796c" class="semantic-heading semantic-concept">34.2 到底学什么</h4>
+<p>本节要掌握八个点：</p>
+<ul>
+<li><code>TRY...ENDTRY</code> 定义一段受异常处理保护的代码范围。</li>
+<li><code>CATCH zcx_... INTO DATA(lx_...)</code> 捕获指定 exception class，并拿到 exception object。</li>
+<li>多个 <code>CATCH</code> 要从具体到通用；先写 superclass 会遮蔽 subclass，相关语法检查会把这种顺序问题当作语法错误处理。</li>
+<li>一个 <code>CATCH</code> 可以列出多个 exception class，用同一段处理逻辑处理一组错误；同一条 <code>CATCH</code> 的 class list 里也要遵守“具体在前、通用在后”的顺序。</li>
+<li>没有被当前 <code>TRY</code> 的 <code>CATCH</code> 处理的异常，会向上层 method / caller 传播；如果最终无人处理，会变成 runtime error / short dump。</li>
+<li>method 可以选择本地 <code>CATCH</code>，也可以在 signature 中 <code>RAISING</code> 继续传播，但这必须是有意识的 contract。</li>
+<li><code>CLEANUP</code> 是异常传播时的清理块，不是 Java 的 <code>finally</code>；不要把它当作“无论成功失败都执行”的通用收尾逻辑。</li>
+<li><code>CATCH cx_root</code> 可以做兜底或测试基础设施处理，但空 catch / 吞异常是反模式。</li>
+</ul>
+<p>最小形态：</p>
+<pre><code class="language-abap">TRY.
+    DATA(lv_price) = price_service-&gt;get_price( iv_product_id ).
+  CATCH zcx_price_missing INTO DATA(lx_missing).
+    DATA(lv_text) = lx_missing-&gt;get_text( ).
+    &quot; convert to user-facing message, log, or test assertion
+ENDTRY.</code></pre>
+<p>这段代码表达的是：正常路径希望得到 price；如果 price 缺失，用 <code>zcx_price_missing</code> 这条异常路径处理。<code>TRY...CATCH</code> 的价值，不是让失败“消失”，而是让失败进入明确的处理分支。</p>
+<h4 id="34-3-d3da9ea6" class="semantic-heading semantic-why">34.3 为什么重要</h4>
+<p>SAP 项目里的异常处理通常不是一个纯语法问题，而是交付质量问题。</p>
+<p>如果 <code>TRY...CATCH</code> 写得清楚，代码 review 可以直接看出：</p>
+<ul>
+<li>哪一段代码可能失败。</li>
+<li>哪些 exception class 被本地处理。</li>
+<li>哪些异常会继续传播给上层。</li>
+<li>用户消息、日志、RAP <code>reported</code> / <code>failed</code>、ABAP Unit assertion 或技术异常如何衔接。</li>
+<li>是否存在 <code>例外握りつぶし</code>，也就是 catch 了却什么都不做。</li>
+</ul>
+<p>如果写得不清楚，问题会很隐蔽。比如更新逻辑失败但被空 <code>CATCH cx_root</code> 吞掉，前台用户看起来“保存成功”，后台数据却没有写入；或者 batch job 里所有异常都被转成同一个泛泛的 <code>zcx_error</code>，运维无法判断是权限、配置、数据还是外部系统问题。</p>
+<p>对 Java/Python 背景学习者来说，<code>TRY...CATCH</code> 的概念很熟，但 ABAP 有自己的差异：异常类分 <code>CX_STATIC_CHECK</code> / <code>CX_DYNAMIC_CHECK</code> / <code>CX_NO_CHECK</code>；method signature 的 <code>RAISING</code> 是接口 contract；<code>CATCH</code> 可以按 ABAP exception class 继承树匹配；<code>CLEANUP</code> 不是 Java <code>finally</code>。这些差异会直接影响生产代码的可维护性。</p>
+<h4 id="34-4-key-mechanism-20b39ba1" class="semantic-heading semantic-mechanism">34.4 Key mechanism / 核心机制</h4>
+<h5 id="34-4-1-try-defines-the-protected-block-9ca8cb2b">34.4.1 TRY defines the protected block</h5>
+<p><code>TRY</code> 后面的语句块是“可能发生异常、并希望由后续 <code>CATCH</code> 处理”的范围。范围越大，越难判断到底哪一句抛了异常；范围越小，错误路径越清楚。<code>TRY...ENDTRY</code> 也必须完整落在同一个 processing block 里，例如同一个 procedure、event block 或 dialog module 内，不能跨 method 或跨事件块。</p>
+<p>裸的 <code>TRY</code> 不是普通代码分组。初学阶段可以简单记：写 <code>TRY</code> 就要有明确的异常处理结构，通常是至少一个 <code>CATCH</code>；如果只是用 <code>TRY...ENDTRY</code> 包住代码、没有任何有意义的 <code>CATCH</code> / <code>CLEANUP</code> 处理分支，语法检查和代码 review 都会把它当作问题。<code>CLEANUP</code> 只在确实需要异常传播清理时使用，不要把 <code>TRY</code> 当成普通代码分组。</p>
+<p>不推荐：</p>
+<pre><code class="language-abap">TRY.
+    read_input( ).
+    check_authorization( ).
+    calculate_price( ).
+    post_document( ).
+    send_mail( ).
+  CATCH cx_root INTO DATA(lx_root).
+    log-&gt;error( lx_root-&gt;get_text( ) ).
+ENDTRY.</code></pre>
+<p>这段代码虽然有 catch，但 catch 太宽、try 范围太大。发生错误时，读者很难判断是输入、权限、价格、posting 还是通知失败。</p>
+<p>更好的方向是让 method 拆分清楚，让不同异常在合适的层级处理：</p>
+<pre><code class="language-abap">TRY.
+    DATA(ls_document) = document_factory-&gt;create_from_input( is_input ).
+  CATCH zcx_document_invalid INTO DATA(lx_invalid).
+    message_mapper-&gt;add_validation_message( lx_invalid ).
+    RETURN.
+ENDTRY.
+
+poster-&gt;post_document( ls_document ).</code></pre>
+<p>这里本地只处理“输入不合法”。真正 posting 的异常让上层处理，或者由 <code>post_document</code> 的调用方根据 <code>RAISING</code> contract 决定。</p>
+<h5 id="34-4-2-catch-matches-by-exception-class-0c4271ba">34.4.2 CATCH matches by exception class</h5>
+<p><code>CATCH</code> 后面写 exception class。运行时如果抛出的异常是该 class 或其 subclass，对应的 <code>CATCH</code> block 会执行。</p>
+<pre><code class="language-abap">TRY.
+    calculator-&gt;divide( ).
+  CATCH cx_sy_zerodivide INTO DATA(lx_zero).
+    out-&gt;write( lx_zero-&gt;get_text( ) ).
+  CATCH cx_sy_arithmetic_error INTO DATA(lx_arithmetic).
+    out-&gt;write( lx_arithmetic-&gt;get_text( ) ).
+ENDTRY.</code></pre>
+<p><code>cx_sy_zerodivide</code> 是更具体的异常，必须放在更通用的 <code>cx_sy_arithmetic_error</code> 前面。否则通用 superclass 先匹配，后面的具体 catch 永远到不了，相关语法检查会把这种顺序视为语法错误。</p>
+<h5 id="34-4-3-one-catch-can-handle-a-group-2535f964">34.4.3 One CATCH can handle a group</h5>
+<p>如果多个异常的处理动作完全相同，可以写在同一个 <code>CATCH</code>：</p>
+<pre><code class="language-abap">TRY.
+    result = number1 / number2.
+  CATCH cx_sy_arithmetic_overflow cx_sy_zerodivide INTO DATA(lx_arithmetic).
+    out-&gt;write( lx_arithmetic-&gt;get_text( ) ).
+ENDTRY.</code></pre>
+<p>这适合“处理策略相同”的情况。同一条 <code>CATCH</code> 里列多个 class 时，也不要把 superclass 放在 subclass 前面。不要因为语法允许就把语义不同的错误强行合并。比如 <code>zcx_document_invalid</code> 和 <code>zcx_posting_failed</code> 通常不该合并：前者更像用户输入或业务校验，后者可能是技术失败、锁、配置或外部依赖。</p>
+<h5 id="34-4-4-into-gives-access-to-the-exception-object-c2c28dfa">34.4.4 INTO gives access to the exception object</h5>
+<p><code>INTO DATA(lx_error)</code> 让 catch block 拿到 exception object。最常见动作是调用 <code>get_text( )</code>：</p>
+<pre><code class="language-abap">CATCH zcx_document_invalid INTO DATA(lx_invalid).
+  DATA(lv_message) = lx_invalid-&gt;get_text( ).</code></pre>
+<p>更复杂时，还可以读取 exception class 的公开属性、<code>previous</code>、source position 或 long text。初学阶段不要把 catch 写成“只知道发生了异常”，而要习惯拿到对象，保留错误证据。</p>
+<h5 id="34-4-5-propagation-is-also-a-decision-bc9792a0">34.4.5 Propagation is also a decision</h5>
+<p>不是每个 method 都应该本地 catch。当前层不知道如何处理时，继续传播通常比乱处理更好。</p>
+<pre><code class="language-abap">METHOD post_order
+  RAISING zcx_document_invalid
+          zcx_posting_failed.
+
+  validator-&gt;check( is_order ).
+  posting_service-&gt;post( is_order ).
+
+ENDMETHOD.</code></pre>
+<p>这里 <code>post_order</code> 没有本地 <code>TRY...CATCH</code>，而是把两个异常放进 <code>RAISING</code>。这不是偷懒，而是告诉调用方：本 method 负责执行业务动作，但最终错误反馈策略由更上层决定。</p>
+<p>相反，如果代码只是 catch 以后立刻原样再抛、没有日志、没有转换、没有补上下文，也没有恢复动作，通常没有价值：</p>
+<pre><code class="language-abap">TRY.
+    posting_service-&gt;post( is_order ).
+  CATCH zcx_posting_failed INTO DATA(lx_failed).
+    RAISE EXCEPTION lx_failed.
+ENDTRY.</code></pre>
+<p>这种情况通常直接在 method signature 中声明 <code>RAISING zcx_posting_failed</code> 更清楚。只有当 catch block 会补充上下文、包装为更合适的上层异常、写必要日志或转换为 message 时，本地 catch 才有实际意义。</p>
+<h5 id="34-4-6-catch-cx-root-is-a-tool-not-a-design-default-b7484330">34.4.6 CATCH cx_root is a tool, not a design default</h5>
+<p><code>cx_root</code> 是所有 class-based exception 的根，所以 <code>CATCH cx_root</code> 能捕获很宽的一类异常。它有合理场景：</p>
+<pre><code class="language-abap">TRY.
+    test_environment-&gt;prepare( ).
+  CATCH cx_root INTO DATA(lx_root).
+    cl_abap_unit_assert=&gt;fail( lx_root-&gt;get_text( ) ).
+ENDTRY.</code></pre>
+<p>在 ABAP Unit setup 或测试辅助代码里，这种写法可以把任何准备阶段异常转成清楚的 test failure。问题不是 <code>CATCH cx_root</code> 这个语法，而是生产代码里空处理：</p>
+<pre><code class="language-abap">TRY.
+    poster-&gt;post_document( document ).
+  CATCH cx_root.
+ENDTRY.</code></pre>
+<p>这段代码就是典型 <code>例外握りつぶし</code>。它把失败从用户、日志、测试和运维面前藏起来，后续问题会更难查。</p>
+<p>极少数场景下，如果 catch 后确实故意不做任何动作，代码里也应该有注释解释“为什么可以忽略”。如果不需要 exception object，就不要写 <code>INTO DATA(lx_...)</code> 假装会使用它。</p>
+<h5 id="34-4-7-cleanup-is-not-java-finally-70129d9f">34.4.7 CLEANUP is not Java finally</h5>
+<p>ABAP 的 <code>CLEANUP</code> 用于异常离开当前 <code>TRY</code> 范围、并继续向外传播时做清理。它不是 Java / C# 里“无论成功、失败、被 catch 都执行”的 <code>finally</code>。如果异常已经被同一个 <code>TRY</code> 里的 <code>CATCH</code> 本地处理，<code>CLEANUP</code> 不是用来再跑一遍通用收尾逻辑的地方。</p>
+<p>可以把它当作高级意识点：如果某段代码获取了临时资源，而异常不在本层处理、要继续往外抛，<code>CLEANUP</code> 可以用于释放或恢复本层资源。但初学者不要把所有收尾逻辑都塞进 <code>CLEANUP</code>。普通成功路径的收尾，应写在正常控制流里；明确需要异常传播清理时，再考虑 <code>CLEANUP</code>。Clean ABAP 风格下，很多场景更推荐把 method 做小、让资源生命周期清楚，从而根本不需要复杂 <code>CLEANUP</code>。</p>
+<p>形态示意：</p>
+<pre><code class="language-abap">DATA(lo_resource) = resource_pool-&gt;acquire( ).
+
+TRY.
+    sender-&gt;send_with_resource( lo_resource ).
+  CLEANUP.
+    lo_resource-&gt;release( ).
+ENDTRY.</code></pre>
+<p>这里表达的是：如果异常没有在这个 <code>TRY</code> 内被 <code>CATCH</code> 处理，而是向外传播，本层要释放资源。真实项目里还要看资源对象、framework 生命周期和是否已有自动释放机制，不要机械套模板。</p>
+<h5 id="34-4-8-error-mapping-belongs-at-the-boundary-89cc7387" class="semantic-heading semantic-concept">34.4.8 Error mapping belongs at the boundary</h5>
+<p>底层异常不一定直接暴露给最终用户。常见做法是：</p>
+<ul>
+<li>service/helper 层：抛清楚的 class-based exception。</li>
+<li>application boundary：转换为 message、log、RAP <code>reported</code> / <code>failed</code> 或 HTTP/OData error response。</li>
+<li>test code：用 ABAP Unit assertion 验证是否抛出预期异常。</li>
+</ul>
+<p>也就是说，<code>TRY...CATCH</code> 常常出现在“边界层”：用户交互边界、接口边界、batch job 边界、RAP behavior 边界、测试边界。业务内部的小 helper 如果不知道如何恢复，不必每层都 catch。</p>
+<p>ABAP Cloud / RAP 里还要再加一条边界：新代码应使用 class-based exception，不应继续扩散 classic / non-class-based exception；在 ABAP Cloud 约束下，客户代码还要确认要捕获或抛出的 SAP-delivered exception class 是否在当前系统里是 released API。业务 validation failure 通常进入 <code>reported-&lt;entity&gt;</code> / <code>failed-&lt;entity&gt;</code>，而不是被普通 <code>TRY...CATCH</code> 包成技术异常。框架级或基础设施级失败才可能使用 exception class，例如 save sequence 的框架失败；这类异常是否能在 cloud-compliant 代码中使用，要以当前系统的 released API 状态和官方说明为准。</p>
+<h5 id="34-4-9-catch-action-checklist-546c1de1">34.4.9 catch action checklist</h5>
+<p>写完 <code>CATCH ... INTO DATA(lx_...)</code> 以后，review 时要立刻问：这一段 catch 到底做了什么？通常只有下面几类动作是有意义的：</p>
+<div class="table-wrap"><table><thead><tr><th>Action</th><th>When it is appropriate</th><th>Watch out</th></tr></thead><tbody><tr><td>Handle locally</td><td>当前层能给出默认值、替代路径或明确用户消息。</td><td>不要为了“继续跑”而掩盖真实失败。</td></tr><tr><td>Translate at boundary</td><td>把底层 exception 转换为 RAP message、HTTP error、job status 或上层业务 exception。</td><td>转换时要保留 business key、field、original text 或 <code>previous</code>。</td></tr><tr><td>Log evidence</td><td>后台 job、接口、批处理需要后续调查。</td><td>log 不等于处理；记录后仍要决定是否中断、重试或传播。</td></tr><tr><td>Rethrow</td><td>当前层不能恢复，但要保持错误语义继续向上。</td><td>原样 catch 再原样 raise 通常没有价值，除非补充上下文。</td></tr><tr><td>Fail test</td><td>ABAP Unit setup / assertion helper 捕获任意异常后让测试失败。</td><td>生产代码不要照搬测试基础设施的 <code>CATCH cx_root</code> 模式。</td></tr><tr><td>Cleanup during propagation</td><td>异常向外传播时释放临时资源。</td><td><code>CLEANUP</code> 不是 Java <code>finally</code>，不要放普通成功路径也必须执行的业务动作。</td></tr></tbody></table></div>
+<p>一个简单的 code review 句子是：<code>CATCH</code> 后必须能回答“用户看到什么、日志留下什么、上层得到什么、事务是否继续”。如果四个问题都答不上来，这段异常处理很可能只是把错误藏起来。</p>
+<h4 id="34-5-738288fd" class="semantic-heading semantic-japan">34.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>例外処理</code>、<code>TRY-CATCH</code>、<code>例外捕捉</code>、<code>例外伝播</code>、<code>例外送出</code>、<code>再送出</code>、<code>例外握りつぶし</code>、<code>異常系</code>、<code>異常系テスト</code>、<code>ログ出力</code>、<code>エラーメッセージ変換</code>、<code>後続処理中断</code>。</li>
+<li>设计说明句：この処理では入力チェック例外のみを捕捉し、業務メッセージに変換します。技術例外は上位層へ伝播させます。</li>
+<li>Review 指摘句：<code>CATCH cx_root</code> の空ブロックで例外を握りつぶしているため、具体的な例外クラスで捕捉し、ログ出力または再送出を行ってください。</li>
+<li>Review 精确句：<code>CATCH cx_root</code> 自体が禁止ではありません。問題は、例外内容を記録・変換・再送出せずに握りつぶすことです。</li>
+<li>Java 经验者提示句：ABAP の <code>CLEANUP</code> は Java の <code>finally</code> と同じではなく、例外が外側へ伝播する場合のクリーンアップとして説明してください。</li>
+<li>测试说明句：異常系テストでは、対象メソッドが想定どおり <code>zcx_document_invalid</code> を送出することを確認します。</li>
+<li>使用场景：详细设计、method signature review、错误消息设计、ABAP Unit、batch job 障害調査、RAP validation / action 错误返回、上线前异常路径检查。</li>
+</ul>
+<h4 id="34-6-english-terms-4216ee5c" class="semantic-heading semantic-terms">34.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>TRY</code>, <code>CATCH</code>, <code>ENDTRY</code>, <code>CLEANUP</code>, <code>class-based exception</code>, <code>exception handling</code></li>
+<li>Related syntax: <code>CATCH cx_root INTO DATA(lx_root)</code>, <code>RAISING zcx_...</code>, <code>RAISE EXCEPTION TYPE zcx_...</code>, <code>get_text( )</code>, <code>previous</code></li>
+<li>Design terms: <code>exception propagation</code>, <code>catch order</code>, <code>fallback handler</code>, <code>error mapping</code>, <code>exception swallowing</code>, <code>rethrow</code>, <code>cleanup block</code></li>
+<li>SAP project terms: <code>runtime error</code>, <code>short dump</code>, <code>ABAP Unit assertion</code>, <code>RAP reported</code>, <code>RAP failed</code>, <code>OData error response</code></li>
+<li>Recommended search pattern: <code>ABAP TRY CATCH CLEANUP SAP Help</code>, <code>ABAP CATCH exception class order SAP Learning</code></li>
+<li>读官方资料时注意：ABAP 的 <code>CLEANUP</code> 不等同于 Java <code>finally</code>；ABAP 的 <code>CATCH</code> 基于 exception class 继承树匹配。</li>
+</ul>
+<h4 id="34-7-example-f5d58eb3" class="semantic-heading semantic-example">34.7 Example / 学习例子</h4>
+<h5 id="34-7-1-1-ea34a055">34.7.1 例 1：本地处理可恢复业务错误</h5>
+<pre><code class="language-abap">TRY.
+    order_checker-&gt;check_quantity( iv_quantity ).
+  CATCH zcx_quantity_invalid INTO DATA(lx_quantity).
+    message_collector-&gt;add_error( lx_quantity-&gt;get_text( ) ).
+    RETURN.
+ENDTRY.</code></pre>
+<p>这适合“当前层知道如何恢复或反馈”的场景。quantity 不合法，当前层可以给用户或调用方返回清楚消息，并停止后续处理。</p>
+<h5 id="34-7-2-2-posting-76614c2c">34.7.2 例 2：让上层处理 posting 失败</h5>
+<pre><code class="language-abap">METHOD create_order
+  RAISING zcx_document_invalid
+          zcx_posting_failed.
+
+  order_checker-&gt;check( is_order ).
+  order_poster-&gt;post( is_order ).
+
+ENDMETHOD.</code></pre>
+<p>这里没有本地 <code>CATCH</code>，因为当前 method 只是业务动作编排，不决定最终 UI message、batch log 或 OData response。它通过 <code>RAISING</code> 把错误 contract 明确交给上层。</p>
+<h5 id="34-7-3-3-catch-097dbec2">34.7.3 例 3：具体到通用的 catch 顺序</h5>
+<pre><code class="language-abap">TRY.
+    calculator-&gt;divide( ).
+  CATCH cx_sy_zerodivide INTO DATA(lx_zero).
+    out-&gt;write( lx_zero-&gt;get_text( ) ).
+  CATCH cx_sy_arithmetic_error INTO DATA(lx_math).
+    out-&gt;write( lx_math-&gt;get_text( ) ).
+ENDTRY.</code></pre>
+<p>顺序不能反过来。通用 superclass 如果写在前面，会挡住后面的具体 subclass。</p>
+<h5 id="34-7-4-4-catch-cx-root-84f269e8">34.7.4 例 4：测试基础设施中的 CATCH cx_root</h5>
+<pre><code class="language-abap">METHOD class_setup.
+  TRY.
+      test_environment = lcl_test_environment=&gt;create( ).
+    CATCH cx_root INTO DATA(lx_root).
+      cl_abap_unit_assert=&gt;fail( lx_root-&gt;get_text( ) ).
+  ENDTRY.
+ENDMETHOD.</code></pre>
+<p>这是合理用法：任何 setup 失败都应该让测试失败，并显示真实异常文本。它和生产代码里的空 <code>CATCH cx_root</code> 完全不同。</p>
+<h5 id="34-7-5-5-1baeda55" class="semantic-heading semantic-failure">34.7.5 例 5：吞异常反例</h5>
+<pre><code class="language-abap">TRY.
+    sender-&gt;send( message ).
+  CATCH cx_root.
+ENDTRY.</code></pre>
+<p>这段代码没有 message、没有 log、没有重抛、没有返回状态。上线后如果接口失败，项目只能看到“好像没有报错，但结果不对”。这是异常处理里最危险的写法之一。</p>
+<h4 id="34-8-counterexample-failure-mode-0522a543" class="semantic-heading semantic-example">34.8 Counterexample / Failure mode</h4>
+<h5 id="34-8-1-1-try-3f7a95b4" class="semantic-heading semantic-failure">34.8.1 误区 1：TRY 范围过大</h5>
+<p>一个 <code>TRY</code> 包住几十行代码，最后 <code>CATCH cx_root</code>，读者无法判断哪一步失败。</p>
+<p>修正动作：缩小 try 范围，按业务边界拆 method，让异常类型和处理动作对应起来。</p>
+<h5 id="34-8-2-2-catch-189e0e13" class="semantic-heading semantic-failure">34.8.2 误区 2：CATCH 顺序从通用到具体</h5>
+<p>先写 <code>CATCH cx_root</code>，再写具体 exception class，后面的 catch 永远不会执行。</p>
+<p>修正动作：从最具体写到最通用；兜底 <code>cx_root</code> 放最后，而且必须处理证据。</p>
+<h5 id="34-8-3-3-catch-87405795" class="semantic-heading semantic-failure">34.8.3 误区 3：空 catch</h5>
+<p><code>CATCH zcx_error.</code> 或 <code>CATCH cx_root.</code> 后面什么都不做，是 <code>例外握りつぶし</code>。</p>
+<p>修正动作：至少做到四选一：转换为业务 message、写日志、重抛/包装为上层异常、让测试失败。</p>
+<h5 id="34-8-4-4-catch-d006a906" class="semantic-heading semantic-failure">34.8.4 误区 4：每层都 catch 又重新包一层</h5>
+<p>每个 method 都 catch，然后抛一个新的泛泛异常，会丢失根因。</p>
+<p>修正动作：不知道如何处理就传播；确实需要包装时，用 <code>previous</code> 保留底层异常。</p>
+<h5 id="34-8-5-5-catch-21946907" class="semantic-heading semantic-failure">34.8.5 误区 5：catch 以后立刻原样再抛</h5>
+<p>如果 catch block 不记录、不转换、不补上下文、不恢复，只是立刻把同一个异常再抛出，读者会多看一层无意义控制流。</p>
+<p>修正动作：直接在 signature 中用 <code>RAISING</code> 传播；只有需要添加价值时才本地 catch。</p>
+<h5 id="34-8-6-6-284b8976" class="semantic-heading semantic-failure">34.8.6 误区 6：把异常处理当权限或事务控制</h5>
+<p><code>TRY...CATCH</code> 不能替代 <code>AUTHORITY-CHECK</code>、RAP authorization、lock、LUW 或 commit/rollback 设计。</p>
+<p>修正动作：异常处理只负责错误路径控制；权限、锁和事务边界要按各自机制设计。</p>
+<h5 id="34-8-7-7-cleanup-finally-ed636297" class="semantic-heading semantic-failure">34.8.7 误区 7：把 CLEANUP 当 finally</h5>
+<p>从 Java/C# 经验出发，把所有收尾逻辑都写进 <code>CLEANUP</code>，会误解 ABAP 语义。</p>
+<p>修正动作：记住 <code>CLEANUP</code> 主要服务于异常向外传播时的清理；如果异常被同一 <code>TRY</code> 的 <code>CATCH</code> 本地处理，它不是 Java <code>finally</code> 那种通用收尾块。普通成功路径收尾写在正常流程里。</p>
+<h4 id="34-9-aee75a90" class="semantic-heading semantic-practice">34.9 思考问题</h4>
+<ul>
+<li>这段代码为什么需要本地 <code>TRY...CATCH</code>，而不是让异常继续传播？</li>
+<li>当前 <code>TRY</code> 范围是否太大？能否缩小到真正可能失败的调用？</li>
+<li><code>CATCH</code> 顺序是否从具体到通用？</li>
+<li><code>CATCH</code> 里是否拿到了 exception object？是否使用了 <code>get_text( )</code>、公开属性或 <code>previous</code>？</li>
+<li>如果写了 <code>CATCH cx_root</code>，它是合理兜底、测试失败转换，还是吞异常？</li>
+<li>当前层应该把异常转换成 message、log、RAP <code>reported</code> / <code>failed</code>、OData error response，还是继续 <code>RAISING</code>？</li>
+<li>是否错误地把 <code>TRY...CATCH</code> 当成权限检查、事务控制或业务流程分支？</li>
+<li>是否真的需要 <code>CLEANUP</code>？还是普通正常流程收尾即可？</li>
+</ul>
+<h4 id="34-10-5da95939" class="semantic-heading semantic-reference">34.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPTRY.html" target="_blank" rel="noopener noreferrer">TRY</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCATCH_TRY.html" target="_blank" rel="noopener noreferrer">CATCH</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPRAISE_EXCEPTION_CLASS.html" target="_blank" rel="noopener noreferrer">RAISE EXCEPTION</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENEXCEPTIONS_SYSTEM_RESPONSE.html" target="_blank" rel="noopener noreferrer">System Response to Uncaught Exceptions</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/working-with-exception-classes_acd9568c-be4e-445a-a454-14c6f2cfcd2e" target="_blank" rel="noopener noreferrer">Working with Exception Classes</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li><a class="wiki" href="section-01-031-runtime-error-and-short-dump-b6d3f032.html">Runtime error and short dump 运行时错误</a></li>
+<li><a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li><a class="wiki" href="section-03-029-validation-44a4b013.html">RAP validation 验证</a></li>
+</ul>
+<h4 id="34-11-connections-c7c293e0">34.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Downstream: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li>Related: <a class="wiki" href="section-01-031-runtime-error-and-short-dump-b6d3f032.html">Runtime error and short dump 运行时错误</a></li>
+<li>Related: <a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a></li>
+<li>Related: <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 12 - OO ABAP 抽象、异常与单元测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="34-12-89c56990" class="semantic-heading semantic-practice">34.12 学习任务</h4>
+<ul>
+<li>写一个 <code>TRY...CATCH zcx_quantity_invalid INTO DATA(lx_quantity)</code>，并在 catch 中调用 <code>lx_quantity-&gt;get_text( )</code>。</li>
+<li>写一个反例：<code>CATCH cx_root.</code> 后空处理；再写 3 行中文说明为什么这是 <code>例外握りつぶし</code>。</li>
+<li>用 5 行中文说明“本地 catch”和“通过 <code>RAISING</code> 传播”的区别。</li>
+<li>写一个 catch 顺序例子：先捕获具体 subclass，再捕获 superclass。</li>
+<li>找一个 ABAP Unit setup 场景，说明 <code>CATCH cx_root INTO DATA(lx_root)</code> 后 <code>cl_abap_unit_assert=&gt;fail( lx_root-&gt;get_text( ) )</code> 为什么是合理用法。</li>
+<li>用日语写一句 review comment，要求开发者不要吞异常，而要记录、转换或再送出。</li>
+<li>用 English Terms 找 SAP Help / SAP Learning 对 <code>CATCH</code> 顺序或 exception object 的说明，并补到个人学习记录。</li>
+</ul>
+<h4 id="34-13-confidence-next-action-a7305949" class="semantic-heading semantic-status">34.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节基于 SAP Help <code>TRY</code> / <code>CATCH</code> / <code>RAISE EXCEPTION</code> / uncaught exception system-response 入口、SAP Learning exception-class lesson，以及 <code>90-Review/joule-try-catch-snapshot-2-2026-06-13.txt</code> 的 Joule <code>Pass with fixes</code> 修正完成；重点修正包括 <code>TRY</code> 不是普通分组、<code>CATCH</code> 顺序、<code>previous</code>、空 catch、<code>CLEANUP</code> 不是 Java <code>finally</code>、以及 ABAP Cloud / RAP 边界。Claude 旧 review 为 credential error，2026-06-18 health check 超时，作为外部 review debt 记录。</li>
+<li>Next action: 已同步到 Chapter 02 与离线书稿后，继续质量闭环到 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-033-exception-class-85670b42.html">Previous section</a><a href="section-02-035-abap-unit-34ce915f.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

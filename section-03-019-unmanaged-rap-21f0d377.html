@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Unmanaged RAP 非管理式实现 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="19-unmanaged-rap-2de0dfd6" class="chapter-title">19. Unmanaged RAP 非管理式实现</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 19</li><li>self-contained study note</li></ul><h4 id="19-1-dce0f7fb" class="semantic-heading semantic-concept">19.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a> 是 RAP 中把更多事务实现责任交给开发者的实现方式：RAP runtime 仍提供 BO 调用框架和契约，但标准 CRUD、transactional buffer、锁、保存写库、key mapping、错误响应等核心逻辑主要由 <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a> 中的 handler class 和 saver class 实现。</p>
+<p>如果说 <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a> 是“框架托管标准事务骨架，项目补业务规则”，那么 unmanaged RAP 是“RAP 提供统一入口和生命周期，项目自己承担更多事务实现”。它适合封装已有应用 buffer、复杂 legacy logic、特殊持久化关系或无法自然映射为 managed CRUD 的场景。</p>
+<h4 id="19-2-0d345e28">19.2 概念说明</h4>
+<p>Unmanaged RAP 是 RAP behavior implementation 的另一种 implementation type。BDEF header 通常写成 <code>unmanaged implementation in class ... unique;</code>。从消费者角度看，它仍然是 RAP BO：可以通过 EML、OData、Fiori/service binding 访问，也仍然有 BDEF、behavior pool、projection behavior、service definition 等对象。但从 provider 角度看，运行时不会像 managed BO 那样托管标准 CRUD 和应用 buffer，而是把请求转发给 behavior implementation。</p>
+<p>SAP Learning 对 unmanaged 的总结很适合初学者：BO runtime more or less relays the requests from the consumer to the behavior implementation。也就是说，create/read/update/delete 请求来了，RAP runtime 会调用 behavior pool 中的本地 handler method；保存序列触发后，saver class 要把应用 buffer 中的当前状态真正写入数据库或遗留逻辑。这里的“unmanaged”不是没有框架，而是框架不替你管理事务细节。</p>
+<p>Unmanaged RAP 常用于两类项目。第一类是已有应用逻辑已经有自己的 buffer、保存顺序、校验和写库封装，项目想用 RAP/OData/EML 对外提供现代接口，但不想推翻内部逻辑。第二类是 BO entity 和数据库表不是一一对应，例如一个 BO 操作要写多张旧表、调用 function module/BAPI、处理复杂派生表或封装非标准 persistence。此时硬套 managed save 反而会让边界模糊。</p>
+<p>但是 unmanaged 的代价很明确：你要自己写更多代码，也要自己证明它正确。标准 operation 是否处理 <code>%control</code>、buffer 是否一致、read 是否从 buffer 或数据库取得正确数据、save 是否保证 point-of-no-return 后成功、failed/reported/mapped 是否完整、锁和授权是否覆盖，都变成项目责任。</p>
+<h4 id="19-3-4959087b">19.3 边界</h4>
+<p>Unmanaged RAP 不等于 classic ABAP 随便包一层 OData。它仍然必须遵守 RAP 生命周期、BDEF 契约、handler/saver 方法签名、transactional buffer、save sequence、<code>failed</code> / <code>reported</code> / <code>mapped</code> 响应语义和 <code>COMMIT WORK</code> 限制。把旧 function module 直接塞进 action 并在里面提交，不叫正确的 unmanaged RAP。</p>
+<p>Unmanaged RAP 不等于必须放弃 CDS、projection 或 service contract。数据模型仍从 CDS root/composition/projection 组织，服务暴露仍要经过 service definition / binding，projection behavior 仍决定消费层开放哪些操作。Unmanaged 只改变行为实现责任，不改变 RAP 分层。</p>
+<p>Unmanaged RAP 也不等于一定比 managed 更高级。它更灵活，但更贵：实现、测试、review、性能排查和生产故障定位成本都更高。能用 managed 清楚表达的对象，通常不应该为了“自由”改成 unmanaged。选择 unmanaged 应有明确理由：遗留逻辑、复杂 persistence、已有 buffer、特殊保存顺序或无法由 managed save 表达的业务约束。</p>
+<p>Unmanaged RAP 和 managed with unmanaged save 也不同。前者连标准 operation 和 application buffer 都主要由 implementation 负责；后者仍是 managed implementation，interaction phase 和标准 operation 由 runtime 管理，只是实际写库的 save_modified 由开发者接管。这个区别是项目设计评审的重点。</p>
+<h4 id="19-4-6311a4df" class="semantic-heading semantic-mechanism">19.4 核心机制</h4>
+<p>第一层机制是标准 operation 的实现责任。SAP Learning 明确说明：unmanaged implementation scenario 的主要特征是 standard operations are implemented in the local handler classes。<code>read</code> 方法独立于 BDEF 是否声明，create/update/delete 则只有在 BDEF 中声明对应 operation 时才存在。Lock method 也只有 entity 被定义为 lock master 时才存在。</p>
+<p>第二层机制是 handler 方法参数。Unmanaged 标准 operation 方法一般只有一个显式 importing 参数：create/update 的参数名通常是 <code>entities</code>，因为它们需要传入待创建或待修改的数据；delete、read、lock 等多以 <code>keys</code> 标识实例。Read 是标准 operation 中带 result 参数的方法，也可以通过 <code>failed</code> / <code>reported</code> 返回读取失败或消息。除此之外，response 参数通常是隐式 changing 参数，具体是否需要填充 <code>mapped</code> 要看方法语义。</p>
+<p>第三层机制是 response 结构。<code>failed</code> 和 <code>reported</code> 用于告诉 runtime 哪些实例失败、哪些消息要返回；FOR MODIFY handler 的 response signature 中可能包含 <code>mapped</code>，但对初学者最需要记住的是：<code>mapped</code> 主要在 create 和 numbering 场景里有实际意义，用于返回临时 <code>%cid</code> 到最终 key 的映射。<code>FOR NUMBERING</code> handler 也需要使用 <code>mapped</code>：每个成功分配 key 的 <code>%cid</code> 都必须进入 <code>mapped</code>，失败的 <code>%cid</code> 必须进入 <code>failed</code>。SAP Learning 特别提醒：这些参数使用和 EML 访问 BO 时相同的 derived types。初学者要把这些结构当作 RAP 契约，而不是普通自定义返回表。</p>
+<p>第四层机制是 application buffer。Unmanaged BO 的 transactional buffer 由 behavior implementation 提供。换句话说，handler 接到 create/update/delete 时，不应立即无脑写数据库并提交，而要把变化记录到项目自己的 buffer 或既有应用 buffer 中；后续 read、validation、action、save 都要能看到一致的当前状态。这个 buffer 设计是 unmanaged 的核心难点。</p>
+<p>第五层机制是 save sequence。Unmanaged 场景中，saver class 继承 <code>CL_ABAP_BEHAVIOR_SAVER</code>，并且实现保存逻辑。SAP Learning 说明：在 unmanaged implementation scenario 中，必须 redefine 并实现 <code>save</code> method，把 transactional buffer 中的 BO instance data 持久化到数据库。正常顺序可以理解为：<code>finalize()</code> 做最终计算，<code>check_before_save()</code> 做保存前检查；如果通过，就到达 point-of-no-return；之后按需要执行 <code>adjust_numbers()</code> 处理 late numbering，再由 <code>save()</code> 持久化，最后 <code>cleanup()</code> 清理 buffer。Point-of-no-return 之后，参与保存的 BO 必须保证 save 成功。若 <code>finalize()</code> 或 <code>check_before_save()</code> 在 point-of-no-return 前失败，<code>cleanup_finalize()</code> 是错误路径上的 buffer 清理入口；如果项目重定义了这些 early-save 方法，也要考虑失败清理。简单说，<code>cleanup()</code> 是每次事务结束后重置 buffer 的收尾入口，<code>cleanup_finalize()</code> 则是 point-of-no-return 前失败时的收尾入口。</p>
+<p>第六层机制是 numbering。Unmanaged early numbering 需要在 entity handler class 中实现 <code>FOR NUMBERING</code> 方法，为 create 请求尽早分配 key；每个 <code>%cid</code> 必须返回到 <code>mapped</code> 或 <code>failed</code>，否则 runtime 会报错。Late numbering 则在 saver class 的 <code>adjust_numbers()</code> 中分配最终 key，并发生在 point-of-no-return 之后。注意：<code>unmanaged early numbering</code> 这个语法也可能出现在 managed BO 中，此时仍由对应 behavior pool 的 <code>FOR NUMBERING</code> handler 实现；不要把它误解成“只有 unmanaged BO 才会出现”。</p>
+<p>第七层机制是锁和授权。Unmanaged 中 lock、global authorization、instance authorization、feature control 都可能需要项目实现。Managed runtime 不会自动替你知道旧系统如何锁数据、哪些状态允许修改、哪些用户可执行 action。尤其封装旧表或旧 function module 时，要确认经典 enqueue、RAP lock master、instance authorization 和业务状态检查不会互相矛盾。</p>
+<p>第八层机制是和 legacy code 的边界。Unmanaged 很常见的用法是把已有 function module、class、BAPI 或应用 service 包进 RAP BO。但封装时要拆清 interaction phase 和 save phase：哪些旧逻辑只是校验/模拟，哪些会实际写库，哪些会隐式 commit，哪些只能在 point-of-no-return 后调用。旧逻辑如果内部 <code>COMMIT WORK</code>，就不能直接放进普通 handler。即使是 unmanaged BO，LUW 边界仍由 RAP save sequence 统一管理，consumer 侧通过 <code>COMMIT ENTITIES</code> 触发提交；<code>COMMIT WORK</code> / <code>ROLLBACK WORK</code> 在 handler 中不是“少用”，而是禁止。</p>
+<p>第九层机制是测试成本。Unmanaged 的测试不能只点 UI 保存一次。需要覆盖 create/update/delete/read、buffer consistency、validation/action、authorization、lock、save 成功、save 前失败、late numbering、错误消息、并发、重试和回滚。越多责任交给项目，越需要 ABAP Unit、EML test、service test 和集成测试证明它真的按 RAP 契约工作。</p>
+<h4 id="19-5-83fe90d4" class="semantic-heading semantic-why">19.5 项目意义</h4>
+<p>Unmanaged RAP 的价值在于保护和复用复杂既有资产。很多 SAP 项目不是从空白数据库开始：有多年积累的 Z 表、function module、batch logic、number range、customizing、interface 和审批状态机。如果强行重写成 managed BO，风险可能更高。Unmanaged 给团队一个折中路径：外部使用 RAP/OData/EML 的现代契约，内部继续复用已有业务实现。</p>
+<p>但 unmanaged 也会把责任暴露得更清楚。项目不能再说“框架会处理”；buffer、CRUD、save、锁、消息和错误处理都要有设计说明和测试证据。设计评审时，应要求说明：为什么不用 managed？已有 buffer 在哪里？create/update/delete 如何进入 buffer？save 何时写库？失败如何进入 <code>failed</code> / <code>reported</code>？编号何时生成？旧逻辑是否 commit？这些问题答不清，就不应贸然 unmanaged。</p>
+<p>对 Java/Python 背景学习者来说，unmanaged RAP 有点像把一个已有 domain service / repository / unit-of-work 接入一个强约束的框架接口。框架要求你实现固定方法、返回固定结构、遵守固定事务阶段；你的自由度更大，但不能逃离框架契约。它不是“自己写 controller”，而是“自己实现 RAP provider 的核心责任”。</p>
+<p>对日本 SAP 项目来说，unmanaged 常和 <code>既存ロジック活用</code>、<code>レガシー処理連携</code>、<code>バッファ管理</code>、<code>保存処理</code>、<code>採番</code>、<code>排他制御</code>、<code>エラーハンドリング</code> 这些交付词一起出现。客户或上级真正关心的是：旧逻辑能否安全复用，能否按 RAP/OData 返回消息，能否通过結合テスト，能否在本番并发和重试下保持一致。</p>
+<h4 id="19-6-example-a97ef7b1" class="semantic-heading semantic-example">19.6 Example / 学习例子</h4>
+<p>假设已有一个旧 function module <code>ZFM_SAVE_ORDER</code>，它负责写订单头、行项目、状态历史和编号。团队想把它包装成 RAP BO。此时可以定义 root view entity / projection / service，让外部看到现代 RAP/OData 服务；BDEF 用 <code>unmanaged implementation in class zbp_i_order unique;</code>，并声明 create/update/delete/action 等行为。</p>
+<p>在 behavior pool 中，<code>lhc_order</code> 的 create/update/delete 方法不要立即提交数据库，而是把请求转换为旧逻辑需要的 buffer 结构，记录 <code>%cid</code>、key、字段变化和待保存动作。Read 方法要能从 buffer 或数据库取得当前状态；validation/action 要按 RAP 的 <code>failed</code> / <code>reported</code> 返回消息。</p>
+<p>保存阶段由 saver class 处理。<code>finalize</code> 可以做最终计算，<code>check_before_save</code> 做保存前检查，<code>adjust_numbers</code> 可以处理 late numbering，<code>save</code> 调用旧保存逻辑或写数据库。若旧 function module 内部会 commit，就要重新设计调用方式；否则 RAP 的 save sequence 和回滚语义会被破坏。</p>
+<p>再看 numbering。若订单号来自 number range，可以在 early numbering 阶段先分配，也可以在 late numbering 的 <code>adjust_numbers()</code> 中分配。无论哪种，都要保证成功分配 key 的 <code>%cid</code> 到最终 key 的 <code>mapped</code> 返回完整；如果某个 <code>%cid</code> 无法分配 key，就必须进入 <code>failed</code>。否则前端或 EML consumer 不知道新对象的真实 key，后续基于 <code>%cid</code> 的 child create、action 或导航也会失败。</p>
+<h4 id="19-7-counterexample-failure-mode-3bf74499" class="semantic-heading semantic-example">19.7 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 unmanaged 当成“RAP 里随便写 SQL”。Handler 里直接 <code>INSERT</code> / <code>UPDATE</code> 并提交，短期看似简单，实际破坏 interaction phase、save sequence、failed/reported、draft、锁和回滚语义。<code>COMMIT WORK</code> / <code>ROLLBACK WORK</code> 在 RAP handler 中是禁止语句；正确做法是设计 application buffer，并在 save sequence 的合适阶段写库。</p>
+<p>第二个失败模式是没有 application buffer。Create/update/delete 请求来了就存在局部变量里，后续 read、validation、action 或 save 看不到一致状态。结果是 UI 里刚改的数据验证不到，或者保存时丢字段。Unmanaged 的 buffer 是核心设计，不是可选细节。</p>
+<p>第三个失败模式是忘记 <code>%control</code>。Update 请求中哪些字段被修改，应按 <code>%control</code> 判断。若全量覆盖，可能把未修改字段写成 initial；若完全忽略，则 patch/update 行为不可靠。封装旧结构时尤其容易犯这个错误。</p>
+<p>第四个失败模式是 response 不完整。Create 分配了 key 却没有填 <code>mapped</code>，validation 失败却只 raise exception，没有填 <code>failed</code> / <code>reported</code>，action 成功却没有 result。消费者会看到模糊错误、拿不到 key，或者 UI 无法定位错误行。</p>
+<p>第五个失败模式是旧逻辑隐式 commit。很多 classic function module 或 BAPI 周边逻辑可能调用 <code>COMMIT WORK</code>，或依赖调用方执行 <code>BAPI_TRANSACTION_COMMIT</code>。把它直接放进 handler 或 early phase，会破坏 RAP transaction owner。必须在设计阶段确认旧逻辑事务边界。</p>
+<h4 id="19-8-577d6978" class="semantic-heading semantic-japan">19.8 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>アンマネージド実装</code>、<code>非管理型 RAP BO</code>、<code>既存ロジック活用</code>、<code>レガシー処理連携</code>、<code>アプリケーションバッファ</code>、<code>保存処理</code>、<code>採番処理</code>、<code>排他制御</code>、<code>エラーハンドリング</code>。</li>
+<li>说明句：この BO はアンマネージド実装のため、標準 CRUD・バッファ管理・保存処理をビヘイビア実装側で責任を持って実装します。</li>
+<li>说明句：既存ファンクションを呼び出す場合は、COMMIT WORK の有無と保存フェーズでの呼び出し可否を事前に確認してください。</li>
+<li>说明句：更新処理では <code>%control</code> を確認し、変更対象項目のみを旧ロジックへ渡す設計にしてください。</li>
+<li>使用场景：RAP 详细设计、legacy migration、OData 化、code review、単体テスト設計、保存失败调查、并发/重试设计、Clean Core 审查。</li>
+</ul>
+<h4 id="19-9-english-terms-adefacb9" class="semantic-heading semantic-terms">19.9 English Terms</h4>
+<ul>
+<li>Official / search term: <code>unmanaged RAP BO</code></li>
+<li>BDEF term: <code>unmanaged implementation in class</code></li>
+<li>Related terms: <code>unmanaged implementation scenario</code>, <code>behavior implementation</code>, <code>application buffer</code>, <code>standard operations</code>, <code>FOR MODIFY</code>, <code>FOR READ</code>, <code>FOR NUMBERING</code>, <code>save method</code>, <code>adjust_numbers</code>, <code>check_before_save</code>, <code>failed</code>, <code>reported</code>, <code>mapped</code>, <code>%cid</code>, <code>%control</code>, <code>CL_ABAP_BEHAVIOR_SAVER</code>.</li>
+<li>Recommended search pattern: <code>RAP unmanaged implementation standard operations handler saver buffer</code></li>
+</ul>
+<h4 id="19-10-786a995f" class="semantic-heading semantic-reference">19.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/implementing-unmanaged-business-objects" target="_blank" rel="noopener noreferrer">Implementing Unmanaged Business Objects | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring Behavior Implementation Options | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_STANDARD_OPERATIONS.html" target="_blank" rel="noopener noreferrer">RAP - Standard Operations | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_IN_CLASS_UNIQUE.html" target="_blank" rel="noopener noreferrer">RAP - implementation in class unique | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENUNMANAGED_RAP_BO_GLOSRY.html" target="_blank" rel="noopener noreferrer">unmanaged RAP business object | ABAP Keyword Documentation Glossary</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/setting-values-using-numbering-and-determinations" target="_blank" rel="noopener noreferrer">Setting Values Using Numbering and Determinations | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/using-the-entity-manipulation-language-eml-to-access-business-objects" target="_blank" rel="noopener noreferrer">Using the Entity Manipulation Language to Access Business Objects | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="19-11-connections-350cc782">19.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></li>
+<li>Upstream: <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></li>
+<li>Downstream: <a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a></li>
+<li>Downstream: <a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a></li>
+<li>Downstream: <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li>Downstream: <a class="wiki" href="section-03-036-rap-save-modified-implementation-84f70d3a.html">RAP save_modified implementation</a></li>
+<li>Downstream: <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="19-12-1024425c" class="semantic-heading semantic-practice">19.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明：unmanaged RAP 比 managed RAP 多承担哪些责任？</li>
+<li>在一个 unmanaged 示例中找出 create/update/delete/read 方法，并标出 <code>entities</code>、<code>keys</code>、<code>failed</code>、<code>reported</code>、<code>mapped</code>。</li>
+<li>画出 create 请求从 handler buffer 到 saver <code>save</code> 写库的路径。</li>
+<li>检查一个 update 逻辑是否正确处理 <code>%control</code>。</li>
+<li>用日语写一句 review 说明：<code>アンマネージド実装では、バッファ管理と保存処理を実装側で責任を持って設計します。</code></li>
+</ul>
+<h4 id="19-13-confidence-next-action-c75635a7" class="semantic-heading semantic-status">19.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for tutorial use。本节已按 SAP Learning、ABAP Keyword Documentation、Joule <code>Pass with fixes</code>、Claude <code>Pass</code> 和 Claude follow-up <code>Pass</code> 复核；standard operations、application buffer、response structures、<code>%cid</code> / <code>%control</code>、numbering、save sequence、point-of-no-return、cleanup 路径和 <code>COMMIT WORK</code> restriction 已闭环。Legacy API transaction behavior still requires target-system verification.</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿结构同步；随后继续 <a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-018-managed-rap-833bfafa.html">Previous section</a><a href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

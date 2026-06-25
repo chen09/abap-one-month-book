@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>UPDATE statement 更新数据 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="9-update-statement-e85f1630" class="chapter-title">9. UPDATE statement 更新数据</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 09</li><li>self-contained study note</li></ul><h4 id="9-1-f12c61f5" class="semantic-heading semantic-concept">9.1 一句话结论</h4>
+<p>ABAP SQL 的 <code>UPDATE</code> 用来修改数据库中已经存在的行。学习重点不是“把字段改成新值”，而是确认要改哪些行、只改哪些字段、实际改了几行、并发下是否会覆盖别人更新、谁来提交或回滚，以及这次修改是否经过授权、锁、业务校验和 Clean Core 允许的写入路径。</p>
+<h4 id="9-2-486cffa0" class="semantic-heading semantic-concept">9.2 到底学什么</h4>
+<p><code>UPDATE</code> 和 <code>INSERT</code> 的语义不同：<code>INSERT</code> 是新增不存在的行，<code>UPDATE</code> 是修改已经存在的行。如果目标行不存在，<code>UPDATE</code> 不会帮你创建新行。这个差异在接口重试、批处理补偿、主数据维护、状态流转里非常重要。</p>
+<p>最常见的安全写法，是用 <code>SET</code> 指定要改的字段，用 <code>WHERE</code> 精确限定要改的行：</p>
+<pre><code class="language-abap">UPDATE zorder_note
+   SET note_text  = @lv_note_text,
+       changed_by = @sy-uname,
+       changed_at = @lv_changed_at
+ WHERE note_id = @lv_note_id.
+
+DATA(lv_update_subrc) = sy-subrc.
+DATA(lv_updated)      = sy-dbcnt.</code></pre>
+<p>读这段代码时，先看三件事：<code>WHERE</code> 是否足够精确，<code>SET</code> 是否只改了应该改的字段，<code>sy-dbcnt</code> 是否等于业务预期。比如按主键更新一条备注，预期 <code>sy-dbcnt</code> 应该是 1；如果是 0，说明目标不存在或并发条件不满足；如果大于 1，说明 <code>WHERE</code> 过宽。</p>
+<p><code>UPDATE</code> 也可以从结构或内表更新：</p>
+<pre><code class="language-abap">UPDATE zorder_note FROM @ls_note.
+UPDATE zorder_note FROM TABLE @lt_notes.</code></pre>
+<p>这类写法会按主键找到目标行，并用来源结构/内表里的行进行更新。它适合“我手里有完整且可信的数据库行内容”的场景；如果来源结构字段不完整、带旧值或初始值，就可能把不该改的字段覆盖掉。</p>
+<h4 id="9-3-8f01e469" class="semantic-heading semantic-why">9.3 为什么重要</h4>
+<p><code>UPDATE</code> 是最容易造成生产事故的 ABAP SQL 语句之一。原因很简单：它修改的是既有业务事实。一个漏掉 <code>WHERE</code> 的更新，可以把整张表都改掉；一个过宽的 <code>WHERE</code>，可以把别的组织、别的客户、别的期间的数据一起改掉；一个没有并发保护的更新，可以把别人刚保存的内容覆盖回旧值。</p>
+<p>它的第一层价值是表达变更意图。<code>UPDATE ... SET status = ... WHERE order_id = ...</code> 比“先读一整行、改一个字段、再整行 UPDATE 回去”更清楚，因为它明确说明只改 <code>status</code>。</p>
+<p>第二层价值是验证影响范围。写入后马上看 <code>sy-dbcnt</code>，可以确认实际更新件数是否符合预期。项目 review 里常问：<code>更新件数は想定通りですか</code>。这不是形式问题，而是防止误更新的最后一道简单检查。</p>
+<p>第三层价值是并发安全。用户 A 读出数据后，用户 B 可能已经更新了同一行。如果用户 A 直接整行 <code>UPDATE FROM @ls_old_row</code>，可能把 B 的更新覆盖掉。需要 lock object、RAP lock、ETag/last changed timestamp、版本号或其他并发控制策略。</p>
+<p>第四层价值是事务边界。<code>UPDATE</code> 成功不等于已经提交。它会进入当前 database LUW / SAP LUW，最终是否永久生效取决于 commit/rollback。可复用方法里随手 <code>COMMIT WORK</code>，和 <code>INSERT</code> 一样危险。</p>
+<h4 id="9-4-key-mechanism-268fdb8f" class="semantic-heading semantic-mechanism">9.4 Key mechanism / 核心机制</h4>
+<h5 id="9-4-1-update-set-where-3cb32770">9.4.1 <code>UPDATE ... SET ... WHERE</code>：局部字段更新</h5>
+<p>局部更新最适合“只改少数字段”的场景：</p>
+<pre><code class="language-abap">UPDATE zsales_order
+   SET status     = @lc_status_released,
+       changed_by = @sy-uname,
+       changed_at = @lv_changed_at
+ WHERE sales_order_id = @lv_sales_order_id.</code></pre>
+<p>这里的核心是 <code>WHERE</code>。如果 <code>sales_order_id</code> 是唯一主键，预期更新一行。写完后应立即检查：</p>
+<pre><code class="language-abap">DATA(lv_updated) = sy-dbcnt.
+
+IF lv_updated &lt;&gt; 1.
+  &quot; No row or too many rows were updated. Handle as a business error.
+ENDIF.</code></pre>
+<p>不要只看 <code>sy-subrc = 0</code> 就放心。<code>sy-subrc = 0</code> 说明有行被更新；但项目里更关心“是不是恰好更新了预期数量的行”。</p>
+<h5 id="9-4-2-where-5f8f3000">9.4.2 没有 <code>WHERE</code> 可能更新全表</h5>
+<p>下面这种写法非常危险：</p>
+<pre><code class="language-abap">UPDATE zsales_order
+   SET changed_by = @sy-uname.</code></pre>
+<p>没有 <code>WHERE</code>，语义就是对目标对象的所有适用行执行更新。某些批处理确实会做全量更新，但必须有明确设计、日志、件数检查、运行窗口和回滚方案。业务代码里如果不是有意全量更新，缺失 <code>WHERE</code> 就是高危缺陷。</p>
+<h5 id="9-4-3-update-from-wa-96d40994">9.4.3 <code>UPDATE ... FROM @wa</code>：整行更新要小心</h5>
+<p>从结构更新通常按主键定位目标行：</p>
+<pre><code class="language-abap">SELECT SINGLE FROM zorder_note
+       FIELDS *
+       WHERE note_id = @lv_note_id
+       INTO @DATA(ls_note).
+
+ls_note-note_text  = lv_new_text.
+ls_note-changed_by = sy-uname.
+ls_note-changed_at = lv_changed_at.
+
+UPDATE zorder_note FROM @ls_note.</code></pre>
+<p>这段代码看起来方便，但它更新的是来源结构承载的一整行语义。风险在于：<code>SELECT</code> 和 <code>UPDATE</code> 之间，别人可能已经改了同一行；或者 <code>ls_note</code> 某些字段不是最新值。局部字段更新时，优先考虑 <code>UPDATE ... SET ... WHERE ...</code>，不要为了省事整行覆盖。</p>
+<h5 id="9-4-4-update-from-table-itab-6bb7ba63">9.4.4 <code>UPDATE ... FROM TABLE @itab</code>：批量更新可能部分成功</h5>
+<p>批量更新可以写：</p>
+<pre><code class="language-abap">UPDATE zorder_note FROM TABLE @lt_notes.
+
+DATA(lv_update_subrc) = sy-subrc.
+DATA(lv_updated)      = sy-dbcnt.</code></pre>
+<p>官方文档说明，<code>UPDATE FROM TABLE</code> 会尽可能更新能匹配的行；如果 <code>sy-subrc = 4</code>，并不代表一行都没改，而是至少有一行没有被处理到。此时必须看 <code>sy-dbcnt</code>，并把预期件数和实际更新件数对比。</p>
+<pre><code class="language-abap">IF lv_updated &lt;&gt; lines( lt_notes ).
+  &quot; Some source rows did not find matching database rows.
+  &quot; Decide whether this is acceptable or an error.
+ENDIF.</code></pre>
+<p>这和 <code>INSERT ... ACCEPTING DUPLICATE KEYS</code> 的教训类似：部分成功不能静默当作全成功。</p>
+<h5 id="9-4-5-sy-subrc-sy-dbcnt-ac4db78e">9.4.5 <code>sy-subrc</code> 与 <code>sy-dbcnt</code></h5>
+<p>对 <code>UPDATE</code>，常见判断是：</p>
+<ul>
+<li><code>sy-subrc = 0</code>：至少一行被更新，或内表中的行都能用于更新。</li>
+<li><code>sy-subrc = 4</code>：没有符合条件的行，或内表批量更新时至少有一行找不到对应数据库行。</li>
+<li><code>sy-dbcnt</code>：实际更新的行数。</li>
+</ul>
+<p>最安全的习惯，是 <code>UPDATE</code> 后马上复制系统字段：</p>
+<pre><code class="language-abap">UPDATE zsales_order
+   SET status = @lc_status_closed
+ WHERE sales_order_id = @lv_sales_order_id.
+
+DATA(lv_update_subrc) = sy-subrc.
+DATA(lv_updated)      = sy-dbcnt.</code></pre>
+<p>然后用业务预期判断，而不是只写：</p>
+<pre><code class="language-abap">IF sy-subrc = 0.
+  &quot; Success?
+ENDIF.</code></pre>
+<h5 id="9-4-6-lost-update-ee7bcdc9">9.4.6 并发控制：避免 lost update</h5>
+<p>典型 lost update 是这样的：</p>
+<ol>
+<li>用户 A 读出订单备注。</li>
+<li>用户 B 修改并保存同一备注。</li>
+<li>用户 A 用旧结构整行 <code>UPDATE</code>，把用户 B 的修改覆盖掉。</li>
+</ol>
+<p>一种常见防御方式，是在 <code>WHERE</code> 里加入版本字段、last changed timestamp 或 ETag 语义：</p>
+<pre><code class="language-abap">UPDATE zorder_note
+   SET note_text  = @lv_new_text,
+       changed_by = @sy-uname,
+       changed_at = @lv_now
+ WHERE note_id    = @lv_note_id
+   AND changed_at = @lv_old_changed_at.
+
+IF sy-dbcnt &lt;&gt; 1.
+  &quot; The row was changed or deleted by someone else.
+  &quot; Ask the caller to reload or handle a conflict.
+ENDIF.</code></pre>
+<p>如果数据库中的 <code>changed_at</code> 已经不同，说明这行在用户 A 读取后被别人改过，本次更新不应静默覆盖。经典 SAP 还会使用 lock object 做悲观锁；RAP 中则要理解 lock、ETag、authorization、validation 和 save sequence。</p>
+<h5 id="9-4-7-update-89c3083f">9.4.7 <code>UPDATE</code> 成功不等于已经提交</h5>
+<p>官方文档说明，修改会在下一个 database commit 后永久生效，在 commit 前仍可能被 rollback 撤销。<code>UPDATE</code> 还会带来数据库锁，直到 commit 或 rollback 释放。写太多行、事务太长、锁范围太大，都可能造成等待、死锁或回滚区压力。</p>
+<p>所以，和 <code>INSERT</code> 一样，不要在可复用方法里随手提交：</p>
+<pre><code class="language-abap">METHOD change_status.
+  UPDATE zsales_order
+     SET status = @iv_status
+   WHERE sales_order_id = @iv_sales_order_id.
+
+  &quot; Do not COMMIT WORK here unless this method owns the full transaction boundary.
+ENDMETHOD.</code></pre>
+<p>谁拥有事务边界，谁决定提交。批处理、dialog transaction、BAPI、RAP、OData 服务和单元测试的规则不同。</p>
+<h5 id="9-4-8-update-sap-update-task-ef14102f">9.4.8 <code>UPDATE</code> 不是 SAP update task</h5>
+<p>ABAP 里还有一个容易混淆的词：update task。<code>UPDATE ztable ...</code> 是 ABAP SQL 的数据库修改语句；<code>CALL FUNCTION ... IN UPDATE TASK</code> 是 SAP 的异步/延迟更新机制。日语里都可能说 <code>更新処理</code>，但技术含义不同。本节讲的是 ABAP SQL <code>UPDATE</code>，不是 update task 框架。</p>
+<h5 id="9-4-9-clean-core-c37a4dd2">9.4.9 权限、锁和 Clean Core</h5>
+<p><code>UPDATE</code> 不会自动执行业务授权检查，不会自动调用变更文档，不会自动触发标准业务校验，也不会自动符合 Clean Core。尤其不要直接改 SAP 标准表来“修数据”。真实项目里应优先使用 released API、BAPI、RAP BO、业务事务、修复程序或正式扩展点。</p>
+<p>对自定义表，也要确认当前用户是否有业务权限、组织范围是否正确、是否需要 lock object、是否要记录 application log 或 change document，以及测试是否会污染共享数据。</p>
+<h4 id="9-5-02a36265" class="semantic-heading semantic-japan">9.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>更新処理</code></li>
+<li><code>UPDATE文</code></li>
+<li><code>項目更新</code></li>
+<li><code>一括更新</code></li>
+<li><code>更新対象</code></li>
+<li><code>更新条件</code></li>
+<li><code>WHERE条件</code></li>
+<li><code>更新件数</code></li>
+<li><code>想定件数</code></li>
+<li><code>排他制御</code></li>
+<li><code>楽観ロック</code></li>
+<li><code>悲観ロック</code></li>
+<li><code>ロストアップデート</code></li>
+<li><code>コミット</code></li>
+<li><code>ロールバック</code></li>
+<li><code>トランザクション境界</code></li>
+<li><code>直テーブル更新</code></li>
+<li><code>標準テーブル更新</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li><code>WHERE条件</code> が広すぎると、想定外のレコードまで更新される可能性があります。</li>
+<li><code>sy-dbcnt</code> が想定更新件数と一致しているか確認してください。</li>
+<li>全項目を <code>UPDATE FROM</code> で上書きする必要があるか、<code>SET</code> で対象項目だけ更新できるか確認します。</li>
+<li>ロストアップデートを防ぐため、ロックまたは最終更新日時による競合チェックを検討してください。</li>
+<li>このメソッド内で <code>COMMIT WORK</code> してよいか、呼び出し元のトランザクション境界を確認します。</li>
+<li>SAP標準テーブルを直接更新せず、Released API / BAPI / RAP BO / 業務トランザクションを確認します。</li>
+</ul>
+<p>日本项目里，<code>更新件数</code> 和 <code>想定件数</code> 是非常实用的 review 词。比如：<code>更新件数が1件である前提なら、sy-dbcntが1以外の場合はエラーにしてください。</code></p>
+<h4 id="9-6-english-terms-b56d8e45" class="semantic-heading semantic-terms">9.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP SQL UPDATE</code></li>
+<li>Related term: <code>UPDATE writable database object</code></li>
+<li>Related term: <code>UPDATE ... SET</code></li>
+<li>Related term: <code>UPDATE ... WHERE</code></li>
+<li>Related term: <code>UPDATE ... FROM</code></li>
+<li>Related term: <code>UPDATE ... FROM TABLE</code></li>
+<li>Related term: <code>sy-subrc</code></li>
+<li>Related term: <code>sy-dbcnt</code></li>
+<li>Related term: <code>database commit</code></li>
+<li>Related term: <code>database rollback</code></li>
+<li>Related term: <code>exclusive database lock</code></li>
+<li>Related term: <code>lost update</code></li>
+<li>Related term: <code>optimistic locking</code></li>
+<li>Related term: <code>pessimistic locking</code></li>
+<li>Related term: <code>ETag</code></li>
+<li>Related term: <code>last changed timestamp</code></li>
+<li>Related term: <code>SAP LUW</code></li>
+<li>Related term: <code>Database LUW</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL UPDATE SAP Help</code></li>
+<li><code>ABAP UPDATE SET WHERE sy-dbcnt</code></li>
+<li><code>ABAP UPDATE FROM TABLE sy-subrc 4</code></li>
+<li><code>ABAP SQL UPDATE database commit rollback lock</code></li>
+<li><code>RAP ETag optimistic locking update</code></li>
+</ul>
+<h4 id="9-7-example-77d09b0a" class="semantic-heading semantic-example">9.7 Example / 学习例子</h4>
+<h5 id="9-7-1-1-d3d80b6b">9.7.1 例 1：按主键更新一个状态</h5>
+<pre><code class="language-abap">UPDATE zsales_order
+   SET status     = @lc_status_released,
+       changed_by = @sy-uname,
+       changed_at = @lv_changed_at
+ WHERE sales_order_id = @lv_sales_order_id.
+
+DATA(lv_updated) = sy-dbcnt.
+
+IF lv_updated &lt;&gt; 1.
+  &quot; Expected exactly one row to be updated.
+ENDIF.</code></pre>
+<p>这个例子最重要的是 <code>WHERE sales_order_id = ...</code> 和 <code>lv_updated &lt;&gt; 1</code>。如果业务预期是一张订单，更新件数就应该是一件。</p>
+<h5 id="9-7-2-2-lost-update-d7878f5e">9.7.2 例 2：防止 lost update</h5>
+<pre><code class="language-abap">UPDATE zorder_note
+   SET note_text  = @lv_new_text,
+       changed_by = @sy-uname,
+       changed_at = @lv_now
+ WHERE note_id    = @lv_note_id
+   AND changed_at = @lv_old_changed_at.
+
+IF sy-dbcnt &lt;&gt; 1.
+  &quot; The record was changed by someone else or no longer exists.
+ENDIF.</code></pre>
+<p>这个例子用 <code>changed_at</code> 做乐观锁条件。它不是唯一方案，但能让初学者理解：<code>WHERE</code> 不只是定位主键，也可以表达“我只接受基于旧版本的更新”。</p>
+<h5 id="9-7-3-3-8ec14b55">9.7.3 例 3：整行更新的风险</h5>
+<pre><code class="language-abap">SELECT SINGLE FROM zorder_note
+       FIELDS *
+       WHERE note_id = @lv_note_id
+       INTO @DATA(ls_note).
+
+ls_note-note_text = lv_new_text.
+
+UPDATE zorder_note FROM @ls_note.</code></pre>
+<p>这段代码可能没错，但要问：<code>ls_note</code> 是否包含完整且最新的一行？有没有别人同时改了其他字段？如果只是改 <code>note_text</code>，<code>UPDATE ... SET note_text = ... WHERE ...</code> 往往更清楚。</p>
+<h5 id="9-7-4-4-09dc9ccd">9.7.4 例 4：批量更新后检查件数</h5>
+<pre><code class="language-abap">UPDATE zorder_note FROM TABLE @lt_notes.
+
+DATA(lv_updated) = sy-dbcnt.
+
+IF lv_updated &lt;&gt; lines( lt_notes ).
+  &quot; Not all source rows found matching database rows.
+ENDIF.</code></pre>
+<p>批量更新的 <code>sy-subrc = 4</code> 可能意味着部分成功。不要把它当作“全部失败”，也不要当作“全部成功”。看 <code>sy-dbcnt</code>，再按业务决定报错、补偿、日志或重试。</p>
+<h4 id="9-8-counterexample-failure-mode-aa374b62" class="semantic-heading semantic-example">9.8 Counterexample / Failure mode</h4>
+<p>失败模式一：漏掉 <code>WHERE</code>，导致全表更新。除非这是明确设计的批处理，否则应视为高危缺陷。</p>
+<p>失败模式二：<code>WHERE</code> 太宽。比如只按状态更新，而没有公司代码、销售组织、客户、期间或主键条件，会把别的业务范围一起更新。</p>
+<p>失败模式三：只看 <code>sy-subrc</code>，不看 <code>sy-dbcnt</code>。项目里经常需要“恰好更新 1 行”或“恰好更新 N 行”，这必须用件数判断。</p>
+<p>失败模式四：整行 <code>UPDATE FROM @wa</code> 覆盖别人刚修改的字段。局部字段更新、锁、版本字段或 ETag 可以降低 lost update 风险。</p>
+<p>失败模式五：在可复用方法里随手 <code>COMMIT WORK</code>。这可能提前提交调用方尚未完成的业务事务。</p>
+<p>失败模式六：直接更新 SAP 标准表。标准表背后可能有业务校验、派生字段、缓存、变更文档、状态机和权限逻辑，直接 SQL 更新会绕过它们。</p>
+<p>失败模式七：把 ABAP SQL <code>UPDATE</code> 和 update task 混为一谈。一个是 SQL 修改语句，一个是 SAP 更新任务机制，问题定位时要分清。</p>
+<p>失败模式八：测试后不回滚或清理。更新类测试很容易污染共享测试数据，尤其是状态字段和主数据字段。</p>
+<h4 id="9-9-f8f7d921" class="semantic-heading semantic-practice">9.9 思考问题</h4>
+<ul>
+<li>这次更新的业务语义是什么？改状态、改文本、改金额，还是补数据？</li>
+<li><code>WHERE</code> 是否能保证只更新预期业务范围？</li>
+<li>预期更新件数是多少？代码是否检查 <code>sy-dbcnt</code>？</li>
+<li>如果目标行不存在，是错误、忽略，还是应该新增？</li>
+<li>是否可能发生 lost update？有没有 lock、timestamp、version 或 ETag？</li>
+<li>是否只需要 <code>SET</code> 局部字段，还是必须 <code>UPDATE FROM @wa</code> 整行更新？</li>
+<li>批量更新时，部分成功如何处理？</li>
+<li>谁负责 <code>COMMIT WORK</code> 或 rollback？</li>
+<li>权限、业务校验、日志和变更文档在哪里完成？</li>
+<li>ABAP Cloud / RAP / Clean Core 项目中，是否应该改用 released API、BAPI、RAP BO 或 EML？</li>
+</ul>
+<h4 id="9-10-e06d0e22" class="semantic-heading semantic-reference">9.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPUPDATE.html" target="_blank" rel="noopener noreferrer">UPDATE writable_obj</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPUPDATE_SOURCE.html" target="_blank" rel="noopener noreferrer">UPDATE writable_obj, source</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPUPDATE_SET_EXPRESSION.html" target="_blank" rel="noopener noreferrer">UPDATE writable_obj, set_expression</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPUPDATE_SET_INDICATOR.html" target="_blank" rel="noopener noreferrer">UPDATE writable_obj, set indicators</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenabap_sql_writing.html" target="_blank" rel="noopener noreferrer">ABAP SQL - Write Access with DML</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPIUMD_TARGET.html" target="_blank" rel="noopener noreferrer">INSERT, UPDATE, MODIFY, DELETE, target</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT.html" target="_blank" rel="noopener noreferrer">COMMIT WORK</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPINVALID_STMTS_IN_RAP_METHODS.html" target="_blank" rel="noopener noreferrer">Restrictions in RAP Handler and Saver Methods</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/17_SAP_LUW.md" target="_blank" rel="noopener noreferrer">SAP LUW Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="9-11-connections-bb18397b">9.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-02-008-insert-statement-0beac323.html">INSERT statement 新增数据</a></li>
+<li>Related: <a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a></li>
+<li>Related: <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></li>
+<li>Related: <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a></li>
+<li>Related: <a class="wiki" href="section-02-011-modify-statement-e9a9a916.html">MODIFY statement 修改语义</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Downstream: <a class="wiki" href="section-02-010-delete-statement-dc415594.html">DELETE statement 删除数据</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 09 - ABAP SQL 写入、聚合与事务</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="9-12-81462f59" class="semantic-heading semantic-practice">9.12 学习任务</h4>
+<ul>
+<li>写一个 <code>UPDATE ... SET ... WHERE</code> 例子，并说明预期 <code>sy-dbcnt</code> 应该是多少。</li>
+<li>把一个 <code>UPDATE FROM @wa</code> 的例子改写成只更新必要字段的 <code>SET</code> 写法。</li>
+<li>写一个 lost update 场景，用 <code>changed_at</code> 或版本字段放进 <code>WHERE</code> 防止静默覆盖。</li>
+<li>写一句日语 review 说明：<code>更新件数が1件である前提なら、sy-dbcntが1以外の場合はエラーにしてください。</code></li>
+<li>找一个没有 <code>WHERE</code> 或 <code>WHERE</code> 过宽的更新语句，说明它可能造成什么生产风险。</li>
+<li>对照 RAP 章节，说明普通 ABAP SQL <code>UPDATE</code> 与 RAP save sequence / ETag / lock 的关系。</li>
+</ul>
+<h4 id="9-13-confidence-next-action-f01cccee" class="semantic-heading semantic-status">9.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 复核 <code>UPDATE writable_obj</code>、<code>UPDATE ... SET</code>、<code>UPDATE ... FROM</code>、<code>UPDATE ... FROM TABLE</code>、set indicators、write access with DML、I/U/M/D target、<code>COMMIT WORK</code>、RAP handler/saver restrictions，以及 SAP LUW / ABAP SQL cheat-sheet 中 <code>sy-subrc</code>、<code>sy-dbcnt</code> 和部分成功示例；正文已覆盖 <code>WHERE</code> 范围、批量部分成功、lost update、事务边界、锁、授权、Clean Core 和 RAP/ABAP Cloud 注意点。旧 Joule ultra-short prompt 返回通用错误，旧 Claude 输出为 session expired；2026-06-18 已创建新的 Claude follow-up prompt，但当前 Claude health check 在 180 秒内未返回，因此本轮按官方资料闭环并保留外部模型复核债务。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-010-delete-statement-dc415594.html">DELETE statement 删除数据</a>，继续检查删除语义、<code>WHERE</code> 范围、<code>sy-dbcnt</code>、事务/回滚、授权和生产安全边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-009-update-statement-ab212d9f.html">UPDATE statement 更新数据</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-008-insert-statement-0beac323.html">Previous section</a><a href="section-02-010-delete-statement-dc415594.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

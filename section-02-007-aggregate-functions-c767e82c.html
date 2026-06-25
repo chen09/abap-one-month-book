@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Aggregate functions 聚合函数 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="7-aggregate-functions-71430444" class="chapter-title">7. Aggregate functions 聚合函数</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 07</li><li>self-contained study note</li></ul><h4 id="7-1-d616014b" class="semantic-heading semantic-concept">7.1 一句话结论</h4>
+<p>Aggregate functions 是 ABAP SQL 里把多行数据汇总成统计值的机制，例如 <code>COUNT( * )</code>、<code>SUM( ... )</code>、<code>MIN( ... )</code>、<code>MAX( ... )</code>、<code>AVG( ... )</code>。它的重点不是少写几行 <code>LOOP</code>，而是把“按数据库条件筛选、分组、汇总”的工作交给数据库完成，并让代码清楚表达结果粒度：到底返回一条总计，还是按客户、币种、状态等维度返回多条汇总。</p>
+<h4 id="7-2-c83debfc" class="semantic-heading semantic-concept">7.2 到底学什么</h4>
+<p>从业务角度看，聚合函数回答的是“多少、合计、平均、最大、最小”这类问题：</p>
+<ul>
+<li>这个客户有多少张订单？</li>
+<li>本月每个客户的订单金额合计是多少？</li>
+<li>每个币种的未清金额合计是多少？</li>
+<li>最近一次创建时间是什么？</li>
+<li>每个状态下有多少条记录？</li>
+</ul>
+<p>如果不用聚合，初学者很容易写成“先把所有明细读到内表，再在 ABAP 里循环统计”：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              net_amount,
+              currency_code
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_orders).
+
+DATA(lv_total_amount) = 0.
+
+LOOP AT lt_orders INTO DATA(ls_order).
+  lv_total_amount += ls_order-net_amount.
+ENDLOOP.</code></pre>
+<p>这种写法在几条测试数据上能跑，但它把数据库擅长的统计工作搬到了 ABAP 应用层。数据量变大时，会多读很多不需要传输到应用层的明细；逻辑也会散落在 <code>SELECT</code> 和 <code>LOOP</code> 两处，review 时不容易看出统计口径。</p>
+<p>聚合函数的基本写法，是直接在 ABAP SQL 的 <code>FIELDS</code> 列表里声明要统计什么：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS COUNT( * )
+       WHERE customer_id = @lv_customer_id
+       INTO @DATA(lv_order_count).</code></pre>
+<p>这段代码不是“读订单列表”，而是“返回订单条数”。一旦用了聚合函数，结果的含义就从明细粒度变成统计粒度。学习本节时，要把注意力放在三个问题上：统计范围由 <code>WHERE</code> 决定，统计维度由 <code>GROUP BY</code> 决定，统计后的组过滤由 <code>HAVING</code> 决定。</p>
+<h4 id="7-3-232c92fd" class="semantic-heading semantic-why">7.3 为什么重要</h4>
+<p>聚合函数重要，是因为 SAP 项目里大量需求都不是简单明细查询，而是带统计口径的业务判断。报表、接口前置检查、批处理汇总、监控指标、错误件数、状态分布、金额合计，都会用到聚合。</p>
+<p>它的第一层价值是性能。数据库可以在靠近数据的位置完成 <code>COUNT</code>、<code>SUM</code>、<code>MAX</code> 等计算，ABAP 程序只接收统计结果。和“读出所有明细再循环”相比，这通常减少网络传输、应用服务器内存和 ABAP 循环成本。</p>
+<p>第二层价值是可解释性。<code>SELECT ... GROUP BY customer_id, currency_code</code> 明确告诉 reviewer：这个结果是按客户和币种分组的，不是一张明细表。如果代码里只有一个很长的 <code>LOOP AT</code>，统计口径就需要读完整段逻辑才能理解。</p>
+<p>第三层价值是减少业务错误。金额和数量的统计不能只看数字字段。SAP 数据里常见金额字段会配套 currency key，数量字段会配套 unit key。把 JPY、USD、EUR 混在一起 <code>SUM( net_amount )</code>，语法上可能能执行，业务上却是错误结果。正确做法通常是按 <code>currency_code</code> 分组，或者在明确的转换规则下先做货币换算。</p>
+<p>第四层价值是为 CDS/RAP/OData 做准备。后续进入 CDS view entity、analytical query、RAP 查询或 OData 服务时，统计口径会变成模型的一部分。现在先在 ABAP SQL 中理解 <code>GROUP BY</code> 和 <code>HAVING</code>，后面读 CDS 的 aggregation、annotation 和服务返回结果会轻松很多。</p>
+<h4 id="7-4-key-mechanism-48ce986d" class="semantic-heading semantic-mechanism">7.4 Key mechanism / 核心机制</h4>
+<h5 id="7-4-1-60a9853f">7.4.1 聚合函数会改变结果粒度</h5>
+<p>普通 <code>SELECT</code> 读的是明细行：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              net_amount
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_order_items).</code></pre>
+<p>如果符合条件的订单有 100 条，结果通常就是 100 行。聚合 <code>COUNT( * )</code> 则把这 100 行变成一个统计值：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS COUNT( * )
+       WHERE customer_id = @lv_customer_id
+       INTO @DATA(lv_order_count).</code></pre>
+<p>这时结果不再是订单列表，而是“订单条数”。项目里必须把变量名、目标结构和接口字段命名成统计语义，例如 <code>order_count</code>、<code>total_amount</code>、<code>latest_created_at</code>，不要继续叫 <code>lt_orders</code> 这种明细名称。</p>
+<h5 id="7-4-2-count-16b36c34">7.4.2 <code>COUNT( * )</code>：统计行数</h5>
+<p><code>COUNT( * )</code> 统计符合条件的行数。它常用于存在性检查、数据件数检查、批处理结果统计和测试断言：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS COUNT( * )
+       WHERE status = @lc_status_error
+       INTO @DATA(lv_error_count).</code></pre>
+<p>如果只是想知道“有没有错误数据”，项目里也要考虑性能和语义：有时 <code>UP TO 1 ROWS</code> 读一条即可，有时 <code>COUNT( * )</code> 是为了准确显示件数。不要机械套用一个写法。</p>
+<p>在 outer join 或可为 null 的表达式场景中，还要区分 <code>COUNT( * )</code> 和 <code>COUNT( sql_exp )</code>。当前 ABAP SQL 文档说明，<code>COUNT( sql_exp )</code> 统计的是表达式结果不是 null 的行；<code>COUNT( * )</code> 则是行数。这在 left outer join 后尤其重要，因为右侧不存在的记录会带来 null 语义。</p>
+<h5 id="7-4-3-sum-min-max-avg-fae88896">7.4.3 <code>SUM</code>、<code>MIN</code>、<code>MAX</code>、<code>AVG</code>：统计数值或可比较值</h5>
+<p>常见聚合函数可以这样理解：</p>
+<ul>
+<li><code>SUM( net_amount )</code>：合计金额或数量。</li>
+<li><code>MIN( created_at )</code>：最早创建时间，或最小值。</li>
+<li><code>MAX( created_at )</code>：最新创建时间，或最大值。</li>
+<li><code>AVG( net_amount )</code>：平均值。</li>
+</ul>
+<p>例如，按币种统计已释放订单的合计金额：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS currency_code,
+              COUNT( * )       AS order_count,
+              SUM( net_amount ) AS total_amount,
+              MAX( created_at ) AS latest_created_at
+       WHERE status = @lc_status_released
+       GROUP BY currency_code
+       ORDER BY currency_code
+       INTO TABLE @DATA(lt_totals_by_currency).</code></pre>
+<p>这里 <code>currency_code</code> 不是装饰字段，而是统计口径的一部分。没有 <code>GROUP BY currency_code</code>，<code>SUM( net_amount )</code> 就会把不同币种混在一起；这在 SAP 项目里通常是严重业务错误。</p>
+<p><code>AVG</code> 要额外注意结果类型和小数精度。ABAP SQL 支持在 <code>AVG</code> 中指定结果数据类型，例如官方文档中的 <code>AVG( col AS dtype )</code> 形式。项目中如果平均金额、平均数量要暴露到接口或报表，不能只看语法通过，还要确认字段类型、舍入规则、币种/单位语义和前端显示方式。</p>
+<h5 id="7-4-4-group-by-3f53bb49">7.4.4 <code>GROUP BY</code>：定义统计维度</h5>
+<p>没有 <code>GROUP BY</code> 时，聚合通常对整个结果集计算一个统计结果。加上 <code>GROUP BY</code> 后，数据库会按分组字段生成多条汇总结果：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS customer_id,
+              currency_code,
+              COUNT( * )       AS order_count,
+              SUM( net_amount ) AS total_amount
+       WHERE created_at BETWEEN @lv_from_date AND @lv_to_date
+       GROUP BY customer_id,
+                currency_code
+       ORDER BY customer_id,
+                currency_code
+       INTO TABLE @DATA(lt_customer_summary).</code></pre>
+<p>这段代码的结果粒度是“客户 + 币种”。如果同一个客户有 JPY 和 USD 两种订单，会返回两行，而不是一行。这样的行数变化不是 bug，而是分组维度决定的结果。</p>
+<p><code>GROUP BY</code> 还有一个基本规则：<code>SELECT</code> 列表里只要出现非聚合字段，这些字段就必须属于分组维度。下面的例子表达不清，也不应通过语法检查：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS customer_id,
+              sales_order_id,
+              SUM( net_amount ) AS total_amount
+       GROUP BY customer_id
+       INTO TABLE @DATA(lt_wrong).</code></pre>
+<p><code>sales_order_id</code> 是明细字段，但结果只按 <code>customer_id</code> 分组。系统无法知道一个客户多张订单时应该返回哪个 <code>sales_order_id</code>。修正方式不是随便把 <code>sales_order_id</code> 加进 <code>GROUP BY</code>，因为那会把粒度变回“客户 + 订单”。真正要先问业务：需要客户汇总，还是订单明细？</p>
+<h5 id="7-4-5-where-having-6443a21b">7.4.5 <code>WHERE</code> 和 <code>HAVING</code>：先过滤明细，再过滤分组</h5>
+<p><code>WHERE</code> 在聚合前过滤明细行，<code>HAVING</code> 在聚合后过滤分组。这个顺序非常重要。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS customer_id,
+              currency_code,
+              COUNT( * )       AS order_count,
+              SUM( net_amount ) AS total_amount
+       WHERE created_at BETWEEN @lv_from_date AND @lv_to_date
+       GROUP BY customer_id,
+                currency_code
+       HAVING SUM( net_amount ) &gt; @lv_min_total
+       ORDER BY total_amount DESCENDING,
+                customer_id,
+                currency_code
+       INTO TABLE @DATA(lt_large_customers).</code></pre>
+<p>这里 <code>WHERE</code> 先限定日期范围；<code>GROUP BY</code> 按客户和币种汇总；<code>HAVING</code> 再留下合计金额超过门槛的分组。初学者常犯的错，是把聚合条件写进 <code>WHERE</code>：</p>
+<pre><code class="language-abap">&quot; 错误思路：WHERE 不能这样表达聚合后的合计条件
+WHERE SUM( net_amount ) &gt; @lv_min_total</code></pre>
+<p>现场说明时可以这样说：<code>WHERE は明細行の抽出条件、HAVING は集計後のグループ条件です。</code></p>
+<h5 id="7-4-6-3a7a5163">7.4.6 聚合后的排序仍然要显式写</h5>
+<p>聚合不会自动保证结果顺序。需要稳定显示或稳定测试时，仍然要写 <code>ORDER BY</code>。如果按聚合结果排序，通常给聚合表达式起 alias，再用 alias 排序：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS customer_id,
+              SUM( net_amount ) AS total_amount
+       WHERE currency_code = @lv_currency_code
+       GROUP BY customer_id
+       ORDER BY total_amount DESCENDING,
+                customer_id
+       INTO TABLE @DATA(lt_ranked_customers).</code></pre>
+<p><code>total_amount DESCENDING</code> 负责按金额从大到小，<code>customer_id</code> 负责在金额相同的时候给出稳定次序。没有第二个排序键时，相同合计金额的客户顺序仍然可能不稳定。</p>
+<h5 id="7-4-7-clean-core-af389106">7.4.7 聚合不是权限检查，也不是 Clean Core 许可</h5>
+<p>聚合函数只是 ABAP SQL 的读取和计算方式。它不会自动补上业务权限，也不会让直接访问标准底表变得符合 Clean Core。举例说，直接对标准底表做 <code>COUNT( * )</code> 或 <code>SUM( ... )</code>，仍然可能绕开 CDS DCL、RAP authorization、服务层权限和 released API 边界。</p>
+<p>在 ABAP Cloud / S/4HANA Cloud 或强调 Clean Core 的项目里，要优先确认是否有 released CDS view、released API、RAP BO 或项目认可的数据模型。统计逻辑如果要暴露给 OData 或 Fiori，也要确认权限是在 CDS DCL、RAP authorization、service implementation 还是应用代码中完成。</p>
+<h4 id="7-5-ac56aa02" class="semantic-heading semantic-japan">7.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>集計関数</code></li>
+<li><code>COUNT</code></li>
+<li><code>SUM</code></li>
+<li><code>MIN</code></li>
+<li><code>MAX</code></li>
+<li><code>AVG</code></li>
+<li><code>件数</code></li>
+<li><code>合計</code></li>
+<li><code>平均</code></li>
+<li><code>最大値</code></li>
+<li><code>最小値</code></li>
+<li><code>GROUP BY</code></li>
+<li><code>HAVING</code></li>
+<li><code>集計条件</code></li>
+<li><code>集計後条件</code></li>
+<li><code>明細粒度</code></li>
+<li><code>集計粒度</code></li>
+<li><code>通貨別集計</code></li>
+<li><code>単位別集計</code></li>
+<li><code>権限チェック</code></li>
+<li><code>直テーブルアクセス</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>この処理は明細を全件取得して ABAP 側で集計するのではなく、ABAP SQL の集計関数で DB 側に寄せます。</li>
+<li><code>GROUP BY</code> の項目が集計粒度になります。顧客別なのか、顧客・通貨別なのかを確認してください。</li>
+<li>金額を <code>SUM</code> する場合は、通貨コード別に集計するか、換算ルールを明確にする必要があります。</li>
+<li><code>WHERE</code> は明細行の抽出条件、<code>HAVING</code> は集計後のグループ条件です。</li>
+<li>集計結果であっても、権限チェックや CDS DCL / RAP authorization の確認は別途必要です。</li>
+</ul>
+<p>日本项目里，“粒度” 对应的说法经常是 <code>粒度</code> 或 <code>単位</code>。比如 <code>この一覧の集計粒度は得意先・通貨単位です</code>，比只说 <code>SUMしています</code> 更容易让业务方和 reviewer 明白统计口径。</p>
+<h4 id="7-6-english-terms-45a9cd70" class="semantic-heading semantic-terms">7.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP SQL aggregate expression</code></li>
+<li>Related term: <code>aggregate function</code></li>
+<li>Related term: <code>COUNT( * )</code></li>
+<li>Related term: <code>COUNT( sql_exp )</code></li>
+<li>Related term: <code>SUM</code></li>
+<li>Related term: <code>MIN</code></li>
+<li>Related term: <code>MAX</code></li>
+<li>Related term: <code>AVG</code></li>
+<li>Related term: <code>GROUP BY</code></li>
+<li>Related term: <code>HAVING</code></li>
+<li>Related term: <code>result granularity</code></li>
+<li>Related term: <code>grouping criteria</code></li>
+<li>Related term: <code>null value</code></li>
+<li>Related term: <code>currency key</code></li>
+<li>Related term: <code>unit key</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL aggregate expression SAP Help</code></li>
+<li><code>ABAP SQL aggregate function COUNT SUM AVG</code></li>
+<li><code>ABAP SQL GROUP BY HAVING SAP Help</code></li>
+<li><code>ABAP SQL COUNT sql_exp null value</code></li>
+<li><code>ABAP CDS amount currencyCode aggregation</code></li>
+</ul>
+<h4 id="7-7-example-cffd1a2e" class="semantic-heading semantic-example">7.7 Example / 学习例子</h4>
+<h5 id="7-7-1-1-f882c067">7.7.1 例 1：统计错误订单件数</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS COUNT( * )
+       WHERE status = @lc_status_error
+       INTO @DATA(lv_error_count).</code></pre>
+<p>这不是读错误订单明细，而是读错误件数。后续如果只是判断是否要写监控日志，可以用 <code>lv_error_count</code>；如果要显示错误列表，则还需要另一条明细查询。不要把“件数检查”和“明细取得”混在一个变量名里。</p>
+<h5 id="7-7-2-2-fe607f58">7.7.2 例 2：按客户和币种统计订单金额</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS customer_id,
+              currency_code,
+              COUNT( * )       AS order_count,
+              SUM( net_amount ) AS total_amount,
+              MAX( created_at ) AS latest_created_at
+       WHERE status = @lc_status_released
+       GROUP BY customer_id,
+                currency_code
+       ORDER BY customer_id,
+                currency_code
+       INTO TABLE @DATA(lt_customer_totals).</code></pre>
+<p>读这段代码时，要先说出结果粒度：一行代表一个客户在一个币种下的已释放订单汇总。<code>COUNT( * )</code> 是订单数，<code>SUM( net_amount )</code> 是该币种下的合计金额，<code>MAX( created_at )</code> 是最新创建时间。</p>
+<h5 id="7-7-3-3-having-a1aa4dac">7.7.3 例 3：用 <code>HAVING</code> 留下大额分组</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS customer_id,
+              currency_code,
+              SUM( net_amount ) AS total_amount
+       WHERE created_at BETWEEN @lv_from_date AND @lv_to_date
+       GROUP BY customer_id,
+                currency_code
+       HAVING SUM( net_amount ) &gt; @lv_min_total
+       ORDER BY total_amount DESCENDING,
+                customer_id,
+                currency_code
+       INTO TABLE @DATA(lt_large_totals).</code></pre>
+<p><code>WHERE</code> 控制日期范围，<code>HAVING</code> 控制“汇总后金额超过门槛”的分组。这个区别在报表和接口筛选里很常见。</p>
+<h5 id="7-7-4-4-left-outer-join-7268c2a1">7.7.4 例 4：left outer join 后统计右侧存在件数</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order AS so
+       LEFT OUTER JOIN zdelivery AS dlv
+          ON dlv~sales_order_id = so~sales_order_id
+       FIELDS so~customer_id,
+              COUNT( * )               AS joined_row_count,
+              COUNT( dlv~delivery_id ) AS delivery_count
+       GROUP BY so~customer_id
+       ORDER BY so~customer_id
+       INTO TABLE @DATA(lt_delivery_summary).</code></pre>
+<p><code>COUNT( * )</code> 统计 join 后的行数；<code>COUNT( dlv~delivery_id )</code> 只统计右侧交货单号不是 null 的行。这个例子用来提醒：outer join 后的 null 语义会影响统计结果，不能只看函数名。</p>
+<h4 id="7-8-counterexample-failure-mode-72da57ba" class="semantic-heading semantic-example">7.8 Counterexample / Failure mode</h4>
+<p>失败模式一：明细全读出来再循环统计。数据量小时看不出问题，数据量大时会浪费数据库到应用服务器的传输和 ABAP 内存。能由数据库明确完成的 <code>COUNT</code>、<code>SUM</code>、<code>MAX</code>，优先考虑在 ABAP SQL 中表达。</p>
+<p>失败模式二：混淆明细字段和汇总字段。<code>customer_id + SUM( net_amount )</code> 是客户汇总；<code>customer_id + sales_order_id + SUM( net_amount )</code> 就变成客户订单粒度。不要为了让语法通过，把不理解的字段全部塞进 <code>GROUP BY</code>。</p>
+<p>失败模式三：金额跨币种相加。<code>SUM( net_amount )</code> 没有自动理解 JPY、USD、EUR 的业务含义。要么按 <code>currency_code</code> 分组，要么在明确汇率、日期和目标币种规则后做转换。</p>
+<p>失败模式四：数量跨单位相加。<code>10 EA + 5 KG</code> 没有业务意义。数量统计也要按 unit key 分组或转换。</p>
+<p>失败模式五：把聚合后的条件写进 <code>WHERE</code>。明细过滤用 <code>WHERE</code>，分组后的过滤用 <code>HAVING</code>。如果需求说“只显示合计金额超过 100 万的客户”，那就是 <code>HAVING SUM( ... ) &gt; ...</code>。</p>
+<p>失败模式六：以为聚合结果不需要排序。聚合结果仍然是多行结果集；展示、分页、测试断言、接口稳定输出都需要明确 <code>ORDER BY</code>。</p>
+<p>失败模式七：用聚合掩盖权限问题。即使只返回总数或合计，也可能泄露用户无权查看的数据规模或金额。统计接口同样要确认授权边界。</p>
+<h4 id="7-9-02db29b9" class="semantic-heading semantic-practice">7.9 思考问题</h4>
+<ul>
+<li>这条查询返回的是明细粒度，还是统计粒度？</li>
+<li>如果有 <code>GROUP BY</code>，一行结果代表什么业务维度？</li>
+<li><code>WHERE</code> 过滤的是明细行，还是误把聚合条件写到了明细过滤里？</li>
+<li>是否需要 <code>HAVING</code> 过滤聚合后的分组？</li>
+<li><code>SUM</code> 的字段是否有 currency key 或 unit key？是否按币种/单位分组或转换？</li>
+<li><code>AVG</code> 的结果类型、精度和舍入规则是否符合接口或报表要求？</li>
+<li>left outer join 后使用 <code>COUNT( * )</code> 还是 <code>COUNT( sql_exp )</code>？null 语义是否明确？</li>
+<li>聚合结果是否需要稳定排序？</li>
+<li>权限检查在哪里发生？是否直接访问了不应直接访问的 SAP 标准底表？</li>
+<li>这个统计逻辑未来是否应该上移到 CDS view entity、RAP query 或 released API？</li>
+</ul>
+<h4 id="7-10-b55c68b6" class="semantic-heading semantic-reference">7.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapselect_aggregate.html" target="_blank" rel="noopener noreferrer">sql_exp - sql_agg</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSQL_AGG_FUNC.html" target="_blank" rel="noopener noreferrer">sql_agg - agg_func</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/abapgroupby_clause.html" target="_blank" rel="noopener noreferrer">SELECT, GROUP BY</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPHAVING_CLAUSE.html" target="_blank" rel="noopener noreferrer">SELECT, HAVING</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSELECT_AVG_AS.html" target="_blank" rel="noopener noreferrer">sql_agg - AVG, AS</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENNEWS-775-ABAP_SQL.html" target="_blank" rel="noopener noreferrer">ABAP SQL Release Note - COUNT(sql_exp)</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_AMOUNT_FIELD.html" target="_blank" rel="noopener noreferrer">ABAP CDS - Amount Fields</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/annotating-aggregate-functions-in-cds" target="_blank" rel="noopener noreferrer">Annotating Aggregate Functions in CDS</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="7-11-connections-e245d611">7.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a></li>
+<li>Upstream: <a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a></li>
+<li>Upstream: <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></li>
+<li>Related: <a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a></li>
+<li>Related: <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></li>
+<li>Related: <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a></li>
+<li>Related: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Downstream: <a class="wiki" href="section-02-008-insert-statement-0beac323.html">INSERT statement 新增数据</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 09 - ABAP SQL 写入、聚合与事务</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="7-12-108a3844" class="semantic-heading semantic-practice">7.12 学习任务</h4>
+<ul>
+<li>写一条 <code>COUNT( * )</code> 查询，统计某个状态下的记录数，并把变量命名成 <code>xxx_count</code>。</li>
+<li>写一条 <code>SUM( ... )</code> 查询，按 <code>customer_id</code> 和 <code>currency_code</code> 分组，说明为什么不能只按客户分组。</li>
+<li>把一个“读明细到内表再 <code>LOOP AT</code> 统计”的例子改成 ABAP SQL 聚合。</li>
+<li>写一句日语 review 说明：<code>GROUP BY の項目が集計粒度になるため、通貨コードを含める必要があります。</code></li>
+<li>找一个统计需求，判断过滤条件应该放在 <code>WHERE</code> 还是 <code>HAVING</code>。</li>
+<li>检查一个聚合查询是否需要 <code>ORDER BY</code> 才能保证输出稳定。</li>
+<li>对照一个 CDS/RAP/OData 场景，说明统计逻辑应该留在 ABAP SQL，还是上移到 CDS view entity / RAP query。</li>
+</ul>
+<h4 id="7-13-confidence-next-action-e47081e7" class="semantic-heading semantic-status">7.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 复核 aggregate expressions/functions、<code>COUNT( * )</code> / <code>COUNT( sql_exp )</code>、<code>SUM</code>、<code>MIN</code>、<code>MAX</code>、<code>AVG( ... AS dtype )</code>、<code>GROUP BY</code>、<code>HAVING</code>、outer join null、CDS amount field 与 CDS aggregate annotation 背景；正文已覆盖结果粒度、null 统计、金额/数量语义、排序、权限和 Clean Core / released API 边界。旧 Joule ultra-short prompt 返回通用错误，旧 Claude 输出为 session expired；2026-06-18 已创建新的 Claude follow-up prompt，但当前 Claude health check 在 180 秒内未返回，因此本轮按官方资料闭环并保留外部模型复核债务。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-008-insert-statement-0beac323.html">INSERT statement 新增数据</a>，开始 ABAP SQL 写入链路，并重点检查写入语义、<code>sy-subrc</code> / <code>sy-dbcnt</code>、事务边界和 RAP / Clean Core 限制。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-007-aggregate-functions-c767e82c.html">Aggregate functions 聚合函数</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-006-join-in-abap-sql-a7516ffc.html">Previous section</a><a href="section-02-008-insert-statement-0beac323.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

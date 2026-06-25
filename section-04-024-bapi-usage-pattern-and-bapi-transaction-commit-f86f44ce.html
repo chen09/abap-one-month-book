@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>BAPI usage pattern and BAPI_TRANSACTION_COMMIT | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="24-bapi-usage-pattern-and-bapi-transaction-commit-09424fc4" class="chapter-title">24. BAPI usage pattern and BAPI_TRANSACTION_COMMIT</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 24</li><li>self-contained study note</li></ul><h4 id="24-1-e0f2f46d" class="semantic-heading semantic-concept">24.1 一句话结论</h4>
+<p>BAPI usage pattern and BAPI_TRANSACTION_COMMIT 是经典 ABAP 集成和批处理中调用标准业务 API 的基本事务模式；在本教程里要学的是：调用 BAPI 后必须检查 RETURN 消息，再由正确的事务拥有者决定 <code>BAPI_TRANSACTION_COMMIT</code> 或 rollback，不能把 commit 当成“固定收尾代码”随便写。</p>
+<p>BAPI 可以理解为 SAP 对外或对内稳定暴露的一类业务函数接口。很多标准业务对象，例如客户、物料、销售订单、会计凭证等，都可能有对应 BAPI 或标准 API。开发者调用 BAPI 时，不是简单“调用函数 -&gt; 成功”，而是要处理输入结构、RETURN 消息、业务错误、更新任务、commit/rollback、锁、日志和重跑。</p>
+<p><code>BAPI_TRANSACTION_COMMIT</code> 常见于经典 BAPI 调用模式：某些 BAPI 执行业务检查并登记更新，调用方确认无错误后再提交事务。但这条规则不能机械套用。在 RAP、OData managed transaction、外层框架事务、后台批处理统一提交、或已有事务边界的场景中，随意内部提交会破坏 <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a>，也可能违反 <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a>。</p>
+<p>把这节放进“项目交付与生产就绪”，是因为 BAPI 的风险通常不是语法不会写，而是事务责任没有讲清楚。很多事故都来自一句看似无害的“最后加一个 commit”。如果这个 commit 在错误的层发生，数据可能已经提交，外层却还以为可以回滚；如果 RETURN 没有完整解析，业务错误可能被当成成功；如果批量处理中每行各自提交，失败后重跑可能制造重复对象。</p>
+<p>因此，本节的核心不是背 <code>CALL FUNCTION</code>，而是建立三句话：第一，BAPI 是业务 API，不是普通工具函数；第二，RETURN 消息是业务结果的一部分，不是可忽略的日志；第三，commit/rollback 是架构决策，不是每个 helper 都能自己决定的收尾动作。</p>
+<h4 id="24-2-f3f13a06" class="semantic-heading semantic-concept">24.2 到底学什么</h4>
+<p>第一，要学 BAPI 调用的基本模式：准备输入、调用 BAPI、读取 RETURN、判断是否有 error/abort、成功时提交、失败时 rollback 或不提交、记录应用日志、返回可理解消息。很多 BAPI 的成功/失败不是通过 ABAP exception 表达，而是通过 RETURN 表或 RETURN 结构中的 message type、message id、number、message text 表达。</p>
+<p>第二，要学 commit 的拥有者。谁负责开启业务事务，谁通常负责决定提交。一个底层 helper 不应该偷偷调用 <code>BAPI_TRANSACTION_COMMIT</code>；一个 service class 如果被 RAP saver 或外层 API 事务管理，也不应随意提交。commit 的位置必须在设计中明确，否则会造成部分提交、无法回滚、重复处理和测试困难。</p>
+<p>第三，要学错误处理。RETURN 中的 <code>E</code>、<code>A</code> 通常表示不能提交；<code>W</code> 和 <code>I</code> 不一定失败，但要根据业务决定是否允许继续。成功消息也要记录。接口或批处理不能只返回 <code>BAPI failed</code>，应把 BAPI RETURN 转成 <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a> 中讲过的 error code、message、target、retryable、application log id。</p>
+<p>第四，要学 Clean Core 和现代 API 边界。经典 BAPI 在很多 on-premise 和兼容场景仍然重要，但 S/4HANA Cloud、ABAP Cloud、RAP/Clean Core 场景更强调 released APIs、RAP BO、OData APIs 或稳定扩展点。使用 BAPI 前要确认它是否适合目标部署模式和升级策略。</p>
+<p>第五，要学“BAPI wrapper”的边界。项目中常会把 BAPI 封装到一个 service class 或 adapter class 里，这是合理的；但 wrapper 应该负责输入映射、RETURN 解析、消息标准化、日志和结果对象，不一定应该负责 commit。更稳妥的设计是让 wrapper 明确暴露“本次调用是否需要提交、是否发生错误、建议是否可重试、已生成的业务 key、application log id”，由上层 transaction owner 决定提交策略。</p>
+<p>第六，要学部分成功设计。批量 100 行调用 BAPI 时，项目必须提前决定“全有全无”还是“逐行成功”。全有全无适合强一致业务，但失败时整批回滚；逐行成功适合独立业务对象，但必须记录每行状态、已提交 key、失败原因和重跑策略。没有这个决策，测试和运维都会陷入“到底哪些数据已经进去了”的混乱。</p>
+<p>项目里可以为每个 BAPI 调用固定保留一份最小证据：</p>
+<pre><code class="language-text">BAPI Call Evidence Packet
+
+BAPI name:
+Transaction owner:
+Input business key:
+RETURN messages:
+Error/abort detected:
+Commit decision:
+Rollback decision:
+Generated object key:
+Application log id:
+Retry/idempotency rule:
+Partial success policy:
+Released API / Clean Core check:</code></pre>
+<p>这个证据包的重点，是让 reviewer 能看出“为什么提交、为什么不提交、失败后怎么重跑”。如果只有一张 “BAPI called successfully” 截图，而没有 RETURN、commit owner、生成对象 key 和重跑策略，就还不是交付级证据。</p>
+<h4 id="24-3-e4797f16" class="semantic-heading semantic-why">24.3 为什么重要</h4>
+<p>BAPI 常出现在“看起来能跑、上线后出事故”的地方。开发者调用 BAPI，看到返回里有成功消息，就直接 commit；或者忽略 RETURN 中某条错误；或者每处理一行就 commit，导致批量处理中一半数据提交、一半失败；或者在 RAP 事务中调用内部 commit，破坏框架一致性。这些问题都属于事务边界设计问题。</p>
+<p>对项目交付来说，BAPI 调用必须可解释。测试人员要知道正常、业务错误、权限错误、锁错误、配置缺失时 RETURN 怎么处理；运维要能从 <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 追到 BAPI 返回消息；客户要知道失败后是否可重跑；开发者要保证 commit/rollback 和幂等设计一致。</p>
+<p>对 Java/Python 背景学习者来说，BAPI 类似稳定业务 API，但和普通 REST/SDK 不同：它常运行在 SAP LUW/更新任务/锁/消息体系中，commit 可能由调用方显式触发。不能用“函数返回就等于数据库已提交”的直觉理解它。</p>
+<p>在日本项目现场，BAPI 还经常出现在“既存資産活用”“外部連携”“バッチ移行”“標準API利用”的语境中。客户或上级可能只关心“标准接口是否可用”，但开发者必须追问：这个 BAPI 的 RETURN 语义是什么，是否需要 <code>BAPI_TRANSACTION_COMMIT</code>，是否有 released API 替代，能不能在目标系统使用，是否会和 RAP save sequence 或外层事务冲突，失败后怎么重跑。</p>
+<p>如果这几个问题没有回答，BAPI 调用就不是交付级设计，只是一个能跑的片段。</p>
+<h4 id="24-4-key-mechanism-1c9ad2cd" class="semantic-heading semantic-mechanism">24.4 Key mechanism / 核心机制</h4>
+<p>典型 BAPI 调用流程可以写成：</p>
+<pre><code class="language-text">1. Prepare input structures and tables.
+2. Call BAPI.
+3. Inspect RETURN / RETURN table.
+4. If error or abort exists: do not commit; rollback if needed; log messages.
+5. If success: commit at the transaction owner boundary.
+6. Record application log and return stable response to caller.</code></pre>
+<p>RETURN 检查要非常认真。不要只看第一条消息，也不要只看 message text。应检查 type、id、number、message variables、field/object reference 等。项目中常见约定是：<code>A</code> 和 <code>E</code> 阻止提交；<code>W</code> 是否阻止提交由业务决定；<code>S</code> 和 <code>I</code> 用于说明处理结果。具体 BAPI 的语义仍要以官方文档和项目规范为准。</p>
+<p><code>BAPI_TRANSACTION_COMMIT</code> 和 <code>BAPI_TRANSACTION_ROLLBACK</code> 是经典模式中的事务结束工具。<code>WAIT = &#x27;X&#x27;</code> 等细节要结合具体场景判断。重要的是：commit 必须由明确的事务拥有者执行，而不是被每个 helper 各自执行。批处理要考虑每笔提交还是整批提交；接口要考虑请求级事务；RAP 要尊重框架 save sequence。</p>
+<p>如果一个程序在循环中调用 BAPI，需要特别小心。逐行 commit 可以减少锁和回滚范围，但会带来部分成功；整批 commit 可以保持一致性，但失败时回滚范围大。无论哪种，都要设计 application log、状态表、重跑策略和错误消息。</p>
+<p>事务拥有者可以用下面的表判断：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>谁通常拥有 commit</th><th>设计重点</th></tr></thead><tbody><tr><td>独立 report / batch job</td><td>report/job 主流程</td><td>明确逐行提交还是整批提交</td></tr><tr><td>RFC / classic API wrapper</td><td>API 入口或调用方约定</td><td>不让底层 helper 偷偷 commit</td></tr><tr><td>RAP behavior implementation</td><td>RAP runtime / save sequence</td><td>避免内部 <code>COMMIT WORK</code> 或 BAPI commit</td></tr><tr><td>OData service managed by framework</td><td>service/framework 边界</td><td>保持请求级事务一致</td></tr><tr><td>迁移程序</td><td>migration controller</td><td>记录每条源数据、目标 key、重跑状态</td></tr><tr><td>外部系统调用 SAP</td><td>SAP API contract owner</td><td>返回稳定错误和 application log id</td></tr></tbody></table></div>
+<p>RETURN 处理也可以标准化成一个结果对象：</p>
+<pre><code class="language-text">BAPI Call Result
+
+Business key:
+  Object key returned by BAPI:
+
+Messages:
+  All BAPIRET2 messages:
+  Highest severity:
+  Blocking errors:
+  Warnings:
+
+Transaction recommendation:
+  Can commit:
+  Must rollback:
+  Retryable:
+
+Evidence:
+  Application log id:
+  Source record id:
+  Timestamp:</code></pre>
+<p>注意，“Can commit”不是让 wrapper 自己 commit，而是让 wrapper 把判断结果交给事务拥有者。这样同一个 BAPI adapter 可以被 report、batch、API、测试替身或更高层 orchestration 复用。</p>
+<p>一个更安全的伪代码形态是：</p>
+<pre><code class="language-text">CALL FUNCTION &#x27;BAPI_...&#x27;
+  EXPORTING
+    ...
+  TABLES
+    return = lt_return.
+
+lo_result = zcl_bapi_return_mapper=&gt;from_bapiret2( lt_return ).
+
+IF lo_result-&gt;has_blocking_error( ).
+  zcl_app_log=&gt;write_bapi_messages( lo_result ).
+  &quot;No commit here. Let the transaction owner decide rollback.
+  RETURN error_result.
+ENDIF.
+
+&quot;No commit in the low-level helper.
+RETURN success_result_with_messages.</code></pre>
+<p>上层再决定：</p>
+<pre><code class="language-abap">IF all_items_successful = abap_true.
+  CALL FUNCTION &#x27;BAPI_TRANSACTION_COMMIT&#x27;
+    EXPORTING
+      wait = abap_true.
+ELSE.
+  CALL FUNCTION &#x27;BAPI_TRANSACTION_ROLLBACK&#x27;.
+ENDIF.</code></pre>
+<p>这只是经典模式示意，不代表所有场景都应该这样写。关键是：commit 在主流程或事务拥有者处集中发生，RETURN 全量解析，日志和响应可追踪。</p>
+<h4 id="24-5-13535767" class="semantic-heading semantic-japan">24.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>BAPI呼び出し</code>、<code>RETURNメッセージ</code>、<code>コミット</code>、<code>ロールバック</code>、<code>トランザクション境界</code>、<code>更新タスク</code>、<code>部分成功</code>、<code>再実行</code>、<code>業務エラー</code>、<code>アプリケーションログ</code>。</p>
+<p>设计说明中可以这样写：</p>
+<ul>
+<li>BAPI呼び出し後は RETURN テーブルを確認し、E/A メッセージがある場合はコミットしません。</li>
+<li>コミットの責務はサービス入口で管理し、下位ヘルパークラスでは <code>BAPI_TRANSACTION_COMMIT</code> を実行しません。</li>
+<li>エラー内容はアプリケーションログに出力し、呼び出し元にはエラーコード、メッセージ、ログ番号を返却します。</li>
+</ul>
+<p>review 或障碍调查时可以这样问：</p>
+<ul>
+<li>RETURNメッセージを全件確認していますか。</li>
+<li>このコミットはどのトランザクション境界で実行されますか。</li>
+<li>部分成功が発生した場合、再実行や取消はどう扱いますか。</li>
+</ul>
+<p>更完整的现场表达：</p>
+<pre><code class="language-text">BAPI の RETURN メッセージを業務エラー、警告、技術エラーに分類し、呼び出し元へ返却するエラー形式に変換します。</code></pre>
+<p>含义：把 BAPI RETURN 消息分类并转换成调用方可理解的错误格式。</p>
+<pre><code class="language-text">下位クラスでコミットすると、上位のロールバック制御が効かなくなるため、コミット責務を入口処理に集約します。</code></pre>
+<p>含义：底层类提交会让上层 rollback 失效，所以把 commit 责任集中到入口处理。</p>
+<pre><code class="language-text">一括処理では、全件ロールバックか部分成功を許容するかを事前に設計し、再実行方針を明確にします。</code></pre>
+<p>含义：批处理中要预先设计全量回滚还是允许部分成功，并明确重跑方针。</p>
+<h4 id="24-6-english-terms-40b1f7c1" class="semantic-heading semantic-terms">24.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>BAPI</code>, <code>BAPI_TRANSACTION_COMMIT</code>, <code>BAPI_TRANSACTION_ROLLBACK</code>, <code>BAPIRET2</code>.</li>
+<li>Related terms: <code>RETURN table</code>, <code>message type</code>, <code>SAP LUW</code>, <code>update task</code>, <code>commit</code>, <code>rollback</code>, <code>transaction boundary</code>, <code>partial success</code>.</li>
+<li>Modernization terms: <code>released API</code>, <code>Clean Core</code>, <code>RAP BO</code>, <code>OData API</code>, <code>ABAP Cloud</code>.</li>
+<li>Recommended search pattern: <code>SAP BAPI_TRANSACTION_COMMIT</code>, <code>SAP BAPI RETURN table BAPIRET2</code>, <code>SAP BAPI transaction boundary</code>.</li>
+</ul>
+<h4 id="24-7-example-bde8e4b5" class="semantic-heading semantic-example">24.7 Example / 学习例子</h4>
+<p>假设批处理要调用某个标准 BAPI 创建业务对象。一个不安全的伪流程是：</p>
+<pre><code class="language-text">CALL BAPI.
+CALL BAPI_TRANSACTION_COMMIT.
+RETURN &quot;success&quot;.</code></pre>
+<p>问题是：没有检查 RETURN，没有处理 warning/error，没有记录日志，也没有说明 commit 责任。更好的流程是：</p>
+<pre><code class="language-text">CALL BAPI.
+READ all RETURN messages.
+IF RETURN contains E or A:
+  write Application Log.
+  do not commit; rollback if needed.
+  return business/technical error response.
+ELSE:
+  commit at the owner boundary.
+  write success Application Log.
+  return object key and log id.</code></pre>
+<p>在 AC0567C 批量场景中，如果每行调用 BAPI，必须决定是逐行提交还是整批提交。逐行提交时 application log 要标明哪些行已提交、哪些行失败；整批提交时要说明任一错误是否导致全部回滚。没有这个设计，失败后重跑会非常危险。</p>
+<p>一个交付级批量设计可以这样写：</p>
+<pre><code class="language-text">Scenario:
+  AC0567C execute step calls a standard BAPI for each validated business item.
+
+Commit policy:
+  Option A: all-or-nothing
+    - Call BAPI for all records.
+    - If any blocking RETURN exists, rollback all.
+    - Suitable when business objects must be consistent as one batch.
+
+  Option B: per-item commit
+    - Commit each successfully processed independent item.
+    - Write status table and application log for every item.
+    - Suitable when each source row is independent and rerun must skip successes.
+
+Evidence:
+  Source row id:
+  BAPI object key:
+  RETURN messages:
+  Commit status:
+  Application log id:
+  Retry decision:</code></pre>
+<p>AC0567C 如果选择 per-item commit，就必须有状态表或等价证据防止重跑重复创建；如果选择 all-or-nothing，就必须能承受一个错误导致整批失败。哪一种都可以，但不能不设计。</p>
+<p>对于 RAP 相关场景，要额外小心：如果在 RAP handler/saver 中直接调用会内部 commit 的 BAPI 或显式 <code>BAPI_TRANSACTION_COMMIT</code>，就可能破坏 RAP 的事务模型。更合理的做法可能是：使用 released RAP/OData API、在 save sequence 允许的位置做 late save 设计、把外部副作用放到 event/outbox，或者把经典 BAPI 调用隔离到 RAP 事务之外的后台/异步流程中。</p>
+<h4 id="24-8-counterexample-failure-mode-50f5db04" class="semantic-heading semantic-example">24.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十类。</p>
+<p>第一，不检查 RETURN。BAPI 返回了错误消息，但程序仍然 commit，造成错误数据或不一致状态。</p>
+<p>第二，底层 helper 偷偷 commit。上层以为可以 rollback，实际数据已经提交。</p>
+<p>第三，在 RAP managed transaction 中调用 commit。框架事务边界被破坏，可能违反 RAP 保存顺序和限制。</p>
+<p>第四，循环中随意 commit。部分成功没有记录，失败后不知道哪些对象已创建。</p>
+<p>第五，只把 RETURN message text 原样返回。调用方无法稳定判断错误类型，也无法做多语言、错误码和重试策略。</p>
+<p>第六，忽略 released API / Clean Core。为了方便调用旧 BAPI，却不确认目标系统和云场景是否允许，给升级和运维留下风险。</p>
+<p>第七，把 warning 当作无关消息。某些 warning 可能代表业务数据被默认、字段被忽略或后续处理受限；是否允许继续必须由业务规则决定。</p>
+<p>第八，只 commit 不 wait，却马上读取结果。有些场景更新任务尚未完成，后续读取或返回状态可能不稳定；是否使用 <code>WAIT = &#x27;X&#x27;</code> 要按同步/异步需求和性能权衡决定。</p>
+<p>第九，混合多个 BAPI 却没有统一提交策略。前一个 BAPI 成功、后一个 BAPI 失败时，是否全部 rollback、是否允许部分成功、是否需要补偿动作，都必须提前设计。</p>
+<p>第十，把 BAPI RETURN 原样暴露给外部 API。内部 message id/number 可以记录，但外部 contract 应提供稳定错误码、字段目标、可重试标志和 log id，避免让外部系统依赖 SAP 内部消息文本。</p>
+<h4 id="24-9-c580b66c" class="semantic-heading semantic-practice">24.9 思考问题</h4>
+<ul>
+<li>调用 BAPI 后为什么不能立刻无条件 <code>BAPI_TRANSACTION_COMMIT</code>？</li>
+<li>RETURN 表中的 <code>E</code>、<code>A</code>、<code>W</code>、<code>S</code> 分别应该如何处理？</li>
+<li>在批量处理中，逐行 commit 和整批 commit 的取舍是什么？</li>
+<li>RAP 或外层 API 管理事务时，为什么底层 BAPI helper 不应自行提交？</li>
+<li>AC0567C POC 中如果调用标准 BAPI，应如何设计 application log、重跑和错误响应？</li>
+<li>为什么 warning 不一定可以忽略？</li>
+<li><code>WAIT = &#x27;X&#x27;</code> 的使用要考虑哪些同步性和性能取舍？</li>
+<li>如果一个流程调用多个 BAPI，失败补偿和 rollback 该如何说明？</li>
+</ul>
+<h4 id="24-10-b8753223" class="semantic-heading semantic-reference">24.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCOMMIT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - COMMIT WORK</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENSAP_LUW.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - SAP LUW</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/save-sequence-runtime" target="_blank" rel="noopener noreferrer">SAP Help - RAP Save Sequence Runtime</a></li>
+<li><a href="https://help.sap.com/docs/search?q=BAPI_TRANSACTION_COMMIT" target="_blank" rel="noopener noreferrer">SAP Help search - BAPI_TRANSACTION_COMMIT</a></li>
+<li><a href="https://help.sap.com/docs/search?q=BAPI_TRANSACTION_ROLLBACK%20BAPIRET2" target="_blank" rel="noopener noreferrer">SAP Help search - BAPI_TRANSACTION_ROLLBACK BAPIRET2</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm?search=COMMIT%20WORK%20SAP%20LUW" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation search - COMMIT WORK SAP LUW</a></li>
+<li><a href="https://help.sap.com/docs/search?q=update%20task%20SAP%20LUW" target="_blank" rel="noopener noreferrer">SAP Help search - update task SAP LUW</a></li>
+<li><a href="https://api.sap.com/search?searchterm=released%20APIs" target="_blank" rel="noopener noreferrer">SAP Business Accelerator Hub search - released APIs</a></li>
+<li><a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+<li><a class="wiki" href="section-04-022-authority-check-test-helper-e8ca4248.html">Authority Check Test Helper</a></li>
+</ul>
+<h4 id="24-11-connections-b980a7d1">24.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-04-023-background-job-and-submit-basics-11cfa86d.html">Background job and SUBMIT basics</a></li>
+<li>Downstream: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Related: <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Clean Core Extensibility Levels and Released API Dependency</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 25 - 测试替身与服务逻辑测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="24-12-ae88b6eb" class="semantic-heading semantic-practice">24.12 学习任务</h4>
+<ul>
+<li>写出一个安全的 BAPI 调用伪流程：准备输入、调用、检查 RETURN、commit/rollback、记录日志。</li>
+<li>为批量 100 行调用 BAPI 的场景，比较逐行 commit 和整批 commit 的风险。</li>
+<li>写 2 句日语 review 评论：一句要求检查 RETURN 全件，一句质疑底层 helper 中的 commit。</li>
+<li>检查 AC0567C POC：如果引入 BAPI，事务边界应由哪一层拥有？</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 <code>BAPI_TRANSACTION_COMMIT</code> 或 <code>BAPIRET2</code> 的官方说法。</li>
+<li>设计一个 <code>BAPI Call Result</code> 结构，包含最高严重度、是否可提交、是否可重试和 application log id。</li>
+<li>写出 per-item commit 与 all-or-nothing 两种 AC0567C execute 策略的测试证据。</li>
+<li>把一个 BAPI RETURN 表转换成对外 API error payload，要求包含稳定错误码和 log id。</li>
+</ul>
+<h4 id="24-13-confidence-next-action-d9b679b5" class="semantic-heading semantic-status">24.13 Confidence &amp; Next Action</h4>
+<p>Confidence: Medium-High。BAPI 调用和 commit/RETURN 检查的原则稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已修正失败模式数量、RAP <code>save sequence</code> 术语、伪代码 fence、RETURN 全量解析、commit owner、<code>WAIT = &#x27;X&#x27;</code> 同步性和部分成功/重跑边界。具体 BAPI 的事务语义、RETURN 结构、released API 状态和云可用性必须以官方文档与目标系统为准，Joule scoped review 仍保留为 deferred 证据。</p>
+<p>Next action: 继续学习 <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a>，把 BAPI/Clean Core/released API 风险纳入上线前质量门禁。</p>
+<p>原子笔记入口：<a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-023-background-job-and-submit-basics-11cfa86d.html">Previous section</a><a href="section-04-025-atc-check-set-68824dd3.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

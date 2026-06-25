@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Behavior definition 行为定义 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="15-behavior-definition-b506d8b0" class="chapter-title">15. Behavior definition 行为定义</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 15</li><li>self-contained study note</li></ul><h4 id="15-1-ba1b3fa6" class="semantic-heading semantic-concept">15.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a>，通常简称 BDEF，是 RAP business object 的事务契约：它说明这个业务对象允许哪些标准操作和自定义操作、哪些字段可以被修改、何时做校验和派生处理、如何加锁、如何做授权、是否支持 draft，以及这些行为由哪个 behavior pool 实现。</p>
+<p>如果说 <a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a> 和 <a class="wiki" href="section-03-014-composition-tree-8f6aae2e.html">Composition tree 组合树</a> 负责描述“这个业务对象长什么样、由哪些实体组成”，那么 behavior definition 负责描述“这个业务对象能怎么被安全地改变”。它不是普通的 class，也不是 service controller，而是 RAP 框架读取的行为声明。</p>
+<h4 id="15-2-3e23e225">15.2 概念说明</h4>
+<p>在 RAP 中，业务对象不是简单把一张数据库表暴露成 API。一个业务对象通常有 root entity、child entity、projection view、service definition、service binding、behavior definition 和 behavior implementation 等多个对象共同组成。BDEF 位在其中的“事务行为层”：它告诉 RAP runtime，外部消费者能不能 create / update / delete，哪些字段只读或 mandatory，哪些 action 可以被调用，保存前要执行哪些 validation，字段变化后要执行哪些 determination，以及锁、授权、ETag、draft、numbering 和 save sequence 应该如何参与。</p>
+<p>初学者可以把 BDEF 想成业务对象的“可操作说明书”。只有 CDS view entity，并不等于这个对象已经可以事务性地创建、修改、保存。CDS 定义数据模型和关联关系，BDEF 定义行为边界。比如一个 Travel BO 可以允许创建 travel header、通过 association 创建 booking item、禁止直接修改系统生成字段、保存时检查日期合法性、创建时自动生成编号、提供一个 <code>acceptTravel</code> action，并要求所有修改都走 RAP 的事务缓冲和 save sequence。</p>
+<p>BDEF 的典型写法以 <code>managed implementation in class ... unique;</code> 或 <code>unmanaged implementation in class ... unique;</code> 开始，后面跟 <code>define behavior for ... alias ...</code> 的 entity behavior body。现代示例里还常见 <code>strict ( 2 );</code>，它让 BDEF 使用更严格的语法检查，避免继续写旧式或模糊写法。managed 场景中，RAP runtime 可以承担标准 CRUD 和持久化的一部分工作；unmanaged 场景中，开发者需要在 behavior implementation 中实现更多标准操作和保存逻辑。projection behavior definition 又不同：它通常基于 projection root view，决定消费层暴露哪些底层行为，而不是重新选择 managed / unmanaged。</p>
+<p>这一节不要求一次记住 BDL 的所有语法。真正要建立的判断是：BDEF 是事务型 RAP BO 的中心入口。看一个 RAP 对象是否可修改、能执行哪些 action、保存前会不会校验、是否支持 draft、权限和锁怎么挂上去，第一反应应该是打开 behavior definition。</p>
+<h4 id="15-3-004427da">15.3 边界</h4>
+<p>BDEF 不定义数据库表结构。字段的数据类型、主键、外键、technical fields 和基础关联，主要来自 DDIC table 和 CDS view entity。BDEF 可以声明字段特性，例如 readonly、mandatory、numbering、readonly during update 或 suppress，但它不是表设计工具。</p>
+<p>BDEF 也不直接承载业务代码。validation、determination、action、authorization、feature control、unmanaged CRUD 和 saver 逻辑通常在 behavior pool 的 local handler class 或 saver class 中实现。BDEF 的职责是声明“有哪些行为、什么时候触发、由哪个类实现”，behavior pool 才是写 ABAP 逻辑的地方。把复杂逻辑堆在 BDEF 里是不可能的；把行为声明散落在普通 class 里，则会让 RAP runtime 无法理解对象能力。</p>
+<p>BDEF 不是 OData service definition。service definition / service binding 决定如何把 projection 暴露为 OData 或 UI 服务，BDEF 决定这些暴露出来的实体能否被事务性操作。一个服务可以只读暴露，也可以通过 projection behavior 暴露一部分 action 或 CRUD；但服务层不应该绕过 BDEF 自行决定保存语义。</p>
+<p>BDEF 也不是权限角色本身。它可以声明 authorization master、authorization dependent、instance authorization 或 global authorization 等行为入口，但具体权限判断仍要结合 DCL、authorization object、handler 实现和项目权限设计。初学者容易误解为“写了 authorization 就自动安全”，实际还要看授权检查是否实现、是否覆盖 create/update/delete/action、是否在 projection/service 层正确暴露。</p>
+<h4 id="15-4-3b179e1c" class="semantic-heading semantic-mechanism">15.4 核心机制</h4>
+<p>第一层机制是标准操作。BDEF 可以声明 <code>create;</code>、<code>update;</code>、<code>delete;</code>，并通过 association 支持 create-by-association。managed BO 中，标准操作通常由 RAP runtime 协调持久化；unmanaged BO 中，开发者要实现相应 handler 方法。只读对象可以不开放这些修改操作。项目上判断 API 是否允许变更，不能只看 OData endpoint 是否存在，而要看 BDEF 是否开放相应 operation。</p>
+<p>第二层机制是字段控制、编号和字段映射。BDEF 可以把字段标成 readonly、mandatory、numbering managed、readonly during update 等。它解决的问题是：哪些字段由用户输入，哪些字段由系统生成，哪些字段只在创建时可填，哪些字段在更新时不能改。比如 technical key、created by、created at、last changed at 通常不应由前端随意传入；业务必填字段则应该在行为层或 validation 中明确约束。创建场景还要注意 numbering：前端或 EML 调用方可能先用 <code>%cid</code> 标识临时实例，保存后再由 RAP 映射到最终 key。若 CDS element 名称和持久化表字段名不一致，managed BO 还要在 BDEF 中用 <code>mapping for</code> 明确字段映射，否则“看起来字段都有”，保存时却可能无法按预期写入。</p>
+<p>第三层机制是 determination。determination 是由 RAP 框架按触发条件调用的派生处理，用来根据当前实例状态计算或补齐字段。SAP Learning 对 determination 的典型说明是：它可以在 <code>on modify</code> 或 <code>on save</code> 阶段执行，并由 create、update、delete 或字段变化触发。比如输入数量和单价后自动计算金额、创建时默认状态为 open、保存前补齐派生字段。determination 应该改变业务对象实例本身，而不是做不可回滚的外部副作用。</p>
+<p>第四层机制是 validation。validation 用于检查一致性，在 <code>on save</code> 阶段执行。它不能只是弹出提示，而是要通过 <code>failed</code> 和 <code>reported</code> 告诉 RAP runtime 哪些实例不能保存、哪些消息要返回给消费者。比如日期不能早于今天、数量必须大于零、child item 必须属于有效 parent、状态转换必须合法。validation 是把“保存前必须满足的业务规则”放进 BO 生命周期的关键机制。</p>
+<p>第五层机制是 action 和 function。action 是非标准的业务操作，可能改变对象状态；function 则用于返回信息且不应产生 side effect。比如 <code>acceptTravel</code>、<code>rejectTravel</code>、<code>recalculatePrice</code> 可以是 action；读取某个预测结果或模拟计算则更接近 function。初学者要避免把所有按钮都理解成 CRUD，也要避免把复杂状态变更藏在 update 字段里。RAP 里重要业务动作应该显式建模为 action。</p>
+<p>第六层机制是事务缓冲和 save sequence。RAP 修改请求先进入 transactional buffer，最后由 <code>COMMIT ENTITIES</code> 触发 save sequence。保存过程中可能发生 finalize、check before save、adjust numbers、save、cleanup 等阶段，具体由 managed/unmanaged/custom save 场景决定。这里的项目规则非常重要：不要在普通 handler 里随意 <code>COMMIT WORK</code>，也不要在保存前做不可回滚的外部调用。RAP 需要统一管理成功、失败、回滚、消息和响应。</p>
+<p>第七层机制是 lock、authorization、ETag 和 draft。BDEF 可以声明 lock master/dependent、authorization master/dependent、etag master，以及 draft 支持。它们不是装饰语法，而是多人并发、权限边界、乐观锁和草稿编辑的基础。比如 root 是 lock master 时，child 修改可能依赖 parent 的锁；draft-enabled BO 中，前端编辑的是 draft instance，激活时才进入 active data。BDEF 把这些事务治理能力放在一个可读入口里。</p>
+<p>第八层机制是 managed / unmanaged / projection 的差异。managed 更适合标准持久化和框架托管；unmanaged 常用于遗留逻辑、复杂保存、BAPI/旧表封装或特殊事务控制；projection behavior 用于消费层裁剪和暴露行为。不要把 managed 当成“低级”、unmanaged 当成“高级”。项目选择取决于持久化模型、遗留资产、Clean Core 要求、测试能力和交付风险。</p>
+<p>第九层机制是扩展性。S/4HANA Public Cloud、SAP BTP ABAP Environment 和 Clean Core 语境下，很多场景不希望直接修改原始对象，而是通过 released API、extension point 或 BDEF extension 做受控扩展。本节只需要知道：BDEF 不只是项目内部开发文件，它也会影响后续能否被安全扩展。真正的扩展语法和限制放到 Clean Core / extensibility 章节再展开。</p>
+<h4 id="15-5-651be3bf" class="semantic-heading semantic-why">15.5 项目意义</h4>
+<p>BDEF 的价值是把“代码能写”变成“对象能被稳定消费”。没有 BDEF，CDS 只是可查询模型；有了 BDEF，RAP runtime 才知道哪些实例可以被改、哪些字段可写、什么时候校验、如何返回消息、如何处理锁和事务、哪些 action 构成业务能力。它把业务规则从零散 controller / report / interface 代码中拉回到 business object 生命周期。</p>
+<p>对项目交付来说，BDEF 是设计评审和缺陷分析的核心文件。出现“前端按钮点了没反应”“保存时报错但消息不清楚”“并发覆盖了别人修改”“child item 删除后 parent 状态没更新”“OData update 成功但数据库没变”等问题时，排查入口常常就是 behavior definition 和 behavior implementation 的对应关系。看 BDEF 可以快速确认：operation 有没有开放、validation 有没有定义、determination 触发点是否合适、action 是否暴露到 projection、锁和授权是否挂在正确实体上。</p>
+<p>对 Java/Python 背景学习者来说，BDEF 有点像把 controller route、domain service capability、entity lifecycle callback、validation rule、transaction boundary、authorization hook 和 API mutability contract 集中声明在一个对象旁边。但它又不是普通框架配置文件，因为 ABAP compiler、RAP runtime、ADT quick fix、EML、OData 暴露和 Fiori Elements 都会围绕它工作。它是 SAP 现代开发中“模型驱动事务行为”的关键入口。</p>
+<p>对日本 SAP 项目来说，BDEF 会进入设计说明、レビュー、単体テスト、結合テスト缺陷分析和移送前确认。常见问题不是“代码有没有写”，而是 <code>振る舞い定義上、更新可能になっていますか</code>、<code>保存時検証はどこで実行されますか</code>、<code>アクションは projection 側に公開されていますか</code>、<code>ロックと権限の親子関係は正しいですか</code>。能读懂 BDEF，才能把 RAP 技术对象翻译成项目可确认的交付边界。</p>
+<h4 id="15-6-example-8c8b7d1d" class="semantic-heading semantic-example">15.6 Example / 学习例子</h4>
+<p>以 Travel / Booking 类业务对象为例，root view entity 是 Travel，child entity 是 Booking，二者通过 composition 组成同一个 BO。BDEF 中可以对 Travel 声明 <code>create; update; delete;</code>，并声明 <code>_Booking { create; }</code>，表示可以通过 Travel 创建 Booking。Booking 自身可能允许 update/delete，但不能脱离 Travel 独立创建。这样，API 消费者看到的不是两张孤立表，而是一个有生命周期关系的 composite business object。</p>
+<p>再看字段控制。Travel 的 UUID、created at、created by、last changed at 通常是 system-managed 字段，BDEF 里可以声明为 readonly 或 managed numbering。BeginDate、EndDate、CustomerID 可能是业务输入字段，其中 CustomerID 可能 mandatory。这样前端即使传入 technical field，RAP 也不会把它当作普通业务输入；测试也能围绕“哪些字段能由用户改”来设计。</p>
+<p>再看 validation。可以定义 <code>validation validateDates on save { field BeginDate, EndDate; }</code>，在保存时检查结束日期不能早于开始日期。实现方法在 behavior pool 中，读取 keys 对应的实例，发现错误就填充 <code>failed</code> 和 <code>reported</code>。消费者收到的是可定位到实例和字段的消息，而不是一个模糊的 ABAP dump 或后台日志。</p>
+<p>再看 determination。创建 Travel 时，可以定义 <code>determination setInitialStatus on modify { create; }</code>，把状态设为 open；更新 Booking 数量后，可以触发 parent 金额重新计算。这里要注意：determination 是对象内部状态派生，不适合在里面直接发邮件、调用不可回滚外部 API 或提交数据库事务。</p>
+<p>最后看 action。Travel 可以定义 <code>action accept result [1] $self;</code>，表示这是一个业务动作，不是普通 update。实现中检查状态、授权和必填信息后，把 Travel 状态改为 accepted，并通过 <code>reported</code> 返回消息。projection behavior 还要决定这个 action 是否暴露给消费层，否则底层 BDEF 有 action，服务消费者也未必能调用。</p>
+<h4 id="15-7-counterexample-failure-mode-bce63428" class="semantic-heading semantic-example">15.7 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 BDEF 当成“CRUD 开关”。只写 <code>create; update; delete;</code>，却不设计字段控制、validation、determination、lock、authorization 和 messages，短期能跑通，长期会变成“前端能保存任何东西”。这种 BO 很难通过项目 review，也很难在结合测试中解释错误。</p>
+<p>第二个失败模式是在 handler 里直接 <code>COMMIT WORK</code>、直接更新别的表、直接调用不可回滚外部接口。这样会绕开 RAP 的事务缓冲和 save sequence，导致部分成功、回滚不一致、消息无法准确返回，甚至破坏 draft / EML / OData 的语义。RAP 里要把可回滚的数据修改交给 BO 生命周期管理，把外部副作用放在合适的保存后流程或集成设计中。</p>
+<p>第三个失败模式是 managed / unmanaged 选择不清。为了“快”把复杂遗留保存硬塞进 managed，后面发现标准持久化无法表达；或者为了“灵活”全部做 unmanaged，结果自己承担 CRUD、锁、响应、测试和错误处理，成本激增。正确做法是先画清楚持久化对象、遗留接口、事务边界和 Clean Core 要求，再选择 implementation scenario。</p>
+<p>第四个失败模式是只改底层 BDEF，忘记 projection behavior。开发者在 root BDEF 里新增 action 或开放 update，但消费服务用的是 projection view，如果 projection behavior 没有暴露对应行为，Fiori / OData 消费者仍然不能调用。排查时要同时看 interface/root BDEF、projection BDEF、service definition 和 service binding。</p>
+<p>第五个失败模式是把 authorization 和 validation 混在一起。validation 检查业务数据是否一致，authorization 判断当前用户是否有权执行操作。用 validation 模拟权限会让错误语义混乱，也可能漏掉 read/update/action 等不同入口。项目上应把二者分开设计，并在测试中覆盖。</p>
+<h4 id="15-8-6b8d3e4a" class="semantic-heading semantic-japan">15.8 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ビヘイビア定義</code>、<code>振る舞い定義</code>、<code>ビジネスオブジェクト</code>、<code>保存シーケンス</code>、<code>検証</code>、<code>派生処理</code>、<code>アクション</code>、<code>ロック制御</code>、<code>権限制御</code>、<code>ドラフト対応</code>。正式说明中优先使用 <code>ビヘイビア定義</code>；<code>振る舞い定義</code> 更适合作为中文读者理解含义时的解释性说法。</li>
+<li>说明句：この RAP BO では、更新可否・保存時検証・アクションの公開範囲をビヘイビア定義で確認してください。</li>
+<li>说明句：保存時のチェックは validation、項目の自動補完は determination、業務ボタンの処理は action として設計します。</li>
+<li>说明句：projection 側で公開されていないアクションは、サービス利用者から呼び出せません。</li>
+<li>使用场景：RAP 基本设计、详细设计、code review、単体テスト項目作成、Fiori/OData 结合测试缺陷分析、移送前确认、Clean Core 审查。</li>
+</ul>
+<h4 id="15-9-english-terms-91906c39" class="semantic-heading semantic-terms">15.9 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP behavior definition</code></li>
+<li>Common abbreviation: <code>BDEF</code></li>
+<li>Language: <code>Behavior Definition Language</code> / <code>BDL</code></li>
+<li>Related terms: <code>behavior implementation</code>, <code>behavior pool</code>, <code>handler class</code>, <code>saver class</code>, <code>determination</code>, <code>validation</code>, <code>action</code>, <code>function</code>, <code>save sequence</code>, <code>transactional buffer</code>, <code>COMMIT ENTITIES</code>, <code>managed implementation</code>, <code>unmanaged implementation</code>, <code>projection behavior definition</code>, <code>strict mode</code>.</li>
+<li>BDEF syntax terms to recognize: <code>mapping for</code>, <code>numbering</code>, <code>%cid</code>, <code>extension</code>.</li>
+<li>Recommended search pattern: <code>ABAP Keyword Documentation RAP behavior definition BDEF</code></li>
+</ul>
+<h4 id="15-10-b7d4be70" class="semantic-heading semantic-reference">15.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abencds_bdef.html" target="_blank" rel="noopener noreferrer">RAP - Behavior Definitions | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenbdl.html" target="_blank" rel="noopener noreferrer">RAP - BDL for Behavior Definitions | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_BEHAVIOR_DEFINITION_GLOSRY.html" target="_blank" rel="noopener noreferrer">RAP behavior definition | ABAP Keyword Documentation Glossary</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenabap_rap.html" target="_blank" rel="noopener noreferrer">ABAP RAP Business Objects | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-business-objects-and-their-behavior" target="_blank" rel="noopener noreferrer">Defining Business Objects and their Behavior | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring Behavior Implementation Options | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/setting-values-using-numbering-and-determinations" target="_blank" rel="noopener noreferrer">Setting Values Using Numbering and Determinations | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/implementing-input-checks-using-validations" target="_blank" rel="noopener noreferrer">Implementing Input Checks Using Validations | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-actions-and-messages" target="_blank" rel="noopener noreferrer">Defining Actions and Messages | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="15-11-connections-dd0b04d8">15.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a></li>
+<li>Upstream: <a class="wiki" href="section-03-014-composition-tree-8f6aae2e.html">Composition tree 组合树</a></li>
+<li>Downstream: <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></li>
+<li>Downstream: <a class="wiki" href="section-03-030-determination-375d9597.html">Determination 派生逻辑</a></li>
+<li>Downstream: <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li>Downstream: <a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a></li>
+<li>Downstream: <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 18 - RAP Business Object 与 Behavior</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="15-12-a559b6a2" class="semantic-heading semantic-practice">15.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明：为什么 CDS root view entity 不等于可修改业务对象？</li>
+<li>在一个 RAP 示例或 AC0567C POC 中找出 behavior definition、behavior pool、handler class 和 service binding 的链条。</li>
+<li>列出一个业务对象至少应考虑的 5 类行为：标准操作、字段控制、validation、determination、action、lock/authorization/draft 等任选。</li>
+<li>用日语写一句 review 说明：<code>保存時検証は validation として定義し、実装は behavior pool に配置します。</code></li>
+<li>找一个官方页面，确认 <code>behavior definition</code>、<code>determination</code> 或 <code>validation</code> 的语义，并把链接保留在参考资料区。</li>
+</ul>
+<h4 id="15-13-confidence-next-action-0a1cc0fa" class="semantic-heading semantic-status">15.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level BDEF, managed/unmanaged/projection behavior, determination, validation, action/function, transactional buffer, save sequence, lock/authorization/ETag/draft, numbering, mapping, and BDEF extension forward reference。本节已按 ABAP Keyword Documentation、SAP Learning、Joule <code>Pass with fixes</code>、Claude <code>Pass with fixes</code> 和 Claude follow-up <code>Pass</code> 复核；release-specific BDL syntax and project-specific authorization/lock behavior still require target-system verification.</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿结构同步；随后继续 <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-014-composition-tree-8f6aae2e.html">Previous section</a><a href="section-03-016-sap-locking-architecture-overview-d3a88b67.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Change request and incident workflow | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="37-change-request-and-incident-workflow-dc987e7d" class="chapter-title">37. Change request and incident workflow</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 37</li><li>self-contained study note</li></ul><h4 id="37-1-9ae1a002" class="semantic-heading semantic-concept">37.1 一句话结论</h4>
+<p>Change request and incident workflow 是把“发现问题或提出变更”转化为“可追踪、可评审、可测试、可移送、可关闭”的项目流程；在本教程里要学的是：日本 SAP 项目里变更申请、障害票、課題票、审批、测试、移送和关闭之间如何连接 ABAP 开发工作。</p>
+<p>上一节 <a class="wiki" href="section-04-036-japanese-sap-deliverable-documents-b08681d5.html">Japanese SAP deliverable documents</a> 讲了设计、测试、移送、运维文档；本节讲这些文档在真实流程中如何流动。一个 bug 不只是“修一下代码”，它可能从障害票开始，经过原因分析、影响范围、修正方针、详细设计更新、单体测试、结合测试、移送申请、リリース判定、客户确认，最后关闭。一个新需求也不只是“加个字段”，它可能需要变更申请、估算、承认、设计、开发、测试和上线。</p>
+<p>对 ABAP 开发者来说，理解 workflow 的意义在于：知道什么时候该写调查结果，什么时候该更新设计，什么时候不能直接改生产，什么时候需要客户承认，什么时候要把 transport、ATC、test evidence、application log 和 SAP Note 结果连到票据上。</p>
+<p>初学者要先把 ticket 当成“项目事实的容器”，而不是聊天工具。一个 ticket 里应该能看到问题或变更从哪里来、谁判断、谁批准、改了什么、测了什么、何时移送、谁确认关闭。ABAP 开发者写的代码只是其中一段，真正交付时要把代码变更放回这条证据链。</p>
+<p>在日本 SAP 项目里，很多沟通会围绕 <code>影響範囲</code>、<code>対応方針</code>、<code>承認</code>、<code>証跡</code>、<code>クローズ条件</code> 展开。能听懂这些词，才能知道自己下一步是调查、估算、修正、测试、补文档、申请移送，还是等待客户确认。</p>
+<h4 id="37-2-4f7dca9d" class="semantic-heading semantic-concept">37.2 到底学什么</h4>
+<p>第一，要学票据类型。常见说法包括変更依頼、変更要求 (CR)、障害票、インシデント、課題、問い合わせ、改善要望。不同公司工具不同，但核心问题相似：谁提出、影响什么、优先级如何、谁负责、何时修、如何验证、谁承认关闭。</p>
+<p>可以先这样粗分：<code>障害票</code> / incident 偏“已经发生的问题或中断”；defect 偏测试阶段发现的缺陷；<code>課題</code> / issue 偏尚未解决的设计、业务或项目问题；<code>変更依頼</code> / change request 偏范围、功能或规格变更；<code>問い合わせ</code> / inquiry 偏确认、咨询或调查请求；SAP incident 是向 SAP 官方支持提交的问题请求。problem management 则更偏“反复发生或根因层面的问题管理”，不等同于单个 incident。</p>
+<p>第二，要学分类。不是所有票都等同。生产障害、测试缺陷、设计课题、规格变更、数据修正、权限问题、SAP 标准限制、性能问题、运维咨询，处理路径不同。分类错误会导致修正方针、审批和 SLA 都错。</p>
+<p>第三，要学开发者证据。ABAP 开发者通常需要提供：再现条件、原因分析、影响范围、修正对象、transport、测试结果、ログ、画面/接口证据、残留风险、回退方式。票据不是聊天记录，而是交付证据容器。</p>
+<p>第四，要学状态流转。典型状态可能是新規、受付、調査中、対応方針確認、修正中、単体テスト中、結合テスト中、移送待ち、リリース済み、確認待ち、完了、保留、却下。实际名称因工具而异，但读者要理解每个状态背后的责任。</p>
+<p>第五，要学“类型决定流程”。同样是“API 返回错误”，如果是 bug，要走障害/defect；如果是客户希望追加字段，要走 change request；如果是权限角色缺失，可能由权限团队处理；如果是 SAP 标准限制，可能要查 SAP Note 或开 SAP incident；如果是数据不整合，可能需要数据修正申请。分类错，后续审批、测试范围和责任都会错。</p>
+<p>第六，要学关闭条件。票据不是开发者说“修完了”就结束。关闭通常需要测试者或业务方确认，证据完整，transport 已移送，相关设计/测试/运维文档已更新，残留风险被记录。如果没有明确关闭条件，ticket 很容易反复 reopen。</p>
+<h4 id="37-3-2b0306f3" class="semantic-heading semantic-why">37.3 为什么重要</h4>
+<p>SAP 项目的风险不只在代码里，也在流程里。没有变更申请就改范围，可能造成费用和责任争议；没有障害票就私下修 bug，可能没有原因分析和回归测试；没有审批就移送，可能破坏冻结窗口；没有关闭条件，问题会在项目末期堆积。</p>
+<p>这个 workflow 让团队能够回答：这个问题是什么类型？影响范围多大？谁承认修正方针？修正了哪些对象？测了什么？什么时候移送？上线后谁确认？如果复发如何追踪？这些问题都不是代码能单独回答的。</p>
+<p>对 Java/Python 背景学习者来说，可以类比 Jira ticket、change request、incident、problem management、release approval、runbook handoff。但 SAP 场景多了 transport、client/system landscape、业务流程、Basis 运维、客户承认、外部接口和生产数据修正。</p>
+<p>SAP 项目里的 ticket 还承担追溯功能。几个月后如果生产出现同类问题，团队会回查：当时为什么这么改？改了哪些 repository object？transport 是哪个？QAS 测试证据在哪里？客户是否承认残留风险？如果 ticket 写得太随意，维护者就只能重新考古。</p>
+<p>对 ABAP 开发者来说，好的 ticket workflow 会保护自己。它把“我按谁的要求改”“我改了什么”“我测了什么”“哪些风险已说明”记录下来。没有这些记录，后续需求变更、障害复发或审计追问时，责任边界会变得模糊。</p>
+<h4 id="37-4-key-mechanism-cd3d1268" class="semantic-heading semantic-mechanism">37.4 Key mechanism / 核心机制</h4>
+<p>可以把 workflow 分成两条主线：change request 和 incident/defect。</p>
+<p>Change request 通常从“想改变什么”开始。流程是：需求提出、背景说明、业务价值、影响范围、估算、优先级、承认、设计、开发、测试、移送、上线、关闭。关键是 scope control：新增字段、改接口、改报表、改权限、改 job，都要明确是否属于原范围，是否影响设计和测试。</p>
+<p>Incident / defect 通常从“出了什么问题”开始。流程是：现象记录、优先级判断、再现、一次切り分け、原因分析、暫定対応、恒久対応、修正、测试、移送、客户确认、关闭。关键是 evidence：错误消息、日志、时间、用户、输入、系统、transport、修正对象、测试结果。</p>
+<p>ABAP 开发者在流程中的核心动作包括：</p>
+<pre><code class="language-text">1. Reproduce:
+   再现步骤、输入条件、用户、系统、时间。
+
+2. Diagnose:
+   自开发 / 配置 / 权限 / 数据 / SAP标准 / 接口 / 性能 / 运维问题。
+
+3. Propose:
+   修正方针、影响范围、测试范围、风险、工时。
+
+4. Implement:
+   修改对象、transport、code review、ATC。
+
+5. Verify:
+   单体测试、结合测试、日志、截图、API payload、job log。
+
+6. Release:
+   移送申请、承认、release note、运维手顺更新。
+
+7. Close:
+   客户确认、原因/対応内容/再発防止记录。</code></pre>
+<p>如果涉及 <a class="wiki" href="section-04-035-sap-note-and-oss-note-workflow-0e2994f8.html">SAP Note and OSS note workflow</a>，票据中还要记录 Note 编号、适用性判断、SAP incident 编号、SAP 回答、workaround 和恒久対応。若涉及 <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a>，还要把未解决风险和上线判定连接起来。</p>
+<p>可以把 ticket 信息拆成一个最小字段集：</p>
+<div class="table-wrap"><table><thead><tr><th>字段</th><th>应写清楚的内容</th></tr></thead><tbody><tr><td>Type</td><td>change / incident / defect / issue / inquiry / problem</td></tr><tr><td>Environment</td><td>system、client、user、time、release、browser/API/tool</td></tr><tr><td>Business impact</td><td>谁受影响、影响哪个流程、严重度和优先级</td></tr><tr><td>Reproduction</td><td>输入、步骤、期待、实际、日志和截图/API payload</td></tr><tr><td>Root cause</td><td>自开发代码、配置、权限、数据、SAP 标准、外部系统、运维</td></tr><tr><td>Fix plan</td><td>暫定対応、恒久対応、影响范围、测试范围、风险</td></tr><tr><td>Delivery evidence</td><td>transport、ATC、unit/integration test、log、review</td></tr><tr><td>Closure</td><td>谁确认、确认环境、关闭条件、残留风险</td></tr></tbody></table></div>
+<p>对 ABAP 变更来说，ticket 还应能链接到具体对象：package、class、method、CDS、DCL、service binding、job、message class、application log object、authorization object、transport request。这样 reviewer 才能从业务问题追到技术变更，再从技术变更追到测试和移送。</p>
+<p>一个好的 workflow 还有“禁止动作”。例如生产障害调查中，不应未经承认直接改生产数据；变更冻结期间，不应把无审批 transport 送进 PRD；权限问题不应先给全权限绕过；性能问题不应只凭一次测试就承诺改善。把这些禁止事项写进流程，是为了避免二次事故。</p>
+<h4 id="37-5-97570abc" class="semantic-heading semantic-japan">37.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>変更依頼</code>、<code>変更要求 (CR)</code>、<code>障害票</code>、<code>インシデント</code>、<code>課題票</code>、<code>問い合わせ</code>、<code>一次切り分け</code>、<code>原因分析</code>、<code>暫定対応</code>、<code>恒久対応</code>、<code>影響範囲</code>、<code>対応方針</code>、<code>承認</code>、<code>移送依頼</code>、<code>クローズ条件</code>。</p>
+<p>障害票中可以这样写：</p>
+<ul>
+<li>再現手順、発生条件、対象ユーザ、エラーメッセージ、ログ証跡を整理しました。</li>
+<li>原因は権限設定ではなく、ABAP側の例外処理漏れであると判断しました。</li>
+<li>暫定対応として手動再処理を実施し、恒久対応として修正プログラムを移送します。</li>
+</ul>
+<p>变更申请中可以这样写：</p>
+<ul>
+<li>本変更により、対象APIのレスポンス項目を追加します。既存項目の仕様変更はありません。</li>
+<li>影響範囲はサービス定義、実装クラス、単体テスト、結合テスト、運用手順書です。</li>
+<li>移送前にATC結果、テスト証跡、リリース判定の承認を確認します。</li>
+</ul>
+<p>状态更新中可以这样写：</p>
+<ul>
+<li>現在は一次切り分け中です。再現手順、対象ユーザ、ログ証跡を確認しています。</li>
+<li>暫定対応は完了しましたが、恒久対応として設計修正とABAP改修が必要です。</li>
+<li>修正対象、影響範囲、テスト範囲を整理し、対応方針の承認待ちです。</li>
+<li>DEVで修正完了、単体テスト証跡を添付済みです。QAS移送後に結合テストを実施します。</li>
+<li>顧客確認が完了し、クローズ条件を満たしたため、本票を完了とします。</li>
+</ul>
+<h4 id="37-6-english-terms-f3458f1c" class="semantic-heading semantic-terms">37.6 English Terms</h4>
+<ul>
+<li>English terms: <code>change request</code>, <code>incident</code>, <code>defect</code>, <code>issue</code>, <code>problem</code>, <code>root cause analysis</code>, <code>workaround</code>, <code>permanent fix</code>, <code>impact analysis</code>, <code>approval</code>, <code>release</code>, <code>closure criteria</code>.</li>
+<li>Japanese terms: <code>変更依頼</code>, <code>変更要求 (CR)</code>, <code>障害票</code>, <code>課題票</code>, <code>一次切り分け</code>, <code>原因分析</code>, <code>暫定対応</code>, <code>恒久対応</code>, <code>影響範囲</code>, <code>移送依頼</code>, <code>クローズ</code>.</li>
+<li>SAP-related terms: <code>transport request</code>, <code>ATC result</code>, <code>application log</code>, <code>SAP Note</code>, <code>SAP incident</code>, <code>SAP Solution Manager</code>, <code>SAP Cloud ALM</code>.</li>
+<li>Recommended search pattern: <code>SAP change request incident workflow</code>, <code>SAP Cloud ALM incident change management</code>, <code>SAP Solution Manager ChaRM incident management</code>.</li>
+</ul>
+<h4 id="37-7-example-1cc04e25" class="semantic-heading semantic-example">37.7 Example / 学习例子</h4>
+<p>假设 AC0567C status API 在结合测试中返回了错误状态。一个差的障害票只写：</p>
+<pre><code class="language-text">API报错，请确认。</code></pre>
+<p>一个可交付的障害票应该写：</p>
+<pre><code class="language-text">Title:
+  Status API returns 500 when batch id does not exist
+
+Environment:
+  QAS / client 100 / test user TESTUSER01
+
+Steps:
+  1. Call GET /status?batch_id=NO_DATA_001
+  2. Check response
+
+Expected:
+  404 or business error payload with clear message
+
+Actual:
+  HTTP 500, generic technical error
+
+Evidence:
+  request/response payload
+  application log id
+  timestamp
+  user
+
+Initial diagnosis:
+  service implementation does not handle empty SELECT result
+
+Fix:
+  add explicit not-found handling and message
+
+Test:
+  normal id / missing id / unauthorized user / repeated request
+
+Transport:
+  DEVK9xxxxx
+
+Closure:
+  tester confirms expected payload in QAS</code></pre>
+<p>这个例子说明：ticket 的质量直接影响修正速度和交付可信度。技术问题需要变成结构化证据，才能进入项目流程。</p>
+<p>再看一个 change request 示例。客户希望 AC0567C status API 追加 <code>processedItemCount</code> 字段。</p>
+<pre><code class="language-text">Change Request:
+  Add processedItemCount to status API response
+
+Background:
+  Operations team needs to compare uploaded item count and processed item count.
+
+Scope:
+  Add new response field only. No change to existing field semantics.
+
+Impact:
+  CDS projection, service logic, API contract, unit test,
+  integration test, external client mapping, documentation.
+
+Out of scope:
+  No change to upload execution logic.
+  No change to authorization rule.
+
+Approval:
+  Business owner and interface owner approval required before implementation.
+
+Test:
+  Existing client compatibility, normal status, empty batch, failed batch.
+
+Transport:
+  linked after development.
+
+Closure:
+  QAS integration test passed and interface owner confirms response mapping.</code></pre>
+<p>这个例子说明 change request 最怕范围滑动。只是“加字段”也可能影响 CDS、projection、API 文档、外部系统 mapping、测试用例和运维说明。写清 out of scope，可以避免开发过程中被顺手塞入不受控变更。</p>
+<h4 id="37-8-counterexample-failure-mode-c6e72c2a" class="semantic-heading semantic-example">37.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下（约十余类）。</p>
+<p>第一，票据没有再现步骤。开发者无法确认现象，只能靠猜。</p>
+<p>第二，缺少环境信息。DEV/QAS/PRD、client、用户、时间、输入数据不同，原因可能完全不同。</p>
+<p>第三，把变更当 bug 修。需求范围变化如果不走 change request，会引起工时、责任和测试范围争议。</p>
+<p>第四，只写修了什么，不写为什么。没有原因分析和影响范围，后续问题容易复发。</p>
+<p>第五，修正后没有测试证据。票据关闭缺乏依据。</p>
+<p>第六，transport 和票据断开。上线后不知道某个 transport 对应哪个需求或障害。</p>
+<p>第七，暫定対応和恒久対応混淆。临时手工处理不能替代正式修正。</p>
+<p>第八，没有关闭条件。客户、测试、开发、运维对“完成”的理解不同，票据会反复 reopen。</p>
+<p>第九，票据里没有影响范围。只写“改 class”不够，要说明是否影响接口契约、权限、job、CDS、transport、测试数据和运维手顺。</p>
+<p>第十，暫定対応长期化。手动重跑、临时数据修正、权限临时放开如果没有恒久対応计划，迟早会变成生产隐患。</p>
+<p>第十一，关闭前不更新文档。代码和测试都完成，但设计书、運用手順、release note 没更新，后续维护者仍然会按旧流程操作。</p>
+<p>第十二，把 SAP 标准限制当自开发 bug。没有查 SAP Note、版本限制或标准文档就直接改 workaround，可能引入更大风险。</p>
+<p>第十三，票据和 transport 多对多关系失控。一个 ticket 多个 transport、一个 transport 包含多个 ticket 都可能发生，但必须清楚记录关系，否则上线回溯会困难。</p>
+<h4 id="37-9-f0d5ecd7" class="semantic-heading semantic-practice">37.9 思考问题</h4>
+<ul>
+<li>变更申请和障害票的起点有什么区别？</li>
+<li>一个高质量障害票至少应包含哪些证据？</li>
+<li>为什么 transport request 应该能追溯到需求/障害票？</li>
+<li>暫定対応和恒久対応分别适合什么场景？</li>
+<li>AC0567C POC 中哪个错误场景可以练习写一张完整障害票？</li>
+</ul>
+<h4 id="37-10-fe8575f7" class="semantic-heading semantic-reference">37.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>SAP Cloud ALM / SAP Solution Manager documentation: search <code>incident management</code>, <code>change request management</code>, <code>ChaRM</code>.</li>
+<li>Customer/SIer project management templates decide exact ticket fields and approval flow; this note teaches workflow awareness and ABAP evidence mapping.</li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=SAP%20Cloud%20ALM%20incident%20management" target="_blank" rel="noopener noreferrer">SAP Cloud ALM incident management</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=SAP%20Cloud%20ALM%20change%20management" target="_blank" rel="noopener noreferrer">SAP Cloud ALM change management</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=SAP%20Solution%20Manager%20ChaRM" target="_blank" rel="noopener noreferrer">SAP Solution Manager ChaRM</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=transport%20request%20SAP%20ABAP" target="_blank" rel="noopener noreferrer">transport request SAP ABAP</a></li>
+</ul>
+<h4 id="37-11-connections-29b19399">37.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li>Upstream: <a class="wiki" href="section-04-036-japanese-sap-deliverable-documents-b08681d5.html">Japanese SAP deliverable documents</a></li>
+<li>Downstream: <a class="wiki" href="section-04-038-sap-solution-manager-and-cloud-alm-basics-b405f8ae.html">SAP Solution Manager and Cloud ALM basics</a></li>
+<li>Related: <a class="wiki" href="section-04-035-sap-note-and-oss-note-workflow-0e2994f8.html">SAP Note and OSS note workflow</a></li>
+<li>Related: <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 27 - Clean Core 与上线前加固</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="37-12-3a284310" class="semantic-heading semantic-practice">37.12 学习任务</h4>
+<ul>
+<li>为一个 API 错误写一张障害票，包含环境、步骤、期待、实际、证据、原因、修正、测试、transport、关闭条件。</li>
+<li>写一张 change request 摘要，说明范围、影响对象、测试范围、审批和移送要求。</li>
+<li>用日语写 2 句：一句说明暫定対応，一句说明恒久対応。</li>
+<li>选一个 AC0567C POC 场景，把它映射到 ticket workflow。</li>
+<li>找一个 SAP Cloud ALM 或 Solution Manager 相关官方资料入口，补到参考资料区。</li>
+</ul>
+<h4 id="37-13-confidence-next-action-8a7b6ced" class="semantic-heading semantic-status">37.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High，change request / incident 的项目流程和 ABAP 证据映射稳定，Claude review 已给出 <code>Pass with fixes</code> 且无 must-fix。当前文本已补足 incident / defect / issue / change request / inquiry / SAP incident / problem management 的类型对比，Type 字段与 English Terms 对齐，示例测试用户也避免使用容易误解为 ABAP interface 前缀的 <code>ZIF_*</code>。Joule review 仍为 deferred placeholder；如 Joule 恢复，应补一次 SAP Cloud ALM / Solution Manager / ChaRM 视角最终 verdict。具体状态名、字段、SLA、审批和工具流程必须按客户 PMO、SAP Cloud ALM / Solution Manager / Jira / ServiceNow 等实际工具确认。</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-038-sap-solution-manager-and-cloud-alm-basics-b405f8ae.html">SAP Solution Manager and Cloud ALM basics</a>，把本节的 workflow 映射到 SAP 项目常见 ALM 工具。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-037-change-request-and-incident-workflow-00ea541f.html">Change request and incident workflow</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-036-japanese-sap-deliverable-documents-b08681d5.html">Previous section</a><a href="section-04-038-sap-solution-manager-and-cloud-alm-basics-b405f8ae.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

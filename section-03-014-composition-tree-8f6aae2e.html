@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Composition tree 组合树 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="14-composition-tree-7b04fc6f" class="chapter-title">14. Composition tree 组合树</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 14</li><li>self-contained study note</li></ul><h4 id="14-1-e2ae9277" class="semantic-heading semantic-concept">14.1 一句话结论</h4>
+<p>Composition tree（组合树）是 RAP business object 里表达 root entity、child entity、grandchild entity 生命周期依赖关系的结构。它告诉 RAP runtime：哪些节点共同组成一个业务对象，谁是入口，谁依附于谁，哪些数据应该作为一个事务边界一起创建、校验、保存、锁定和暴露。</p>
+<p>初学者要先把它和普通 association 分开。Association 表达“可以导航到另一个实体”；composition 表达“这个 child 是 parent 的组成部分，生命周期依赖 parent”。在 RAP 里，composition tree 不是画图装饰，而是 BO 数据模型和后续 behavior definition 的骨架。</p>
+<h4 id="14-2-0bb13b51" class="semantic-heading semantic-concept">14.2 到底学什么</h4>
+<p>本节学五件事：</p>
+<ol>
+<li>root entity 为什么只能有一个，为什么它代表整个 RAP BO 的入口。</li>
+<li>child entity / grandchild entity 为什么通过 composition 而不是普通 association 进入 BO。</li>
+<li><code>composition [0..*] of ...</code> 和 <code>association to parent ...</code> 各自写在哪里。</li>
+<li>composition tree 如何影响 create-by-association、delete cascade、lock master / lock dependent、authorization、save sequence 和 service exposure。</li>
+<li>什么时候不该建 composition，而只该建 ordinary association。</li>
+</ol>
+<h4 id="14-3-76429847" class="semantic-heading semantic-why">14.3 为什么重要</h4>
+<p>上一节 <a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a> 讲的是 BO 总体边界。本节进一步回答：BO 内部如果不止一个实体，结构应该怎么建。</p>
+<p>真实业务很少只有一张表。一个采购申请有 header 和 item；一个 Travel 有 Booking 和 Booking Supplement；一个导入批次有 import header 和 rows；一个订单有 header、items、partners、texts、pricing conditions。问题不只是“这些表能不能 join”，而是：</p>
+<ul>
+<li>item 是否能脱离 header 单独存在？</li>
+<li>删除 header 时 item 是否应该一起消失或一起失效？</li>
+<li>创建 item 是否必须通过 header？</li>
+<li>保存 header 和 item 是否属于同一个事务？</li>
+<li>锁 header 时是否也要限制 item 修改？</li>
+<li>UI / OData 是否需要从 root 导航到 child？</li>
+<li>child 的 authorization 是自己判断，还是依赖 root / lock master？</li>
+</ul>
+<p>Composition tree 把这些问题提前放进模型层，而不是等到 handler 里用一堆 if / SQL 临时补。对 Java/Python 背景学习者，可以类比 aggregate root 和 aggregate members，但 SAP RAP 的 composition tree 还会影响 CDS syntax、BDL、service exposure、draft、lock、authorization 和 save sequence，因此不能只按普通 ORM 关系理解。</p>
+<h4 id="14-4-key-mechanism-57131081" class="semantic-heading semantic-mechanism">14.4 Key mechanism / 核心机制</h4>
+<h5 id="14-4-1-composition-tree-root-7aa61754">14.4.1 Composition tree 有且只有一个 root</h5>
+<p>SAP Learning 对 RAP composite BO 的限制讲得很明确：composition tree 中有且只有一个 root entity。root 是业务对象的入口和顶层节点，可以作为 composition 的 source，但不能作为 composition 的 target。</p>
+<p>这句话对初学者很重要。一个 BO 不能同时有两个互不相属的 root。若需求看起来有两个 root，例如 Customer 和 Sales Order，那通常说明它们是两个业务对象，通过普通 association 或 service 关系协作，而不是同一棵 composition tree。</p>
+<p>在 CDS 中，root entity 通常用 <code>define root view entity</code> 表达：</p>
+<pre><code class="language-abap">define root view entity ZI_Travel
+  as select from ztravel
+  composition [0..*] of ZI_Booking as _Booking
+{
+  key travel_id as TravelID,
+      agency_id as AgencyID,
+      customer_id as CustomerID,
+      _Booking
+}</code></pre>
+<p>这里 <code>ZI_Travel</code> 是 root，<code>_Booking</code> 是从 root 指向 child 的 to-child composition。</p>
+<h5 id="14-4-2-child-to-parent-association-f97b38a2">14.4.2 Child 必须有 to-parent association</h5>
+<p>Composition 是双向建模的一组特殊 CDS association。父实体定义 to-child composition；子实体定义 <code>association to parent</code> 指回父实体。ABAP Keyword Documentation 明确说明，to-child associations 和 to-parent associations 一起定义 RAP BO 的 CDS composition tree。</p>
+<p>这里有一个很容易在 ADT 里立刻踩到的顺序问题：先在 child entity 中定义并激活 <code>association to parent ... on ...</code>，再回到 parent entity 中定义 <code>composition ... of Child as _Child</code>。ON condition 写在 child 的 to-parent association 上；parent 侧的 composition 不再写 ON condition，composition 的连接条件来自 to-parent association。如果反过来先写 parent composition，而 child 还没有激活 to-parent association，通常会遇到 syntax check / activation 问题。</p>
+<p>一个 child view entity 通常长这样：</p>
+<pre><code class="language-abap">define view entity ZI_Booking
+  as select from zbooking
+  association to parent ZI_Travel as _Travel
+    on $projection.TravelID = _Travel.TravelID
+{
+  key travel_id  as TravelID,
+  key booking_id as BookingID,
+      flight_no  as FlightNo,
+      _Travel
+}</code></pre>
+<p>这里的 <code>$projection.TravelID</code> 指当前 child view entity 已经暴露出来的 <code>TravelID</code> 元素。初学阶段可以先把它理解成“用本视图投影后的字段去和 parent 的 key 对齐”。</p>
+<p>注意方向：</p>
+<ul>
+<li>parent 里写 <code>composition ... of Child as _Child</code>。</li>
+<li>child 里写 <code>association to parent Parent as _Parent</code>。</li>
+<li>ON condition 只写在 child 的 <code>association to parent</code> 里。</li>
+<li>child 的 to-parent cardinality 在 RAP BO 中通常必须是 <code>[1..1]</code> 语义：一个 child 实例属于一个明确 parent。</li>
+</ul>
+<p>如果只在 parent 里写了普通 association，RAP 不会把它理解成 child 生命周期依赖。普通 association 可以导航；composition 才表达“组成部分”。</p>
+<h5 id="14-4-3-composition-vs-association-join-9aeba32f">14.4.3 Composition vs association：不是强弱 join 的区别</h5>
+<p>很多初学者把 composition 理解成“更强的 join”。这个理解不对。Composition 和 association 不是性能语法的强弱版本，而是业务生命周期语义不同。</p>
+<p>可以这样判断：</p>
+<ul>
+<li>如果目标实体可以独立存在、独立维护、独立授权，只是当前页面需要读它的文本或状态，用 ordinary association。</li>
+<li>如果目标实体必须依附 parent 存在，通常通过 parent 创建、修改、删除、保存和锁定，用 composition。</li>
+<li>如果目标实体是主数据，例如 Customer、Material、Company Code，即使当前 BO 经常引用它，也通常不是 child；它更适合 association。</li>
+<li>如果目标实体是明细行，例如 Sales Order Item、Travel Booking、Import Row，就更可能是 child。</li>
+</ul>
+<p>错误使用 composition 会让 BO 边界变得过大；错误使用 association 会让 child 生命周期散落在代码里，导致保存、删除、锁、授权和 UI 导航都变复杂。</p>
+<h5 id="14-4-4-cardinality-3ca7ce71">14.4.4 Cardinality 是模型契约</h5>
+<p>Composition 也有 cardinality。SAP Learning 提到，RAP BO 中 composition 的 cardinality 可以是 0..1 或 0..n；to-parent association 的 cardinality 必须是 1..1。初学时先用业务语言理解：</p>
+<ul>
+<li><code>[0..1]</code>：一个 parent 最多有一个 child，例如一个 header 最多有一个 extension detail。</li>
+<li><code>[0..*]</code>：一个 parent 可以有多条 child，例如一个 order 有多条 item。</li>
+<li>to-parent <code>[1..1]</code>：每个 child 必须归属一个 parent。</li>
+</ul>
+<p>Cardinality 不只是给 UI 看。它会影响路径导航、join 语义、结果行数、service metadata 和 review 判断。写错 cardinality，可能短期还能激活，但后续 Fiori、OData navigation、EML create-by-association、性能分析都会变难。</p>
+<h5 id="14-4-5-composition-tree-behavior-definition-b2cc5d04">14.4.5 Composition tree 会进入 behavior definition</h5>
+<p>Composition tree 是 CDS 层的结构骨架；behavior definition 会在这个骨架上定义每个节点的行为。一个 composite BO 的 BDEF 可能会包含：</p>
+<pre><code class="language-abap">define behavior for ZI_Travel alias Travel
+{
+  create;
+  update;
+  delete;
+  association _Booking { create; }
+}
+
+define behavior for ZI_Booking alias Booking
+{
+  update;
+  delete;
+  association _Travel;
+}</code></pre>
+<p>这段只是教学示意，不是完整模板。它表达的意思是：Travel root 可以创建、修改、删除；Booking child 可以通过 <code>_Booking</code> composition 从 Travel 创建。真正项目中还要看 managed / unmanaged、lock、authorization、etag、draft、field properties、validation、determination、action 等定义。</p>
+<h5 id="14-4-6-composition-tree-save-lock-authorization-de4a619a">14.4.6 Composition tree 影响 save、lock 和 authorization</h5>
+<p>Composition tree 不只是读模型。它会影响事务型行为：</p>
+<ul>
+<li>Save：root 和 child 的修改通常在同一个 BO 事务中提交或回滚。</li>
+<li>Create by association：child 往往通过 parent 的 composition association 创建。</li>
+<li>Delete：删除 root 时，child 生命周期如何处理必须明确，不能只靠数据库外键想象。</li>
+<li>Lock：child 可以依赖 root 或 ancestor 的 lock master，避免 header/item 被不同用户分别改坏。</li>
+<li>Authorization：root-level authorization、instance authorization、child-level checks 要和 BO 层级一致。多层 composition 中，lock、authorization、ETag master 不一定都要通过直接 ordinary association 连到 root；较新的 RAP/BDL 语法还支持 ancestor association 等机制表达跨层主从关系。初学阶段先记住：不要只看相邻 child，要确认整棵树的 master/dependent 关系。</li>
+<li>Draft：draft-enabled composite BO 还要考虑每个节点的 draft persistence。</li>
+</ul>
+<p>这就是为什么 composition tree 不是“画一棵树给 UI 看”，而是事务模型的主干。</p>
+<h5 id="14-4-7-projection-layer-composition-90fef315">14.4.7 Projection layer 也要处理 composition</h5>
+<p>前面 <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a> 讲过，projection view 是 service/consumer layer。Composite BO 暴露服务时，projection root、projection child、projection behavior 也要正确处理 composition 和 redirection。不能只投影 root，却忘记 child；也不能在 service definition 中暴露了 child，却没有清楚的 navigation / behavior projection。</p>
+<p>在 Fiori Elements 或 OData V4 UI service 中，root 和 child 的 composition 会影响对象页、子表、navigation、create subnode 等体验。读者不需要在本节掌握所有 annotation，但要知道：composition tree 设计错，后面 UI 和 API 暴露都会跟着别扭。</p>
+<h5 id="14-4-8-ac0567c-poc-composition-thinking-f6fc6ed8">14.4.8 AC0567C POC 如何借鉴 composition thinking</h5>
+<p>AC0567C POC 当前更像 action-oriented API，并不一定是完整 header/item composite BO 教学样板。但它的业务输入天然有“批次 + 多行”的结构：</p>
+<pre><code class="language-text">PriorAllocationImport root
+  -&gt; ImportRow child</code></pre>
+<p>如果未来把 AC0567C 从 POC hardening 成生产级 RAP BO，可以考虑是否把 upload request/header 作为 root，把 rows 作为 child，借助 composition tree 表达一批导入数据的生命周期。这样 validate / execute / status action、duplicate check、authorization、save sequence、error messages 都可以围绕同一个 BO 结构设计。</p>
+<p>本节不要求立即重构 AC0567C。它只是提醒：看到“一个请求带多行明细”时，不要只想到 JSON array 和 internal table，也要想到 RAP composite BO 是否更适合表达这个业务对象。</p>
+<h5 id="14-4-9-composition-tree-c6ea479e">14.4.9 观察 composition tree 的最小路径</h5>
+<p>在 ADT 里观察一个 composite BO，可以按这个顺序：</p>
+<ol>
+<li>打开 root view entity，看是否有 <code>define root view entity</code>。</li>
+<li>在 root 中找 <code>composition ... of Child as _Child</code>。</li>
+<li>打开 child view entity，看是否有 <code>association to parent Root as _Parent</code>。</li>
+<li>检查 cardinality：to-child 是 <code>[0..1]</code> 还是 <code>[0..*]</code>，to-parent 是否是 <code>[1..1]</code> 语义。</li>
+<li>打开 behavior definition，看 child 是否通过 composition association 支持 create/update/delete。</li>
+<li>打开 projection layer，看 composition 是否被正确投影和重定向。</li>
+<li>打开 service definition / binding，看 root-child navigation 是否按预期暴露。</li>
+<li>如果有多层 child，检查 lock master、authorization master、ETag master 是否通过相邻 parent 或 ancestor association 表达清楚。</li>
+</ol>
+<h4 id="14-5-16aae7e9" class="semantic-heading semantic-japan">14.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>コンポジションツリー</code></li>
+<li><code>ルートエンティティ</code></li>
+<li><code>子エンティティ</code></li>
+<li><code>親エンティティ</code></li>
+<li><code>コンポジション</code></li>
+<li><code>親へのアソシエーション</code></li>
+<li><code>子ノード</code></li>
+<li><code>親子関係</code></li>
+<li><code>ライフサイクル依存</code></li>
+<li><code>ロックマスター</code></li>
+<li><code>ロック依存</code></li>
+<li><code>ビヘイビア定義</code></li>
+</ul>
+<p>设计说明中可以这样说：</p>
+<pre><code class="language-text">このRAP BOでは、ヘッダをルートエンティティ、明細を子エンティティとしてコンポジションツリーを定義します。</code></pre>
+<p>代码 review 中可以这样说：</p>
+<pre><code class="language-text">明細が親なしで存在できない設計であれば、通常のアソシエーションではなくコンポジションとして表現すべきか確認してください。</code></pre>
+<p>移送前确认中可以这样说：</p>
+<pre><code class="language-text">ルート、子エンティティ、BDEF、プロジェクション、サービス定義が同じ構造を参照しているか確認します。</code></pre>
+<p>障害调查中可以这样说：</p>
+<pre><code class="language-text">子ノードの作成エラーがCDSコンポジション、親へのアソシエーション、BDEF、サービス公開のどこで発生しているか切り分けます。</code></pre>
+<h4 id="14-6-english-terms-e7c3413a" class="semantic-heading semantic-terms">14.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Composition tree</code></li>
+<li>Official / search term: <code>CDS composition</code></li>
+<li>Official / search term: <code>to-child association</code></li>
+<li>Official / search term: <code>to-parent association</code></li>
+<li>Official / search term: <code>association to parent</code></li>
+<li>Official / search term: <code>composite business object</code></li>
+<li>Official / search term: <code>root entity</code></li>
+<li>Official / search term: <code>child entity</code></li>
+<li>Official / search term: <code>lock master</code></li>
+<li>Official / search term: <code>lock dependent</code></li>
+<li>Official / search term: <code>ancestor association</code></li>
+<li>Official / search term: <code>authorization master</code></li>
+<li>Official / search term: <code>etag master</code></li>
+<li>Recommended search pattern: <code>RAP composition tree root child SAP Learning</code></li>
+<li>Recommended search pattern: <code>ABAP CDS composition to-parent association SAP Help</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="14-7-example-ac729b9a" class="semantic-heading semantic-example">14.7 Example / 学习例子</h4>
+<h5 id="14-1-travel-booking-booking-supplement-dd19eea1">14.例 1：Travel / Booking / Booking Supplement</h5>
+<p>经典 RAP 教学例子是 Travel composite BO：</p>
+<pre><code class="language-text">Travel root
+  -&gt; Booking child
+      -&gt; Booking Supplement grandchild</code></pre>
+<p>Travel 是 root。Booking 不能脱离 Travel 成为同一个 BO 中的独立入口。Booking Supplement 又依附 Booking。这个结构适合演示 root、child、grandchild、composition 和 to-parent association。</p>
+<p>读这个例子时，不要只背名字。要检查每一层：</p>
+<ul>
+<li>parent 是否声明了 composition？</li>
+<li>child 是否声明了 association to parent？</li>
+<li>behavior definition 是否允许通过 parent 创建 child？</li>
+<li>service projection 是否暴露了 root-child navigation？</li>
+<li>lock / authorization / draft 是否和层级一致？</li>
+</ul>
+<h5 id="14-2-sales-order-header-item-d3d288cf">14.例 2：Sales Order Header / Item</h5>
+<p>销售订单也很适合类比：</p>
+<pre><code class="language-text">SalesOrder root
+  -&gt; SalesOrderItem child</code></pre>
+<p>Item 通常不是独立业务对象。它依附订单存在，订单删除、锁定、状态变更、保存失败时，item 也必须一起考虑。若把 item 只做成普通 association，开发者可能会在 handler 里手工补一堆生命周期逻辑，最后造成不同入口行为不一致。</p>
+<h5 id="14-3-ac0567c-7a7f1fa0">14.例 3：AC0567C 的导入批次思考</h5>
+<p>AC0567C POC 已经证明 action-oriented API 能工作。若未来把它建成更典型 composite BO，可以考虑：</p>
+<pre><code class="language-text">ImportBatch root
+  -&gt; ImportRow child</code></pre>
+<p>这样 validate action 可以针对整个 batch，row-level validation 可以返回到具体 child 行，execute action 可以按 batch 控制 save sequence，status 可以按 root 查询。是否采用这种设计，要结合项目复杂度、UI/API 需求、持久化表结构和 Clean Core 约束判断。</p>
+<h4 id="14-8-counterexample-failure-mode-c7874a87" class="semantic-heading semantic-example">14.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把 composition 当成 stronger association。修正：composition 表达生命周期依赖，不是更强 join。</li>
+<li>误区 2：把主数据做成 child。修正：Customer、Material、Company Code 等通常独立存在，应优先考虑 association。</li>
+<li>误区 3：只有 parent 写 composition，child 没有 <code>association to parent</code>。修正：composition tree 需要 to-child 和 to-parent 一起建模。</li>
+<li>误区 3a：先写 parent composition，再补 child to-parent association。修正：先定义并激活 child 的 <code>association to parent ... on ...</code>，再定义 parent 侧 composition；ON condition 不写在 composition 侧。</li>
+<li>误区 4：cardinality 随便写 <code>[0..*]</code>。修正：cardinality 是业务契约，会影响 navigation、结果行数、service metadata 和 review。</li>
+<li>误区 5：root / child 都能独立创建。修正：如果 child 生命周期依赖 root，通常应通过 composition association 创建。</li>
+<li>误区 6：只暴露 root service，忘记 child projection / behavior projection。修正：service layer 要和 BO 层级一致。</li>
+<li>误区 7：删除、锁、授权只按单表考虑。修正：composition tree 要和 delete、lock master / dependent、authorization、save sequence 一起 review。</li>
+<li>误区 8：把 JSON array 等同于 composition tree。修正：API 输入结构像树，不代表 RAP BO 已经建成树；要看 CDS composition 和 BDEF。</li>
+</ul>
+<h4 id="14-9-a1729531" class="semantic-heading semantic-practice">14.9 思考问题</h4>
+<ul>
+<li>这个 BO 是否只有一个 root entity？</li>
+<li>哪些实体是 child？它们能不能脱离 parent 独立存在？</li>
+<li>parent 是否用 <code>composition ... of</code> 指向 child？</li>
+<li>child 是否用 <code>association to parent</code> 指回 parent？</li>
+<li>to-child cardinality 是 <code>[0..1]</code> 还是 <code>[0..*]</code>？为什么？</li>
+<li>child 是否需要通过 parent 的 association 创建？</li>
+<li>lock master / lock dependent 是否和组合树一致？</li>
+<li>多层 child 的 lock / authorization / ETag master 是直接 parent，还是 ancestor？</li>
+<li>authorization 是 root 统一控制，还是 child 也需要 instance authorization？</li>
+<li>service projection 是否暴露了正确的 root-child navigation？</li>
+<li>AC0567C 的 batch / row 结构是否适合未来建成 composite BO？</li>
+</ul>
+<h4 id="14-10-c55b33de" class="semantic-heading semantic-reference">14.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-data-models/cds-compositions" target="_blank" rel="noopener noreferrer">Compositions</a>（accessed 2026-06-18）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/business-object" target="_blank" rel="noopener noreferrer">Business Object</a>（accessed 2026-06-18）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-composite-business-objects" target="_blank" rel="noopener noreferrer">Defining Composite Business Objects</a>（accessed 2026-06-18）</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_COMPOSITION_V2.html" target="_blank" rel="noopener noreferrer">CDS View Entity, COMPOSITION</a>（accessed 2026-06-18）</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_TO_PARENT_ASSOC_V2.html" target="_blank" rel="noopener noreferrer">CDS View Entity, ASSOCIATION TO PARENT</a>（accessed 2026-06-18）</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_COMPOSITION_GLOSRY.html" target="_blank" rel="noopener noreferrer">CDS composition glossary</a>（accessed 2026-06-18）</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-platform-rap-opensap" target="_blank" rel="noopener noreferrer">abap-platform-rap-opensap</a>（accessed 2026-06-18）</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-platform-rap100" target="_blank" rel="noopener noreferrer">abap-platform-rap100 exercises</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="14-11-connections-671bc866">14.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a></li>
+<li>Upstream: <a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a></li>
+<li>Upstream: <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li>Downstream: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Downstream: <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></li>
+<li>Downstream: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 18 - RAP Business Object 与 Behavior</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="14-12-36409f2e" class="semantic-heading semantic-practice">14.12 学习任务</h4>
+<ol>
+<li>用自己的中文解释 composition 和 ordinary association 的区别。</li>
+<li>画一棵 Travel / Booking / Booking Supplement 的 composition tree。</li>
+<li>写出 child 侧 <code>association to parent ... on ...</code> 和 parent 侧 <code>composition ... of Child</code> 的最小代码骨架，并说明为什么要先激活 child 侧。</li>
+<li>找一个已有 RAP 示例，标出 root、child、grandchild、to-child、to-parent。</li>
+<li>判断一个 Customer / SalesOrder / SalesOrderItem 例子里，哪些应该是 BO，哪些应该是 child，哪些只是 association。</li>
+<li>用日语写一句 review comment，提醒团队确认 <code>コンポジションツリー</code> 和 <code>親へのアソシエーション</code>。</li>
+<li>对照 AC0567C，写 5 行说明：如果把 batch/row 建成 composite BO，会带来哪些好处和额外复杂度？</li>
+<li>预习 <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a>：BDEF 如何在 composition tree 上定义 create/update/delete/action？</li>
+</ol>
+<h4 id="14-13-confidence-next-action-1ba4a8b1" class="semantic-heading semantic-status">14.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level composition tree, root/child, to-child composition, to-parent association, cardinality, and composition-vs-association boundaries。本节已按 SAP Help、ABAP Keyword Documentation、SAP Learning、SAP-samples、Joule <code>Pass with fixes</code> 和 Claude <code>Pass</code> 复核；详细 lock/draft/projection behavior 规则仍需按 implementation type、provider contract 和目标 ABAP release 验证。</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿结构同步；随后继续 <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-014-composition-tree-8f6aae2e.html">Composition tree 组合树</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-013-rap-business-object-48b9db9e.html">Previous section</a><a href="section-03-015-behavior-definition-4ed7e723.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

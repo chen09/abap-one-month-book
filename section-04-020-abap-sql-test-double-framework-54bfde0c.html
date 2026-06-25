@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP SQL Test Double Framework | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="20-abap-sql-test-double-framework-c1323d1e" class="chapter-title">20. ABAP SQL Test Double Framework</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 20</li><li>self-contained study note</li></ul><h4 id="20-1-232d0dd2" class="semantic-heading semantic-concept">20.1 一句话结论</h4>
+<p>ABAP SQL Test Double Framework 是在 ABAP Unit 中隔离 ABAP SQL（旧资料常称 Open SQL，类名中也常出现 OSQL）数据库依赖的测试能力。本教程里要学的是：让读取数据库的业务逻辑可以用受控测试数据验证，而不是依赖当前系统里“刚好存在”的真实业务数据。</p>
+<p>上一节 <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a> 讲的是替换面向对象依赖，比如权限检查器、外部 API adapter、clock provider。ABAP SQL Test Double 关注的是另一类依赖：代码里直接或间接执行的 ABAP SQL。很多服务逻辑的判断都来自数据库，例如“这个 request id 是否已存在”“公司代码是否有效”“某个状态是否允许执行”。如果测试依赖真实表数据，测试结果会随环境变化。</p>
+<p>SQL Test Double 的目标不是模拟整个数据库，也不是验证 HANA 性能，而是在单元测试里准备一小组可控数据，让被测代码执行 Open SQL 时读到这些测试数据。这样就能稳定验证 WHERE 条件、JOIN 逻辑、空结果、重复结果、排序假设、状态判断和错误分支。</p>
+<h4 id="20-2-71b037f2" class="semantic-heading semantic-concept">20.2 到底学什么</h4>
+<p>第一，要学它解决的问题。服务逻辑常常需要查表：主数据是否存在、配置是否维护、历史请求是否重复、状态是否允许、关联明细是否完整。如果测试直接读开发机或测试机的真实表，就会出现“今天通过、明天失败”“别人改了数据我测试坏了”“为了测试必须手工维护很多数据”的问题。</p>
+<p>第二，要学它和 OO Test Double 的区别。OO Test Double 替换的是对象依赖；ABAP SQL Test Double 替换的是 Open SQL 访问的数据来源或表内容。两者经常配合使用：repository class 可以用 OO double 替换；如果要测试 repository 里的 SELECT 逻辑，则可以用 SQL test double 准备表数据。</p>
+<p>第三，要学适合测试什么。它适合验证查询逻辑和基于查询结果的业务判断，例如 WHERE 是否漏条件、JOIN 是否选错键、空结果是否返回正确业务错误、重复记录是否被正确处理、ORDER BY 是否明确、聚合结果是否正确。它不适合证明生产数据库性能、数据库索引选择、真实权限、真实锁或真实事务提交行为。</p>
+<p>第四，要学数据最小化。测试数据应小而清楚：一条成功数据、一条缺失数据、一条重复数据、一条边界数据。测试不是把生产表复制一份，而是用最少数据证明规则。</p>
+<p>第五，要学测试 repository/query，而不是把所有业务流程塞进 SQL double。SQL Test Double 最适合验证 repository class、query helper、read model adapter 这类“把输入条件翻译成 SQL 结果”的代码。更高层 service logic 可以用 OO Test Double 替换 repository；更低层性能、锁和真实授权要交给 trace、集成测试和系统证据。</p>
+<p>第六，要学 fixture 可读性。测试数据不是越真实越好，而是越能说明意图越好。每一行测试数据都应回答一个问题：匹配记录、干扰记录、边界记录、重复记录、空结果记录。读者看到数据就知道它在验证哪个 WHERE/JOIN/ORDER BY 约定。</p>
+<h4 id="20-3-07512a76" class="semantic-heading semantic-why">20.3 为什么重要</h4>
+<p>数据库依赖是 ABAP 单元测试中最常见的障碍之一。很多 ABAP 代码一写就 <code>SELECT</code>，导致业务逻辑和系统状态绑在一起。测试时如果没有隔离，开发者会倾向于放弃单元测试，只做手工测试或集成测试，回归保护就变弱。</p>
+<p>对项目交付来说，SQL Test Double 可以保护很多“看起来简单、实际容易错”的逻辑。比如 request id 幂等判断少了 client 或 company code 条件，测试数据一构造就能暴露；JOIN 键错了，测试可以用两条相似数据抓出来；空结果应该返回 <code>CONFIGURATION_MISSING</code>，却被写成技术异常，测试可以固定这个契约。</p>
+<p>对 AC0567C 这类 API/批处理场景，SQL Test Double 特别适合验证 status/read/execute 背后的读取逻辑。端到端 API 测试证明服务整体能跑；SQL Test Double 证明某个 repository 或查询规则在小数据集下是正确的。两者结合，才能既快又有证据。</p>
+<p>这类测试还有一个现实价值：防止“数据巧合”。真实测试环境里，某些字段值刚好唯一，JOIN 键写错也可能返回正确结果；某个 request id 刚好不存在，漏掉 company code 条件也看不出来。SQL Test Double 可以故意准备相似数据和干扰数据，让错误条件一定暴露。</p>
+<h4 id="20-4-key-mechanism-09b53684" class="semantic-heading semantic-mechanism">20.4 Key mechanism / 核心机制</h4>
+<p>ABAP SQL Test Double 的核心机制可以概括为：在测试中创建受控的 SQL 测试环境，向相关表或 CDS 依赖准备测试数据，让被测代码执行 ABAP SQL 时读取这些测试数据，再通过 ABAP Unit 断言结果。具体类名和 API 会随 SAP release、ABAP Platform、ABAP Cloud 支持范围变化，项目中必须查官方文档确认。</p>
+<p>设计时要先确定测试边界。若目标是测试 service class 的业务规则，可以把 repository 用 OO Test Double 替换；若目标是测试 repository 的 SELECT/JOIN/聚合逻辑，就需要 SQL Test Double 或受控测试数据。不要在一个测试里同时覆盖太多层，否则失败原因会变得模糊。</p>
+<p>测试数据要围绕业务问题设计。例如测试“重复 request id”时，需要准备一条已存在记录；测试“只查当前 company code”时，需要准备一条同 request id 但不同 company code 的干扰数据；测试“无配置”时，需要明确不插入配置记录；测试排序时，需要准备乱序数据，并断言结果顺序。</p>
+<p>还要注意事务和副作用。SQL Test Double 更适合读取逻辑和局部写入隔离测试，不代表真实 SAP LUW、enqueue lock、commit/rollback、database trigger 或生产性能都被验证。涉及真实事务边界的内容仍要结合 <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a>、集成测试和系统级证据。</p>
+<p>一个实用的 SQL test design record 可以这样写：</p>
+<pre><code class="language-text">Query under test
+  Method: zcl_upload_repository=&gt;exists_request
+  Inputs: request_id, company_code
+  Expected contract: same request id in another company code is not a duplicate.
+
+Tables / dependencies
+  zupload_header
+
+Fixture rows
+  matching row
+  same request id, different company code
+  different request id, same company code
+
+Assertions
+  exact match -&gt; exists
+  cross-company match -&gt; not exists
+  missing request -&gt; not exists</code></pre>
+<p>测试数据设计可以用下面的表：</p>
+<div class="table-wrap"><table><thead><tr><th>数据类型</th><th>目的</th><th>示例</th></tr></thead><tbody><tr><td>Matching row</td><td>验证 happy path</td><td>request A / company 1000</td></tr><tr><td>Distractor row</td><td>防止漏 WHERE 条件</td><td>request A / company 2000</td></tr><tr><td>Boundary row</td><td>验证边界日期/状态</td><td>status CLOSED / old date</td></tr><tr><td>Duplicate row</td><td>验证重复处理</td><td>two items with same key</td></tr><tr><td>Empty fixture</td><td>验证无数据分支</td><td>no config row</td></tr><tr><td>Out-of-order row</td><td>验证 ORDER BY</td><td>sequence 2 before sequence 1</td></tr></tbody></table></div>
+<p>断言不要只写“有结果”。应该写清楚 result count、关键字段、排序、错误分类、是否走空结果分支。例如 status 查询应该断言只返回目标 company code 的 batch，且返回顺序由明确业务字段决定，而不是依赖数据库自然顺序。</p>
+<h4 id="20-5-dbe3c440" class="semantic-heading semantic-japan">20.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>SQLテストダブル</code>、<code>DB依存</code>、<code>テストデータ</code>、<code>検索条件</code>、<code>結合条件</code>、<code>空結果</code>、<code>重複データ</code>、<code>単体テスト</code>、<code>リポジトリクラス</code>、<code>回帰確認</code>。</p>
+<p>设计或 review 中可以这样说：</p>
+<ul>
+<li>DB依存のある検索ロジックは、SQLテストダブルまたは制御されたテストデータで回帰確認します。</li>
+<li>実データに依存した単体テストは不安定になるため、必要最小限のテストデータを明示的に準備します。</li>
+<li>SQLテストダブルは性能検証や結合テストを置き換えるものではありません。</li>
+</ul>
+<p>代码 review 时可以这样问：</p>
+<ul>
+<li>この SELECT の検索条件はテストデータで検証されていますか。</li>
+<li>空結果、重複結果、境界値のケースはありますか。</li>
+<li>本番DBの性能やロックまで単体テストで証明しようとしていませんか。</li>
+<li>テストデータには、正常データだけでなく検索条件漏れを検出するための妨害データも含めます。</li>
+<li>SQL テストダブルでは検索ロジックを確認し、性能・ロック・権限は別の証跡で確認します。</li>
+<li>ORDER BY の前提がある場合は、順序を検証できるテストデータを用意します。</li>
+</ul>
+<h4 id="20-6-english-terms-9489632a" class="semantic-heading semantic-terms">20.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>test double framework for ABAP SQL</code>, <code>CL_OSQL_TEST_ENVIRONMENT</code>.</li>
+<li>Descriptive term used in this book: <code>ABAP SQL Test Double Framework</code>, <code>ABAP Unit SQL test double</code>.</li>
+<li>Related terms: <code>Open SQL</code>, <code>test data</code>, <code>repository class</code>, <code>database dependency</code>, <code>controlled data</code>, <code>query logic</code>, <code>fixture</code>.</li>
+<li>SAP-specific search terms: <code>ABAP SQL test double</code>, <code>CL_OSQL_TEST_ENVIRONMENT</code>, <code>ABAP Unit database test double</code>.</li>
+<li>Recommended search pattern: <code>SAP ABAP SQL Test Double Framework</code>, <code>SAP CL_OSQL_TEST_ENVIRONMENT</code>, <code>ABAP Unit Open SQL test double</code>.</li>
+</ul>
+<h4 id="20-7-example-7f684d7e" class="semantic-heading semantic-example">20.7 Example / 学习例子</h4>
+<p>假设 AC0567C 有一个 repository 方法：</p>
+<pre><code class="language-text">exists_request( request_id, company_code ) -&gt; abap_bool</code></pre>
+<p>这个方法用于幂等判断。如果真实数据库里刚好没有数据，测试可能通过；但这并不能证明 WHERE 条件正确。更好的测试数据设计是：</p>
+<pre><code class="language-text">row 1: request_id = AC0567C-001, company_code = 1000
+row 2: request_id = AC0567C-001, company_code = 2000
+row 3: request_id = AC0567C-002, company_code = 1000</code></pre>
+<p>然后测试：</p>
+<ul>
+<li>输入 <code>AC0567C-001 / 1000</code> 应返回存在。</li>
+<li>输入 <code>AC0567C-001 / 3000</code> 应返回不存在。</li>
+<li>输入 <code>AC0567C-002 / 1000</code> 应返回存在。</li>
+</ul>
+<p>如果代码只按 request id 查询，第二个场景会误判。SQL Test Double 让这种错误在单元测试里暴露出来，而不是等到结合测试或生产数据碰巧触发。</p>
+<p>再看 JOIN 场景。上传明细表和状态表通过 batch id 关联，如果 JOIN 键写错，真实系统可能因为数据巧合暂时看不出来。测试中准备两组相似 batch id 和状态，就能验证 JOIN 是否真的按正确键关联。</p>
+<p>再给一个 AC0567C status query 的 fixture：</p>
+<pre><code class="language-text">Header rows:
+  BATCH-001 / company 1000 / status OPEN
+  BATCH-001 / company 2000 / status CLOSED   &quot;distractor
+  BATCH-002 / company 1000 / status ERROR
+
+Item rows:
+  BATCH-001 / company 1000 / item 10
+  BATCH-001 / company 2000 / item 10          &quot;wrong company distractor
+  BATCH-002 / company 1000 / item 20
+
+Expected:
+  query_status(company=1000, batch=BATCH-001)
+  returns only company 1000 header and item.</code></pre>
+<p>如果 JOIN 只按 <code>batch_id</code>，就会把 company 2000 的 item 混进来。这样的测试数据比“只有一条干净数据”更能保护生产逻辑。</p>
+<p>对于 ORDER BY，也要故意准备乱序数据。如果业务要求按 line number 输出错误，就准备 line 20、line 10、line 30，然后断言返回顺序是 10、20、30。没有 ORDER BY 的代码可能在某个数据库上看似稳定，在另一个环境或优化后顺序就变了。</p>
+<h4 id="20-8-counterexample-failure-mode-0b62e15e" class="semantic-heading semantic-example">20.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有以下十类。</p>
+<p>第一，测试依赖真实业务数据。开发机、测试机、客户机数据不同，测试结果不稳定，也无法说明测试覆盖了哪个业务规则。</p>
+<p>第二，测试数据太大。复制一堆生产样本进测试，会让测试难读、难维护。单元测试数据应最小化、意图明确。</p>
+<p>第三，只测有数据的情况。空结果、重复结果、边界日期、不同 client/company code 的干扰数据，往往更容易暴露 SQL 条件问题。</p>
+<p>第四，把 SQL Test Double 当性能测试。它不能证明真实 HANA 执行计划、索引、buffer、SQL Monitor 结果或生产性能。</p>
+<p>第五，忽略事务和锁。SQL 读取逻辑测试通过，不代表真实并发、enqueue lock、commit/rollback 和 RAP save sequence 都正确。</p>
+<p>第六，只准备 happy path 数据。测试数据太干净，漏 WHERE、错 JOIN、缺 ORDER BY 都可能看不出来。</p>
+<p>第七，把 fixture 写得像生产数据转储。维护者看不懂每一行数据的目的，测试失败时也不知道业务含义。</p>
+<p>第八，在同一个测试里塞太多表和太多断言。失败后无法判断是查询条件、JOIN、排序还是业务判断出了问题。</p>
+<p>第九，忘记 client / tenant / organization 维度。SAP 数据经常有 client、company code、plant、sales org 等边界；测试若不准备跨边界干扰数据，就不能证明条件完整。</p>
+<p>第十，SQL double 假设和真实 CDS/DCL 不一致。若生产路径通过 CDS DCL 或 RAP projection 消费，而测试只覆盖底层表 SELECT，仍需额外测试 CDS/service 路径。</p>
+<h4 id="20-9-79e37626" class="semantic-heading semantic-practice">20.9 思考问题</h4>
+<ul>
+<li>一个 SELECT 逻辑依赖真实测试机数据，会带来什么风险？</li>
+<li>哪些场景适合 OO Test Double，哪些适合 ABAP SQL Test Double？</li>
+<li>如何用最少测试数据验证 WHERE 条件没有漏 company code？</li>
+<li>为什么 SQL Test Double 不能替代性能测试和集成测试？</li>
+<li>AC0567C POC 中哪个 repository/query 最适合先做 SQL Test Double 测试？</li>
+<li>测试数据里有没有故意准备干扰行来证明 WHERE/JOIN 条件完整？</li>
+<li>查询结果顺序是否有业务含义？如果有，测试是否断言 ORDER BY？</li>
+<li>生产路径是否经过 CDS DCL/RAP projection？SQL double 是否只覆盖了一部分？</li>
+</ul>
+<h4 id="20-10-444c73a3" class="semantic-heading semantic-reference">20.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_UNIT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP Unit</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSELECT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - SELECT</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20SQL%20Test%20Double%20Framework" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP SQL Test Double Framework</a></li>
+<li><a href="https://help.sap.com/docs/search?q=CL_OSQL_TEST_ENVIRONMENT" target="_blank" rel="noopener noreferrer">SAP Help search - CL_OSQL_TEST_ENVIRONMENT</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20Unit%20Open%20SQL%20test%20double" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP Unit Open SQL test double</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20SQL%20ORDER%20BY" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP SQL ORDER BY</a></li>
+</ul>
+<h4 id="20-11-connections-09e55b5f">20.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a></li>
+<li>Downstream: <a class="wiki" href="section-04-021-cds-test-double-framework-9dce73f3.html">CDS Test Double Framework</a></li>
+<li>Related: <a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a></li>
+<li>Related: <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></li>
+<li>Related: <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a></li>
+<li>Related: <a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 25 - 测试替身与服务逻辑测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="20-12-a5f84a55" class="semantic-heading semantic-practice">20.12 学习任务</h4>
+<ul>
+<li>为一个 <code>exists_request</code> 查询设计 3 行测试数据，验证 WHERE 条件包含 request id 和 company code。</li>
+<li>找一个 JOIN 查询，写出最小测试数据，证明 JOIN 键正确。</li>
+<li>列出 SQL Test Double 不能证明的 3 件事：性能、锁、真实权限或事务。</li>
+<li>写 2 句日语 review 评论：一句指出测试依赖真实 DB 数据不稳定，一句要求补空结果/重复结果测试。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 ABAP SQL Test Double Framework 的官方说法和目标 release 支持范围。</li>
+</ul>
+<h4 id="20-13-confidence-next-action-962c4a0d" class="semantic-heading semantic-status">20.13 Confidence &amp; Next Action</h4>
+<p>Confidence: Medium-High。SQL Test Double 的测试目标清晰，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已修正失败模式数量、ABAP SQL / Open SQL 术语关系和日语 <code>順序を検証</code> 表达。具体框架 API、支持对象和 ABAP Cloud/on-premise 差异仍需要用 SAP 官方文档与项目系统确认，Joule scoped review 仍保留为 deferred 证据。</p>
+<p>Next action: 继续学习 <a class="wiki" href="section-04-021-cds-test-double-framework-9dce73f3.html">CDS Test Double Framework</a>，把 SQL 表依赖测试扩展到 CDS 视图和 CDS-based consumption 场景。</p>
+<p>原子笔记入口：<a class="wiki" href="section-04-020-abap-sql-test-double-framework-54bfde0c.html">ABAP SQL Test Double Framework</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-019-oo-test-double-framework-15937e9d.html">Previous section</a><a href="section-04-021-cds-test-double-framework-9dce73f3.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

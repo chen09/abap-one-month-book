@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Exception class 异常类 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="33-exception-class-6a84f6ca" class="chapter-title">33. Exception class 异常类</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 33</li><li>self-contained study note</li></ul><h4 id="33-1-37f96719" class="semantic-heading semantic-concept">33.1 一句话结论</h4>
+<p>Exception class 异常类是 ABAP class-based exception 的类型。它不是单纯的“报错文本”，而是一个 exception object：一边作为控制流信号告诉运行时“正常路径中断了”，一边作为错误 payload 携带 exception type、message text、业务 key、字段名、上一层异常等上下文。一个好的异常类会把“可能失败”变成 method signature 和调用链上的显式 contract：哪里会 raise、谁应该 catch、错误里带什么上下文、是否必须由调用者处理。</p>
+<p>现代 ABAP 新开发应优先使用 class-based exceptions，而不是旧式 function module <code>EXCEPTIONS</code> / <code>sy-subrc</code> 风格来表达复杂错误。实际项目里仍会遇到 classic / non-class-based exception，例如 function module 的 <code>EXCEPTIONS</code>、早期 OO method 的 classic exception、以及依赖 <code>sy-subrc</code> 的调用模式；学习者要能读懂和迁移这些旧代码。但在 ABAP Cloud / Clean Core 语境下，新代码应按 class-based exception 设计，不要把旧式 exception 继续扩散到新的接口里。</p>
+<p>初学者最重要的判断是：异常类不是“让程序报错更高级”，而是让可预见错误有类型、有边界、有处理责任。业务上可恢复、调用方应该处理的错误，适合清楚的 checked exception；程序设计错误、不可恢复状态、框架级异常，则要谨慎选择 unchecked 或系统 exception。不是所有业务失败都应该抛 exception，尤其在 RAP validation/message 场景里，常常应返回 reported/failed message，而不是随手 dump。</p>
+<h4 id="33-2-9d1cf32a" class="semantic-heading semantic-concept">33.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-032-polymorphism-889652ed.html">Polymorphism 多态</a> 讲了不同对象可以通过同一 contract 执行不同实现。本节讲另一个 contract：错误路径。一个 method 不只要说明“正常返回什么”，也要说明“失败时如何表达”。</p>
+<p>本节要掌握八个边界：</p>
+<ul>
+<li>class-based exception 都是 exception object，继承树的根类是 <code>CX_ROOT</code>。</li>
+<li>自定义异常类不能直接继承 <code>CX_ROOT</code>，必须继承 <code>CX_STATIC_CHECK</code>、<code>CX_DYNAMIC_CHECK</code> 或 <code>CX_NO_CHECK</code> 这三类之一。</li>
+<li>customer global exception class 通常使用 <code>ZCX_...</code> / <code>YCX_...</code> 命名；SAP 交付的异常类常见 <code>CX_...</code>、系统异常常见 <code>CX_SY_...</code>。</li>
+<li><code>CX_STATIC_CHECK</code> 适合调用方应该显式处理或声明传播的可恢复错误；调用链要 catch 或继续在 <code>RAISING</code> 中声明。</li>
+<li><code>CX_DYNAMIC_CHECK</code> 可以写在 <code>RAISING</code> 中，但声明不是强制的；如果未声明却传播出 procedure，运行时可能以错误方式暴露。</li>
+<li><code>CX_NO_CHECK</code> 不能写进 <code>RAISING</code>，不会被静态/运行时声明检查强制要求；未捕获时仍会一路传播，最终可能 short dump，所以不是“可以忽略”。</li>
+<li>method signature 里的 <code>RAISING zcx_...</code> 是错误 contract，不是装饰；改变它等于改变调用接口。</li>
+<li><code>RAISE EXCEPTION TYPE zcx_... EXPORTING ...</code> 会创建并抛出 exception object，<code>EXPORTING</code> 传入 constructor 参数、业务上下文或 <code>textid</code>。</li>
+<li><code>TRY ... CATCH ... ENDTRY</code> 是处理 class-based exception 的基本控制结构；<code>CATCH</code> 顺序、异常传播和 <code>CLEANUP</code> 放到下一节 <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a>。</li>
+</ul>
+<p>最小例子：</p>
+<pre><code class="language-abap">CLASS zcx_order_invalid DEFINITION
+  INHERITING FROM cx_static_check.
+ENDCLASS.
+
+CLASS lcl_order_checker DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS check_quantity
+      IMPORTING iv_quantity TYPE i
+      RAISING   zcx_order_invalid.
+ENDCLASS.
+
+CLASS lcl_order_checker IMPLEMENTATION.
+  METHOD check_quantity.
+    IF iv_quantity &lt;= 0.
+      RAISE EXCEPTION TYPE zcx_order_invalid.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>check_quantity</code> 的 signature 告诉调用方：这个 method 可能因为 order quantity 不合法而失败，而且这个失败是 <code>zcx_order_invalid</code>。调用方不能只看 <code>RETURNING</code>；也要看 <code>RAISING</code>。</p>
+<p>换句话说，<code>RAISING zcx_order_invalid</code> 是可读、可检查、可测试的错误 contract。</p>
+<h4 id="33-3-369167f4" class="semantic-heading semantic-why">33.3 为什么重要</h4>
+<p>没有清楚异常类时，ABAP 代码常见三种问题。</p>
+<p>第一种是错误靠 <code>sy-subrc</code> 或空返回值暗示。调用方忘记判断，程序继续跑，后面才出现更难查的错误。</p>
+<p>第二种是到处 <code>CATCH cx_root</code> 然后什么都不做。表面上程序“不报错”，实际把问题藏起来，形成日本项目 review 常说的 <code>例外握りつぶし</code>。</p>
+<p>第三种是异常类太泛，例如所有错误都抛 <code>zcx_general_error</code>。调用方无法区分权限问题、数据不存在、配置缺失、外部系统失败，只能写大而全兜底。</p>
+<p>好的 exception class 让项目多三件东西：</p>
+<ul>
+<li>可读性：method signature 明确说出错误类型。</li>
+<li>可测试性：ABAP Unit 可以验证指定输入是否 raise 指定 exception。</li>
+<li>可交付性：日志、message、T100、RAP reported message 或上层错误处理可以按 exception type 做清楚转换。</li>
+</ul>
+<p>对 Java/Python 背景学习者来说，ABAP exception class 有一点像 Java checked/unchecked exception，但不要直接套 Java 经验。ABAP 的 <code>CX_STATIC_CHECK</code> / <code>CX_DYNAMIC_CHECK</code> / <code>CX_NO_CHECK</code> 是 SAP 自己的分类；是否写在 <code>RAISING</code>、是否强制调用方处理、是否允许传播，都要按 ABAP 规则理解。尤其要注意：<code>CX_NO_CHECK</code> 不是“没有错误”，而是“语言不要求每层声明”；真正没有被捕获时，风险仍会在运行时集中爆发。</p>
+<h4 id="33-4-key-mechanism-cc910be3" class="semantic-heading semantic-mechanism">33.4 Key mechanism / 核心机制</h4>
+<h5 id="33-4-1-cx-root-is-the-root-550080fb">33.4.1 CX_ROOT is the root</h5>
+<p>class-based exception 的根类是 <code>CX_ROOT</code>。<code>CX_ROOT</code> 提供所有异常对象共有的基础能力，例如通过 <code>get_text( )</code> 取得异常文本、通过 <code>get_longtext( )</code> 取得长文本、通过 <code>get_source_position( )</code> 取得源代码位置，以及通过 <code>previous</code> 连接被包装的上一层异常。</p>
+<p>但自定义 exception class 不能直接 <code>INHERITING FROM cx_root</code>。项目里创建自己的异常类时，要选择下面三条分类之一：</p>
+<ul>
+<li><code>CX_STATIC_CHECK</code></li>
+<li><code>CX_DYNAMIC_CHECK</code></li>
+<li><code>CX_NO_CHECK</code></li>
+</ul>
+<p>初学阶段不用记住所有 SAP 标准异常类，但要认识这些根类。看到 <code>ZCX_...</code> / <code>YCX_...</code> 时，通常是在 customer namespace 里定义的全局异常类；看到 <code>CX_SY_...</code> 时，常常是 SAP 系统运行时异常，例如类型转换、算术、内表访问等问题。</p>
+<p>看到 <code>CATCH cx_root</code> 时，要立刻问：这里是不是过宽？有没有吞掉具体原因？是否记录、重抛或转换了上下文？<code>CATCH cx_root</code> 本身不是非法语法，但在生产业务代码里空 catch 是高风险反模式。</p>
+<h5 id="33-4-2-static-check-exception-is-explicit-contract-e7aac7f3">33.4.2 static check exception is explicit contract</h5>
+<p><code>CX_STATIC_CHECK</code> 适合“调用方应该知道并处理”的可恢复错误。例如输入业务对象不合法、必须由上层给用户可理解反馈的校验错误。</p>
+<pre><code class="language-abap">CLASS zcx_price_missing DEFINITION
+  INHERITING FROM cx_static_check.
+ENDCLASS.
+
+CLASS lcl_price_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS get_price
+      IMPORTING iv_product_id TYPE string
+      RETURNING VALUE(rv_price) TYPE decfloat34
+      RAISING   zcx_price_missing.
+ENDCLASS.</code></pre>
+<p>这里 <code>RAISING zcx_price_missing</code> 是 contract。调用方读 signature 就知道：不是所有 product 都一定能拿到 price；如果缺 price，上层要处理。这个处理可能是 <code>TRY...CATCH</code>，也可能是继续往上 <code>RAISING</code> 传播。对 <code>CX_STATIC_CHECK</code> 而言，这种“处理或声明传播”的意识是它的核心价值；ADT、语法检查和 ATC 会把这类 contract 暴露给开发者。</p>
+<h5 id="33-4-3-dynamic-and-no-check-exceptions-are-not-shortcuts-09717cb9">33.4.3 dynamic and no-check exceptions are not shortcuts</h5>
+<p><code>CX_DYNAMIC_CHECK</code> 和 <code>CX_NO_CHECK</code> 容易被误用成“少写 signature 的方便工具”。这不对。</p>
+<ul>
+<li><code>CX_DYNAMIC_CHECK</code> 可以在 <code>RAISING</code> 中声明，也可以不声明；但如果没有声明、没有捕获、又传播出当前 procedure，运行时层面仍可能暴露为错误。</li>
+<li><code>CX_NO_CHECK</code> 不能写在 <code>RAISING</code> 中，调用方也不会被迫逐层声明；但如果最终没有任何地方捕获，仍会导致 runtime error / short dump。</li>
+</ul>
+<p>它们都不是“偷懒不写错误处理”。选择这两类时，要能解释为什么调用方不应该被每一层强制处理，以及最终在哪里会记录、转换或终止。写书稿时可以把它们理解成“检查强度不同”，不要理解成“严重程度不同”：轻微错误也可能需要 <code>CX_STATIC_CHECK</code>，严重框架错误也可能是 unchecked。</p>
+<h5 id="33-4-4-raising-belongs-to-method-signature-9b025a49">33.4.4 RAISING belongs to method signature</h5>
+<p>前面 <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a> 讲过，method signature 不只是参数列表。<code>RAISING</code> 是 signature 的一部分，并且只用于 class-based exceptions 中需要声明的异常类型。通常应在这里声明 <code>CX_STATIC_CHECK</code> 和需要显式告知调用方的 <code>CX_DYNAMIC_CHECK</code> 子类；<code>CX_NO_CHECK</code> 子类不能声明在 <code>RAISING</code> 中。</p>
+<pre><code class="language-abap">METHODS post_document
+  IMPORTING is_document TYPE zdoc_header
+  RAISING   zcx_document_invalid
+            zcx_posting_failed.</code></pre>
+<p>这段签名表达两个不同错误：</p>
+<ul>
+<li><code>zcx_document_invalid</code>：输入 document 不满足业务校验。</li>
+<li><code>zcx_posting_failed</code>：真正 posting 动作失败，可能是数据库、锁、配置或外部依赖问题。</li>
+</ul>
+<p>不要把它们都压成一个 <code>abap_bool</code> 返回值，也不要都塞进一个 <code>zcx_error</code>。错误类型越清楚，上层处理越稳定。对外暴露的 method 一旦改变 <code>RAISING</code> 列表，调用方、测试、接口说明和 review 都要重新确认；这和改变 <code>IMPORTING</code> / <code>RETURNING</code> 参数一样，是 contract 变化。</p>
+<h5 id="33-4-5-exception-object-can-carry-context-08dfbf9a">33.4.5 exception object can carry context</h5>
+<p>exception class 是 class，所以可以有 attributes、constructor、text/message 绑定。项目里常见做法是让异常携带业务 key、字段名、外部返回码或 message context。抛出时使用 <code>RAISE EXCEPTION TYPE ... EXPORTING ...</code>，这些 <code>EXPORTING</code> 参数会传给 exception class 的 constructor。</p>
+<p>初学阶段先记一个原则：exception 里要带“上层处理需要知道的上下文”，不要带大对象、数据库连接、临时内部表等实现细节。比如：</p>
+<ul>
+<li>合适：<code>sales_order_id</code>、<code>item_no</code>、<code>field_name</code>、<code>api_status_code</code></li>
+<li>不合适：完整订单大对象、数据库游标、未脱敏 payload、临时 debug text</li>
+</ul>
+<p>捕获时常见写法是 <code>CATCH zcx_... INTO DATA(lx_error)</code>，然后调用 <code>lx_error-&gt;get_text( )</code> 取得可读错误文本。需要保留底层异常时，使用 <code>previous</code> 把原始 exception object 接到新异常上，避免“包装后丢失根因”。</p>
+<h5 id="33-4-6-exception-class-and-t100-message-b865baaa">33.4.6 exception class and T100 message</h5>
+<p>ABAP 项目常把 exception class 和 message class / T100 message 结合，让异常既有类型，也有可本地化 message text。这个主题会在 <a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a> 继续展开。</p>
+<p>本节先建立边界：exception class 是错误类型和传播机制；T100/message 是用户或日志可读文本。二者可以结合，但不是同一个概念。常见机制是 exception class 实现 <code>IF_T100_MESSAGE</code> 这类 message interface，通过 <code>textid</code> 选择具体 message text，再用 constructor 参数填充变量；包装 classic message 时也可能看到 <code>IF_T100_DYN_MSG</code> 这类把 <code>SY</code> / <code>SYST</code> message 字段转成异常文本的机制。也就是说，exception class hierarchy 决定“谁能 catch 它”，<code>textid</code> / T100 决定“它显示什么文本”，二者是两个不同维度。</p>
+<h5 id="33-4-7-catch-specific-not-only-cx-root-a427472d">33.4.7 catch specific, not only cx_root</h5>
+<p>最小处理形式：</p>
+<pre><code class="language-abap">TRY.
+    DATA(lv_price) = price_service-&gt;get_price( iv_product_id ).
+  CATCH zcx_price_missing INTO DATA(lx_missing).
+    DATA(lv_text) = lx_missing-&gt;get_text( ).
+    &quot; create user-facing message, log entry, or test assertion
+ENDTRY.</code></pre>
+<p>先 catch 具体 exception class，能处理就处理。多个 exception class 可以放在同一个 <code>CATCH</code> 中；如果有多条 <code>CATCH</code>，顺序必须从具体到通用。把 superclass 放在 subclass 前面会遮蔽后面的具体处理，在相关语法检查中会被指出。</p>
+<p><code>CATCH cx_root</code> 可以作为兜底，但必须记录足够上下文、转换为上层可理解错误、或重抛。它在 ABAP Unit setup 等测试基础设施里也可能是合理写法，例如捕获任意异常后 <code>cl_abap_unit_assert=&gt;fail( lx_root-&gt;get_text( ) )</code>。真正要避免的是生产代码里只写 <code>CATCH cx_root.</code> 后空处理，这才是典型反模式。</p>
+<h5 id="33-4-8-exception-vs-normal-business-result-12928429">33.4.8 exception vs normal business result</h5>
+<p>不是所有“业务上不成立”都应该变成 exception。</p>
+<ul>
+<li>用户输入非法、必须中断当前动作：可以考虑 exception 或 RAP validation message。</li>
+<li>查找结果为空且业务允许为空：通常返回 empty table / initial value / optional result 更自然。</li>
+<li>外部系统暂时不可用：可能是 exception，并且要带外部状态和重试策略。</li>
+<li>RAP validation 发现字段错误：通常应通过 <code>reported-&lt;entity&gt;</code> 和 <code>failed-&lt;entity&gt;</code> 返回给框架，而不是直接抛出会变成 dump 的异常。</li>
+</ul>
+<p>判断标准是：调用方是否应该把它当作异常路径处理？用户或上层框架是否需要结构化错误？如果只是普通分支，不要用 exception 代替业务流程设计。</p>
+<p>在 RAP 里也不是“完全不用 exception”。业务 validation 的结果通常走 <code>reported</code> / <code>failed</code>，而框架级、基础设施级、保存序列相关的失败仍可能由 class-based exception 表达。写 Clean Core / ABAP Cloud 代码时，要确认使用的异常类是否是当前系统允许的 released API，并避免把未释放实现细节暴露到自建接口。</p>
+<h5 id="33-4-9-error-expression-decision-checklist-91e4a029">33.4.9 error expression decision checklist</h5>
+<p>设计 method 或 RAP handler 时，可以先决定“这个失败应该怎么表达”，再决定要不要创建异常类。下面的表可以作为 review 时的最小判断：</p>
+<div class="table-wrap"><table><thead><tr><th>Situation</th><th>Prefer</th><th>Why</th></tr></thead><tbody><tr><td>调用方必须处理或声明传播的可恢复错误</td><td><code>CX_STATIC_CHECK</code> 子类，写入 <code>RAISING</code></td><td>错误是接口 contract 的一部分，调用链不能假装不知道。</td></tr><tr><td>框架或基础设施层可能抛出的运行时异常</td><td>具体 class-based exception，必要时包装并保留 <code>previous</code></td><td>保留底层原因，同时给上层更清楚的业务语义。</td></tr><tr><td>普通“没有找到”且业务允许为空</td><td>empty table、initial value、optional result</td><td>这是正常分支，不应让调用方用异常控制流程。</td></tr><tr><td>RAP 字段校验或业务规则不满足</td><td><code>reported</code> / <code>failed</code> message</td><td>Fiori / OData 调用方需要结构化消息、字段定位和实例定位。</td></tr><tr><td>后台处理需要运维排查</td><td>exception + <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> evidence</td><td>exception 负责中断或传播，Application Log 负责可追踪证据。</td></tr><tr><td>程序设计错误、不可恢复状态</td><td>谨慎使用 unchecked exception 或让系统异常暴露</td><td>这类错误通常不是业务调用方能恢复的场景。</td></tr></tbody></table></div>
+<p>一个实用的命名和责任原则是：异常类名应该说明“失败的业务含义”，而不是只说明“哪里抛出”。例如 <code>zcx_order_invalid</code> 比 <code>zcx_error_in_class_a</code> 更容易被调用方理解；constructor 参数也应携带 order id、field name、external status 这类可诊断上下文，而不是把一整段调试文本塞进 message。</p>
+<h4 id="33-5-e19745ac" class="semantic-heading semantic-japan">33.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>例外クラス</code>、<code>クラスベース例外</code>、<code>非クラスベース例外</code>、<code>例外送出</code>、<code>例外捕捉</code>、<code>例外伝播</code>、<code>再送出</code>、<code>例外握りつぶし</code>、<code>異常系</code>、<code>エラー契約</code>、<code>メッセージクラス</code>。</li>
+<li>设计说明句：このメソッドは入力チェックエラーを <code>zcx_document_invalid</code> として送出し、呼び出し側でメッセージに変換します。</li>
+<li>命名说明句：顧客作成のグローバル例外クラスは <code>ZCX_</code> または <code>YCX_</code> プレフィックスで定義します。</li>
+<li>Review 指摘句：<code>CATCH cx_root</code> で例外を握りつぶしているため、具体的な例外クラスで捕捉し、ログ出力または再送出を行ってください。</li>
+<li>Review 精确句：<code>CATCH cx_root</code> 自体が問題ではなく、空の <code>CATCH</code> ブロックで例外を握りつぶすことが問題です。</li>
+<li>Signature 指摘句：このエラーは呼び出し側で処理すべきため、<code>RAISING</code> 句に明示してください。</li>
+<li>RAP 指摘句：RAP の入力チェック結果は例外ではなく <code>reported</code> / <code>failed</code> によるメッセージ返却として扱うべきです。</li>
+<li>使用场景：method signature review、单体测试、错误消息设计、RAP validation、障害調査、日志设计、上线前异常路径检查。</li>
+</ul>
+<p>日本项目里 <code>異常系</code> 不只是测试用语，也影响详细设计。异常类设计清楚时，<code>異常系テストケース</code> 可以直接对应 exception type、message、日志和恢复动作。</p>
+<h4 id="33-6-english-terms-e2d17991" class="semantic-heading semantic-terms">33.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>class-based exception</code>, <code>non-class-based exception</code>, <code>exception class</code>, <code>CX_ROOT</code>, <code>CX_STATIC_CHECK</code>, <code>CX_DYNAMIC_CHECK</code>, <code>CX_NO_CHECK</code></li>
+<li>Related syntax: <code>RAISING zcx_...</code>, <code>RAISE EXCEPTION TYPE zcx_...</code>, <code>TRY</code>, <code>CATCH</code>, <code>ENDTRY</code>, <code>CLEANUP</code></li>
+<li>Design terms: <code>checked exception</code>, <code>unchecked exception</code>, <code>exception contract</code>, <code>error payload</code>, <code>error propagation</code>, <code>rethrow</code>, <code>previous</code>, <code>message class</code>, <code>T100 message</code>, <code>exception swallowing</code></li>
+<li>SAP project terms: <code>reported</code>, <code>failed</code>, <code>RAP validation</code>, <code>business error</code>, <code>technical error</code></li>
+<li>读官方资料时注意：<code>exception</code> 可能指 class-based exception、classic non-class-based exception、runtime error、short dump、message type 等不同层级。本节聚焦 class-based exception classes。</li>
+</ul>
+<h4 id="33-7-example-d8ff311c" class="semantic-heading semantic-example">33.7 Example / 学习例子</h4>
+<h5 id="33-7-1-1-03aa974a">33.7.1 例 1：校验错误异常</h5>
+<pre><code class="language-abap">CLASS zcx_quantity_invalid DEFINITION
+  INHERITING FROM cx_static_check.
+ENDCLASS.
+
+CLASS lcl_quantity_rule DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS check
+      IMPORTING iv_quantity TYPE i
+      RAISING   zcx_quantity_invalid.
+ENDCLASS.
+
+CLASS lcl_quantity_rule IMPLEMENTATION.
+  METHOD check.
+    IF iv_quantity &lt;= 0.
+      RAISE EXCEPTION TYPE zcx_quantity_invalid.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这是适合 <code>CX_STATIC_CHECK</code> 的例子：调用方应该知道 quantity 可能不合法，并决定如何反馈给用户或上层流程。</p>
+<h5 id="33-7-2-2-63b70e4f">33.7.2 例 2：调用方处理</h5>
+<pre><code class="language-abap">TRY.
+    quantity_rule-&gt;check( iv_quantity = -1 ).
+  CATCH zcx_quantity_invalid INTO DATA(lx_quantity).
+    DATA(lv_text) = lx_quantity-&gt;get_text( ).
+    &quot; convert to message, log, or test assertion
+ENDTRY.</code></pre>
+<p>下一节 <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a> 会展开 catch 顺序、异常传播和兜底处理。本节只要理解：异常类给错误路径命名，<code>CATCH</code> 按类型处理。</p>
+<h5 id="33-7-3-3-df0b9984">33.7.3 例 3：抛出时携带上下文</h5>
+<p>实际项目中的 exception class 往往有 constructor 参数，用来填充 attribute 或 message 变量。写法形态如下：</p>
+<pre><code class="language-abap">RAISE EXCEPTION TYPE zcx_quantity_invalid
+  EXPORTING
+    iv_quantity = iv_quantity.</code></pre>
+<p>如果异常类绑定了 T100/message，常见形态还会通过 <code>textid</code> 选择具体文本：</p>
+<pre><code class="language-abap">RAISE EXCEPTION TYPE zcx_quantity_invalid
+  EXPORTING
+    textid      = zcx_quantity_invalid=&gt;quantity_must_be_positive
+    iv_quantity = iv_quantity.</code></pre>
+<p>这里的重点不是背代码模板，而是理解：异常对象应该带足够上下文，让上层能生成 message、日志或测试断言。捕获者再通过 <code>lx_error-&gt;get_text( )</code> 或公开属性读取这些信息。</p>
+<h5 id="33-7-4-4-previous-b94f9b13">33.7.4 例 4：包装底层异常时保留 previous</h5>
+<pre><code class="language-abap">TRY.
+    external_gateway-&gt;send( is_payload ).
+  CATCH cx_root INTO DATA(lx_root).
+    RAISE EXCEPTION TYPE zcx_posting_failed
+      EXPORTING
+        previous = lx_root.
+ENDTRY.</code></pre>
+<p>这类写法适合把技术异常转换为业务层可理解的异常，同时保留原始根因。不要把底层异常吞掉后只抛一个没有上下文的新异常。</p>
+<h5 id="33-7-5-5-3a88bfcf">33.7.5 例 5：不要吞掉异常</h5>
+<pre><code class="language-abap">TRY.
+    poster-&gt;post_document( document ).
+  CATCH cx_root.
+ENDTRY.</code></pre>
+<p>这段代码危险，因为它把所有 class-based exception 都吞掉了。用户看不到错误，日志也可能没有证据，后续数据状态更难解释。</p>
+<p>更好的方向：</p>
+<pre><code class="language-abap">TRY.
+    poster-&gt;post_document( document ).
+  CATCH zcx_document_invalid INTO DATA(lx_invalid).
+    &quot; convert to user-facing validation message
+  CATCH zcx_posting_failed INTO DATA(lx_failed).
+    &quot; log technical context and stop the posting flow
+ENDTRY.</code></pre>
+<h4 id="33-8-counterexample-failure-mode-ea5a385c" class="semantic-heading semantic-example">33.8 Counterexample / Failure mode</h4>
+<h5 id="33-8-1-1-abap-false-5797519e" class="semantic-heading semantic-failure">33.8.1 误区 1：所有错误都返回 abap_false</h5>
+<p>返回 <code>abap_false</code> 只说明失败，不说明为什么失败、谁该处理、是否可恢复。</p>
+<p>修正动作：对需要上层处理的明确错误，设计 exception class 或结果对象；不要只靠布尔值隐藏错误原因。</p>
+<h5 id="33-8-2-2-cx-root-24102eab" class="semantic-heading semantic-failure">33.8.2 误区 2：自定义异常直接继承 CX_ROOT</h5>
+<p><code>CX_ROOT</code> 是 class-based exception 继承树的根，但不是自定义异常类的直接父类。</p>
+<p>修正动作：按处理策略继承 <code>CX_STATIC_CHECK</code>、<code>CX_DYNAMIC_CHECK</code> 或 <code>CX_NO_CHECK</code>。</p>
+<h5 id="33-8-3-3-b7eac7ac" class="semantic-heading semantic-failure">33.8.3 误区 3：异常类太泛</h5>
+<p><code>zcx_general_error</code> 到处抛，上层只能 <code>CATCH zcx_general_error</code>，无法分支处理。</p>
+<p>修正动作：按业务语义和处理策略拆分，例如 <code>zcx_document_invalid</code>、<code>zcx_price_missing</code>、<code>zcx_posting_failed</code>。</p>
+<h5 id="33-8-4-4-cx-no-check-fee4d378" class="semantic-heading semantic-failure">33.8.4 误区 4：滥用 CX_NO_CHECK</h5>
+<p>为了少写 <code>RAISING</code> 全部继承 <code>CX_NO_CHECK</code>，会让错误 contract 从 signature 中消失。</p>
+<p>修正动作：默认先问“调用方是否应该知道并处理”；如果是，优先考虑 <code>CX_STATIC_CHECK</code>。</p>
+<h5 id="33-8-5-5-catch-cx-root-67da1fa9" class="semantic-heading semantic-failure">33.8.5 误区 5：CATCH cx_root 后不处理</h5>
+<p>这是典型 <code>例外握りつぶし</code>。它可能让生产问题失去证据。</p>
+<p>修正动作：catch 具体异常；兜底时记录上下文、转换或重抛。测试代码里可以用 <code>CATCH cx_root INTO DATA(lx_root)</code> 后立即 <code>cl_abap_unit_assert=&gt;fail( lx_root-&gt;get_text( ) )</code>，这和生产代码空 catch 不是一回事。</p>
+<h5 id="33-8-6-6-exception-f7c5379c" class="semantic-heading semantic-failure">33.8.6 误区 6：把 exception 当普通业务分支</h5>
+<p>如果“没找到数据”是业务允许的正常结果，直接抛 exception 可能让流程过重。</p>
+<p>修正动作：区分 normal absence、validation error、technical failure；不同路径用不同表达。</p>
+<h5 id="33-8-7-7-d35a6112" class="semantic-heading semantic-failure">33.8.7 误区 7：异常里放敏感或过大的上下文</h5>
+<p>异常对象可能进入日志、dump、trace 或消息转换。不要随便塞完整 payload 或个人信息。</p>
+<p>修正动作：只放处理需要的业务 key、字段名、状态码；敏感信息脱敏。</p>
+<h5 id="33-8-8-8-classic-exception-8dc649ba" class="semantic-heading semantic-failure">33.8.8 误区 8：在新接口里继续扩散 classic exception</h5>
+<p>function module <code>EXCEPTIONS</code> 和 <code>sy-subrc</code> 风格在老代码中常见，但不适合作为新 OO / RAP / Cloud-ready 接口的主要错误 contract。</p>
+<p>修正动作：读旧代码时识别 classic exception；写新代码时用 class-based exception 或 RAP structured message contract。</p>
+<h4 id="33-9-f6afeb52" class="semantic-heading semantic-practice">33.9 思考问题</h4>
+<ul>
+<li>这个错误是调用方必须处理的可恢复错误吗？</li>
+<li>应该继承 <code>CX_STATIC_CHECK</code>、<code>CX_DYNAMIC_CHECK</code>，还是 <code>CX_NO_CHECK</code>？</li>
+<li>这个自定义异常类是否错误地想直接继承 <code>CX_ROOT</code>？</li>
+<li>method signature 是否用 <code>RAISING</code> 清楚表达错误 contract？</li>
+<li>这个异常能否写进 <code>RAISING</code>？如果是 <code>CX_NO_CHECK</code>，为什么不应该写？</li>
+<li>上层应该 catch 具体 exception，还是继续传播？</li>
+<li><code>CATCH</code> 顺序是否从具体到通用？</li>
+<li>这个 exception 需要携带哪些上下文？哪些不应该放进去？</li>
+<li>是否需要用 <code>previous</code> 保留底层异常？</li>
+<li>是否需要转换为 T100/message class、RAP reported message 或日志？</li>
+<li>有没有 <code>CATCH cx_root</code> 后空处理的 <code>例外握りつぶし</code>？</li>
+<li>这个业务失败是 exception，还是普通返回结果/validation message 更合适？</li>
+</ul>
+<h4 id="33-10-6628d9d5" class="semantic-heading semantic-reference">33.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENEXCEPTIONS.html" target="_blank" rel="noopener noreferrer">Class-Based Exceptions</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENEXCEPTION_CLASS_CREATE.html" target="_blank" rel="noopener noreferrer">Creating Exception Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPRAISE_EXCEPTION_CLASS.html" target="_blank" rel="noopener noreferrer">RAISE EXCEPTION</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCATCH_TRY.html" target="_blank" rel="noopener noreferrer">CATCH</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/working-with-exception-classes_acd9568c-be4e-445a-a454-14c6f2cfcd2e" target="_blank" rel="noopener noreferrer">Working with Exception Classes</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><a class="wiki" href="section-01-031-runtime-error-and-short-dump-b6d3f032.html">Runtime error and short dump 运行时错误</a></li>
+<li><a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a></li>
+</ul>
+<h4 id="33-11-connections-442d62c2">33.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-032-polymorphism-889652ed.html">Polymorphism 多态</a></li>
+<li>Downstream: <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li>Related: <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li>Related: <a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a></li>
+<li>Related: <a class="wiki" href="section-01-031-runtime-error-and-short-dump-b6d3f032.html">Runtime error and short dump 运行时错误</a></li>
+<li>Related: <a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-03-029-validation-44a4b013.html">RAP validation 验证</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 12 - OO ABAP 抽象、异常与单元测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="33-12-499ad404" class="semantic-heading semantic-practice">33.12 学习任务</h4>
+<ul>
+<li>写一个继承 <code>CX_STATIC_CHECK</code> 的 <code>zcx_quantity_invalid</code>。</li>
+<li>写一个 method，在 signature 中声明 <code>RAISING zcx_quantity_invalid</code>。</li>
+<li>用 <code>RAISE EXCEPTION TYPE zcx_quantity_invalid</code> 抛出异常。</li>
+<li>用 <code>RAISE EXCEPTION TYPE ... EXPORTING iv_quantity = ...</code> 把一个上下文参数传给异常对象。</li>
+<li>用 <code>TRY ... CATCH zcx_quantity_invalid INTO DATA(lx_quantity)</code> 捕获异常，并调用 <code>lx_quantity-&gt;get_text( )</code>。</li>
+<li>用 5 行中文说明 <code>CX_STATIC_CHECK</code>、<code>CX_DYNAMIC_CHECK</code>、<code>CX_NO_CHECK</code> 的区别。</li>
+<li>用 3 行中文说明为什么自定义异常类不能直接继承 <code>CX_ROOT</code>，以及 <code>CX_NO_CHECK</code> 为什么不能写在 <code>RAISING</code> 中。</li>
+<li>用日语写一句 review comment，指出 <code>CATCH cx_root</code> 后空处理是 <code>例外握りつぶし</code>。</li>
+<li>找一个 ABAP Unit 例子，说明 <code>CATCH cx_root INTO DATA(lx_root)</code> 后 <code>fail( lx_root-&gt;get_text( ) )</code> 为什么不是吞异常。</li>
+<li>找一个项目里已有的 exception class，判断它是否带了足够上下文，以及是否和 message/T100 有绑定。</li>
+</ul>
+<h4 id="33-13-confidence-next-action-f2f857cb" class="semantic-heading semantic-status">33.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level exception class concepts after SAP Help / SAP Learning source check and Joule <code>Pass with fixes</code> evidence. Joule 要求补充的 class-based vs classic exception、<code>CX_ROOT</code> 三大子类边界、customer exception naming、<code>get_text( )</code> / <code>get_longtext( )</code> / <code>get_source_position( )</code>、<code>CX_STATIC_CHECK</code> / <code>CX_DYNAMIC_CHECK</code> / <code>CX_NO_CHECK</code> 差异、<code>RAISING</code> 契约、<code>RAISE EXCEPTION TYPE ... EXPORTING ...</code>、<code>textid</code> / T100、<code>IF_T100_MESSAGE</code> / <code>IF_T100_DYN_MSG</code>、specific catch、RAP <code>reported</code> / <code>failed</code> 与 exception 的分工已经集成；具体项目异常类设计仍需结合本地系统和后续 RAP 章节确认。</li>
+<li>Next action: 已同步为书稿质量候选；Claude CLI 旧 review 因 timeout 没有返回 verdict，后续 Claude 恢复时可按 <code>90-Review/Claude Day12 Exception Class Section Review Prompt 2026-06-13.md</code> 做补充可读性 review。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-032-polymorphism-889652ed.html">Previous section</a><a href="section-02-034-try-catch-exception-handling-1b6ab118.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

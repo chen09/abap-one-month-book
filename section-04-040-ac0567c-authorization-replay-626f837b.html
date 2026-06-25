@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>AC0567C authorization replay | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="40-ac0567c-authorization-replay-84cf530b" class="chapter-title">40. AC0567C authorization replay</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 40</li><li>self-contained study note</li></ul><h4 id="40-1-72bfa2e3" class="semantic-heading semantic-concept">40.1 一句话结论</h4>
+<p><a class="wiki" href="section-04-040-ac0567c-authorization-replay-626f837b.html">AC0567C authorization replay</a> 是把 AC0567C batch upload API POC 放回 SAP 授权体系中复盘：一个 API 不是只要能被调用就算完成，还要能说明谁能上传、谁能查询、无权限如何被拒绝、错误如何返回、证据如何保存，以及哪些授权缺口必须在生产化前补齐。</p>
+<p>本节最重要的结论是：AC0567C POC 已经有一个真实的 ABAP 授权检查点，<code>ExecuteImport</code> 会在写入前执行 <code>AUTHORITY-CHECK OBJECT &#x27;F_BKPF_BUK&#x27;</code>，检查 <code>BUKRS</code> 和 <code>ACTVT = &#x27;01&#x27;</code>；但它还不是完整的生产级授权设计。当前 root view 使用 <code>@AccessControl.authorizationCheck: #NOT_REQUIRED</code>，BDEF 虽声明 <code>authorization master ( instance )</code> 和 <code>lock master</code>，但 behavior pool 中 <code>get_instance_authorizations</code> 与 <code>lock</code> 为空；三个 action 又都是 <code>static action</code>，没有 <code>get_global_authorizations</code> 时不会被 instance authorization 实际挡住。也就是说，当前真正生效的业务授权主要在 <code>ExecuteImport</code> 的 service class 内部，<code>ValidateBatch</code> 和 <code>GetStatus</code> 仍需要明确是否也要授权。</p>
+<p>这不是要否定 POC。恰恰相反，这个 POC 很适合教学：它清楚展示了“有一个检查点”与“有一套可交付授权设计”之间的距离。</p>
+<h4 id="40-2-ac8317df" class="semantic-heading semantic-concept">40.2 到底学什么</h4>
+<p>第一，要学会从调用入口看授权。AC0567C 不是传统 SAP GUI 事务，而是 RAP/OData API POC。调用者可能是 Swagger、PowerShell、浏览器模拟器、本地 proxy、外部 middleware、communication user 或后台自动化流程。API 场景不能只问“哪个按钮可见”，要问“谁以什么身份调用服务”。</p>
+<p>第二，要学会分辨授权层次。传统 ABAP 可以有 <code>AUTHORITY-CHECK</code>；CDS 可以有 DCL/access control；RAP 可以有 global authorization、instance authorization、feature control、precheck 或 validation；服务层还可能有 authentication、communication arrangement、service binding activation。复盘时要说清每层负责什么，不要把它们混成一句“权限已做”。</p>
+<p>第三，要学会读 AC0567C 的实际实现。当前 POC 的事实是：</p>
+<div class="table-wrap"><table><thead><tr><th>层次</th><th>当前证据</th><th>交付判断</th></tr></thead><tbody><tr><td>CDS/DCL</td><td><code>ZRPA01_I_AC0567C_IMPORT.ddls</code> 标注 <code>@AccessControl.authorizationCheck: #NOT_REQUIRED</code></td><td>当前 root view 不依赖 DCL，生产化要重新判断是否需要 DCL 或其他数据范围控制</td></tr><tr><td>RAP authorization declaration</td><td><code>ZRPA01_I_AC0567C_IMPORT.bdef</code> 声明 <code>authorization master ( instance )</code></td><td>有声明，但不能等同于已实现</td></tr><tr><td>RAP handler implementation</td><td><code>get_instance_authorizations</code> 为空，且没有 <code>get_global_authorizations</code></td><td>static actions 不会被 instance authorization 自动挡住</td></tr><tr><td>ABAP explicit check</td><td><code>ZCL_RPA01_AC0567C_IMP_SVC</code> 在 <code>execute_import</code> 中执行 <code>AUTHORITY-CHECK F_BKPF_BUK</code></td><td><code>ExecuteImport</code> 有真实业务写入前检查</td></tr><tr><td>Action coverage</td><td><code>ValidateBatch</code>、<code>ExecuteImport</code>、<code>GetStatus</code> 都是 static action</td><td><code>ValidateBatch</code> / <code>GetStatus</code> 是否需要授权门要单独设计</td></tr><tr><td>Test evidence</td><td>当前 POC 证明 happy path、真实写入、重复冲突和 status 查询</td><td>授权负例测试仍未完成</td></tr></tbody></table></div>
+<p>第四，要学会设计授权测试证据。授权测试至少要有：有权限用户成功、无权限用户失败、只读用户不能写、组织范围外数据被拒绝、失败时没有写 DB、错误响应合理、日志或 trace 可查。只测 happy path 不算 authorization replay。</p>
+<p>第五，要学会把授权复盘映射到项目文档。授权方针应进入基本设计，具体检查点进入详细设计，测试用户和结果进入单体/结合测试，角色/权限对象和运维排查进入上线或運用手順。日本项目里还要能用日语说明 <code>権限不足時の挙動確認</code> 和 <code>証跡</code>。</p>
+<h4 id="40-3-3376d29a" class="semantic-heading semantic-why">40.3 为什么重要</h4>
+<p>授权问题在 SAP 项目里通常很敏感，因为它直接关系到业务职责、内部控制、审计和生产事故。一个 batch upload API 如果授权不足，可能允许错误用户上传、修改或查看不该看的业务数据；如果授权设计过粗，又会造成合法用户无法工作。</p>
+<p>对交付来说，authorization replay 能把“接口能调通”升级为“接口能被正确的人、在正确范围内、以正确动作调用”。这比代码语法更接近真实项目验收。</p>
+<p>对 Java/Python 背景学习者来说，可以类比 authentication/authorization middleware、RBAC、row-level security 和 permission decorator。但 SAP 里还要考虑 authorization object、role/profile、client、org-level field、CDS DCL、RAP authorization、SU53/trace、业务事务和 transport。</p>
+<p>更重要的是，SAP 的授权常常和组织结构绑定。Java/Python 项目里常见的 RBAC 可能只回答“用户是不是 admin / operator / viewer”；SAP 项目还会继续问“这个用户对哪个 company code、sales organization、plant、purchasing organization 有权限”。因此 AC0567C 这种 batch upload API，不能只写“上传角色可以上传”，还要考虑“上传哪些业务范围的数据”。</p>
+<p>授权复盘也能帮助团队避免两个极端。一个极端是权限过松：为了 POC 快速通过，所有接口都给同一个技术用户高权限。另一个极端是权限过细但没有证据：开发、Basis、权限团队、业务顾问各自理解不同，测试时才发现合法用户调不通。好的 authorization replay 会把角色、动作、数据范围、错误响应和测试证据提前对齐。</p>
+<h4 id="40-4-key-mechanism-3dae6943" class="semantic-heading semantic-mechanism">40.4 Key mechanism / 核心机制</h4>
+<p>AC0567C 授权复盘可以按七步做。</p>
+<p>第一，列入口。确认有哪些入口需要保护：JSON validate API、JSON execute API、Base64 TSV upload validate/execute、status query、本地 proxy、Swagger、PowerShell test、模拟器、未来外部系统用户。不同入口可能对应不同角色。</p>
+<p>第二，列动作。AC0567C 当前有三类 RAP static action：<code>ValidateBatch</code>、<code>ExecuteImport</code>、<code>GetStatus</code>。三者不应默认同权。<code>ValidateBatch</code> 可能只做格式和业务校验，<code>ExecuteImport</code> 会进入真实写入路径，<code>GetStatus</code> 会读取导入状态。是否允许同一个 technical user 调用三者，是否允许业务只读用户查询状态，必须写清楚。</p>
+<p>第三，列数据范围。当前 <code>ExecuteImport</code> 用 <code>F_BKPF_BUK</code> 检查 company code 的创建权限：</p>
+<pre><code class="language-abap">AUTHORITY-CHECK OBJECT &#x27;F_BKPF_BUK&#x27;
+  ID &#x27;BUKRS&#x27; FIELD rs_result-company_code
+  ID &#x27;ACTVT&#x27; FIELD &#x27;01&#x27;.</code></pre>
+<p><code>F_BKPF_BUK</code> 是按 company code 控制会计凭证过账相关权限的标准授权对象；<code>ACTVT = &#x27;01&#x27;</code> 通常表示 Create。这里把它作为 company-code-level create 权限的 POC 代理检查，是可以解释的，但生产设计不能自动认为它就是最合适的对象。因为目标表是自定义表 <code>ZCOM_B_ACTT397</code>，生产化时要决定：继续复用标准 FI 授权对象、组合更多标准对象，还是设计专用 Z 授权对象。这是一条很适合教学的证据：它说明业务范围不是抽象的“有权限/无权限”，而是落在 <code>BUKRS</code>、<code>ACTVT</code> 这样的 object-field-value 上。生产化时还要确认 customer、upload owner、batch visibility、日志可见范围等是否也需要控制。</p>
+<p>还要注意实际执行顺序：<code>execute_import</code> 先调用 <code>validate_batch</code>，如果结果不是 <code>VALID</code> 就返回；然后检查 <code>AllowRealUpdate &lt;&gt; &#x27;X&#x27;</code> 时返回 <code>REJECTED</code>；只有 <code>AllowRealUpdate = X</code> 且校验通过时，才会走到 <code>AUTHORITY-CHECK F_BKPF_BUK</code>。所以授权负例测试必须设置 <code>AllowRealUpdate = X</code>，否则被测到的是 POC 安全开关失败，不是授权失败。</p>
+<p>第四，确认 RAP 层的真实生效状态。<code>ZRPA01_I_AC0567C_IMPORT.bdef</code> 写了 <code>authorization master ( instance )</code>，但当前 action 都是 static action。instance authorization 通常用于具体实例，而 static action 如果需要授权，应考虑 RAP global authorization 或 action 内显式检查。当前没有 <code>get_global_authorizations</code>，<code>get_instance_authorizations</code> 也是空方法，所以不要把 BDEF 声明误读成“RAP 授权已完成”。</p>
+<p>第五，设计错误与日志。无权限不应返回模糊技术错误，也不应泄漏内部数据。错误 payload、message、application log 和排查路径要能帮助运维定位。AC0567C 当前 service class 会把授权失败转为 <code>Status = REJECTED</code>、<code>MessageField = Authorization</code>、<code>MessageText = Authorization check F_BKPF_BUK/01 failed for CompanyCode</code>。这比 dump 好，但生产级 API 还要确认 error code、log id、message language、consumer contract 和敏感信息边界。</p>
+<p>第六，固定测试证据。至少准备三类用户：有完整权限、只读权限、无权限。再准备边界数据：允许 company code、禁止 company code、不存在的 batch、重复请求。记录 request、response、当前 user、时间戳、日志、trace 和 DB 未写入证据。</p>
+<p>第七，把授权和副作用绑定验证。无权限请求不应创建 batch header、不应写入 item、不应触发后续 job、不应留下可被后续处理的半成品。AC0567C 的 <code>AUTHORITY-CHECK</code> 发生在 action/interaction phase 的 service class 逻辑中、staging 之前；behavior saver 的 <code>save</code> 方法只消费 staged rows 并执行插入，本身没有再做授权检查。因此，授权必须在进入 save buffer 之前挡住不合法请求。AC0567C 的测试证据目前证明了 no-write 测试 8/8、真实写入 2 行、重复 <code>ImportId</code> 返回 <code>CONFLICT</code>，但还没有证明“无 <code>F_BKPF_BUK</code> 权限用户执行 <code>ExecuteImport</code> 时完全无副作用”。这正是 authorization replay 的生产化缺口。</p>
+<p>可以把 AC0567C 的授权复盘拆成五层：</p>
+<pre><code class="language-text">Caller layer
+  -&gt; communication user / dialog user / background user
+Service layer
+  -&gt; OData/RAP service activation, authentication, service exposure
+Business object layer
+  -&gt; RAP global authorization, instance authorization, feature control, precheck
+ABAP check layer
+  -&gt; AUTHORITY-CHECK F_BKPF_BUK in ExecuteImport
+Evidence layer
+  -&gt; response payload, DB row count, application log, SU53 / trace, test case result</code></pre>
+<p>设计时可以先画一张动作矩阵：</p>
+<div class="table-wrap"><table><thead><tr><th>动作</th><th>当前 AC0567C 入口</th><th>授权重点</th><th>无权限时应避免</th></tr></thead><tbody><tr><td>Validate batch</td><td><code>ValidateBatch</code> / <code>/validate</code></td><td>是否允许外部用户提交校验请求，是否泄漏业务规则</td><td>写 DB、暴露过多校验细节</td></tr><tr><td>Execute import</td><td><code>ExecuteImport</code> / <code>/execute</code></td><td><code>F_BKPF_BUK</code>、组织范围、是否需要 RAP global authorization</td><td>插入 <code>ZCOM_B_ACTT397</code>、留下半成品</td></tr><tr><td>Upload validate</td><td><code>/upload/validate</code></td><td>文件来源、格式、大小、业务范围</td><td>解析危险文件、泄漏校验细节</td></tr><tr><td>Upload execute</td><td><code>/upload/execute</code></td><td>文件执行权限、<code>AllowRealUpdate</code>、组织范围</td><td>写入错误数据、重复导入</td></tr><tr><td>Query status</td><td><code>GetStatus</code> / <code>/status</code></td><td>上传者/运维/业务负责人能看哪些 batch</td><td>泄漏他人 batch 或组织数据</td></tr><tr><td>View logs/errors</td><td>后续 application log / report</td><td>日志可见范围、敏感字段遮蔽</td><td>暴露 payload、个人信息或技术细节</td></tr></tbody></table></div>
+<p>RAP 中的 global authorization 和 instance authorization 可以帮助表达“动作层”和“对象实例层”的差异。global authorization 更适合判断用户是否原则上可以执行某类操作；instance authorization 更适合判断用户是否可以对某个具体 batch 或业务对象执行操作。CDS DCL 更偏读取时的行级访问控制，但它不能替代写操作的动作授权，也不能替代 service/API 层的 authentication。</p>
+<p>还要注意 feature control 和 authorization 的边界。feature control 可以让某些 action 或 field 在特定状态下不可用，但“按钮不可用”不等于“用户无权”。如果 API 被直接调用，仍要在 behavior implementation 或授权机制中保证无权限/非法状态不会产生副作用。</p>
+<h4 id="40-5-e4218906" class="semantic-heading semantic-japan">40.5 日本项目现场说法</h4>
+<p>常见日语包括：</p>
+<ul>
+<li><code>権限チェック</code></li>
+<li><code>認可</code></li>
+<li><code>権限オブジェクト</code></li>
+<li><code>ロール</code></li>
+<li><code>行レベル制御</code></li>
+<li><code>RAP認可</code></li>
+<li><code>グローバル認可</code></li>
+<li><code>インスタンス認可</code></li>
+<li><code>事前チェック</code></li>
+<li><code>SU53確認</code></li>
+<li><code>権限トレース</code></li>
+<li><code>権限エラー時の挙動確認</code></li>
+</ul>
+<p>设计说明中可以这样说：</p>
+<pre><code class="language-text">アップロード権限と照会権限を分離し、利用者ロールごとに許可される操作を整理します。</code></pre>
+<pre><code class="language-text">データ参照については、必要に応じてCDS DCLまたはRAP認可で行レベル制御を検討します。</code></pre>
+<pre><code class="language-text">権限不足時は業務的に理解可能なエラーを返し、調査用のログ証跡を残します。</code></pre>
+<p>测试说明中可以这样说：</p>
+<pre><code class="language-text">権限ありユーザ、照会のみユーザ、権限なしユーザでAPI応答差異を確認します。</code></pre>
+<pre><code class="language-text">権限エラー時のレスポンス、アプリケーションログ、SU53/トレース結果を証跡として保存します。</code></pre>
+<p>设计 review 里还可以这样问：</p>
+<ul>
+<li><code>API呼出ユーザは業務ユーザに紐づきますか、それとも技術ユーザとして全体権限を持ちますか。</code></li>
+<li><code>アップロード、照会、再処理、取消の権限は同一ロールでよいですか。</code></li>
+<li><code>組織単位によるデータ制御は、DCL、RAP認可、または明示的な権限チェックのどこで担保しますか。</code></li>
+<li><code>権限不足時に業務データや後続処理が作成されないことを、どのテスト証跡で確認しますか。</code></li>
+</ul>
+<p>缺陷分析时可以这样说：</p>
+<ul>
+<li><code>本件は認証エラーではなく、認可条件または組織レベル権限の不足として切り分けます。</code></li>
+<li><code>SU53 だけで判断せず、必要に応じて権限トレース、アプリケーションログ、APIレスポンスを合わせて確認します。</code></li>
+<li><code>技術ユーザに過大権限を付与する対応は暫定回避策であり、本番設計としてはロール分離を再確認します。</code></li>
+</ul>
+<h4 id="40-6-english-terms-9e441a28" class="semantic-heading semantic-terms">40.6 English Terms</h4>
+<ul>
+<li>Local / project term: <code>AC0567C authorization replay</code>.</li>
+<li>SAP terms: <code>AUTHORITY-CHECK</code>, <code>authorization object</code>, <code>authorization field</code>, <code>authorization value</code>, <code>role</code>, <code>profile</code>, <code>CDS access control</code>, <code>DCL</code>, <code>RAP global authorization</code>, <code>RAP instance authorization</code>, <code>feature control</code>, <code>precheck</code>, <code>SU53</code>, <code>authorization trace</code>.</li>
+<li>POC object names: <code>F_BKPF_BUK</code>, <code>BUKRS</code>, <code>ACTVT</code>, <code>ExecuteImport</code>, <code>ValidateBatch</code>, <code>GetStatus</code>, <code>ZRPA01_I_AC0567C_IMPORT</code>, <code>ZCL_RPA01_AC0567C_IMP_SVC</code>, <code>ZCOM_B_ACTT397</code>.</li>
+<li>Recommended search pattern: <code>SAP RAP authorization</code>, <code>SAP CDS access control DCL</code>, <code>SAP AUTHORITY-CHECK</code>, <code>SAP SU53 authorization trace</code>.</li>
+<li>注意：AC0567C 是本地项目名，不是 SAP 官方术语；官方资料应围绕 RAP authorization、CDS DCL 和 ABAP authorization 检索。</li>
+</ul>
+<h4 id="40-7-example-26b2b0ee" class="semantic-heading semantic-example">40.7 Example / 学习例子</h4>
+<p>可以为 AC0567C 准备这样一张授权复盘表：</p>
+<pre><code class="language-text">API:
+  Execute batch import
+
+Action:
+  ExecuteImport
+
+Current implemented check:
+  AUTHORITY-CHECK F_BKPF_BUK with BUKRS = CompanyCode and ACTVT = 01
+
+Allowed user:
+  User with create authorization for target company code
+
+Denied user:
+  User without F_BKPF_BUK/01 for target company code
+
+Expected allowed result:
+  IMPORTED or VALID business response depending on AllowRealUpdate
+
+Expected denied result:
+  REJECTED authorization message, no insert into ZCOM_B_ACTT397
+
+Evidence:
+  request, response, sy-uname/technical user, timestamp, DB row count,
+  application log or trace, test case ID</code></pre>
+<p>再看一个更接近生产化的测试矩阵：</p>
+<div class="table-wrap"><table><thead><tr><th>Case</th><th>用户</th><th>动作</th><th>数据</th><th>期待结果</th><th>必要证据</th></tr></thead><tbody><tr><td>A1</td><td>upload role</td><td><code>ExecuteImport</code></td><td>允许 company code</td><td>成功或 staged/imported</td><td>request/response、DB row count、log</td></tr><tr><td>A2</td><td>read-only role</td><td><code>ExecuteImport</code> with <code>AllowRealUpdate = X</code></td><td>允许 company code</td><td>授权错误，无业务数据保存</td><td>response、DB 件数、trace</td></tr><tr><td>A3</td><td>no-role user</td><td><code>GetStatus</code></td><td>已存在 batch</td><td>授权错误或受控 not found</td><td>response、SU53/trace</td></tr><tr><td>A4</td><td>upload role</td><td><code>ExecuteImport</code> with <code>AllowRealUpdate = X</code></td><td>禁止 company code</td><td><code>F_BKPF_BUK</code> 错误或组织范围错误</td><td>response、无明细保存</td></tr><tr><td>A5</td><td>technical user</td><td><code>/upload/execute</code></td><td>Base64 TSV</td><td>只在允许范围内执行</td><td>proxy log、SAP response</td></tr><tr><td>A6</td><td>normal user</td><td>view log</td><td>他人 batch</td><td>不泄漏敏感日志</td><td>response、log visibility</td></tr></tbody></table></div>
+<p>其中 A2 和 A4 特别关键。很多项目只证明“有权限时能成功”，却没有证明“无权限时没有副作用”。对上传 API 来说，失败后仍然留下 batch header、partial item、后台 job 或 external call，都会让授权问题变成事务一致性问题。测试时应明确检查数据库记录数、状态变化、application log 类型和后续处理是否被触发。</p>
+<p>还可以把错误响应设计成固定格式：</p>
+<pre><code class="language-json">{
+  &quot;code&quot;: &quot;AC0567C_AUTH_001&quot;,
+  &quot;message&quot;: &quot;You are not authorized to upload data for this organization.&quot;,
+  &quot;target&quot;: &quot;companyCode&quot;,
+  &quot;logId&quot;: &quot;BAL-20260616-0001&quot;
+}</code></pre>
+<p>这只是教学示意，不是要求所有 SAP 服务都用同一 JSON 结构。它想表达的是：权限错误要能被调用方识别、被测试脚本断言、被运维用 log id 追踪，并且不能暴露内部授权对象名、角色名或用户不该知道的数据。</p>
+<h4 id="40-8-counterexample-failure-mode-4bf7a6b9" class="semantic-heading semantic-example">40.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下。</p>
+<p>第一，只在 UI 层隐藏按钮。API 仍可能被直接调用，必须在服务、业务对象、数据访问层考虑授权。</p>
+<p>第二，只测有权限用户。无权限、只读、组织范围外、边界数据才是真正暴露风险的场景。</p>
+<p>第三，把 authentication 当 authorization。能登录或有技术用户，不代表可以执行所有业务动作。</p>
+<p>第四，把 <code>AllowRealUpdate = X</code> 当成授权。它只是 POC 的安全开关，不是权限机制；授权负例测试若不设置它，测试到的是安全开关，而不是 <code>F_BKPF_BUK</code> 授权检查。</p>
+<p>第五，把 BDEF 的 <code>authorization master ( instance )</code> 声明当成授权已完成。当前 AC0567C 的 instance authorization 方法为空，static action 也没有 global authorization gate。</p>
+<p>第六，把 DCL 当成写操作授权。DCL 主要影响 CDS 读取结果，不能自动证明 upload / execute / cancel 这类动作安全。</p>
+<p>第七，授权失败后仍产生副作用。无权限请求不应保存半成品、写入错误业务数据或触发后续处理。</p>
+<p>第八，错误消息过于技术化。用户和运维不知道是权限问题、数据问题还是程序错误。</p>
+<p>第九，不保存证据。上线后权限争议无法说明当时测过什么。</p>
+<p>第十，用一个高权限 technical user 解决所有问题。这样测试最容易通过，但生产最难审计。技术用户如果代表外部系统，应限制服务、动作和数据范围，并保留调用来源、业务责任人或 request trace。</p>
+<p>第十一，只看 SU53。SU53 对很多经典授权排查很有用，但 RAP/CDS/API 场景还可能需要 authorization trace、application log、response payload、service binding/runtime 错误和业务对象状态一起判断。</p>
+<p>第十二，错误信息泄漏过多。返回“你无权访问 batch B001，因为它属于 company code 1000”可能在某些场景泄漏对象存在性或组织信息。是否返回详细原因，要按安全方针和业务可用性平衡。</p>
+<p>第十三，运输遗漏。授权相关对象可能分散在 DCL source、behavior definition、class、role/profile 配置、service binding、communication arrangement 和测试数据中。只移送代码、不移送访问控制对象或配置，会造成 QAS/PRD 行为不一致。</p>
+<h4 id="40-9-0ae17777" class="semantic-heading semantic-practice">40.9 思考问题</h4>
+<ul>
+<li>AC0567C 的 <code>ValidateBatch</code>、<code>ExecuteImport</code>、<code>GetStatus</code> 是否应该使用同一权限？</li>
+<li>哪些检查适合放在 RAP global authorization，哪些适合 instance authorization 或 DCL？</li>
+<li>当前 <code>AUTHORITY-CHECK F_BKPF_BUK</code> 证明了什么？还没有证明什么？</li>
+<li>对自定义表 <code>ZCOM_B_ACTT397</code> 来说，生产设计应继续使用 <code>F_BKPF_BUK</code>，还是需要自定义授权对象？</li>
+<li>无权限请求应该返回什么错误，并且不应该产生什么副作用？</li>
+<li>生产化前需要准备哪些授权测试用户和证据？</li>
+<li>如果客户说“某用户不能调用 API”，应如何用 SU53/trace/log 做一次切り分け？</li>
+</ul>
+<h4 id="40-10-68869792" class="semantic-heading semantic-reference">40.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+<li><span class="wiki unresolved">AC0567C Project Case</span></li>
+<li>Local POC source: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\02_abap_source\ZRPA01_I_AC0567C_IMPORT.bdef</code></li>
+<li>Local POC source: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\02_abap_source\ZBP_RPA01_I_AC0567C_IMPORT.localtypes.abap</code></li>
+<li>Local POC source: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\02_abap_source\ZCL_RPA01_AC0567C_IMP_SVC.abap</code></li>
+<li>Local test evidence: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612\04_tests\TEST_EVIDENCE.md</code></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=RAP%20authorization" target="_blank" rel="noopener noreferrer">RAP authorization</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=CDS%20access%20control%20DCL" target="_blank" rel="noopener noreferrer">CDS access control DCL</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=AUTHORITY-CHECK%20ABAP" target="_blank" rel="noopener noreferrer">AUTHORITY-CHECK ABAP</a></li>
+<li>SAP Help search: <a href="https://help.sap.com/docs/search?q=SAP%20authorization%20trace" target="_blank" rel="noopener noreferrer">Authorization trace</a></li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Latest</a></li>
+</ul>
+<h4 id="40-11-connections-0ce7e87e">40.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Practice</span></li>
+<li>Upstream: <a class="wiki" href="section-04-039-ac0567c-poc-architecture-replay-be4cadf1.html">AC0567C POC architecture replay</a></li>
+<li>Downstream: <a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Related: <a class="wiki" href="section-04-009-pfcg-role-basics-for-developers-705939eb.html">PFCG role basics for developers</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a></li>
+<li>Related: <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 28 - AC0567C POC 架构复盘</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="40-12-dff8d136" class="semantic-heading semantic-practice">40.12 学习任务</h4>
+<ul>
+<li>为 AC0567C 设计三个测试用户：上传用户、只读用户、无权限用户。</li>
+<li>写一张 API 授权测试表：用户、动作、数据范围、期待响应、实际响应、日志证据。</li>
+<li>用日语写 2 句：一句说明权限设计，一句说明权限不足时的调查证据。</li>
+<li>判断 <code>ValidateBatch</code>、<code>ExecuteImport</code>、<code>GetStatus</code> 三个动作是否应该拆分权限。</li>
+<li>在本地 POC source 中找到 <code>AUTHORITY-CHECK F_BKPF_BUK</code>，写出它检查的 object-field-value。</li>
+<li>解释为什么授权负例测试必须让 <code>AllowRealUpdate = X</code>，否则不能证明 <code>F_BKPF_BUK</code> 是否生效。</li>
+<li>把本节结果连接到 <span class="wiki unresolved">AC0567C POC Reading Map</span> 和后续 <a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a>。</li>
+</ul>
+<h4 id="40-13-confidence-next-action-188cd08e" class="semantic-heading semantic-status">40.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High。正文已对照本地 POC 的 BDEF、behavior pool、service class 和测试证据，并通过 Claude 2026-06-18 文件式 review 后整合修正，明确了当前已实现授权检查和生产化缺口；当前文本已补足 <code>AllowRealUpdate</code> 与 <code>AUTHORITY-CHECK</code> 的执行顺序、action/interaction phase 与 saver 的责任边界、<code>F_BKPF_BUK</code> / <code>ACTVT = &#x27;01&#x27;</code> gloss，以及自定义表是否需要 Z 授权对象的生产设计问题。Joule review 仍为 deferred placeholder；如 Joule 恢复，应补一次 SAP/RAP/OData/Clean Core 授权视角最终 verdict。</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a>，把授权复盘继续扩展到重复请求、防重和事务一致性。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-040-ac0567c-authorization-replay-626f837b.html">AC0567C authorization replay</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-039-ac0567c-poc-architecture-replay-be4cadf1.html">Previous section</a><a href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

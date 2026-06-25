@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP project in ADT | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="9-abap-project-in-adt-7f076d53" class="chapter-title">9. ABAP project in ADT</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 09</li><li>self-contained study note</li></ul><p><strong>1) 一句话结论</strong></p>
+<p>ABAP project in ADT 是 ADT 里连接 ABAP 后端系统的项目入口；本节要学的是：它不是本地源码目录，而是带有 project name、system/client/user/default language 等登录上下文的系统连接，并通过 Project Explorer、Favorite Packages 和权限控制，把开发者带到远端 ABAP repository object 上工作。</p>
+<p><strong>2) 到底学什么</strong></p>
+<p>上一节 <a class="wiki" href="section-01-008-abap-development-tools-in-eclipse-fef5783a.html">ABAP Development Tools in Eclipse</a> 讲了 ADT 是现代 ABAP 的主要开发工作台。本节把其中最容易被初学者忽略的一层放大：打开 ADT 之后，真正的开发起点不是“新建一个本地文件夹”，而是“新建或打开一个 ABAP project”。SAP Help 对 ABAP project 的定义很直接：它总是代表一个 system connection，并在 SAP system 与 Eclipse-based IDE client 之间起 mediator 的作用。</p>
+<p>一个 ABAP project 通常包含几类关键信息。第一是 project name，也就是 Eclipse workspace 里显示的项目名；第二是 system data，例如 system ID、client、user 和认证信息；第三是 default language；第四是可选的 Favorite Packages。SAP Learning 也说明，ABAP project 包含 system、client、user、language 等系统登录参数，开发者必须登录系统才能编辑对象。换句话说，ABAP project 的“项目性”不是来自本地目录结构，而是来自你连接到哪个 ABAP back-end、用哪个 client、哪个 user、哪种 language、以及准备操作哪些 package。</p>
+<p>这里有一个对日本项目很重要的细节：ABAP project 的 default language 创建后不能修改。如果开发者一开始用 JA 创建项目，后来又想在同一个项目里改成 EN，通常不能像切 IDE 语言那样简单切换；实际做法是为同一个系统创建另一个 ABAP project。SAP Help 也明确说，同一个 Eclipse workspace 里可以有多个 ABAP projects，甚至可以为同一个系统建立多个项目，用于不同 client 或不同 logon language。</p>
+<p>本节还要分清两类项目创建流程。classic ABAP Project 用于 on-premise、SAP S/4HANA Cloud Private Edition 以及其他以 SAP Logon / manual system connection 方式连接的 ABAP 系统。ABAP Cloud Project 则用于 SAP BTP ABAP Environment 和 SAP S/4HANA Cloud Public Edition 3-system landscape（3SL）的开发连接。不要把“cloud”说得太泛：Private Edition 和 on-premise 不是因为名字里有 Cloud 或 S/4HANA 就使用 ABAP Cloud Project。</p>
+<p>最后，本节要学一个 practical checklist。打开或创建 ABAP project 时，先确认 system/client、user、default language、Favorite Packages 和基本开发权限。如果连接或编辑失败，不要马上进入安装细节，先回到后文的 canonical 排查顺序，判断问题属于 project type、authentication、authorization，还是后端 ADT 服务/项目环境准备。Day 02 不要求解决所有 setup 问题，但必须知道这些问题属于哪里。</p>
+<p><strong>3) 为什么重要</strong></p>
+<p>Java/Python 开发者很容易把“项目”理解为本地 working directory。这个经验在 ABAP 里会误导人：本地 Eclipse workspace 只是入口，真正的开发对象在 ABAP back-end repository。ABAP project 连接错了，看到的 package、对象、client 数据、权限、language、transport context 都可能不同。哪怕代码名字相同，DEV 的 client 100、client 200、QAS、Public Edition development system、BTP ABAP Environment service instance，都不是同一个工作上下文。</p>
+<p>这个差异会直接影响项目交付。日本 SAP 项目里，开发者经常需要向组长或审查者说明：どのシステム、どのクライアント、どのユーザ、どのパッケージで作業していますか。这个问题不是形式主义。连接到错误 client，可能查不到测试数据；使用管理员用户做开发，可能掩盖权限问题；logon language 错误，可能让 message text、object text 或错误信息不符合项目检查习惯；Favorite Packages 没设好，可能在巨大 System Library 里迷路；权限不足，可能只能 display，不能 activate 或 assign transport。</p>
+<p>ABAP project 也是后续所有 ADT 工作流的地基。<a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a>、<a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a>、<a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a> 都发生在某个系统连接之下；activation、where-used、ATC 等检查也都继承这个连接上下文。初学者如果跳过这一节，后面会把“我看不到对象”“我不能激活”“为什么 QAS 没变”“为什么 service binding 不能创建”都误判成代码问题。很多时候，问题的第一层根因其实是 project、client、user、language、package 或 authorization。</p>
+<p><strong>4) Key mechanism / 核心机制</strong></p>
+<p>第一层机制是 workspace 与 project。Eclipse workspace 可以同时放多个 ABAP projects。一个开发者可以在同一个 Eclipse 里连接 DEV、QAS、sandbox、BTP ABAP Environment，也可以为同一个 back-end system 建多个 project，例如 client 不同、language 不同、或登录用户不同。workspace 是本地 IDE 的组织空间；ABAP project 才是进入某个 ABAP back-end 的连接入口。</p>
+<p>第二层机制是 project specification。ABAP project 至少要让 ADT 知道 project name、system data、authentication context 和 default language。system data 里通常包括 system ID、client、user 等。default language 会影响消息和 UI 文本，并经由创建时的 logon language 影响新建开发对象的原始语言（original language）。这个设置创建后不能随便改，所以日本项目里经常需要提前决定用 JA 还是 EN，并在必要时创建多个 project。</p>
+<p>第三层机制是 classic ABAP Project 与 ABAP Cloud Project。先记住准确边界：classic ABAP Project 适用于 on-premise 和 SAP S/4HANA Cloud Private Edition；ABAP Cloud Project 用于 SAP BTP ABAP Environment 与 SAP S/4HANA Cloud Public Edition 3SL。BTP ABAP Environment 常通过 ABAP service instance URL 或 service key 创建连接，并通过 browser authentication 登录。Public Edition 的 Project Explorer 范围更受限制，通常不会像 classic project 那样暴露完整 System Library。</p>
+<p>第四层机制是 Project Explorer。创建 project 后，开发者通常从 Project Explorer 进入 repository。classic project 里可能看到 Favorite Packages、System Library 等入口；cloud project 里对象类型和树结构会更受限制，可能更强调 Favorite Packages、Favorite Objects、Released Objects 等视图。初学者不要一开始就展开整个 System Library，而是把当天课程或项目交付相关 package 加入 Favorite Packages，让工作范围可控。</p>
+<p>第五层机制是 Favorite Packages。Favorite Packages 不是装饰项，而是实际工作范围管理。一个 SAP S/4HANA 系统里的 repository 很大，直接从全局树找对象会非常低效。把当前练习包、项目包、POC 包加入 Favorite Packages 后，开发者才能稳定地创建 class、CDS、service binding、package 子对象，也更容易在 code review 或 pair work 中对齐“我们今天改的是哪一包”。</p>
+<p>第六层机制是 authorization 与 connection failure。能创建 project 不代表能改对象。Day 02 只需要建立一个 canonical 排查顺序：</p>
+<pre><code class="language-text">ABAP project connection checklist
+  1. Project type: classic ABAP Project or ABAP Cloud Project
+  2. System/client/user/language: 是否连接到正确环境
+  3. Favorite package: 是否能看到目标 package
+  4. Authorization: display/change/activate/transport/ATC 等权限是否足够
+  5. Backend/service setup: ADT service、service instance URL、service key 或 browser authentication 是否正确</code></pre>
+<p>BTP ABAP Environment / Public Edition 里还要注意 browser authentication 当前使用的是 developer user 还是已有 admin session。这里的目的不是教初学者配置系统，而是让他能把问题交给正确的人：Basis、BTP admin、security admin，还是自己修正 ADT project 选择。</p>
+<p>第七层机制是 setup boundary。安装 Eclipse/ADT、配置 <code>/sap/bc/adt</code> 等 ICF service、维护 SICF、设置 SNC/SSO、分配标准角色、创建 BTP service key、处理 service key rotation，都很重要，但属于 setup/admin appendix 或项目环境准备工作。本节只给开发者一个判断能力：遇到这些问题时知道该找 Basis、BTP admin、security admin，还是自己在 ADT 里改 project 设置。</p>
+<p><strong>5) 日本项目现场说法</strong></p>
+<ul>
+<li>常见日语：<code>ABAPプロジェクト</code>、<code>ABAP Cloud Project</code>、<code>システム接続</code>、<code>クライアント</code>、<code>ログオンユーザ</code>、<code>ログオン言語</code>、<code>原語</code>、<code>バックエンドシステム</code>、<code>Project Explorer</code>、<code>お気に入りパッケージ</code>、<code>お気に入り登録</code>、<code>権限不足</code>、<code>接続エラー</code>、<code>システム接続エラー</code>、<code>サービスインスタンスログオンエラー</code>、<code>認証</code>、<code>ブラウザ認証</code>。</li>
+<li>说明句：この ABAPプロジェクトは DEV のクライアント 100 に接続しており、ログオンユーザとログオン言語を確認済みです。</li>
+<li>说明句：お気に入りパッケージに対象パッケージを登録してから、Repository Object を作成してください。</li>
+<li>说明句：S/4HANA Cloud Private Edition の場合は ABAP Cloud Project ではなく、通常の ABAP Project で接続します。</li>
+<li>说明句：接続エラーの場合は、プロジェクト種別、ログオンユーザ、権限、サービスインスタンス URL / Service Key を順番に確認します。</li>
+<li>使用场景：初回環境セットアップ、開発着手前確認、権限不足の問い合わせ、BTP ABAP Environment 接続確認、Public Edition developer extensibility、移送前の作業環境確認。</li>
+</ul>
+<p><strong>6) English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>ABAP project</code>, <code>ABAP Project</code>, <code>ABAP Cloud Project</code>, <code>classic ABAP Project</code></li>
+<li>Related terms: <code>system connection</code>, <code>ABAP back-end system</code>, <code>system ID</code>, <code>client</code>, <code>user</code>, <code>password</code>, <code>default language</code>, <code>logon language</code>, <code>original language</code>, <code>Project Explorer</code>, <code>Favorite Packages</code>, <code>System Library</code>, <code>Released Objects</code>, <code>service instance URL</code>, <code>service key</code>, <code>browser authentication</code>, <code>SAP Logon connection</code>, <code>manual system connection</code></li>
+<li>Recommended search pattern: <code>ABAP projects SAP Help ADT default language</code>, <code>ABAP project system client user language SAP Learning</code>, <code>ABAP Cloud Project SAP BTP ABAP Environment service key</code>, <code>ABAP Cloud Project S/4HANA Cloud Public Edition 3SL</code></li>
+<li>读官方资料时要区分 <code>logon language</code> 与 <code>original language</code>。前者是登录和界面/消息语言；后者是开发对象文本的原始语言，在项目交付和翻译场景中会被单独检查。</li>
+</ul>
+<p><strong>7) Example / 学习例子</strong></p>
+<p>假设学习者要在 DEV 系统里继续 Day 02 练习。第一步不是直接创建 class，而是看 ADT 左侧的 Project Explorer：当前 project 名是什么？连接的是哪个 system/client？登录用户是谁？logon language 是 JA 还是 EN？如果教程要求使用某个 package，例如 <code>ZABAP_LEARN_##</code>，就先确认它是否已经加入 Favorite Packages。</p>
+<p>第二步检查 project type。粗略记忆是：on-premise / SAP S/4HANA Cloud Private Edition 通常是 classic ABAP Project；SAP BTP ABAP Environment / SAP S/4HANA Cloud Public Edition 3SL 通常按 ABAP Cloud Project 理解。不要用“是不是云”这种粗略判断代替具体环境判断。</p>
+<p>第三步做权限观察。尝试打开、编辑、激活一个练习对象；如果失败，不要马上判断为代码问题，而是按第六层机制的 checklist 定位到 project type、登录上下文、authorization 或 service connection。</p>
+<p>第四步记录一个工作环境卡片：</p>
+<pre><code class="language-text">System: DEV / S4D
+Client: 100
+Project type: classic ABAP Project
+User: ZDEV_###
+Logon language: EN
+Favorite package: ZABAP_LEARN_###
+Can display/edit/activate: yes / yes / yes
+Transport request: DEVK9#####</code></pre>
+<p>这个卡片看起来很小，但它能减少大量沟通成本。日本项目里，很多“我这里可以/你那里不行”的问题，最后都要回到这个连接上下文来解释。</p>
+<p><strong>8) Counterexample / Failure mode</strong></p>
+<ul>
+<li>误区 1：把 ABAP project 当成本地源码目录。修正：它首先是 system connection；source object 保存在 ABAP back-end repository。</li>
+<li>误区 2：只看 system，不看 client。修正：同一个 system 的不同 client 可能有不同业务数据、customizing、测试条件和权限。</li>
+<li>误区 3：把所有 cloud 场景都用 ABAP Cloud Project。修正：BTP ABAP Environment / SAP S/4HANA Cloud Public Edition 3SL 与 Private Edition / on-premise 的连接方式不同，要按具体系统类型确认。</li>
+<li>误区 4：忽视 default language。修正：default language 创建后不能修改；如果需要不同 logon language，创建另一个 project。</li>
+<li>误区 5：不设 Favorite Packages，直接在 System Library 里找对象。修正：真实 S/4HANA repository 很大，Favorite Packages 是日常工作范围管理。</li>
+<li>误区 6：把权限错误当成代码错误。修正：先确认 display/change/activation/transport/debug/ATC 等权限和角色，再判断代码问题。</li>
+<li>误区 7：把 admin 用户当开发用户。修正：特别是 Public Edition / BTP ABAP Environment 场景，要确认 ADT browser authentication 用的是 developer user，而不是已有 admin session。</li>
+</ul>
+<p><strong>9) 思考问题</strong></p>
+<ul>
+<li>ABAP project、Eclipse workspace、ABAP repository、Git repository 这四个概念有什么区别？</li>
+<li>为什么同一个 SAP 系统可能需要多个 ABAP projects？</li>
+<li>default language 不能修改，会给日本项目里的 JA/EN 使用带来什么影响？</li>
+<li>为什么 SAP S/4HANA Cloud Private Edition 不应简单归入 ABAP Cloud Project 连接方式？</li>
+<li>如果同事说“我能看到对象但不能激活”，你会怎样按 canonical checklist 判断是连接、权限还是后端 setup 问题？</li>
+<li>如何用一句日语说明“请确认你连接的是 DEV 的正确 client，并把目标 package 加入 Favorite Packages”？</li>
+</ul>
+<p><strong>10) 参考资料入口</strong></p>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/4ec176c76e391014adc9fffe4e204223.html" target="_blank" rel="noopener noreferrer">ABAP Projects</a>（accessed 2026-06-13）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-concept-and-architecture-of-rap" target="_blank" rel="noopener noreferrer">Understanding the ABAP RESTful Application Programming Model</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/creating-abap-cloud-project" target="_blank" rel="noopener noreferrer">Creating an ABAP Cloud Project</a>（accessed 2026-06-13）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/expanding-sap-s-4hana-using-key-user-side-by-side-extensibility/application-example" target="_blank" rel="noopener noreferrer">How to Connect ADT to SAP BTP ABAP Environment and Create an ABAP Package</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/browsing-development-objects-in-project-explorer" target="_blank" rel="noopener noreferrer">Browsing Development Objects in the Project Explorer</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/adding-favorite-package" target="_blank" rel="noopener noreferrer">Adding a Favorite Package</a>（accessed 2026-06-13）</li>
+<li>SAP KBA: <a href="https://userapps.support.sap.com/sap/support/knowledge/en/3475500" target="_blank" rel="noopener noreferrer">3475500 - Logon to the ABAP service instance has failed</a>（SAP login may be required; accessed 2026-06-13）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>11) Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li><span class="wiki unresolved">MOC ADT Workflow</span></li>
+<li>Upstream: <a class="wiki" href="section-01-008-abap-development-tools-in-eclipse-fef5783a.html">ABAP Development Tools in Eclipse</a></li>
+<li>Downstream: <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a></li>
+<li>Related: <a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-01-013-activation-ff7e1caa.html">Activation 激活机制</a></li>
+<li>Related: <a class="wiki" href="section-01-005-sap-btp-abap-environment-9f7f1d20.html">SAP BTP ABAP environment 云开发环境</a></li>
+<li>Related: <a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud 现代开发模型</a></li>
+<li>Related: <a class="wiki" href="section-01-019-japanese-sap-naming-convention-sap-2bdcfbd7.html">Japanese SAP naming convention</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 02 - ADT 与 Repository Object 生命周期</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>12) 学习任务</strong></p>
+<ul>
+<li>用自己的中文说明：为什么 ABAP project 不是本地源码项目，而是系统连接。</li>
+<li>为自己的练习环境写一张工作环境卡片，至少包含 system、client、project type、user、logon language、favorite package。</li>
+<li>找到当前练习 package，把它加入 Favorite Packages，并记录操作路径。</li>
+<li>写 1 句日语，说明当前连接的 system/client/user/language 已确认。</li>
+<li>判断一个场景应该用 classic ABAP Project 还是 ABAP Cloud Project，并说明理由。</li>
+<li>如果已经进入 Week 3/4，把一个 RAP / CDS / service binding 对象映射回它所属的 ABAP project、package、transport request 和 activation 状态。</li>
+</ul>
+<p><strong>13) Confidence &amp; Next Action</strong></p>
+<ul>
+<li>Confidence: High for beginner mental model and official ADT project boundary; exact wizard labels, cloud project restrictions, role/catalog names, and service-key flow can vary by ADT version, SAP release, Public Edition 2SL/3SL status, and project tenant setup.</li>
+<li>Next action: 进入 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a>，把“连接到系统”进一步推进到“系统里到底有哪些 repository objects，它们如何被创建、打开、激活和传输”。</li>
+</ul>
+<blockquote>Atomic note: <a class="wiki" href="section-01-009-abap-project-in-adt-1e9a4e00.html">ABAP project in ADT</a></blockquote><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-008-abap-development-tools-in-eclipse-fef5783a.html">Previous section</a><a href="section-01-010-repository-object-239ee7d6.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Foreign key 外键关系 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="38-foreign-key-aad595aa" class="chapter-title">38. Foreign key 外键关系</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 38</li><li>self-contained study note</li></ul><h4 id="38-1-b97a02b3" class="semantic-heading semantic-concept">38.1 一句话结论</h4>
+<p>Foreign key 外键关系，是 ABAP Dictionary 中用来描述两个 DDIC database tables 之间参照关系的元数据。它把一个 foreign key table 的字段组合，指向另一个 check table 的 primary key 字段组合，用来说明“这个字段值应参照哪张表的哪些 key”。</p>
+<p>本节要学的是：读懂 foreign key table、check table、foreign key fields、check field、cardinality、<code>@AbapCatalog.foreignKey.*</code> 这些概念，同时牢牢记住现代边界：DDIC foreign key 留在 ABAP layer，不会自动变成数据库层 foreign-key constraint，也不能替代 RAP/Fiori 的保存校验或 CDS/RAP 关系建模。</p>
+<h4 id="38-2-42140e6e" class="semantic-heading semantic-concept">38.2 到底学什么</h4>
+<p>先从一个简单例子入手。假设有一张航空公司主数据表 <code>zxx_carrier</code>，主键是 <code>client</code> 和 <code>carrier_id</code>；另一张预订表 <code>zxx_booking</code> 里也有 <code>carrier_id</code>。业务上，booking 里的 carrier 应该来自 carrier 主数据。ABAP Dictionary foreign key 就是把这个关系写进表定义里：<code>zxx_booking</code> 是 foreign key table，<code>zxx_carrier</code> 是 check table，<code>zxx_booking-carrier_id</code> 是 foreign key field 之一，<code>zxx_carrier-carrier_id</code> 是被参照的 check table key field。</p>
+<p>用 Dictionary DDL 可以看到类似这样的形状：</p>
+<pre><code class="language-abap">define table zxx_booking {
+  key client     : abap.clnt not null;
+  key booking_id : zxx_booking_id not null;
+
+  @AbapCatalog.foreignKey.keyType : #NON_KEY
+  @AbapCatalog.foreignKey.screenCheck : false
+  carrier_id    : zxx_carrier_id
+    with foreign key [0..*,1] zxx_carrier
+      where client     = zxx_booking.client
+        and carrier_id = zxx_booking.carrier_id;
+}</code></pre>
+<p>这个例子里的 <code>[0..*,1]</code> 是 cardinality。左边 <code>0..*</code> 表示一个 check table 记录，也就是一个 carrier，可以被 0 到多条 booking 引用；右边 <code>1</code> 表示每条 booking 必须对应一条 carrier。如果右边是 <code>0..1</code>，就表示 foreign key table 的这一行可以没有对应 check table 记录，也就是 optional reference。SAP Learning 还提醒，在 ABAP Dictionary 和 ABAP CDS 语境中，cardinality 和 multiplicity 常作为同义词使用；日本项目里也可能写成 <code>カーディナリティ</code> 或 <code>多重度</code>。</p>
+<p>foreign key 的完整定义会把 check table 的每个 primary key field，都连到 foreign key table 里的一个对应字段。check table 这边参与关系的字段一定是 key fields；foreign key table 这边的 fields 可以是 key fields，也可以不是 key fields。上面的 <code>carrier_id</code> 在 booking 表里不是主键的一部分，所以 <code>@AbapCatalog.foreignKey.keyType : #NON_KEY</code>。如果所有 foreign key fields 都是 foreign key table 的 key fields，可以用 <code>#KEY</code>；如果这是 text table，用于给 check table 提供可翻译文本，则可能是 <code>#TEXT_KEY</code>。</p>
+<p>还要记住 check field。SAP Learning 对 check field 的说法很具体：它是 foreign key table 中，与 check table 最后一个 primary key field 相连的字段。这里的“最后”不是屏幕上最后一列，而是 check table primary key sequence 里的最后一个 key field。很多 SAP 表第一个 key 是 <code>MANDT</code> / client，所以不要把“最后”理解成“物理字段列表最后”。如果 check table 的 key sequence 是 <code>client, carrier_id</code>，那么对应 <code>carrier_id</code> 的 foreign key table 字段才是 check field。</p>
+<p>这里说“foreign key dependency restricts values”，要按 SAP Dictionary 的语义来理解：这份定义表达了“外键字段组合应当能在 check table 中找到对应组合”。但在现代 ABAP / RAP / Fiori 场景，它不会自动变成数据库约束，也不会自动成为保存时校验。真正的运行时阻断要看具体消费技术：旧式 classical UI 可能利用 DDIC foreign key 生成输入检查；RAP/Fiori 应该用 CDS value help 和 RAP behavior validation 明确实现。</p>
+<p>本节最重要的边界是：ABAP Dictionary foreign key 不等于数据库层外键约束。SAP Learning 明确说 foreign key definitions remain on the ABAP layer，不会传递给 database，因此不会导致 database 上的 implicit consistency checks。换句话说，它不是普通数据库建模课里讲的 physical foreign key constraint。旧式 Dynpro / Web Dynpro 场景可能利用它做 input check 和 generated value help；现代 RAP/Fiori 场景不能依赖它自动挡住非法保存。</p>
+<h4 id="38-3-dbae98bd" class="semantic-heading semantic-why">38.3 为什么重要</h4>
+<p>foreign key 重要，是因为它把“字段之间有参照关系”写进了 SAP repository 的元数据，而不是只藏在程序员脑子里。没有这层元数据，初学者看到 <code>carrier_id</code>、<code>company_code</code>、<code>currency_code</code>、<code>plant</code> 这样的字段时，只知道它是一个字符字段，却不知道它应该参照哪张主数据表、哪几个 key、是否 optional，以及改动时要影响哪些对象。</p>
+<p>对 Java/Python 背景学习者，foreign key 很容易被误解。普通数据库经验会让人以为“外键就是数据库会强制检查的约束”。在 SAP ABAP Dictionary 里，这个结论不成立。DDIC foreign key 更像是一份 ABAP layer 的 relationship contract：它帮助文档化表关系，帮助旧 UI 生成输入检查和 value help，也帮助开发者理解表结构；但它不会自动让 HANA/数据库拒绝非法外键值，也不会让 RAP save sequence 自动执行参照检查。</p>
+<p>真实项目里的影响在两个方向上都很大。第一，读旧系统时，foreign key 能帮助你理解主从关系、文本表关系和 value help 来源。例如 <code>T005</code> 国家表、<code>T001</code> 公司代码、<code>TCURC</code> 货币这样的 check table，经常通过 foreign key 或 value help 元数据被各种表字段引用。第二，写新 RAP/Fiori 时，如果你误以为 DDIC foreign key 已经完成校验，就可能漏掉 behavior validation，导致 UI 可以保存不存在的主数据引用。</p>
+<p>这也是为什么前一节 <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a> 里反复强调 value table 不等于 foreign key。domain value table 只是 domain 上的参考属性，可以帮助 ADT 或 SE11 提议一个 check table；但只有明确写出 foreign key relation，才有 DDIC foreign key 元数据。即便写出了 DDIC foreign key，现代服务保存时仍要判断是否需要 RAP validation 或 CDS value help。</p>
+<p>日本项目里，foreign key 还会进入设计书、影响分析和测试说明。表定义书里常见 <code>チェックテーブル</code>、<code>外部キー項目</code>、<code>カーディナリティ</code>；review 里会问“这里是主数据参照还是只是显示用文本？删除/禁用主数据时业务如何处理？RAP 保存时有没有检查？”这些问题不是 SQL 语法问题，而是交付质量问题。</p>
+<h4 id="38-4-key-mechanism-1726a550" class="semantic-heading semantic-mechanism">38.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 foreign key table 与 check table。foreign key table 是包含参照字段的表，例如 booking；check table 是被参照、提供允许 key 组合的表，例如 carrier 主数据。完整 foreign key 会把 check table primary key 的每个字段，都和 foreign key table 中的字段或常量建立对应关系。</p>
+<p>第二层机制是 foreign key fields 与 check field。foreign key fields 是 foreign key table 中参与参照关系的一组字段。check field 是其中最重要的一个字段，它对应 check table primary key sequence 的最后一个 key field。项目上做影响分析时，通常会先定位 check field，因为它常是业务上最显眼的那一列，例如 <code>company_code</code>、<code>plant</code>、<code>currency</code>、<code>carrier_id</code>。</p>
+<p>第三层机制是 cardinality。Dictionary DDL 中 <code>with foreign key [n,m] check_table</code> 的 <code>[n,m]</code> 不是装饰。左边 <code>n</code> 表示一条 check table 记录可以被多少 foreign key table 记录引用；右边 <code>m</code> 表示一条 foreign key table 记录必须或可以对应多少 check table 记录。常见 <code>[0..*,1]</code> 表示“多条明细可以引用一个主数据，且引用必须存在”；<code>[0..*,0..1]</code> 表示“可以引用一个主数据，但这个引用可以为空或无对应”。学习者至少要能读懂这些符号在设计书里的含义。</p>
+<p>第四层机制是 <code>@AbapCatalog.foreignKey.keyType</code>。它描述 foreign key fields 在 foreign key table 中的性质。<code>#KEY</code> 表示所有 foreign key fields 都是 foreign key table 的 key fields；<code>#NON_KEY</code> 表示至少一个不是 key field；<code>#TEXT_KEY</code> 表示 text table 场景。text table 通常用于给 check table 提供语言相关文本，常见特征是 key 与 check table 对齐，并额外有一个 language key field。日本项目里这常出现在“コード値 + 名称テキスト”的设计里。</p>
+<p>第五层机制是 <code>@AbapCatalog.foreignKey.screenCheck</code>。本书统一采用 ADT 生成示例中常见的 <code>@AbapCatalog</code> 写法，避免在项目代码里混用不同大小写。SAP Learning 的建议很明确：除非要做 classical UI，否则 screen/message annotations 与 modern user dialogues 无关，<code>screenCheck</code> 通常设为 <code>false</code>。如果做 RAP/Fiori，不要把它当成 UI 输入校验开关；value help 应通过 CDS annotation/value help 设计，保存校验应通过 RAP behavior validation。</p>
+<p>第六层机制是 ABAP layer 边界。DDIC foreign key 不会传递成数据库 foreign-key constraint，不会在数据库层产生 implicit consistency checks。通过 ABAP SQL、AMDP、导入程序或后台作业写入数据时，也不要假设数据库会因为 DDIC foreign key 自动拒绝非法引用。需要保存时强制校验，就要在应用层、RAP behavior、service layer 或其他明确的 validation 位置实现。</p>
+<p>第七层机制是 modern CDS / RAP 替代关系。SAP Learning 说现代 ABAP 中，CDS view entity associations 已经部分接管了表关系建模任务。RAP composite BO 的 root / child / grandchild 层级，靠 CDS composition 和 <code>association to parent</code>，再由 behavior definition 承载业务行为。SAP Learning 的 RAP 课程还说明，不必在 underlying tables 之间定义 foreign key relations 来建 RAP composition hierarchy。底层 DDIC foreign key 可以作为文档或 legacy 元数据存在，但不是 RAP framework 行为的来源。</p>
+<h4 id="38-5-33f357e2" class="semantic-heading semantic-japan">38.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>外部キー</code>、<code>チェックテーブル</code>、<code>外部キーテーブル</code>、<code>チェック項目</code>、<code>外部キー項目</code>、<code>参照整合性</code>、<code>入力チェック</code>、<code>値ヘルプ</code>、<code>カーディナリティ</code>、<code>多重度</code>、<code>整合性チェック</code>、<code>使用箇所</code>、<code>影響調査</code>、<code>移送対象</code>、<code>既存資産</code>、<code>保守対象</code>。</li>
+<li>说明句：この外部キー定義は、外部キーテーブルとチェックテーブルの参照関係を ABAP Dictionary 上で文書化するものです。</li>
+<li>Review 句：DDIC の外部キーはデータベースレベルの外部キー制約ではありません。RAP/Fiori の保存時チェックはビヘイビア検証で実装してください。</li>
+<li>Cloud 句：ABAP Cloud では、従来の画面入力チェックに依存せず、値ヘルプは CDS、保存時の参照整合性は RAP validation で確認します。</li>
+<li>影响分析句：このチェックテーブルを変更する前に、外部キー項目、値ヘルプ、CDS association、RAP validation の使用箇所を確認してください。</li>
+</ul>
+<p><code>参照整合性</code> 这个词要小心。它在普通数据库语境里常让人想到数据库约束，但 DDIC foreign key 不会自动生成数据库层 constraint。设计书里最好写清楚：这是 <code>DDICレベルの参照関係</code>，还是 <code>データベースレベルの外部キー制約</code>，或者是 <code>RAP保存時の整合性チェック</code>。</p>
+<h4 id="38-6-english-terms-830051fc" class="semantic-heading semantic-terms">38.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>foreign key dependency</code>, <code>foreign key table</code>, <code>check table</code>, <code>foreign key fields</code>, <code>check field</code></li>
+<li>Annotation terms: <code>@AbapCatalog.foreignKey.keyType</code>, <code>@AbapCatalog.foreignKey.screenCheck</code>, <code>@AbapCatalog.foreignKey.label</code>, <code>#KEY</code>, <code>#NON_KEY</code>, <code>#TEXT_KEY</code></li>
+<li>Relationship terms: <code>cardinality</code>, <code>multiplicity</code>, <code>referential integrity</code>, <code>implicit input checks</code>, <code>generated value helps</code></li>
+<li>Modern contrast terms: <code>CDS association</code>, <code>CDS composition</code>, <code>association to parent</code>, <code>RAP behavior validation</code>, <code>@Consumption.valueHelpDefinition</code></li>
+<li>Recommended search patterns:</li>
+<li><code>SAP Learning foreign key dependencies ABAP Dictionary</code></li>
+<li><code>@AbapCatalog.foreignKey.screenCheck SAP Help</code></li>
+<li><code>RAP composition not necessary foreign key relations underlying tables</code></li>
+</ul>
+<p>英文检索时，不要只搜 <code>database foreign key</code>。那会带出很多通用数据库资料，容易把物理约束概念带回 ABAP Dictionary。更推荐带上 <code>ABAP Dictionary</code>、<code>foreign key dependency</code>、<code>check table</code>、<code>@AbapCatalog.foreignKey</code>。</p>
+<h4 id="38-7-example-84d3b4d2" class="semantic-heading semantic-example">38.7 Example / 学习例子</h4>
+<p>假设旧系统中有两张表：</p>
+<ul>
+<li><code>zxx_company</code>：公司代码主数据，key 是 <code>client</code>、<code>company_code</code>。</li>
+<li><code>zxx_invoice</code>：发票表，字段里有 <code>company_code</code>。</li>
+</ul>
+<p>在 ABAP Dictionary 里，<code>zxx_invoice-company_code</code> 可以定义 foreign key，check table 是 <code>zxx_company</code>。如果 cardinality 是 <code>[0..*,1]</code>，你可以读成：</p>
+<pre><code class="language-text">一个公司代码可以被 0 到多张发票引用。
+每张发票必须引用一个公司代码。</code></pre>
+<p>但这不等于数据库会自动拒绝不存在的 company code。现代 RAP/Fiori 服务如果需要保存时强制检查，应在 behavior validation 中明确检查 <code>company_code</code> 是否存在，或通过 CDS value help 引导 UI 选择有效值。DDIC foreign key 可以帮助说明意图，但不能替你写保存逻辑。</p>
+<p>再看 value table 的边界。假设 <code>zxx_company_code_dom</code> 这个 domain 有 value table <code>zxx_company</code>。这可能让 ADT/SE11 在定义 foreign key 时提议 <code>zxx_company</code> 作为 check table，但它不会自动创建 foreign key，也不会自动生成 RAP validation。学习时可以这样拆：</p>
+<pre><code class="language-text">domain value table：给出候选 check table 的参考。
+DDIC foreign key：明确表字段到 check table key 的参照关系。
+CDS value help：给 Fiori/UI 一个选择有效值的入口。
+RAP validation：保存时真的阻止非法值。</code></pre>
+<p>最小练习：找一张表里的一个参照字段，写出以下五项：</p>
+<pre><code class="language-text">foreign key table:
+check table:
+foreign key fields:
+check field:
+cardinality:</code></pre>
+<p>如果这五项说不出来，就说明还只是看到了字段名，没有真正读懂 ABAP Dictionary 的关系元数据。</p>
+<h4 id="38-8-counterexample-failure-mode-dda8edac" class="semantic-heading semantic-example">38.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把 DDIC foreign key 当成数据库物理约束。</li>
+<li>问题：SAP Learning 明确说它停留在 ABAP layer，不会传递给 database，也不会产生 database implicit consistency checks。</li>
+<li>修正：需要数据库级约束、RAP 保存校验或服务层校验时，分别设计，不要混在一个词里。</li>
+<li>误区 2：以为 <code>screenCheck : true</code> 可以让 Fiori 自动校验。</li>
+<li>问题：<code>screenCheck</code> 是 classical UI 边界，modern user dialogues 不依赖它。</li>
+<li>修正：RAP/Fiori 用 CDS value help 和 RAP validation。</li>
+<li>误区 3：把 value table 当成 foreign key。</li>
+<li>问题：value table 是 domain 属性，可用于提议 check table；它不是已经创建好的 foreign key。</li>
+<li>修正：明确写出 <code>with foreign key ... where ...</code> 才是 DDIC foreign key relation。</li>
+<li>误区 4：用 DDIC foreign key 建 RAP BO hierarchy。</li>
+<li>问题：RAP composition hierarchy 由 CDS composition / to-parent association 和 behavior definition 表达。</li>
+<li>修正：底层 foreign key 只作为可选文档元数据理解，不要期待 RAP framework 根据 DDIC foreign key 自动生成业务行为。</li>
+<li>误区 5：只看 check table，不看 cardinality 和 keyType。</li>
+<li>问题：同一个 check table 可能被必填引用、可选引用、key 引用、non-key 引用或 text table 引用。</li>
+<li>修正：连同 <code>[n,m]</code>、<code>#KEY/#NON_KEY/#TEXT_KEY</code> 和 check field 一起读。</li>
+</ul>
+<h4 id="38-9-b9c1ed80" class="semantic-heading semantic-practice">38.9 思考问题</h4>
+<ul>
+<li>为什么 ABAP Dictionary foreign key 不等于数据库层 foreign-key constraint？</li>
+<li><code>foreign key table</code> 和 <code>check table</code> 在一个发票表引用公司代码表的例子中分别是谁？</li>
+<li><code>[0..*,1]</code> 和 <code>[0..*,0..1]</code> 对业务含义有什么差别？</li>
+<li>为什么 <code>@AbapCatalog.foreignKey.screenCheck : false</code> 在现代开发中通常更合适？</li>
+<li>domain value table、DDIC foreign key、CDS value help、RAP validation 各自解决什么问题？</li>
+<li>RAP composite BO 为什么不靠 underlying table foreign key 来定义 root/child 层级？</li>
+<li>在日本项目设计书中，如果写 <code>参照整合性チェック済み</code>，应该进一步追问是哪一层的整合性检查？</li>
+</ul>
+<h4 id="38-10-600ac0be" class="semantic-heading semantic-reference">38.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/defining-relationships-between-database-tables_e55dbd61-6083-4747-bb5d-905ba29ab662" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Relationships Between Database Tables</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/foreign-keys-structures" target="_blank" rel="noopener noreferrer">SAP Help - Foreign Keys in Structures</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/foreign-key-annotations-database-tables" target="_blank" rel="noopener noreferrer">SAP Help - Foreign Key Annotations</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENDDIC_DATABASE_TABLES_FORKEY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Foreign Keys</a></li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-composite-business-objects" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Composite Business Objects</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="38-11-connections-7fd1aebb">38.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-01-037-ddic-view-5437a298.html">DDIC view 传统视图</a></li>
+<li>Downstream: <a class="wiki" href="section-01-039-search-help-5766da52.html">Search help 搜索帮助</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 06 - 外键、搜索帮助与锁对象</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="38-12-678b1f60" class="semantic-heading semantic-practice">38.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明：为什么 DDIC foreign key 是 ABAP layer 元数据，而不是数据库层约束。</li>
+<li>为 <code>zxx_invoice-company_code</code> 设计一个 foreign key，写出 foreign key table、check table、foreign key fields、check field 和 cardinality。</li>
+<li>查一个 SAP 官方页面，确认 <code>@AbapCatalog.foreignKey.keyType</code> 的 <code>#KEY/#NON_KEY/#TEXT_KEY</code> 含义。</li>
+<li>写 1 句日语 review comment，要求包含 <code>外部キー</code>、<code>チェックテーブル</code>、<code>RAP検証</code>。</li>
+<li>如果进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span>：POC 中的业务关系是靠 CDS association / RAP composition，还是靠 DDIC foreign key？</li>
+</ul>
+<h4 id="38-13-confidence-next-action-75e654ac" class="semantic-heading semantic-status">38.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for direction, Medium-High for runtime enforcement details。已结合 SAP Learning、SAP Help、ABAP Keyword Documentation 和 Joule SAP review；Claude follow-up review 已发起，但当前 CLI 返回 session expired，错误已记录，待重新认证后可复核。</li>
+<li>Next action: 已同步到离线书稿；后续如果 Claude CLI 恢复，再对本节做补充复核。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-038-foreign-key-d4b87c24.html">Foreign key 外键关系</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-037-ddic-view-5437a298.html">Previous section</a><a href="section-01-039-search-help-5766da52.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Handler class 处理器类 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="22-handler-class-f0b53c1d" class="chapter-title">22. Handler class 处理器类</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 22</li><li>self-contained study note</li></ul><h4 id="22-1-738a6b42" class="semantic-heading semantic-concept">22.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a> 是 RAP <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a> 中承载 BO 行为逻辑的 local class，通常继承 <code>CL_ABAP_BEHAVIOR_HANDLER</code>，负责 action、determination、validation、authorization、feature control，以及在 unmanaged 场景中实现标准 operation；它不负责 save sequence 中的最终落库，那是 <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a> 的边界。</p>
+<p>一句话记忆：handler class 处理 BO 行为规则和 interaction/check-before-save 逻辑；saver class 处理保存序列中真正写库或附加保存的逻辑。</p>
+<h4 id="22-2-906fbd77">22.2 概念说明</h4>
+<p>在 RAP 中，behavior definition 只是声明 BO 能做什么，例如 create、update、delete、action、validation、determination、authorization。真正的 ABAP 实现放在 behavior pool 中。为了分清 interaction phase 和 save sequence，SAP Learning 明确说明：local handler classes 放 interaction phase 代码，local saver class 放 save sequence 代码。</p>
+<p>Handler class 是 behavior pool 内部的 local class，不是一个普通全局 class。ABAP Keyword Documentation 说明，handler class 继承 <code>CL_ABAP_BEHAVIOR_HANDLER</code>；一个 behavior pool 可以为了 modularization 定义多个 handler classes。对于 composite BO，通常每个 entity 可以有自己的 handler class；默认命名常见为 <code>lhc_&lt;entity-or-alias&gt;</code>。</p>
+<p>例如 root entity alias 为 <code>Travel</code> 时，ADT quick fix 可能生成 <code>lhc_travel</code>。如果有 child entity <code>Booking</code>，可能再有 <code>lhc_booking</code>。这些 handler class 都在同一个 global behavior pool class 的 local implementation 区域里工作，而不是各自独立的 repository object。</p>
+<p>初学者要注意：handler class 不是“所有 RAP 代码的地方”。它适合写 interaction phase 逻辑，例如检查当前用户是否允许执行 action、根据输入字段派生默认值、为 UI 控制字段是否可编辑、处理 action result、在 unmanaged BO 中把 create/update/delete/read 请求放入 application buffer。它不适合直接 <code>COMMIT WORK</code>、随意写数据库、发送不可回滚外部请求，或者承担 <code>save_modified</code> / <code>save()</code> 的职责。</p>
+<h4 id="22-3-6d08c99b" class="semantic-heading semantic-why">22.3 为什么重要</h4>
+<p>Handler class 是读懂 RAP 代码的入口。很多初学者打开 behavior pool 后，会看到 global class 是 <code>ABSTRACT FINAL FOR BEHAVIOR OF ...</code>，真正逻辑却藏在 local class 里。如果不知道 handler class 和 saver class 的分工，就会误以为 RAP 代码“找不到实现”，或者把 save sequence 的逻辑写到 action handler 里。</p>
+<p>在项目交付中，handler class 直接影响 review 和测试。Action 是否返回正确 result，validation 是否给出行级消息，authorization 是否只依赖前端控制，feature control 是否和业务状态一致，unmanaged create 是否只写 buffer 而不是直接写表，这些都要从 handler class 看起。</p>
+<p>对 Java/Python 背景学习者，可以把 handler class 类比成 domain service / application service 中处理命令和业务规则的部分，但 RAP 有更严格的生命周期：handler 不拥有 transaction commit；handler 方法签名由 BDEF 派生；输入输出结构如 <code>keys</code>、<code>entities</code>、<code>failed</code>、<code>reported</code>、<code>mapped</code>、<code>result</code> 都受 RAP runtime 契约约束。</p>
+<h4 id="22-4-1d243bb6">22.4 边界</h4>
+<p>第一条边界：handler class 主要服务 interaction phase 和保存前检查，不属于最终持久化的 saver 边界。它可以响应 create/update/delete/read/action 等请求，也可以执行 validation、determination、authorization、feature control。注意 <code>FOR VALIDATE ON SAVE</code> 和 <code>FOR DETERMINE ON SAVE</code> 仍是 handler methods，但它们在 save sequence 的 check-before-save 相关阶段被触发；最终持久化仍属于 managed runtime 或 saver class。</p>
+<p>第二条边界：managed 与 unmanaged 中 handler 责任不同。在 <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a> 中，标准 create/update/delete/read 通常由 RAP runtime 处理，handler class 主要实现 non-standard operations、validation、determination、action、authorization、feature control 等。在 <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a> 中，handler class 还要实现标准 operations，把请求写入项目自有 application buffer，并返回 <code>failed</code> / <code>reported</code> / <code>mapped</code>。</p>
+<p>第三条边界：handler class 不等于 UI controller。它不直接操纵 Fiori 控件，也不决定 OData metadata 的全部外观；它只实现 BO 行为。UI button 是否出现可能来自 annotation、projection behavior、feature control 和 authorization 的共同结果。</p>
+<p>第四条边界：handler class 不应绕过 RAP transaction。ABAP Keyword Documentation 和 SAP Learning 都反复强调 RAP transaction boundary。<code>COMMIT WORK</code>、<code>ROLLBACK WORK</code>、直接 DB write、update task、不可回滚副作用，都需要非常谨慎。尤其在 interaction phase，数据可能只是 transactional buffer 中的暂态内容，直接写库会破坏一致性。</p>
+<h4 id="22-5-89da0ffd" class="semantic-heading semantic-mechanism">22.5 核心机制</h4>
+<p>第一层机制是 class 继承。Handler class 通常写成：</p>
+<pre><code class="language-abap">CLASS lhc_travel DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+    METHODS validate_customer FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Travel~validateCustomer.
+ENDCLASS.</code></pre>
+<p><code>CL_ABAP_BEHAVIOR_HANDLER</code> 给 RAP runtime 一个统一的调用契约。开发者不直接 new 这个 handler，也不从普通程序调用它；runtime 根据 EML / OData / UI 请求和 BDEF 声明，在合适时点调用对应方法。</p>
+<p>第二层机制是 handler method 的 <code>METHODS ... FOR ...</code> 语法。ABAP Keyword Documentation 对 RAP handler methods 有专门语法：方法必须定义并实现在 ABAP behavior pool 的 handler class 中，方法名可自选，但 <code>FOR</code> 后面的 handler method type 决定它服务哪个 BDEF 行为。常见类型包括 <code>FOR MODIFY</code>、<code>FOR READ</code>、<code>FOR LOCK</code>、<code>FOR VALIDATE ON SAVE</code>、<code>FOR DETERMINE ON MODIFY</code>、<code>FOR DETERMINE ON SAVE</code>、<code>FOR INSTANCE AUTHORIZATION</code>、<code>FOR GLOBAL AUTHORIZATION</code>、<code>FOR INSTANCE FEATURES</code>、<code>FOR GLOBAL FEATURES</code>、action handler 等。</p>
+<p>第三层机制是方法签名由 BDEF 派生。Action 方法可能有 <code>keys</code> 和 <code>result</code>；validation 通常接收 <code>keys</code>，并通过 <code>failed</code> / <code>reported</code> 返回失败实例和消息；unmanaged create/update 接收 <code>entities</code>，read/delete/lock 多以 <code>keys</code> 标识实例；authorization 和 feature control 返回对应授权或可用性结果。不要把这些结构当成普通自定义参数，它们是 RAP 契约的一部分。</p>
+<p>第四层机制是 handler 与 saver 的分工。Handler class 做 interaction phase 的业务判断和 buffer 操作；saver class 做 save sequence 的最终保存、unmanaged save、additional save 或 late-save 事件。上一节 <a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a> 中的 <code>save_modified</code> 就不属于 handler class。</p>
+<p>第五层机制是多 entity handler。Composite BO 中 root 和 child 可以有不同 handler class。SAP Learning 指出，local handler class 默认命名前缀通常是 <code>lhc_</code>，后接 entity 名或 alias；saver class 则通常是 <code>lsc_</code>，且一个 BO 只有一个 saver class。这个命名差异非常适合初学者在 ADT 中定位代码。</p>
+<p>第六层机制是 local EML。Handler 方法内部可以使用 EML 的 local variants，例如 <code>READ ENTITIES ... IN LOCAL MODE</code> 或 <code>MODIFY ENTITIES ... IN LOCAL MODE</code>，读取或修改当前 BO 的 transactional buffer。这样可以避免绕过 RAP runtime，同时在 determination/action 中操作 BO 数据。</p>
+<p>第七层机制是消息。Handler 方法常通过 <code>reported</code> 返回消息，通过 <code>failed</code> 标识失败实例。消息是否能正确落到 UI 行、字段或实例上，取决于 <code>%tky</code>、<code>%msg</code>、<code>%element-&lt;field&gt;</code> 等结构是否填对。错误处理不是简单 <code>RAISE EXCEPTION</code>；RAP 更强调结构化响应。</p>
+<h4 id="22-6-dadc566d" class="semantic-heading semantic-why">22.6 项目意义</h4>
+<p>设计评审时，handler class 要回答的问题是：“这个业务行为应该在 interaction phase 发生吗？”如果是字段默认值、业务动作、授权判断、UI feature control、保存前 validation，handler class 通常是合理位置。如果是最终写库、事件发出、审计表写入、调用旧保存 API，则要看 saver / additional save / unmanaged save。</p>
+<p>代码 review 时，重点看四类风险。第一，handler 是否直接写数据库。第二，是否出现 <code>COMMIT WORK</code> / <code>ROLLBACK WORK</code>。第三，<code>failed</code> / <code>reported</code> / <code>result</code> 是否完整。第四，方法里是否混入大量查表、格式转换、外部调用，导致难以测试和维护。</p>
+<p>测试时，handler class 的价值在于它把业务行为集中到明确方法中。Action 可以通过 EML 调用测试；validation 可以构造非法输入检查 <code>failed</code> / <code>reported</code>；feature control 可以用不同状态实例验证按钮是否可用；authorization 可以用权限对象或测试 double 验证结果。</p>
+<p>日本项目里，handler class 经常出现在 code review、障害調査、単体テスト仕様書中。比如“このエラーは handler method の validation で返すべきか、それとも save sequence で検出すべきか”就是典型讨论。</p>
+<h4 id="22-7-example-01299ece" class="semantic-heading semantic-example">22.7 Example / 学习例子</h4>
+<p>假设 Travel BO 有一个 action <code>acceptTravel</code>，用户点击后把 Travel 状态从 <code>Open</code> 改成 <code>Accepted</code>。BDEF 中声明 action：</p>
+<pre><code class="language-abap">action acceptTravel result [1] $self;</code></pre>
+<p>ADT quick fix 会在 <code>lhc_travel</code> 中生成一个 handler method。示意代码可以这样读：</p>
+<pre><code class="language-abap">CLASS lhc_travel DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+    METHODS accept_travel FOR MODIFY
+      IMPORTING keys FOR ACTION Travel~acceptTravel RESULT result.
+ENDCLASS.</code></pre>
+<p>实现中，handler 通常会先用 EML local mode 读取当前实例状态，判断是否允许从 <code>Open</code> 转到 <code>Accepted</code>。如果不允许，就填 <code>failed</code> / <code>reported</code>；如果允许，就用 <code>MODIFY ENTITIES ... IN LOCAL MODE</code> 修改 transactional buffer，并按 action result 要求返回 <code>$self</code>。</p>
+<p>关键点是：这里仍然没有 <code>COMMIT WORK</code>。Action handler 只是改变 transactional buffer 中的 BO 状态，真正保存由后续 <code>COMMIT ENTITIES</code> 触发的 save sequence 处理。这样前端、OData consumer、draft、validation、authorization 和保存逻辑才能保持一致。</p>
+<p>再看 unmanaged create。若 BDEF 是 unmanaged，<code>lhc_travel</code> 的 create method 可能要把 <code>entities</code> 转换成 application buffer，并为成功创建的临时 <code>%cid</code> 填 <code>mapped</code>。但即使在 unmanaged create 中，也不应该在 handler 里直接 INSERT 数据库；最终写库应交给 saver class 的 <code>save()</code>。</p>
+<h4 id="22-8-counterexample-failure-mode-3088e7df" class="semantic-heading semantic-example">22.8 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 handler 当成 save。Action handler 里直接 <code>UPDATE ztable</code> 并 <code>COMMIT WORK</code>，短期看似能跑，长期会破坏 RAP LUW、draft、回滚、测试和 OData 错误反馈。</p>
+<p>第二个失败模式是 response 不完整。Validation 发现错误只抛异常，不填 <code>failed</code> / <code>reported</code>；action 有 result 却不返回；unmanaged create 分配 key 却没有填 <code>mapped</code>。UI 会无法定位错误行，consumer 拿不到新 key，或者 action 按钮执行后没有刷新对象。</p>
+<p>第三个失败模式是 handler 太大。一个 method 中混合权限、查表、格式化、远程调用、保存、日志，导致单体测试无法隔离。更好的做法是 handler 保持薄，把纯计算、格式化、策略判断提取到可测试 helper class 或 local helper method，但仍遵守 RAP 调用边界。</p>
+<p>第四个失败模式是混淆 handler class 和 global behavior pool class。初学者看到 global class 空空如也，以为没有实现；实际上实现通常在 local classes / CCIMP 中。ADT quick fix 和 behavior pool 的 local class 区域是查找入口。</p>
+<p>第五个失败模式是把 UI 控制全放前端。比如按钮是否可点只由 Fiori 控制，后端 action handler 不再检查状态和权限。正确做法是：UI 可以提示，handler / authorization / feature control 必须守住后端契约。</p>
+<h4 id="22-9-c2d1810d" class="semantic-heading semantic-japan">22.9 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ハンドラクラス</code>、<code>ハンドラメソッド</code>、<code>ビヘイビアプール</code>、<code>インタラクションフェーズ</code>、<code>アクション実装</code>、<code>バリデーション</code>、<code>デターミネーション</code>、<code>権限チェック</code>、<code>フィーチャ制御</code>。</li>
+<li>说明句：handler class は RAP BO の interaction phase のロジックを実装する local class で、通常 <code>CL_ABAP_BEHAVIOR_HANDLER</code> を継承します。</li>
+<li>分工句：handler class は action、validation、determination などを担当し、saver class は save sequence の保存処理を担当します。</li>
+<li>Review 句：この処理は handler method に置くべきか、save sequence / additional save に置くべきかを設計時に確認してください。</li>
+<li>风险句：handler method 内で <code>COMMIT WORK</code> や直接 DB 更新を行うと、RAP のトランザクション境界を壊す可能性があります。</li>
+<li>调查句：該当 action の実装は behavior pool の <code>lhc_&lt;entity&gt;</code> クラスを確認してください。</li>
+</ul>
+<h4 id="22-10-english-terms-0a859dc8" class="semantic-heading semantic-terms">22.10 English Terms</h4>
+<ul>
+<li>Official / search term: <code>handler class</code></li>
+<li>Official / search term: <code>CL_ABAP_BEHAVIOR_HANDLER</code></li>
+<li>Official / search term: <code>RAP handler class</code></li>
+<li>Official / search term: <code>handler method</code></li>
+<li>Official / search term: <code>METHODS FOR RAP behavior</code></li>
+<li>Official / search term: <code>FOR MODIFY</code></li>
+<li>Official / search term: <code>FOR READ</code></li>
+<li>Official / search term: <code>FOR VALIDATE ON SAVE</code></li>
+<li>Official / search term: <code>FOR DETERMINE ON MODIFY</code></li>
+<li>Official / search term: <code>FOR INSTANCE AUTHORIZATION</code></li>
+<li>Official / search term: <code>FOR INSTANCE FEATURES</code></li>
+<li>Related terms: <code>behavior pool</code>, <code>local handler class</code>, <code>local saver class</code>, <code>interaction phase</code>, <code>save sequence</code>, <code>failed</code>, <code>reported</code>, <code>mapped</code>, <code>result</code>, <code>IN LOCAL MODE</code>.</li>
+</ul>
+<h4 id="22-11-d7a453e6" class="semantic-heading semantic-reference">22.11 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/handler-classes" target="_blank" rel="noopener noreferrer">Handler Classes</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABP_CL_ABAP_BEH_HANDLER.html" target="_blank" rel="noopener noreferrer">CL_ABAP_BEHAVIOR_HANDLER, RAP Handler Class</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapmethods_for_rap_behv.html" target="_blank" rel="noopener noreferrer">METHODS, FOR, RAP Handler Methods</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring Behavior Implementation Options</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-actions-and-messages" target="_blank" rel="noopener noreferrer">Defining Actions and Messages</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/setting-values-using-numbering-and-determinations" target="_blank" rel="noopener noreferrer">Setting Values Using Numbering and Determinations</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/implementing-authority-checks" target="_blank" rel="noopener noreferrer">Implementing Authority Checks</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/using-the-entity-manipulation-language-eml-to-access-business-objects" target="_blank" rel="noopener noreferrer">Using the Entity Manipulation Language to Access Business Objects</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></li>
+<li><a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li><a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+</ul>
+<h4 id="22-12-connections-cebc9cec">22.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a></li>
+<li>Downstream: <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li>Related: <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></li>
+<li>Related: <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></li>
+<li>Related: <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></li>
+<li>Related: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="22-13-8d306060" class="semantic-heading semantic-practice">22.13 学习任务</h4>
+<ul>
+<li>用三句话说明 handler class 和 saver class 的职责差异。</li>
+<li>在一个 behavior pool 中找出 <code>lhc_</code> 和 <code>lsc_</code> 开头的 local class，并写出它们分别服务哪个阶段。</li>
+<li>用日语写一句 code review 问题：这个逻辑应该放 handler method 还是 save sequence？</li>
+<li>找一个 action handler，标出 <code>keys</code>、<code>result</code>、<code>failed</code>、<code>reported</code> 的作用。</li>
+<li>设计一个测试：action 状态不允许时，handler 正确返回 <code>failed</code> / <code>reported</code>，且没有直接写数据库。</li>
+</ul>
+<h4 id="22-14-confidence-next-action-83989095" class="semantic-heading semantic-status">22.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。正文基于 SAP Help、ABAP Keyword Documentation 和 SAP Learning 的 handler class / behavior implementation 资料整理，并结合前几节 behavior pool、save sequence、managed/unmanaged/additional save 的 review 结论；2026-06-18 已重新访问官方资料入口，Claude 初审 <code>Pass with fixes</code>、follow-up <code>Pass</code>，Joule 因上一轮超时未发送新 prompt 且已记录依赖。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a>，继续展开 save sequence 中的保存职责和 handler / saver 分工。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-021-additional-save-3fe37ede.html">Previous section</a><a href="section-03-023-saver-class-bd45280f.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

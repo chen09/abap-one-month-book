@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>CORRESPONDING expression 字段映射 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="39-corresponding-expression-d021fa1b" class="chapter-title">39. CORRESPONDING expression 字段映射</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 39</li><li>self-contained study note</li></ul><h4 id="39-1-0cc651d0" class="semantic-heading semantic-concept">39.1 一句话结论</h4>
+<p>CORRESPONDING expression 字段映射 是 ABAP constructor expression 中用于“按 component 名称把一个结构/表行映射到另一个结构/表行”的写法。最基本的形式是 <code>CORRESPONDING target_type( source )</code> 或 <code>CORRESPONDING #( source )</code>：ABAP 会把 source 和 target 中同名 component 的值复制过去，目标中没有被填的 component 变成 initial value，除非使用 <code>BASE</code> 保留旧值。</p>
+<p>最常见的例子是把数据库结构、接口结构、RAP helper structure、测试输入结构之间做转换：</p>
+<pre><code class="language-abap">DATA(api_order) = CORRESPONDING ty_api_order( db_order ).</code></pre>
+<p>如果两边字段名不同，可以用 <code>MAPPING</code> 显式说明：</p>
+<pre><code class="language-abap">DATA(api_order) = CORRESPONDING ty_api_order(
+  db_order
+  MAPPING order_id    = vbeln
+          customer_id = kunnr
+  EXCEPT  internal_note
+).</code></pre>
+<p>这段代码的意思是：目标 <code>order_id</code> 来自源字段 <code>vbeln</code>，目标 <code>customer_id</code> 来自源字段 <code>kunnr</code>，目标 <code>internal_note</code> 不复制。初学者要特别注意：<code>CORRESPONDING</code> 只懂“字段名和映射规则”，不懂业务语义。它不会自动知道 <code>amount_net</code> 和 <code>net_value</code> 是同一件事，也不会自动判断货币、单位、日期格式或 key 是否语义兼容。</p>
+<h4 id="39-2-634d6e4b" class="semantic-heading semantic-concept">39.2 到底学什么</h4>
+<p>本节要掌握九个点：</p>
+<ul>
+<li><code>CORRESPONDING</code> 是 constructor operator / constructor expression，用于结构或内表行的 component mapping。</li>
+<li>基本规则是同名 component 复制；源有但目标没有的 component 被忽略，目标有但源没有的 component 会是 initial value，除非使用 <code>BASE</code>。</li>
+<li><code>CORRESPONDING #( source )</code> 的 <code>#</code> 需要目标类型上下文；不清楚时写显式 target type。</li>
+<li><code>MAPPING target_component = source_component</code> 用于不同字段名之间的映射，方向不要写反。</li>
+<li><code>EXCEPT target_component</code> 用于排除某些目标 component，让它不从源复制。</li>
+<li><code>BASE ( base )</code> 可在已有目标值基础上做映射，避免未映射 component 被 initial 覆盖。</li>
+<li><code>DEFAULT</code> 可和 <code>MAPPING</code> 配合，但要区分 <code>target = DEFAULT expr</code> 与 <code>target = source DEFAULT expr</code> 两种语义。</li>
+<li>内表映射要关注 unique key；必要时会看到 <code>DISCARDING DUPLICATES</code>、<code>DEEP</code>、<code>APPENDING</code>、<code>FROM ... USING</code> 等进阶形式。</li>
+<li>component 类型不完全一致时会按 ABAP assignment / conversion rules 转换，可能截断、舍入、格式变化或运行时失败。</li>
+<li><code>CORRESPONDING</code> 可以让结构转换更简洁，但它不是业务 mapping 规则引擎；复杂接口、金额/数量/单位/日期/key 字段要显式 review。</li>
+<li>日本项目中常见 review 重点是 <code>同名項目</code>、<code>MAPPING指定</code>、<code>EXCEPT指定</code>、<code>暗黙変換</code>、<code>未設定項目の初期値</code>、<code>項目マッピング表</code>。</li>
+</ul>
+<p>最小判断标准：看到 <code>CORRESPONDING #( source )</code> 时，能回答“目标类型是什么、哪些同名字段会被复制、哪些字段会变 initial、有没有隐式转换、是否需要 MAPPING / EXCEPT / BASE”。</p>
+<h4 id="39-3-59a88a75" class="semantic-heading semantic-why">39.3 为什么重要</h4>
+<p>SAP 项目里经常要在不同结构之间移动数据：数据库表/视图结构、BAPI structure、RAP behavior helper、OData DTO、ALV output、CSV upload staging、ABAP Unit test data。字段很多时，逐个 assignment 很啰嗦：</p>
+<pre><code class="language-abap">api_order-order_id    = db_order-vbeln.
+api_order-customer_id = db_order-kunnr.
+api_order-status      = db_order-status.
+api_order-currency    = db_order-waerk.</code></pre>
+<p>如果字段名一致，<code>CORRESPONDING</code> 可以极大减少样板：</p>
+<pre><code class="language-abap">api_order = CORRESPONDING #( db_order ).</code></pre>
+<p>如果字段名不一致，<code>MAPPING</code> 可以把意图写在一个地方：</p>
+<pre><code class="language-abap">api_order = CORRESPONDING #(
+  db_order
+  MAPPING order_id    = vbeln
+          customer_id = kunnr
+          currency    = waerk
+).</code></pre>
+<p>这比“几十行 assignment 混在业务逻辑里”更像一张字段映射表。对代码 review、接口交接、数据迁移、RAP / OData 边界都很有价值。</p>
+<p>但风险也很现实。<code>CORRESPONDING #( source )</code> 容易让人以为“字段映射已经安全完成”。实际上它只按名称和规则复制，并按 ABAP 类型转换规则赋值。目标字段被省略时会是 initial value；同名字段类型不兼容时可能发生截断、舍入、日期/字符格式变化；业务上同名但含义不同的字段也会被复制。比如两个结构都有 <code>status</code>，一个表示销售订单状态，一个表示接口处理状态，直接同名复制就可能是 bug。</p>
+<p>所以本节的核心是：<code>CORRESPONDING</code> 是强大的结构映射工具，不是免 review 的魔法。</p>
+<h4 id="39-4-key-mechanism-6eae1acb" class="semantic-heading semantic-mechanism">39.4 Key mechanism / 核心机制</h4>
+<h5 id="39-4-1-basic-form-maps-same-name-components-e023ba05">39.4.1 Basic form maps same-name components</h5>
+<p>最简单形式：</p>
+<pre><code class="language-abap">DATA(target) = CORRESPONDING ty_target( source ).</code></pre>
+<p>ABAP 会看 <code>source</code> 和 <code>ty_target</code> 中的 component 名称，把同名 component 的值复制到目标中。源结构中多出来的字段会被忽略；目标结构中没有被填的字段会保持 initial value。</p>
+<p>这里的“同名”只看 component name，不看字段位置。也就是说，<code>source</code> 的第 1 个字段不会因为位置相同就自动复制到目标第 1 个字段；只有名称一致，才进入自动对应。对有 Java/Python 背景的读者来说，这一点要先刻进脑子：<code>CORRESPONDING</code> 是 name-based mapping，不是 position-based mapping。</p>
+<p>例如：</p>
+<pre><code class="language-abap">TYPES BEGIN OF ty_db_order.
+TYPES order_id TYPE string.
+TYPES status   TYPE string.
+TYPES changed_by TYPE string.
+TYPES END OF ty_db_order.
+
+TYPES BEGIN OF ty_api_order.
+TYPES order_id TYPE string.
+TYPES status   TYPE string.
+TYPES text     TYPE string.
+TYPES END OF ty_api_order.
+
+DATA(api_order) = CORRESPONDING ty_api_order( db_order ).</code></pre>
+<p>结果是：<code>order_id</code> 和 <code>status</code> 被复制；<code>changed_by</code> 因为目标没有而被忽略；<code>text</code> 因为源没有而是 initial value。</p>
+<h5 id="39-4-2-needs-target-type-context-ca83a777">39.4.2 # needs target type context</h5>
+<p>和 <code>VALUE #( ... )</code> 一样，<code>CORRESPONDING #( source )</code> 的 <code>#</code> 需要上下文能推断目标类型：</p>
+<pre><code class="language-abap">DATA api_order TYPE ty_api_order.
+
+api_order = CORRESPONDING #( db_order ).</code></pre>
+<p>这里 <code>#</code> 从左侧 <code>api_order TYPE ty_api_order</code> 推断。下面这种写法通常上下文不足：</p>
+<pre><code class="language-abap">&quot; Target type is unclear
+DATA(api_order) = CORRESPONDING #( db_order ).</code></pre>
+<p>要么给左侧显式类型，要么在 <code>CORRESPONDING</code> 后写 target type：</p>
+<pre><code class="language-abap">DATA(api_order) = CORRESPONDING ty_api_order( db_order ).</code></pre>
+<p>初学阶段的纪律很简单：如果 reviewer 看不出目标类型，就不要用 <code>#</code>。</p>
+<h5 id="39-4-3-mapping-handles-different-names-81812fd2">39.4.3 MAPPING handles different names</h5>
+<p>如果源和目标字段名不同，用 <code>MAPPING</code>：</p>
+<pre><code class="language-abap">DATA(api_order) = CORRESPONDING ty_api_order(
+  db_order
+  MAPPING order_id    = vbeln
+          customer_id = kunnr
+          currency    = waerk
+).</code></pre>
+<p>方向要记清楚：左边是 target component，右边是 source component。可以读成“目标 <code>order_id</code> 取自源 <code>vbeln</code>”。</p>
+<p>这点非常重要。方向写反时，可能语法就不通过；更糟的是，某些名字刚好都存在，代码能过但语义错。</p>
+<p>另外，<code>MAPPING</code> 里不要用 component selector <code>-</code> 去直接写嵌套 component 路径。遇到 nested structure、nested table 或深层 DTO 时，应查对应语法形式，必要时拆成局部结构变量或显式 mapping，不要把深层业务转换压进一行看似漂亮的 <code>CORRESPONDING</code>。</p>
+<h5 id="39-4-4-except-excludes-target-components-f6d038c2">39.4.4 EXCEPT excludes target components</h5>
+<p><code>EXCEPT</code> 用于排除目标 component：</p>
+<pre><code class="language-abap">DATA(api_order) = CORRESPONDING ty_api_order(
+  db_order
+  EXCEPT internal_note
+).</code></pre>
+<p>这表示不要从源复制到目标 <code>internal_note</code>。通常用于技术字段、内部备注、审计字段、接口不应暴露字段等。</p>
+<p>如果字段敏感，建议显式 <code>EXCEPT</code>，或者干脆显式逐字段 mapping。不要依赖“源结构刚好没有这个字段”来保证安全，因为源结构未来可能扩展。</p>
+<p>如果和 <code>MAPPING</code> 一起使用，还可以看到 <code>EXCEPT *</code>。它的意思不是“什么都不做”，而是“抑制所有自动同名 mapping，只保留显式 <code>MAPPING</code> 指定的字段”。这在接口 DTO、公开 API response、CSV upload staging 等场景很有价值，因为它把字段白名单写进了代码。</p>
+<p>可以把 mental model 写成三步：先按同名 component 建立自动对应，再由 <code>EXCEPT</code> 排除不想复制的目标 component，最后让 <code>MAPPING</code> 指定的显式对应生效。<code>EXCEPT *</code> 的白名单效果来自“关闭所有自动同名对应”。如果没有任何 <code>MAPPING</code>，单独使用 <code>EXCEPT *</code> 会让目标 component 都保持 initial，这通常不是初学者想要的结果。</p>
+<h5 id="39-4-5-base-preserves-existing-target-values-c0dbe94a">39.4.5 BASE preserves existing target values</h5>
+<p>默认情况下，<code>CORRESPONDING</code> 构造的是一个新的目标值；没有被填的 component 是 initial value。如果要在已有目标值基础上映射源字段，可以使用 <code>BASE</code>：</p>
+<pre><code class="language-abap">api_order = CORRESPONDING #(
+  BASE ( api_order )
+  db_order
+  MAPPING order_id = vbeln
+).</code></pre>
+<p>这表示：先以现有 <code>api_order</code> 为基础，再把 <code>db_order</code> 中映射到的字段覆盖上去。未映射字段继续保留 <code>api_order</code> 里的旧值。</p>
+<p>和上一节 <code>VALUE</code> 一样，<code>BASE</code> 不是装饰。它决定未映射字段是保留旧值，还是变成 initial value。项目 review 中要问：这里想要“重建目标结构”，还是“在已有目标上补字段”？</p>
+<p>注意语法细节：<code>CORRESPONDING</code> 的 <code>BASE</code> 要写成 <code>BASE ( base )</code>，括号是必须的；这和 <code>VALUE</code> 一节里看到的某些 <code>BASE</code> 写法不完全一样。常见、合理的更新模式是：</p>
+<pre><code class="language-abap">api_order = CORRESPONDING #(
+  BASE ( api_order )
+  db_order
+  MAPPING order_id = vbeln
+).</code></pre>
+<p>这表示先把原来的 <code>api_order</code> 作为 base value，再覆盖来自 <code>db_order</code> 的 mapped fields。</p>
+<h5 id="39-4-6-default-has-two-mapping-fallback-forms-b11fbcef">39.4.6 DEFAULT has two mapping fallback forms</h5>
+<p><code>DEFAULT</code> 可和 <code>MAPPING</code> 一起使用，但要分清两种语义。第一种是 <code>MAPPING target = DEFAULT expr</code>，目标字段总是取 <code>expr</code> 的结果；第二种是 <code>MAPPING target = source DEFAULT expr</code>，只有当 <code>source</code> 的值是 initial 时，才改用 <code>expr</code>。它不是“源字段不存在就兜底”，也不是“类型不兼容就兜底”。</p>
+<pre><code class="language-abap">DATA(api_order) = CORRESPONDING ty_api_order(
+  db_order
+  MAPPING order_id = vbeln
+          status   = status DEFAULT &#x27;NEW&#x27;
+).</code></pre>
+<p>这段例子的意思是：如果源字段 <code>status</code> 不是 initial，就把源 <code>status</code> 给目标 <code>status</code>；如果源 <code>status</code> 是 initial，就把 <code>&#x27;NEW&#x27;</code> 给目标 <code>status</code>。这里仍然要保持克制。<code>DEFAULT</code> 只是在 constructor expression 中提供一个值，不会自动检查 customizing、不会做合法性校验，也不会证明 <code>&#x27;NEW&#x27;</code> 是业务上正确的状态。项目里如果默认值有业务含义，应在字段设计、mapping 表或转换方法中说明。</p>
+<h5 id="39-4-7-type-conversion-still-happens-001de224">39.4.7 Type conversion still happens</h5>
+<p><code>CORRESPONDING</code> 复制 component 时，仍遵循 ABAP assignment / conversion rules。如果同名字段或 <code>MAPPING</code> 字段类型不同，可能发生：</p>
+<ul>
+<li>字符串/定长字符截断。</li>
+<li>packed number 小数位舍入。</li>
+<li>日期/时间字符格式转换问题。</li>
+<li>NUMC / CHAR 前导零变化。</li>
+<li>金额/数量字段失去 currency/unit 上下文。</li>
+<li>conversion exit 没有按业务期望执行。</li>
+<li>无法转换时运行时异常。</li>
+<li>source 和 target 是同一变量、又用 <code>MAPPING</code> 做 component 交换时，存在 <code>CORRESPONDING_SELF</code> 这类运行时风险，复杂场景不要炫技。</li>
+</ul>
+<p>因此，跨结构类型使用 <code>CORRESPONDING</code> 时，不能只看字段名相同。金额、数量、日期、语言、单位、状态、业务 key 字段尤其要显式 review。</p>
+<h5 id="39-4-8-internal-table-mapping-9bb69bf2">39.4.8 Internal table mapping</h5>
+<p><code>CORRESPONDING</code> 也可以用于内表，把每一行按 line type 做对应映射：</p>
+<pre><code class="language-abap">DATA(api_orders) = CORRESPONDING ty_api_orders( db_orders ).</code></pre>
+<p>这里的含义是：对 <code>db_orders</code> 的每一行，构造一行 <code>ty_api_orders</code> 的 row type。具体能否这样写、目标 table key 如何处理、重复 key 如何处理，要看目标 table type 和 ABAP release / syntax form。初学阶段先掌握结构映射，再把 table-level mapping 当作同一机制在内表上的延伸。</p>
+<p>如果目标 table 有 unique key，映射后的重复 key 可能导致运行时问题；如果目标是 standard table with empty key，则重复行会被接受。和 <code>VALUE</code> 一样，constructor expression 不会绕过 table key 设计。</p>
+<p>当目标内表有 unique key，而源数据可能映射出重复 key 时，相关语法中可以看到 <code>DISCARDING DUPLICATES</code>：它用于丢弃会造成重复 key 的行，避免 duplicate key 异常。SAP cheat sheet 的示例体现了一个重要行为：重复 key 中通常保留先出现的行，后续重复行被静默丢弃。是否使用它不是纯技术选择，而是业务选择：重复订单行、重复客户编号、重复 condition record 是要报错、合并、保留第一条，还是丢弃后继续处理，必须由需求决定。把它写进代码前，要先确认业务允许这种 silent data loss。</p>
+<p>更进阶的 <code>DEEP</code> / <code>APPENDING</code> 用于深层或嵌套 tabular component。初学者先记住三点：第一，浅层 <code>CORRESPONDING</code> 主要处理当前结构层级的 component，不等于递归业务 mapping；第二，<code>DEEP</code> 表示对深层 tabular component 继续按层级处理同名 component；第三，<code>APPENDING</code> 的重点是不要删除已有 nested target table，而是在其中追加对应行。遇到 nested table、深层结构、RAP payload 或复杂接口 DTO 时，不要想当然以为一行 <code>CORRESPONDING #( ... )</code> 会得到业务期望的深层结果，应查语法文档并写 ABAP Unit 覆盖。</p>
+<p>另一个进阶形态是 <code>CORRESPONDING #( itab FROM lookup_tab USING ... )</code>。它可用于把一个内表和 lookup table 按 key 对应起来，类似把 lookup 数据补进主表。这个语法依赖 sorted/hash key 等约束，不适合作为本节第一层掌握点；看到它时，应重点 review lookup key、唯一性、未命中时行为和目标表类型。</p>
+<h5 id="39-4-9-relation-to-move-corresponding-and-into-corresponding-fields-04fc269b">39.4.9 Relation to MOVE-CORRESPONDING and INTO CORRESPONDING FIELDS</h5>
+<p>旧代码里会看到：</p>
+<pre><code class="language-abap">MOVE-CORRESPONDING source TO target.</code></pre>
+<p>也会在 ABAP SQL 中看到：</p>
+<pre><code class="language-abap">SELECT ...
+  INTO CORRESPONDING FIELDS OF TABLE @lt_result.</code></pre>
+<p>它们都属于“按对应字段名移动”的家族，但语境不同。<code>CORRESPONDING #( ... )</code> 是现代 constructor expression，可以嵌在赋值、method call、<code>VALUE</code>、ABAP Unit test data 中；<code>MOVE-CORRESPONDING</code> 是 statement；<code>INTO CORRESPONDING FIELDS</code> 是 SQL result 接收语境。风险类似：方便，但可能静默丢字段、静默转换、让字段语义问题隐藏起来。</p>
+<p>一个容易忽略的差异是初始化行为：没有 <code>BASE</code> 的 <code>CORRESPONDING #( source )</code> 会构造新的目标值，未匹配字段通常变为 initial；而 <code>MOVE-CORRESPONDING source TO target</code> 是把 source 中对应字段移动到已有 target，未匹配字段不会因此被清空。把旧代码迁移成 expression 写法时，必须确认这种差异是否会改变业务结果。</p>
+<p>旧代码里还可能看到 <code>MOVE-CORRESPONDING ... KEEPING TARGET LINES</code> 或 <code>EXPANDING NESTED TABLES</code>。前者和“保留目标内表既有行”有关，思路上接近 <code>CORRESPONDING #( BASE ( itab ) source )</code>；后者和 nested table 展开有关，思路上接近 <code>CORRESPONDING ... DEEP</code>。初学者不需要先掌握所有 legacy addition，但要知道：把老 <code>MOVE-CORRESPONDING</code> 改成现代 expression 之前，必须读清这些 addition 的行为，不能只做关键词替换。</p>
+<p><code>INTO CORRESPONDING FIELDS</code> 则属于 ABAP SQL 的接收语境。它按 SELECT list 的列名和目标 component 名称对应，常用于避免手工排列字段顺序，但它不是 <code>CORRESPONDING #( ... )</code> 的替代品。遇到预先声明的 work area、内表接收、<code>APPENDING CORRESPONDING FIELDS</code> 等不同形式时，要查 SQL 文档确认未选字段、已有目标内容和追加行为，不要把 constructor expression 的 <code>BASE</code> 直觉套过去。</p>
+<h5 id="39-4-10-not-a-business-mapping-engine-0717ae2d">39.4.10 Not a business mapping engine</h5>
+<p><code>CORRESPONDING</code> 只处理 ABAP component mapping。它不会：</p>
+<ul>
+<li>查 customizing。</li>
+<li>做 currency / unit conversion。</li>
+<li>翻译 status code。</li>
+<li>校验必填字段。</li>
+<li>判断业务语义是否等价。</li>
+<li>自动处理外部接口 version 差异。</li>
+</ul>
+<p>这些仍然要靠显式业务逻辑、mapping table、conversion method、validation 或接口契约来完成。项目里如果字段映射有业务含义，不要只把它藏在一行 <code>CORRESPONDING #( ... )</code> 里。</p>
+<h5 id="39-4-11-corresponding-mapping-review-checklist-5d1e7c6a">39.4.11 CORRESPONDING mapping review checklist</h5>
+<p>Review <code>CORRESPONDING</code> 时，重点不是“有没有少写代码”，而是映射结果是否可解释、可测试、可交付。下面的检查表可以直接用于接口字段 mapping review：</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>What to verify</th><th>Risk if ignored</th></tr></thead><tbody><tr><td>What is the target type?</td><td><code>#</code> 是否能从左侧、参数或上下文清楚推断。</td><td>读者不知道最终会构造什么结构或表。</td></tr><tr><td>Are same-name fields semantically same?</td><td>同名 component 的业务含义、单位、币种、日期格式是否一致。</td><td>名字相同但语义不同，导致静默错误。</td></tr><tr><td>Which fields become initial?</td><td>未映射 target component 是否真的应该 initial。</td><td>旧值被清空，接口必填字段漏值。</td></tr><tr><td>Is <code>BASE</code> needed?</td><td>是否要保留目标已有字段、默认值或人工补充字段。</td><td>误以为 <code>CORRESPONDING</code> 会自动保留旧目标内容。</td></tr><tr><td>Is <code>MAPPING</code> direction correct?</td><td><code>target = source</code> 是否写对，并和接口 mapping 表一致。</td><td>方向写反或字段来源错误，review 很难一眼发现。</td></tr><tr><td>Are conversions safe?</td><td>length、decimals、currency/unit、date/time、domain value 是否兼容。</td><td>截断、舍入、格式变化或运行时转换错误。</td></tr><tr><td>Is table key behavior clear?</td><td>unique key、duplicate row、<code>DISCARDING DUPLICATES</code> 是否符合业务。</td><td>行丢失、重复键异常或结果顺序误解。</td></tr><tr><td>Is there test evidence?</td><td>ABAP Unit 是否覆盖同名、MAPPING、EXCEPT、BASE、异常边界。</td><td>mapping 被改坏时没有自动报警。</td></tr></tbody></table></div>
+<p>如果字段映射属于外部 API、IDoc/BAPI wrapper、RAP projection 或跨系统接口，最好保留一张可 review 的 mapping 表，并让代码里的 <code>MAPPING</code> 与表格保持一致。<code>CORRESPONDING</code> 可以减少机械赋值，但不能替代接口契约本身。</p>
+<h4 id="39-5-3378baa7" class="semantic-heading semantic-japan">39.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>CORRESPONDING式</code>、<code>項目マッピング</code>、<code>同名項目マッピング</code>、<code>同名項目</code>、<code>位置ではなく名前による対応</code>、<code>MAPPING指定</code>、<code>EXCEPT指定</code>、<code>EXCEPT *指定</code>、<code>BASE指定</code>、<code>暗黙変換</code>、<code>暗黙型変換</code>、<code>型変換</code>、<code>未設定項目</code>、<code>型固有の初期値</code>、<code>重複キー</code>、<code>深い構造</code>、<code>DEEP指定</code>、<code>項目対応表</code>、<code>インターフェース項目</code>、<code>内部項目</code>。</li>
+<li>说明句：この <code>CORRESPONDING #( ... )</code> は同名項目のコピーであり、業務上の変換やコード変換は別途実装が必要です。</li>
+<li>说明句：同名項目は位置ではなく名前による対応であり、同名でも業務上の意味が同じとは限りません。</li>
+<li>Review 指摘句：<code>MAPPING</code> 指定では左辺がターゲット項目、右辺がソース項目です。方向を逆に読まないようにしてください。</li>
+<li>Review 指摘句：<code>EXCEPT *</code> は同名自動マッピングを抑制し、<code>MAPPING</code> 指定された項目だけを対応付ける意図か確認してください。</li>
+<li>Review 指摘句：<code>DISCARDING DUPLICATES</code> は後続の重複行を警告なしに破棄するため、業務要件上許容されるか確認してください。</li>
+<li>Review 指摘句：同名項目ですが意味が異なる可能性があるため、<code>status</code> のマッピング意図を明示してください。</li>
+<li>Review 指摘句：対象外にすべき内部項目があるため、<code>EXCEPT</code> を指定するか、明示的な項目代入に変更してください。</li>
+<li>Review 指摘句：金額・数量・日付項目で暗黙変換が発生する可能性があるため、型互換性と単位/通貨の扱いを確認してください。</li>
+<li>使用场景：接口设计、RAP DTO/helper structure、OData response mapping、Migration/staging mapping、ALV output、ABAP Unit expected data、code review。</li>
+</ul>
+<h4 id="39-6-english-terms-3bdb652e" class="semantic-heading semantic-terms">39.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>CORRESPONDING</code>, <code>CORRESPONDING constructor expression</code>, <code>Assigning Structure Components</code>, <code>CORRESPONDING, Basic Form</code>, <code>CORRESPONDING, mapping</code>, <code>CORRESPONDING, Lookup Table</code></li>
+<li>ABAP syntax: <code>CORRESPONDING type( source )</code>, <code>CORRESPONDING #( source )</code>, <code>MAPPING target = source</code>, <code>DEFAULT</code>, <code>EXCEPT component</code>, <code>EXCEPT *</code>, <code>BASE ( base )</code>, <code>DISCARDING DUPLICATES</code>, <code>DEEP</code>, <code>APPENDING</code>, <code>FROM ... USING</code>, <code>MOVE-CORRESPONDING</code>, <code>INTO CORRESPONDING FIELDS</code></li>
+<li>Mapping terms: <code>same-name components</code>, <code>name-based mapping</code>, <code>component mapping</code>, <code>assignment conversion</code>, <code>implicit conversion</code>, <code>target component</code>, <code>source component</code>, <code>silent data loss</code>, <code>unique table key</code></li>
+<li>Style terms: <code>explicit mapping</code>, <code>field mapping table</code>, <code>business semantics</code>, <code>readability</code>, <code>interface contract</code></li>
+<li>Recommended search pattern: <code>ABAP CORRESPONDING constructor expression SAP Help</code>, <code>ABAP CORRESPONDING MAPPING EXCEPT DEFAULT SAP Help</code>, <code>ABAP CORRESPONDING DISCARDING DUPLICATES DEEP SAP Help</code>, <code>MOVE-CORRESPONDING risks ABAP</code></li>
+</ul>
+<p>读官方资料时注意：<code>MAPPING target = source</code> 的方向是最容易写错的点；<code>CORRESPONDING</code> 的便利性来自同名 component，但项目风险也往往来自“名字一样但业务含义不同”。</p>
+<h4 id="39-7-example-f011f996" class="semantic-heading semantic-example">39.7 Example / 学习例子</h4>
+<h5 id="39-7-1-1-7226f031">39.7.1 例 1：同名字段复制</h5>
+<pre><code class="language-abap">DATA(api_order) = CORRESPONDING ty_api_order( db_order ).</code></pre>
+<p>适合源和目标字段名大部分一致，且同名字段语义和类型都明确兼容的场景。</p>
+<h5 id="39-7-2-2-mapping-53133e27">39.7.2 例 2：字段名不同，用 MAPPING</h5>
+<pre><code class="language-abap">DATA(api_order) = CORRESPONDING ty_api_order(
+  db_order
+  MAPPING order_id    = vbeln
+          customer_id = kunnr
+          currency    = waerk
+).</code></pre>
+<p>读法：目标 <code>order_id</code> 来自源 <code>vbeln</code>。</p>
+<h5 id="39-7-3-3-c4d61bbc">39.7.3 例 3：排除内部字段</h5>
+<pre><code class="language-abap">DATA(public_order) = CORRESPONDING ty_public_order(
+  internal_order
+  EXCEPT internal_note changed_by changed_at
+).</code></pre>
+<p>这比“希望目标结构没有这些字段”更稳，因为代码明确表达了不复制这些内部字段。</p>
+<h5 id="39-7-4-4-6df64ecb">39.7.4 例 4：保留已有目标字段</h5>
+<pre><code class="language-abap">api_order = CORRESPONDING #(
+  BASE ( api_order )
+  db_order
+  MAPPING order_id = vbeln
+).</code></pre>
+<p>如果 <code>api_order</code> 里已有 <code>display_text</code>、<code>source_system</code> 等字段，这种写法能保留它们。没有 <code>BASE</code> 时，未映射字段会变成 initial value。</p>
+<h5 id="39-7-5-5-b9dc933f">39.7.5 例 5：类型转换风险</h5>
+<pre><code class="language-abap">DATA(target) = CORRESPONDING ty_target( source ).</code></pre>
+<p>如果 source 里的 <code>amount</code> 是 character，target 里的 <code>amount</code> 是 packed number，ABAP 会尝试转换。能转换不代表业务正确；小数位、货币、空值、异常格式都要检查。</p>
+<h5 id="39-7-6-6-abap-unit-mapping-9c23ae56">39.7.6 例 6：ABAP Unit 固定 mapping 行为</h5>
+<pre><code class="language-abap">DATA(source) = VALUE ty_db_order(
+  vbeln  = &#x27;4500000001&#x27;
+  kunnr  = &#x27;0000100001&#x27;
+  status = &#x27;OPEN&#x27;
+).
+
+DATA(actual) = CORRESPONDING ty_api_order(
+  source
+  MAPPING order_id    = vbeln
+          customer_id = kunnr
+).
+
+cl_abap_unit_assert=&gt;assert_equals(
+  exp = &#x27;4500000001&#x27;
+  act = actual-order_id
+).</code></pre>
+<p>mapping 逻辑重要时，用 ABAP Unit 固定它，比只靠肉眼 review 更可靠。</p>
+<h4 id="39-8-counterexample-failure-mode-d1e668cf" class="semantic-heading semantic-example">39.8 Counterexample / Failure mode</h4>
+<h5 id="39-8-1-1-e5675a40" class="semantic-heading semantic-failure">39.8.1 误区 1：以为字段名相同就语义相同</h5>
+<p>两个结构都有 <code>status</code>，但一个是订单状态，一个是接口处理状态。</p>
+<p>修正动作：对状态、类型、分类、标志字段做业务语义 review；必要时显式 mapping 或显式赋值。</p>
+<h5 id="39-8-2-2-initial-3ddeb001" class="semantic-heading semantic-failure">39.8.2 误区 2：忘记未映射字段会 initial</h5>
+<p><code>CORRESPONDING #( source )</code> 构造新目标值时，目标中没有被复制的字段不会保留旧值。</p>
+<p>修正动作：需要保留旧值时使用 <code>BASE ( target )</code>，或者显式赋值。</p>
+<h5 id="39-8-3-3-mapping-1fceaf0f" class="semantic-heading semantic-failure">39.8.3 误区 3：MAPPING 方向写反</h5>
+<p><code>MAPPING target = source</code>。方向错了，代码要么不通过，要么语义错。</p>
+<p>修正动作：读成“目标字段 = 源字段”，并在 review 中确认。</p>
+<h5 id="39-8-4-4-07d95250" class="semantic-heading semantic-failure">39.8.4 误区 4：隐式转换被忽略</h5>
+<p>同名字段复制时，类型不同可能发生截断、舍入、前导零变化或格式转换。</p>
+<p>修正动作：金额、数量、日期、NUMC、语言、单位、货币字段优先显式 review。</p>
+<h5 id="39-8-5-5-corresponding-df53f28a" class="semantic-heading semantic-failure">39.8.5 误区 5：把 CORRESPONDING 当业务转换</h5>
+<p>字段映射不等于业务转换。currency conversion、unit conversion、status translation、code list mapping 都不是 <code>CORRESPONDING</code> 自动完成的。</p>
+<p>修正动作：把业务转换写进专门 method、mapping table 或 conversion layer。</p>
+<h4 id="39-9-78f82c86" class="semantic-heading semantic-practice">39.9 思考问题</h4>
+<ul>
+<li>这段 <code>CORRESPONDING</code> 的目标类型是什么？</li>
+<li>哪些 component 是同名复制？哪些通过 <code>MAPPING</code>？哪些通过 <code>EXCEPT</code> 排除？</li>
+<li>未映射目标字段是 initial value，还是通过 <code>BASE</code> 保留旧值？</li>
+<li>是否存在同名但业务语义不同的字段？</li>
+<li>是否存在隐式类型转换、截断、舍入、前导零或日期格式风险？</li>
+<li>这段 mapping 是否值得用 ABAP Unit 固定？</li>
+<li>日本项目的字段映射表是否和代码里的 <code>MAPPING</code> 保持一致？</li>
+</ul>
+<h4 id="39-10-637e3b83" class="semantic-heading semantic-reference">39.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCORRESPONDING.html" target="_blank" rel="noopener noreferrer">Assigning Structure Components</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCORRESPONDING_CONSTR_ARG_TYPE.html" target="_blank" rel="noopener noreferrer">CORRESPONDING, Basic Form</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCORRESPONDING_CONSTR_MAPPING.html" target="_blank" rel="noopener noreferrer">CORRESPONDING, mapping</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCORRESPONDING_CONSTR_USING.html" target="_blank" rel="noopener noreferrer">CORRESPONDING, Lookup Table</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPINTO_CLAUSE.html" target="_blank" rel="noopener noreferrer">SELECT, INTO, APPENDING</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSELECT_INTO_TARGET.html" target="_blank" rel="noopener noreferrer">SELECT, INTO target</a></li>
+<li>SAP Cheat Sheets: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/05_Constructor_Expressions.md" target="_blank" rel="noopener noreferrer">Constructor Expressions Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="39-11-connections-dd082cb3">39.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-038-value-expression-a0792b7e.html">VALUE expression 值构造表达式</a></li>
+<li>Related: <a class="wiki" href="section-01-023-structure-3269a877.html">Structure 结构类型</a></li>
+<li>Related: <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a></li>
+<li>Related: <a class="wiki" href="section-02-044-corresponding-fields-and-move-corresponding-risks-209a3881.html">CORRESPONDING FIELDS and MOVE-CORRESPONDING risks</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Downstream: <a class="wiki" href="section-02-040-cond-expression-4810482a.html">COND expression 条件表达式</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="39-12-b9807b5d" class="semantic-heading semantic-practice">39.12 学习任务</h4>
+<ul>
+<li>写一个 <code>CORRESPONDING ty_target( source )</code>，列出哪些同名字段会复制。</li>
+<li>写一个 <code>MAPPING target = source</code> 例子，并用中文说明方向。</li>
+<li>写一个 <code>EXCEPT</code> 例子，说明为什么某些内部字段不应复制。</li>
+<li>写一个 <code>BASE ( target )</code> 例子，说明未映射字段如何保留旧值。</li>
+<li>写一个 <code>EXCEPT *</code> + <code>MAPPING</code> 例子，说明它为什么像字段白名单。</li>
+<li>写一个 <code>DEFAULT</code> 例子，区分 <code>target = DEFAULT expr</code> 与 <code>target = source DEFAULT expr</code>。</li>
+<li>解释为什么 <code>DISCARDING DUPLICATES</code> 可能是 silent data loss。</li>
+<li>找一个金额/日期/NUMC 字段，说明隐式转换可能带来的风险。</li>
+<li>用 ABAP Unit 固定一个字段映射结果。</li>
+<li>用 English Terms 找 SAP Help 对 <code>CORRESPONDING, mapping</code> 的说明，并补到个人学习记录。</li>
+</ul>
+<h4 id="39-13-confidence-next-action-4c725a7c" class="semantic-heading semantic-status">39.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节基于 ABAP Keyword Documentation 的 <code>Assigning Structure Components</code>、<code>CORRESPONDING, Basic Form</code>、<code>CORRESPONDING, mapping</code>、<code>CORRESPONDING, Lookup Table</code> 和 SAP constructor expression cheat sheet 扩写；Joule 返回 <code>Pass with fixes</code>，关于 same-name 只按名称不按位置、<code>MAPPING</code> 方向、<code>EXCEPT *</code> 三步模型、<code>BASE ( base )</code>、<code>DEFAULT</code> 两种形式、<code>CORRESPONDING_SELF</code>、<code>DISCARDING DUPLICATES</code>、<code>DEEP/APPENDING</code>、<code>MOVE-CORRESPONDING</code> 差异和日语术语的 useful fixes 已并入。旧 Claude review 是 credential provider 错误，2026-06-18 重新健康检查 120 秒超时，记录为外部 review debt。</li>
+<li>Next action: 已具备同步到 Chapter 02 和离线书稿的条件；Claude 恢复后可对 Section 39 做补审，但不阻塞下一节。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-039-corresponding-expression-74c9f3e8.html">CORRESPONDING expression 字段映射</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-038-value-expression-a0792b7e.html">Previous section</a><a href="section-02-040-cond-expression-4810482a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

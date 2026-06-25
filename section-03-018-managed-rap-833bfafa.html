@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Managed RAP 管理式实现 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="18-managed-rap-d16ec1eb" class="chapter-title">18. Managed RAP 管理式实现</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 18</li><li>self-contained study note</li></ul><h4 id="18-1-ce653676" class="semantic-heading semantic-concept">18.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a> 是 RAP 中让框架承担大量标准事务行为的实现方式：开发者用 BDEF 声明业务对象行为，RAP runtime 管理 transactional buffer、标准 create/update/delete、managed save、锁和部分生命周期；开发者仍要实现业务规则、动作、校验、派生、授权、必要的扩展保存逻辑，并按各方法签名正确返回 <code>failed</code>、<code>reported</code>、<code>mapped</code>、<code>result</code> 等响应结构。</p>
+<p>最重要的理解不是“managed 等于不用写代码”，而是“标准事务骨架由框架管理，业务差异仍由项目实现”。当业务对象和持久化表结构比较直接、希望减少手写 CRUD 和事务代码时，managed RAP 通常是优先选项。</p>
+<h4 id="18-2-5abda5c1">18.2 概念说明</h4>
+<p>Managed RAP 是 RAP behavior implementation 的一种 implementation type。它通常在 BDEF header 中写成 <code>managed implementation in class ... unique;</code>，表示这个 BO 的标准行为由 RAP managed runtime 协调。这里的 managed 不是“系统自动完成全部业务”，而是指框架提供 managed transactional buffer、managed behavior 和默认保存流程，开发者在 <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a> 中实现项目特有逻辑。</p>
+<p>一个 managed BO 仍然需要完整的数据模型：root view entity、composition tree、persistent table、projection view、service definition / binding 等。它也需要 BDEF 来声明哪些 entity 可以 create/update/delete、哪些字段 readonly/mandatory、哪些 validation/determination/action 存在、是否 draft、是否有 lock/authorization/ETag、是否 managed numbering 或 <code>mapping for</code>。Managed RAP 只是决定“标准修改和保存由谁负责”，不是替代整个 RAP 设计。</p>
+<p>最常见的 managed 场景是：CDS entity 字段和数据库表字段关系清晰，BO entity 可以比较自然地映射到 persistent table，标准 CRUD 不需要复杂遗留逻辑，项目希望把重复的 buffering、key mapping、save sequence 和 response 处理交给框架。比如 Travel / Booking 教学模型、简单主从表、业务规则主要是 validation/determination/action，这类场景很适合先用 managed。</p>
+<p>和 unmanaged RAP 相比，managed RAP 的学习重点是“少写事务底层代码，多理解框架边界”。开发者不需要像 unmanaged 那样自己实现所有标准 operation 和 buffer，但仍要知道哪些地方不能乱做：不要在 handler 中直接 <code>COMMIT WORK</code>，不要绕过 EML 直接改表，不要把外部副作用放进可回滚阶段，不要以为 managed 会自动完成所有 authorization 或 business validation。</p>
+<h4 id="18-3-2154bd59">18.3 边界</h4>
+<p>Managed RAP 不等于 no-code。BDEF 中声明 validation、determination、action、authorization、feature control、numbering 或 additional save 后，仍可能需要在 behavior pool 中写 ABAP 实现。框架托管的是通用事务机制，不会自动知道项目的业务规则。</p>
+<p>Managed RAP 不等于永远不用 saver class。标准 managed save 场景中，RAP runtime 可以完成默认持久化，项目可能没有自定义 saver class；但 managed with unmanaged save 会把实际 DB write 交给 saver 的 <code>save_modified</code>，managed with additional save 会在 managed write 之外执行附加保存逻辑。也就是说，managed 下面还有 save option 的差异。</p>
+<p>Managed RAP 不等于永远适合所有对象。如果 BO 与持久化表不是一一对应、需要封装复杂 legacy API、已有 function module/BAPI 自带事务语义、需要高度自定义 buffer 或保存顺序，unmanaged 或 managed with unmanaged save 可能更合适。选择 managed 前要看数据模型、遗留资产、扩展要求和测试成本。</p>
+<p>Managed RAP 也不等于自动安全。DCL、RAP authorization、PFCG、instance authorization、feature control、lock master/dependent、ETag、draft、service exposure 都有各自边界。Managed runtime 可以执行已声明/已实现的规则，但不会替你设计权限模型。</p>
+<h4 id="18-4-cff98a67" class="semantic-heading semantic-mechanism">18.4 核心机制</h4>
+<p>第一层机制是 managed transactional buffer。消费者通过 OData、Fiori Elements 或 EML 发起 create/update/delete/action 后，RAP runtime 不会立刻把每一步都直接写入数据库，而是把变更放进 transactional buffer。后续 validation、determination、action 和 save sequence 都围绕这个 buffer 工作。这个机制让多个实体的修改可以作为同一个 BO 生命周期处理。</p>
+<p>第二层机制是标准 operation 的托管。Managed BO 中，如果 BDEF 为 entity 声明 <code>create; update; delete;</code>，RAP runtime 可以负责标准持久化路径。开发者不需要像 unmanaged BO 那样为每个标准 operation 编写完整 create/update/delete handler。读代码时，如果一个 managed BO 没有手写 create/update/delete 方法，不要立刻认为“缺代码”；先看 BDEF 和 managed save 选项。</p>
+<p>第三层机制是 managed save。ABAP Keyword Documentation 对 save options 的描述很清楚：默认情况下 RAP framework performs a managed save。也就是说，框架根据 BDEF、persistent table、mapping、numbering 和 buffer 内容执行标准保存。项目要做的是保证字段映射、readonly/mandatory、validation、determination、authorization 等规则正确，而不是自己重写标准 SQL。</p>
+<p>第四层机制是 managed with unmanaged save。它仍属于 managed implementation scenario，但保存阶段由开发者实现。SAP Learning 明确说明，这种方式适合没有一一对应表结构或需要集成不使用 application buffer 的既有代码。框架仍管理 interaction phase 和 buffer，但真正写数据库或调用遗留保存逻辑的责任进入 saver class。它不是纯 unmanaged，也不是普通 managed save。</p>
+<p>第五层机制是 managed with additional save。Additional save 和 unmanaged save 的差异在于：additional save 是在 managed write access 之外追加逻辑，不是替代 managed save，也不能用来阻止框架自己的 DB write。常见用途包括写补充记录、raise RAP business event、同步某些附属信息。SAP Learning 也建议 managed RAP BO 中的 business event 往往放在 additional save / saver method 中，而不是随便在 handler 中触发不可控副作用。</p>
+<p>第六层机制是 mapping 和 numbering。Managed runtime 要能把 CDS entity 字段映射到 persistent table 字段；如果字段名不同，需要在 BDEF 中使用 <code>mapping for</code>。创建场景中，如果 key 由系统生成，还要设计 numbering：early numbering 可以由框架托管 UUID，也可以由项目实现；late numbering 则在保存阶段分配最终 key。前端或 EML 调用方常用 <code>%cid</code> 表示临时实例，保存后再映射到最终 key。初学者常以为“managed 会自动懂字段关系和编号”，实际需要 BDEF 和 behavior implementation 清楚声明。</p>
+<p>第七层机制是业务逻辑和响应仍由项目实现。Validation 检查保存前一致性，determination 派生字段，action 表达非 CRUD 业务操作，authorization 和 feature control 控制是否允许执行。Managed RAP 提供托管框架，但不会自动知道“结束日期不能早于开始日期”“状态已关闭不能再改”“当前用户只能批准自己组织的数据”。对于开发者自己实现的 validation、determination、action、authorization、numbering 等方法，也不能指望框架自动生成业务消息；必须按各方法签名对应的 RAP response structure 返回结果。例如 validation/determination 通常用 <code>failed</code> / <code>reported</code>，action 和 create/numbering 场景可能还会用到 <code>mapped</code>（如 <code>%cid</code> 到最终 key），authorization 方法还会返回 <code>result</code>。不是每个方法都有 <code>mapped</code>。</p>
+<p>第八层机制是 draft、lock 和 ETag。Managed RAP 可以和 draft 一起使用，也可以声明 lock master/dependent、authorization master/dependent、etag master。框架会参与草稿、并发和乐观锁语义，但前提是 BDEF、composition tree、persistent/draft table、projection behavior 和 service 暴露设计一致。不要以为 managed 一开，Fiori draft 和并发控制就自动完整。</p>
+<p>第九层机制是 projection behavior 和服务暴露。Managed BO 的底层 BDEF 有 update/action，不代表 OData/Fiori consumer 一定能调用。Projection behavior 还要用 <code>use update;</code>、<code>use action ...;</code> 等方式暴露或裁剪行为，service definition / binding 再决定服务入口。Managed 的“可修改”必须一路穿过 projection 和 service contract。</p>
+<p>第十层机制是 late save phase 和错误处理。直接在标准连接上 <code>INSERT</code> / <code>UPDATE</code> / <code>DELETE</code> 持久化表，只应该出现在 late save phase 的合适 saver 逻辑中；interaction phase 和 <code>check_before_save</code> 等 early save phase 方法不能随便写数据库。<code>COMMIT WORK</code> / <code>ROLLBACK WORK</code> 在 RAP handler/saver 方法中属于禁止语句，在 strict mode 下会尽量提前被语法/静态检查发现，运行时也会成为非法语句错误。<code>save_modified</code> 也不是一定会执行：只有前面的 saver 方法没有失败时才会进入；如果 validation 已经失败，通常不会走到 late save。Additional save 和 unmanaged save 都可能实现 <code>save_modified</code>，差异是 additional save 补充框架写入，unmanaged save 替代框架写入。Additional save 中如果发生预期内业务错误，也很难再用普通 <code>failed</code> / <code>reported</code> 给用户友好反馈，因此可预见错误应尽量在 validation / early save 阶段预检查。</p>
+<h4 id="18-5-1e31de86" class="semantic-heading semantic-why">18.5 项目意义</h4>
+<p>Managed RAP 的价值是把项目团队从大量重复事务代码中解放出来。传统 ABAP 或 unmanaged 场景中，开发者常要自己处理 buffer、SQL、key mapping、消息、回滚和保存顺序；managed RAP 让这些标准机制尽量由框架承担，项目把注意力放在业务规则和服务契约上。</p>
+<p>对交付来说，managed RAP 能降低实现成本和 review 成本。代码 review 不再逐行检查手写 CRUD 是否漏字段、漏 key、漏 rollback，而是重点看 BDEF 是否正确、字段控制是否完整、validation/determination/action 是否实现、authorization 是否覆盖、projection 是否暴露、测试是否覆盖事务路径。它让评审更接近业务对象生命周期。</p>
+<p>对 Clean Core 来说，managed RAP 也更符合“使用框架和 released model”的方向。它鼓励开发者使用 RAP runtime、EML、CDS/BDEF/Service 分层，而不是在 handler 中直接操作底表或复制旧事务逻辑。当然，managed 本身不自动等于 Clean Core；如果它直接依赖 unreleased API、绕过发布对象、或者在 additional save 里乱做副作用，同样会偏离 Clean Core。</p>
+<p>对 Java/Python 背景学习者来说，managed RAP 像是一个强约束的 ORM + domain lifecycle + service runtime，但比普通 ORM 更强调业务对象、事务缓冲、save sequence、projection behavior 和 ABAP repository object。不要把它简单理解成“自动生成 CRUD API”；更准确地说，它是 SAP 给事务型业务对象提供的托管运行模型。</p>
+<h4 id="18-6-example-fe0c9a73" class="semantic-heading semantic-example">18.6 Example / 学习例子</h4>
+<p>以 Travel BO 为例，BDEF header 可以写成 <code>managed implementation in class zbp_i_travel unique;</code>，entity 部分声明 <code>create; update; delete;</code>，并指定 persistent table、lock master、authorization master、etag master、field readonly/mandatory、mapping for 等。这样，标准 create/update/delete 的持久化路径可以由 RAP runtime 管理。</p>
+<p>如果 Travel 有 <code>validation validateDates on save</code>，开发者仍要在 behavior pool 的 handler class 中实现日期检查，并通过 <code>failed</code> / <code>reported</code> 返回错误。这里 managed 不会自动知道业务规则。框架负责调用 validation、收集结果、参与保存；业务判断仍由项目代码完成。</p>
+<p>如果创建 Travel 时要自动生成编号，可以使用 managed numbering 或其他 numbering 策略。前端或 EML 调用方在 create 时可能使用 <code>%cid</code> 代表临时实例，保存后 runtime 把它映射到最终 key。框架托管 key 生成最自然的场景通常是 UUID key；如果项目使用业务编号或数字单号，要明确 early numbering、late numbering 或外部编号策略。测试时要确认 <code>mapped</code> 结果和返回 payload 中的 key 符合预期。</p>
+<p>如果项目需要在保存成功后 raise business event，可以考虑 managed with additional save。标准表写入仍由 managed save 完成，additional save 中再执行附加逻辑。这样比在 action handler 中直接发事件更接近 RAP save sequence，也更容易控制事务语义。但 additional save 不能用来取消框架已经安排的 managed write；如果事件或附加写入可能失败，要在 validation 或 early save 阶段提前检查。</p>
+<h4 id="18-7-counterexample-failure-mode-19ecd73d" class="semantic-heading semantic-example">18.7 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 managed 当成“全自动生成业务系统”。只声明 CRUD，不写 validation、determination、authorization 和 feature control，短期能保存，长期会出现脏数据、越权修改、状态流转混乱和前端按钮误用。</p>
+<p>第二个失败模式是在 managed handler 中直接 <code>INSERT</code> / <code>UPDATE</code> 持久化表并 <code>COMMIT WORK</code>。这会绕开 transactional buffer 和 managed save，破坏 RAP runtime 对事务的控制。标准连接上的数据库修改只应出现在 late save phase 的合适位置；<code>COMMIT WORK</code> / <code>ROLLBACK WORK</code> 在 RAP handler/saver 中是禁止语句。即使测试环境看起来能写入，生产上也可能出现回滚不一致、draft 失效、消息不清楚或 <code>BEHAVIOR_ILLEGAL_STATEMENT</code>。</p>
+<p>第三个失败模式是忘记 <code>mapping for</code>。CDS element 名和表字段名不同，但 BDEF 没有声明映射，managed save 就无法按预期持久化。初学者看到字段在 CDS 里存在，就误以为框架一定能写入，这是典型误解。</p>
+<p>第四个失败模式是把 additional save 当成任意副作用入口。Additional save 适合放入与保存生命周期一致的附加逻辑，但仍要考虑事务语义、失败处理、重试、幂等和外部系统一致性。发邮件、调用外部 API、写审计或 raise event 都要明确失败策略。尤其要注意：late save 中的预期业务错误很难再像 validation 那样用 <code>failed</code> / <code>reported</code> 友好返回，应该尽量前置到 validation 或 simulate/pre-check 逻辑。</p>
+<p>第五个失败模式是底层 managed BO 有 action/update，projection behavior 却没有暴露。服务消费者调用不到，前端按钮不出现，团队误以为 behavior implementation 有问题。排查时要从 BDEF、projection BDEF、service definition、service binding 一路看。</p>
+<h4 id="18-8-49f13329" class="semantic-heading semantic-japan">18.8 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>マネージド実装</code>、<code>管理された実装</code>、<code>マネージド RAP BO</code>、<code>マネージド保存</code>、<code>追加保存</code>、<code>アンマネージド保存</code>、<code>トランザクションバッファ</code>、<code>標準 CRUD</code>、<code>ビヘイビア定義</code>。</li>
+<li>说明句：この BO はマネージド実装のため、標準 CRUD と保存処理は RAP ランタイムに委譲し、業務ルールは validation / determination / action として実装します。</li>
+<li>说明句：項目名と永続テーブルの項目名が異なる場合は、BDEF の <code>mapping for</code> を確認してください。</li>
+<li>说明句：想定エラーは <code>failed</code> / <code>reported</code> で返し、late save 後に発生し得る業務エラーは validation 側で事前に検出します。</li>
+<li>说明句：追加保存を利用する場合は、外部連携・イベント発行・リトライ方針を設計で明確にし、想定される業務エラーは validation 側で事前に検出してください。</li>
+<li>说明句：BDEF では <code>strict ( 2 )</code> など最新の strict mode を標準指定とし、禁止文や契約違反を早期に検出できるようにします。</li>
+<li>使用场景：RAP 基本设计、詳細設計、code review、単体テスト設計、Fiori/OData 结合测试、保存失败调查、Clean Core 审查。</li>
+</ul>
+<h4 id="18-9-english-terms-88c28d69" class="semantic-heading semantic-terms">18.9 English Terms</h4>
+<ul>
+<li>Official / search term: <code>managed RAP BO</code></li>
+<li>BDEF term: <code>managed implementation in class</code></li>
+<li>Related terms: <code>managed implementation scenario</code>, <code>managed save</code>, <code>managed with unmanaged save</code>, <code>managed with additional save</code>, <code>additional save</code>, <code>unmanaged save</code>, <code>persistent table</code>, <code>mapping for</code>, <code>managed numbering</code>, <code>transactional buffer</code>, <code>RAP managed runtime</code>, <code>COMMIT ENTITIES</code>, <code>projection behavior</code>.</li>
+<li>Recommended search pattern: <code>RAP managed implementation managed save additional save ABAP</code></li>
+</ul>
+<h4 id="18-10-c76bb8d4" class="semantic-heading semantic-reference">18.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring Behavior Implementation Options | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_IN_CLASS_UNIQUE.html" target="_blank" rel="noopener noreferrer">RAP - implementation in class unique | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_SAVING.html" target="_blank" rel="noopener noreferrer">RAP - SavingOptions | ABAP Keyword Documentation</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/save-options" target="_blank" rel="noopener noreferrer">Save Options | SAP Help Portal</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/defining-standard-behavior" target="_blank" rel="noopener noreferrer">Defining Standard Behavior | SAP Help Portal</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/additional-save" target="_blank" rel="noopener noreferrer">Additional Save | SAP Help Portal</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/unmanaged-save" target="_blank" rel="noopener noreferrer">Unmanaged Save | SAP Help Portal</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/using-the-entity-manipulation-language-eml-to-access-business-objects" target="_blank" rel="noopener noreferrer">Using the Entity Manipulation Language to Access Business Objects | SAP Learning</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="18-11-connections-0c254e53">18.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Upstream: <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></li>
+<li>Downstream: <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></li>
+<li>Downstream: <a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a></li>
+<li>Downstream: <a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a></li>
+<li>Downstream: <a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a></li>
+<li>Downstream: <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li>Downstream: <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="18-12-a2deb854" class="semantic-heading semantic-practice">18.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明：managed RAP 托管了哪些事务机制，哪些业务逻辑仍要自己实现？</li>
+<li>在一个 RAP 示例中找到 <code>managed implementation in class ... unique;</code>，标出 persistent table、mapping、field control、validation 和 action。</li>
+<li>比较 managed save、managed with unmanaged save、managed with additional save 的差异，各写一句适用场景。</li>
+<li>检查一个 projection behavior：底层 managed BO 的 update/action 是否真的暴露给服务消费者？</li>
+<li>用日语写一句 review 说明：<code>標準 CRUD は RAP ランタイムに委譲し、業務固有のチェックは validation として実装します。</code></li>
+</ul>
+<h4 id="18-13-confidence-next-action-3d757be2" class="semantic-heading semantic-status">18.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for tutorial use。本节已按 SAP Learning、ABAP Keyword Documentation、SAP Help Portal、Joule <code>Pass with fixes</code>、Claude <code>Pass with fixes</code> 和 Claude follow-up <code>Pass</code> 复核；managed save、managed with unmanaged save、additional save、mapping、numbering、projection behavior、response structures 和 prohibited statements 已闭环。Release-specific save option behavior still requires target-system verification.</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿结构同步；随后继续 <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-017-behavior-pool-8dc49ced.html">Previous section</a><a href="section-03-019-unmanaged-rap-21f0d377.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

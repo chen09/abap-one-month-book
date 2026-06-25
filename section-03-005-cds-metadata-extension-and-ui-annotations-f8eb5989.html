@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>CDS metadata extension and UI annotations | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="5-cds-metadata-extension-and-ui-annotations-c850d8f2" class="chapter-title">5. CDS metadata extension and UI annotations</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 05</li><li>self-contained study note</li></ul><h4 id="5-1-a411fcaa" class="semantic-heading semantic-concept">5.1 一句话结论</h4>
+<p>CDS metadata extension and UI annotations，是把“服务和画面消费需要的 UI metadata”从核心 CDS 数据模型中分离出来的关键机制。它让 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a> 和 projection view 能继续表达业务数据语义，同时把 Fiori Elements、OData UI service、字段位置、facet、line item、identification、search、value help 等消费层元数据放到更合适的层。</p>
+<p>本节最重要的结论是：metadata extension 不是创建字段、不是改数据库、不是写业务逻辑；它主要是为已有 CDS entity 补 annotation。UI annotations 也不是“画面代码”，而是让 Fiori Elements / OData UI consumer 读取并生成或调整页面的一类 metadata。读者要学会判断：哪些 annotation 应该靠近核心模型，哪些应该放在 projection / metadata extension，哪些根本不该用 annotation 解决。</p>
+<h4 id="5-2-cc66acf4" class="semantic-heading semantic-concept">5.2 到底学什么</h4>
+<p>前面的 <a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a> 讲了 annotation 是 metadata，不是普通注释；<a class="wiki" href="section-03-004-cds-built-in-functions-86791175.html">CDS built-in functions 内置函数</a> 讲了字段值如何在模型中被派生。本节进一步回答一个项目问题：annotation 应该写在哪里？</p>
+<p>需要掌握六个判断点。</p>
+<ul>
+<li>Metadata extension：一种 ABAP repository object，用来在主 CDS DDL source 之外给 CDS entity 添加 annotation。</li>
+<li>Allow extension：被扩展的 CDS entity 通常需要允许 metadata extension，例如在合适位置使用 <code>@Metadata.allowExtensions: true</code>。</li>
+<li>Annotation layer：metadata extension 会声明 layer，例如常见的 <code>@Metadata.layer: #CORE</code>；layer 表达 metadata 所属层级，不是随便装饰。</li>
+<li>UI annotations：<code>@UI...</code> 相关 annotation 可为 Fiori Elements / OData UI service 提供列表、表单、facet、字段显示等 UI metadata，但只有相关消费者理解时才有实际效果。</li>
+<li>Projection layer：SAP Learning 对 RAP/OData UI service 的建模强调 projection layer 是 service-specific metadata 的关键位置，UI annotation、search、text、value help 等常在 projection/metadata extension 层处理。</li>
+<li>Boundary：metadata extension 和 UI annotation 不替代 behavior definition、DCL、authorization、save sequence、validation、determination、service definition 或 service binding。</li>
+</ul>
+<h4 id="5-3-19e59331" class="semantic-heading semantic-why">5.3 为什么重要</h4>
+<p>如果把所有 annotation 都写进底层 view entity，初学时看起来方便：打开一个文件，什么都在里面。但项目越大，问题越明显。底层模型本来应该表达稳定业务语义，例如字段含义、金额/币种、数量/单位、关联关系、访问控制入口等；UI 页面却会根据用户角色、服务场景、Fiori app、项目阶段和客户需求不断调整。如果把大量 UI-specific annotation 放在底层模型里，底层模型就会被某个画面绑死。</p>
+<p>metadata extension 的价值，是把“同一个数据模型如何被某个 UI/service 消费”抽出来。比如 <code>ZI_Travel</code> 或 root view 负责表达旅行申请的业务数据；<code>ZC_Travel</code> projection view 面向某个 OData UI service；metadata extension 再描述这个 projection 在 Fiori Elements 里哪些字段出现在 line item、哪些字段放进 identification、哪些 facet 分组、哪些字段用于 search 或 value help。这样，核心模型、服务视角和 UI metadata 就有了更清楚的边界。</p>
+<p>SAP Learning 在 OData UI service 建模中把 projection layer 明确放在 service-specific metadata 的位置，并建议把 projection view 的 UI annotations 外包到 metadata extension，以提高可读性并便于后续调整。这里的重点不是“所有 annotation 都必须外包”，而是要把服务/UI 特有的 metadata 和通用业务模型语义分开。</p>
+<p>对项目交付来说，这个边界非常实际。UI annotation 改动可能影响 Fiori Elements 画面、OData metadata、测试截图、用户验收、前端联调和 defect 分析；但它通常不应该改变底层业务对象的行为。把 UI metadata 分层，review 时就能分清：这是模型语义变化、服务契约变化、画面展示变化，还是 RAP behavior 变化。</p>
+<p>对 Java/Python 背景学习者，可以把 metadata extension 粗略理解成“给 schema/model 追加外部 metadata 的配置对象”，有点像把 OpenAPI/serializer/UI schema 与 domain model 分开。但 SAP 的差异是：metadata extension 是 ABAP repository object，会被 activation、transport、where-used、ADT template、service binding preview 和 Fiori Elements 消费链路共同约束。</p>
+<h4 id="5-4-key-mechanism-45f57026" class="semantic-heading semantic-mechanism">5.4 Key mechanism / 核心机制</h4>
+<h5 id="5-4-1-metadata-extension-repository-object-e3af8acf">5.4.1 Metadata extension 是 repository object</h5>
+<p>metadata extension 不是注释文件，也不是前端配置文件。它是 ABAP repository 中的开发对象，和 CDS data definition、behavior definition、service definition、service binding 一样，要创建、保存、激活、传输、review。ADT 中通常可以从 CDS data definition 或 projection view 的上下文菜单创建 metadata extension。</p>
+<p>这意味着它有两个后果。</p>
+<p>第一，它进入 transport 和 activation 流程。metadata extension 没激活，UI metadata 可能不会出现在预览或服务消费中。第二，它属于影响分析对象。改字段名、删 annotation、改 facet 或 line item 时，要检查对应 projection view、service binding、Fiori Elements preview、测试用例和用户验收文档。</p>
+<h5 id="5-4-2-cds-source-extension-bd112225">5.4.2 主 CDS source 要允许 extension</h5>
+<p>metadata extension 不是想贴就贴。被扩展的 CDS entity 需要允许 metadata extension。SAP Learning 的 OData UI service 练习中，会先在 projection view 上加入类似 <code>@Metadata.allowExtensions: true</code> 的 view annotation，然后创建 metadata extension。</p>
+<p>这条规则对初学者很重要：如果只创建 metadata extension，但目标 CDS entity 没允许扩展，ADT/activation 会给出问题，或者 metadata 不会按预期生效。读别人代码时，也可以把 <code>@Metadata.allowExtensions: true</code> 当成一个信号：这个 view 的部分 annotation 可能不在主 DDL source 里，而是在 metadata extension 里。</p>
+<h5 id="5-4-3-metadata-layer-3401f112">5.4.3 <code>@Metadata.layer</code> 不是装饰品</h5>
+<p>metadata extension 通常会包含 <code>@Metadata.layer</code>，例如：</p>
+<pre><code class="language-abap">@Metadata.layer: #CORE
+annotate view ZC_Travel with
+{
+  ...
+}</code></pre>
+<p><code>#CORE</code> 表示当前 metadata 属于核心层。系统和工具可以基于 layer 理解不同来源的 metadata。初学者不需要一开始背完所有 layer，但要避免两个误解。</p>
+<ul>
+<li>误解 1：layer 是项目自定义标签。实际 layer 是 SAP 定义的 annotation 机制的一部分，不能随意创造。</li>
+<li>误解 2：layer 能替代包、命名空间或 transport 管理。layer 只是 metadata 层级，不是 transport 边界。</li>
+</ul>
+<p>项目上如果遇到 customer / partner / localization 等扩展层，要先查项目规范和 SAP 文档，不要把 <code>#CORE</code> 机械复制到所有场景。</p>
+<h5 id="5-4-4-annotate-view-entity-with-a8803ecc">5.4.4 <code>annotate view/entity ... with { ... }</code></h5>
+<p>metadata extension 的核心语义是“给已有 CDS entity 增加 annotation”。不同 ABAP release、对象类型和 ADT template 中可能看到 <code>annotate view ... with</code> 或 <code>annotate entity ... with</code> 形式；本教程不把某一个模板写死成唯一答案。真正项目里以当前系统的 ADT template、ABAP Keyword Documentation 和 syntax check 为准。</p>
+<p>一个教学示意：</p>
+<pre><code class="language-abap">@Metadata.layer: #CORE
+annotate view ZC_Travel with
+{
+  @UI.lineItem: [
+    { position: 10, label: &#x27;Travel&#x27; }
+  ]
+  @UI.identification: [
+    { position: 10 }
+  ]
+  TravelID;
+
+  @UI.lineItem: [
+    { position: 20, label: &#x27;Customer&#x27; }
+  ]
+  CustomerID;
+}</code></pre>
+<p>这段示意的重点不是复制语法，而是阅读结构：metadata extension 没有重新定义 <code>TravelID</code> 和 <code>CustomerID</code> 字段；它只是对已经存在的元素附加 UI annotation。字段是否存在、类型是什么、是否 key、是否有 association，仍然来自原来的 CDS entity / projection view。</p>
+<h5 id="5-4-5-ui-annotations-fiori-elements-odata-ui-service-b388e6b0">5.4.5 UI annotations 的消费者是 Fiori Elements / OData UI service 等</h5>
+<p>UI annotation 的典型用途，是告诉 Fiori Elements 或 OData UI consumer 如何理解一个实体的展示方式。例如：</p>
+<ul>
+<li><code>@UI.lineItem</code>：字段是否出现在列表行项目中，以及位置、label 等。</li>
+<li><code>@UI.identification</code>：字段是否出现在对象页识别区或详情展示中。</li>
+<li><code>@UI.facet</code>：对象页上如何分组、分区、导航到相关区块。</li>
+<li>Selection/search/value-help 相关 annotation：帮助 UI 提供搜索、筛选、值帮助等体验。</li>
+</ul>
+<p>但必须记住：annotation 只有在消费者读取它时才会产生效果。ABAP SQL 读取这个 CDS entity 时，不会因为 <code>@UI.lineItem</code> 就自动改变查询结果；RAP behavior 也不会因为一个 UI annotation 就自动校验字段；服务是否可访问，还要看 <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a> 和 <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a>。</p>
+<h5 id="5-4-6-projection-layer-service-specific-metadata-57d6c14b">5.4.6 Projection layer 是 service-specific metadata 的自然位置</h5>
+<p>SAP Learning 的 RAP OData UI service 课程里有一个很重要的建模思想：projection layer 是 service-specific layer。也就是说，底层 data model view 不应该背负所有服务/UI 的细节；面向某个服务的 projection view 才更适合承载服务特有的 metadata。</p>
+<p>可以这样理解：</p>
+<ul>
+<li>Interface / root / data model view：表达稳定业务数据模型。</li>
+<li>Projection view：表达某个服务或消费场景看到的数据模型。</li>
+<li>Metadata extension：把 UI-heavy annotation 从 projection DDL source 中分离出来，提升可读性，也方便后续调整。</li>
+<li>Service definition：决定哪些 CDS entities 被暴露成服务。</li>
+<li>Service binding：决定协议和消费场景，例如 OData UI service 或 Web API。</li>
+</ul>
+<p>这条链路一旦清楚，初学者就不会把 <code>@UI.lineItem</code>、<code>service definition</code>、<code>service binding</code>、<code>Fiori preview</code> 混成一件事。</p>
+<h5 id="5-4-7-annotation-ddl-source-metadata-extension-5458d098">5.4.7 哪些 annotation 留在主 DDL source，哪些放进 metadata extension</h5>
+<p>一个实用判断法如下。</p>
+<p>适合留在主 DDL source 附近的，通常是和核心模型语义紧密相关的 annotation，例如：</p>
+<ul>
+<li>entity / field 的基本 label 或说明。</li>
+<li>amount/currency、quantity/unit 等语义关系。</li>
+<li>access-control check 入口或其他核心技术语义。</li>
+<li>其他所有消费者都应理解的稳定语义。</li>
+</ul>
+<p>适合放进 projection / metadata extension 的，通常是更接近服务或 UI 的 annotation，例如：</p>
+<ul>
+<li>Fiori Elements 页面布局、line item、facet、field group、identification。</li>
+<li>某个 UI service 的 search、selection、text、value help 细节。</li>
+<li>只对一个 app 或一个 service 有意义的展示顺序和 label 调整。</li>
+</ul>
+<p>这个划分不是绝对规则。项目上要看 SAP release、RAP provider contract、项目规范和复用范围。但初学阶段先按这个方向思考，能避免把底层模型做成“UI 装饰仓库”。</p>
+<p>还有一个容易忽略的边界：projection view 可以为某个服务选择、改名或调整暴露元素，也可能包含 virtual element 等服务层设计；metadata extension 只是给已有 entity 或元素补 annotation。不要把“projection view 可以塑造服务视角”和“metadata extension 可以新增字段/逻辑”混在一起。</p>
+<h5 id="5-4-8-metadata-extension-rap-authorization-service-exposure-5a44cdb2">5.4.8 Metadata extension 不替代 RAP / authorization / service exposure</h5>
+<p>metadata extension 只能补 metadata。它不能做这些事：</p>
+<ul>
+<li>不能新增持久化字段，也不能改变数据库表结构。</li>
+<li>不能替代 <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a>、validation、determination、action、draft、side effects。</li>
+<li>不能替代 <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a>、<a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a>、RAP authorization 或 authorization object。</li>
+<li>不能替代 <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a> 或 <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a>；没有 service exposure，UI metadata 只是模型上的 metadata。</li>
+<li>不能保证性能；Fiori preview 慢时，还要看 CDS stack、association、DCL、query、service binding 和前端请求。</li>
+</ul>
+<p>所以 defect 分析时要先分类。如果问题是“字段不显示”，metadata extension / UI annotation 可能相关；如果问题是“按钮不可用”，可能是 feature control、authorization 或 behavior；如果问题是“保存失败”，通常要看 RAP behavior、validation、save sequence 和 message handling，而不是盯着 UI annotation。</p>
+<h5 id="5-4-9-metadata-placement-review-checklist-eae1f405">5.4.9 Metadata placement review checklist</h5>
+<p>设计或修改 UI annotation 前，可以用下面的表决定它应该放在哪里、该由谁负责验证。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Put near core model when...</th><th>Put in projection / MDE when...</th><th>Look elsewhere when...</th></tr></thead><tbody><tr><td>Is it stable semantic metadata?</td><td>label、amount/currency、quantity/unit 等所有 consumer 都应理解。</td><td>某个 app 想调整字段显示名称或顺序。</td><td>文本需要复杂多语言/i18n 运行时逻辑。</td></tr><tr><td>Is it UI layout?</td><td>很少属于底层模型。</td><td>line item、facet、field group、identification、selection fields。</td><td>需要自定义 UI 行为或前端逻辑。</td></tr><tr><td>Is it service-specific?</td><td>多个服务共享同一语义。</td><td>只服务某个 OData UI service 或 projection。</td><td>服务根本没有通过 service definition/binding 暴露。</td></tr><tr><td>Is it behavior-related?</td><td>annotation 只能描述 metadata。</td><td>UI metadata 可以辅助显示。</td><td>action enablement、side effect、draft、save failure 要看 RAP behavior。</td></tr><tr><td>Is it authorization-related?</td><td>access-control 入口可在模型层表达。</td><td>projection 可限制暴露范围。</td><td>实际读权限看 DCL/RAP authorization/authorization object。</td></tr><tr><td>Is the defect about preview?</td><td>字段 metadata 缺失可能在 MDE。</td><td>Fiori Elements layout/visibility 多半查 MDE/projection。</td><td>保存、锁、消息、性能慢要查 RAP/CDS stack/service trace。</td></tr></tbody></table></div>
+<p>一个实用 review 句子是：<code>UI annotation belongs close to the UI contract, not necessarily close to the persistence model.</code> 如果 annotation 只为了一个 Fiori Elements 页面服务，优先考虑 projection / metadata extension，而不是把底层 interface view 绑死到某个画面。</p>
+<h4 id="5-5-a88dbd55" class="semantic-heading semantic-japan">5.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>メタデータ拡張</code>：metadata extension。</li>
+<li><code>UIアノテーション</code>：UI annotation。</li>
+<li><code>CDSアノテーション</code>：CDS annotation。</li>
+<li><code>投影ビュー</code>、<code>射影ビュー</code>：projection view。</li>
+<li><code>サービス固有メタデータ</code>：service-specific metadata。</li>
+<li><code>一覧項目</code>：line item。</li>
+<li><code>詳細表示</code>、<code>識別情報</code>：identification / object detail display。</li>
+<li><code>ファセット</code>：facet。</li>
+<li><code>検索条件</code>、<code>値ヘルプ</code>：search / value help。</li>
+<li><code>サービス定義</code>、<code>サービスバインディング</code>：service definition / service binding。</li>
+</ul>
+<p>项目说明句：</p>
+<ul>
+<li><code>UI固有のアノテーションは、コアデータモデルではなく投影ビューまたはメタデータ拡張に分離してください。</code></li>
+<li><code>このメタデータ拡張は画面表示用の定義であり、業務ロジックや保存処理を実装する場所ではありません。</code></li>
+<li><code>@Metadata.allowExtensions が設定されているため、UIアノテーションは別のメタデータ拡張オブジェクトで管理されています。</code></li>
+<li><code>Fiori Elements の表示不備は、UIアノテーションだけでなくサービス定義、サービスバインディング、権限、feature control も確認してください。</code></li>
+</ul>
+<p>Review 中常见指摘：</p>
+<ul>
+<li><code>コアモデルにUI固有の定義が混在しているため、メタデータ拡張への分離を検討してください。</code></li>
+<li><code>このUIアノテーションは対象サービス固有のため、投影ビュー側に配置してください。</code></li>
+<li><code>値ヘルプや検索条件の要件が未確定のため、annotation の確定前に画面仕様を確認してください。</code></li>
+</ul>
+<h4 id="5-6-english-terms-ec357e3b" class="semantic-heading semantic-terms">5.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>CDS metadata extension</code>, <code>ABAP CDS metadata extension</code>, <code>ANNOTATE ENTITY</code>, <code>ANNOTATE VIEW</code>, <code>@Metadata.allowExtensions</code>, <code>@Metadata.layer</code>, <code>CDS UI annotations</code>, <code>Fiori Elements annotations</code>, <code>OData UI service</code>.</li>
+<li>UI/service terms: <code>@UI.lineItem</code>, <code>@UI.identification</code>, <code>@UI.facet</code>, <code>field group</code>, <code>selection field</code>, <code>search metadata</code>, <code>value help</code>, <code>text element</code>.</li>
+<li>Architecture terms: <code>projection layer</code>, <code>service-specific metadata</code>, <code>service definition</code>, <code>service binding</code>, <code>Fiori Elements Preview</code>, <code>OData metadata</code>.</li>
+</ul>
+<p>读官方资料时要特别区分：</p>
+<ul>
+<li><code>annotation</code>：metadata 本身。</li>
+<li><code>metadata extension</code>：存放 annotation 的扩展对象。</li>
+<li><code>projection view</code>：服务视角的数据模型层。</li>
+<li><code>service definition</code>：暴露哪些 entity。</li>
+<li><code>service binding</code>：绑定到哪种协议和消费场景。</li>
+</ul>
+<h4 id="5-7-example-43d2078e" class="semantic-heading semantic-example">5.7 Example / 学习例子</h4>
+<p>一个最小阅读链路可以这样走：</p>
+<ol>
+<li>打开一个 projection view，例如 <code>ZC_Travel</code>。</li>
+<li>确认它是否有 <code>@Metadata.allowExtensions: true</code>。</li>
+<li>在 ADT 中找到对应 metadata extension，例如 <code>ZC_TRAVEL</code>。</li>
+<li>读 <code>@Metadata.layer</code> 和 <code>annotate view/entity ... with { ... }</code>。</li>
+<li>找到 <code>@UI.lineItem</code>、<code>@UI.identification</code>、<code>@UI.facet</code> 或 search/value-help annotation。</li>
+<li>打开 service definition，确认 projection view 是否被 expose。</li>
+<li>打开 service binding，确认它是 UI service 还是 Web API，并尝试 Fiori Elements Preview。</li>
+</ol>
+<p>练习时不要急着记住所有 annotation 名称。先回答四个问题：</p>
+<ul>
+<li>这个 annotation 挂在哪个对象或字段上？</li>
+<li>它的消费者是谁：Fiori Elements、OData metadata、RAP、ADT、analytics，还是只是人读？</li>
+<li>它是核心语义，还是某个服务/UI 的特定需求？</li>
+<li>如果它不生效，应该检查 metadata extension、projection view、service definition、service binding、authorization 还是 behavior？</li>
+</ul>
+<h4 id="5-8-counterexample-failure-mode-a4abd7b9" class="semantic-heading semantic-example">5.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下。</p>
+<ul>
+<li>把 <code>@UI...</code> 全部写在底层 interface view：底层模型被某个 app 绑定，后续复用困难。</li>
+<li>创建 metadata extension，但忘记在目标 CDS entity 上允许 extension：activation 或消费结果不符合预期。</li>
+<li>改了 metadata extension 后只看 CDS Data Preview：Data Preview 不等于 Fiori Elements UI 预览，要看对应 service binding。</li>
+<li>看到字段不显示就只改 <code>@UI.lineItem</code>：实际问题可能是 service definition 没 expose、field hidden、authorization、projection 没投影、metadata cache 或 Fiori preview 未刷新。</li>
+<li>把 UI annotation 当业务规则：按钮能不能点、字段能不能改、保存时是否校验，通常还要看 RAP feature control、authorization、validation 和 behavior。</li>
+<li>在 metadata extension 里硬编码大量 UI 文本，却没有考虑多语言、field label、text element、项目 UI 标准。</li>
+<li>把 UI service 和 Web API 的 metadata 混在一起：UI service 可以携带 UI annotations，Web API 更强调稳定 API contract，不应因为画面布局需求污染外部 API 语义。</li>
+</ul>
+<p>修正动作：</p>
+<ul>
+<li>先确认对象链路：data model view -&gt; projection view -&gt; metadata extension -&gt; service definition -&gt; service binding -&gt; preview/client。</li>
+<li>再确认 annotation target：entity、field、association、facet 还是 service-specific projection。</li>
+<li>最后确认问题类型：显示、搜索、值帮助、服务暴露、权限、行为、保存，分别找对应层。</li>
+</ul>
+<h4 id="5-9-34c56216" class="semantic-heading semantic-practice">5.9 思考问题</h4>
+<ul>
+<li>当前 annotation 是核心语义，还是只服务某个 Fiori app？</li>
+<li>如果两个 UI service 复用同一个底层模型，它们的 UI annotation 是否应该分开？</li>
+<li><code>@Metadata.allowExtensions: true</code> 出现时，项目约定把 metadata extension 放在哪个 package / transport？</li>
+<li><code>@UI.lineItem</code> 不生效时，除了 metadata extension，还应该检查哪些对象？</li>
+<li>UI annotation 是否可能影响外部 OData consumer 的 metadata 契约？</li>
+<li>日本项目 review 时，应说 <code>メタデータ拡張</code>、<code>UIアノテーション</code>、<code>投影ビュー</code>、<code>サービス定義</code> 还是 <code>サービスバインディング</code>？</li>
+</ul>
+<h4 id="5-10-d6b4b160" class="semantic-heading semantic-reference">5.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-an-odata-ui-service" target="_blank" rel="noopener noreferrer">SAP Learning - Defining OData UI Services</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/getting-started-with-creating-an-sap-fiori-elements-app-based-on-an-odata-v4-rap-service" target="_blank" rel="noopener noreferrer">SAP Learning - Getting Started with Creating an SAP Fiori Elements App Based on an OData V4 RAP Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_F1_ANNOTATE_VIEW.html" target="_blank" rel="noopener noreferrer">SAP Help - CDS DDL - ANNOTATE ENTITY, VIEW</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_ANNOTATIONS.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS - Annotations</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP Core Data Services (ABAP CDS)</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="5-11-connections-39430092">5.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li>Upstream: <a class="wiki" href="section-03-003-cds-annotation-0061bb02.html">CDS annotation 注解基础</a></li>
+<li>Upstream: <a class="wiki" href="section-03-004-cds-built-in-functions-86791175.html">CDS built-in functions 内置函数</a></li>
+<li>Related: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Related: <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li>Related: <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li>Related: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Related: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Related: <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></li>
+<li>Related: <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a></li>
+<li>Downstream: <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li>Downstream: <a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 15 - CDS 入门与 View Entity</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="5-12-fc203173" class="semantic-heading semantic-practice">5.12 学习任务</h4>
+<ul>
+<li>找一个 projection view，确认是否有 <code>@Metadata.allowExtensions: true</code>。</li>
+<li>找到对应 metadata extension，标出 <code>@Metadata.layer</code>、<code>annotate view/entity</code> 和 3 个 UI annotation。</li>
+<li>用中文说明：为什么 UI-heavy annotation 不适合全部放在底层 data model view。</li>
+<li>用日语写一句 review コメント，建议把 UI annotation 从 core model 移到 metadata extension。</li>
+<li>打开 service definition / service binding，说明 UI metadata 最终在哪个 preview 或 OData metadata 中体现。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中的 projection / metadata extension / service binding 链路。</li>
+</ul>
+<h4 id="5-13-confidence-next-action-aa80b2e8" class="semantic-heading semantic-status">5.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High for projection-layer placement, metadata-extension purpose, UI annotation consumer framing, and service definition/binding boundaries based on SAP Learning OData UI service material and ABAP Keyword Documentation latest pages checked on 2026-06-18. Detailed annotation vocabulary and UI behavior must still be verified in the target release and Fiori Elements consumer.</li>
+<li>Joule review: attempted on 2026-06-13; Joule returned the UI error recorded in <code>90-Review/Joule Day15 CDS Metadata Extension Section Review 2026-06-13.md</code> and related snapshots. No callable Joule control tool was available in the current Codex session, so this section is official-source closed, not Joule-passed.</li>
+<li>Claude review: old file-based review failed with <code>API Error: Could not load credentials from any providers</code>; current Claude health checks have been timing out. Treat Claude review as external debt rather than a blocking reason for this official-source closure.</li>
+<li>Next action: Continue to <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a>, then return for Joule/Claude batch review when the external tools are stable.</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-005-cds-metadata-extension-and-ui-annotations-f8eb5989.html">CDS metadata extension and UI annotations</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-004-cds-built-in-functions-86791175.html">Previous section</a><a href="section-03-006-association-ff10d65e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

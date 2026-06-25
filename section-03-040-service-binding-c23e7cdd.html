@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Service binding 服务绑定 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="40-service-binding-17d59010" class="chapter-title">40. Service binding 服务绑定</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 40</li><li>self-contained study note</li></ul><h4 id="40-1-72bfa2e3" class="semantic-heading semantic-concept">40.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a> 是把 <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a> 发布成可消费服务的 repository object。Service definition 先声明“暴露什么 entity 和行为”，service binding 再声明“用什么 binding type / protocol / consumption scenario 暴露”，例如 OData V4 UI、OData V4 Web API 或 OData V2。</p>
+<p>一句话记忆：service definition 是菜单，service binding 是开店方式和入口地址。</p>
+<h4 id="40-2-ac8317df" class="semantic-heading semantic-concept">40.2 到底学什么</h4>
+<p>Service binding 是 Day 21 最接近“实际能打开 API”的对象。前一节的 service definition 只选定了暴露对象；到了 binding，开发者需要选择 binding type、激活、publish，然后用 service preview、metadata URL 或 HTTP tool 验证服务。</p>
+<p>初学者常把 service definition、service binding、service endpoint 混成一个词。正确拆开看：</p>
+<ul>
+<li>Service definition：声明服务包含哪些 entity、alias、navigation、action。</li>
+<li>Service binding：选择暴露方式，例如 OData V4 UI 或 OData V4 Web API，并让服务可发布。</li>
+<li>Published service / endpoint：发布后消费者实际访问的 URL、metadata、entity set、action path。</li>
+</ul>
+<p>本节要学的是：如何从 ADT 角度理解 binding；如何区分 UI service 和 Web API；为什么 preview 成功不等于 API 交付完成；以及在项目中怎样保存请求、响应、metadata、权限错误和重复请求行为作为测试证据。</p>
+<p>更具体地说，service binding 要把“开发对象”推进到“可消费入口”。前面学 service definition 时，读者知道了哪些 projection entity、alias、association、action 被选进服务；到了 binding，就要继续问：这个服务要给页面用，还是给外部系统用？使用 OData V4 UI、OData V4 Web API、OData V2，还是其他发布方式？发布后 endpoint 在哪里？谁有权限？目标系统是否也可访问？如果出了问题，先查 activation、publish、metadata、authorization，还是 runtime log？</p>
+<p>因此，本节不是教读者记一个 ADT 菜单，而是训练一条交付链：<code>service definition -&gt; service binding -&gt; publish -&gt; metadata -&gt; preview / HTTP test -&gt; authorization -&gt; transport target validation</code>。这条链完整，RAP/OData 才从“对象存在”变成“服务可交付”。</p>
+<h4 id="40-3-3376d29a" class="semantic-heading semantic-why">40.3 为什么重要</h4>
+<p>Service binding 重要，是因为它决定同一个业务服务最终以什么形态被消费。一个 RAP BO 可以支持 Fiori Elements UI，也可以作为外部系统调用的 Web API；两者都可能使用 OData V4，但关注点不同。UI service 更关注 annotation、draft、side effects、value help、Fiori preview；Web API 更关注稳定 contract、HTTP status、payload、authentication、idempotency、versioning。</p>
+<p>如果 binding 选错，项目会出现方向性问题。比如外部系统集成需要稳定 Web API，但团队只用 UI preview 验证；或者 Fiori 页面需要 draft/action/annotation，却只按普通接口测试；或者服务在 DEV preview 正常，到了 QAS 因 publish、ICF、authorization、communication arrangement 或 catalog/role 缺失而无法访问。</p>
+<p>对交付来说，service binding 是测试证据的起点。设计书里应该能看到 binding type、service name、published 状态、preview / metadata 截图或 URL、主要 entity set、主要 action path、权限测试结果、错误 payload 示例。只写“已创建 OData 服务”太粗，无法支持 review 和障害調査。</p>
+<p>对 Java/Python 背景学习者，可以把 service binding 类比成把 API resource 挂到具体 server adapter / protocol adapter 上。但 SAP 的差异是：binding 会生成 OData metadata，可能连接 Fiori preview、IWFND/IWBEP 传统栈、communication scenario、business catalog、role 和 ADT publish 流程。</p>
+<h4 id="40-4-key-mechanism-3dae6943" class="semantic-heading semantic-mechanism">40.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 binding type。创建 service binding 时，需要选择服务发布类型。常见方向包括 OData V4 UI、OData V4 Web API、OData V2 等。具体选项随 ABAP platform / ABAP Cloud release 和项目模板而变化，但原则是：UI 消费、外部 API 消费、兼容旧 OData V2 消费，不应混为一谈。</p>
+<p>第二层机制是 publish。Service binding 激活后，通常还需要 publish 才能实际消费。未 publish 的 binding 只是 repository object；published service 才会生成可访问的 runtime endpoint / preview 入口。发布动作、状态和权限要进入交付检查清单。</p>
+<p>第三层机制是 service preview。Preview 很适合开发期确认 entity set、metadata、Fiori Elements 页面或基本 OData 调用能打开。但 preview 不是完整测试。它不能替代授权矩阵、错误 payload、并发、重复提交、性能、外部系统认证和 QAS/PRD 路径验证。</p>
+<p>第四层机制是 metadata。OData consumer 通过 <code>$metadata</code> 理解 entity type、entity set、navigation property、action/function、annotation 和字段类型。Service binding 发布后，metadata 是最重要的 API contract 证据之一。改 entity alias、字段、navigation 或 action，可能破坏 consumer。</p>
+<p>第五层机制是 authorization。Service 能打开，不代表所有用户都有正确权限；用户没权限，也不一定是服务坏了。项目需要区分 technical publish 问题、HTTP authentication 问题、business authorization 问题、DCL/CDS access control 问题、RAP authorization 问题和 role/catalog 问题。</p>
+<p>第六层机制是 transport / system landscape。Binding 和 service definition 一样属于 repository/config 交付对象。DEV 中 publish 成功不代表 QAS/PRD 自动可用；需要确认 transport、activation、publish、communication arrangement、roles、ICF/OData runtime 相关设置是否在目标系统完成。</p>
+<p>第七层机制是 consumer contract。Binding 一旦被 Fiori app、external system、middleware、batch job 或 API collection 使用，metadata 中的 entity set、字段名、key、navigation、action/function、annotation 和 endpoint 都会变成消费者依赖。修改 projection alias 或 action 暴露方式，不再只是 ABAP 内部重构，而可能是接口 breaking change。</p>
+<p>第八层机制是 service split。同一个 RAP business object 可以有多个 projection、service definition 和 service binding。是否拆分，取决于消费方契约是否不同。UI service 可能需要 draft、value help、side effects 和 UI annotation；Web API 可能更需要稳定 payload、明确 HTTP status、communication user、版本策略和自动化测试。为了少建对象而强行共用一个 binding，短期省事，长期容易把 UI 变化和外部接口稳定性绑死。</p>
+<p>第九层机制是排查顺序。Service binding 相关问题不要直接归咎于业务代码，可以先按下面顺序排查：</p>
+<pre><code class="language-text">1. Repository object:
+   service definition / binding 是否存在、activated？
+
+2. Publish state:
+   binding 是否 published？目标系统是否也 published？
+
+3. Metadata:
+   $metadata 是否可读取？entity/action/navigation 是否出现？
+
+4. Authentication:
+   调用者是否能登录或通过 communication arrangement / OAuth / basic / destination？
+
+5. Authorization:
+   business role、catalog、DCL、RAP authorization、instance/global authorization 是否放行？
+
+6. Runtime behavior:
+   validation、action、save sequence、application log、error payload 是否符合预期？</code></pre>
+<p>这张顺序表特别适合日本项目的障害调查。它能避免“preview打不开=代码错了”“403=服务没发布”“metadata缺字段=权限问题”这类跳跃判断。</p>
+<p>第十层机制是 evidence。Service binding 的验收证据可以设计成一张表：</p>
+<div class="table-wrap"><table><thead><tr><th>Evidence item</th><th>UI service</th><th>Web API</th></tr></thead><tbody><tr><td>Binding object</td><td>binding name / package / transport</td><td>binding name / package / transport</td></tr><tr><td>Binding type</td><td>OData V4 UI 等</td><td>OData V4 Web API 等</td></tr><tr><td>Publish state</td><td>DEV/QAS/PRD publish 状态</td><td>DEV/QAS/PRD publish 状态</td></tr><tr><td>Metadata</td><td>entity/action/navigation/annotation</td><td>entity/action/navigation/payload contract</td></tr><tr><td>Consumer identity</td><td>business user / role</td><td>communication user / technical user / middleware</td></tr><tr><td>Test evidence</td><td>preview + page flow + UI messages</td><td>HTTP request/response + negative tests + collection</td></tr><tr><td>Error evidence</td><td>UI message / RAP reported</td><td>HTTP status / error payload / application log</td></tr><tr><td>Change control</td><td>UI annotation / page effect</td><td>versioning / compatibility / contract owner</td></tr></tbody></table></div>
+<p>有了这张表，service binding 就不再只是“ADT 里 publish 了”，而是进入设计、测试、移送、运维都能复用的证据链。</p>
+<h5 id="binding-release-verification-matrix-150f5008">Binding release verification matrix</h5>
+<p>Service binding 的验收不要停在 preview 成功。Preview 只证明开发者当前用户、当前系统、当前入口在某个路径上能打开；它不能证明目标系统、正式用户、外部调用方、错误路径和后续版本变更都安全。因此，准备交付一个 binding 时，建议把 release verification 写成一张矩阵。</p>
+<div class="table-wrap"><table><thead><tr><th>Check</th><th>UI service focus</th><th>Web API focus</th><th>Evidence to keep</th></tr></thead><tbody><tr><td>Binding type rationale</td><td>为什么选择 OData V4 UI，是否需要 draft、value help、side effects、UI annotation</td><td>为什么选择 OData V4 Web API / OData V2，是否有外部兼容要求</td><td>设计书中的 binding type 决策</td></tr><tr><td>Publish state</td><td>DEV、QAS 中是否都 published，preview 是否可打开</td><td>DEV、QAS 中 endpoint 是否可访问，通信配置是否完成</td><td>ADT publish 状态、URL、截图或测试记录</td></tr><tr><td>Metadata contract</td><td>entity set、field、navigation、action 是否符合页面需要</td><td><code>$metadata</code> 中字段、key、navigation、action/function 是否符合 consumer contract</td><td>metadata snapshot、API collection、差异记录</td></tr><tr><td>Authorization split</td><td>业务用户、business catalog、role、DCL、RAP authorization 是否可解释</td><td>communication user / technical user、authentication、DCL、instance authorization 是否可解释</td><td>允许/拒绝用户的测试结果</td></tr><tr><td>Happy path</td><td>List/Object Page、action、message、draft 保存是否可用</td><td>GET/POST/PATCH/action 调用是否返回预期 status 和 payload</td><td>UI 流程记录或 HTTP request/response</td></tr><tr><td>Negative path</td><td>validation message、authorization error、missing data 是否以用户可理解方式显示</td><td>400/401/403/409/500 等错误 payload 是否可诊断</td><td>失败用例、error payload、application log</td></tr><tr><td>Transport target</td><td>QAS 中 package、binding、publish、role、catalog 是否一致</td><td>QAS 中 endpoint、communication arrangement、destination 是否一致</td><td>移送后 smoke test 记录</td></tr><tr><td>Change policy</td><td>UI annotation 或 projection alias 变化是否影响页面</td><td>entity/action/field/key 变化是否 breaking</td><td>版本记录、consumer owner、兼容性说明</td></tr></tbody></table></div>
+<p>这张矩阵的价值在于把“服务已经发布”改写成“服务可以被谁、用什么方式、在什么系统、以什么证据消费”。在日本项目中，这也能减少移送后才发现 <code>QAS では公開されていない</code>、<code>権限は通っているが DCL で絞られている</code>、<code>メタデータ変更で外部IFが壊れた</code> 这类返工。</p>
+<h4 id="40-5-e4218906" class="semantic-heading semantic-japan">40.5 日本项目现场说法</h4>
+<ul>
+<li><code>サービスバインディング</code>：service binding。</li>
+<li><code>バインディングタイプ</code>：binding type。</li>
+<li><code>公開</code> / <code>Publish</code>：发布。</li>
+<li><code>サービスプレビュー</code>：service preview。</li>
+<li><code>メタデータ</code>：metadata。</li>
+<li><code>エンドポイント</code>：endpoint。</li>
+<li><code>OData V4 UI</code> / <code>OData V4 Web API</code>：常见消费方向。</li>
+<li><code>権限エラー</code>：authorization error。</li>
+</ul>
+<p>サービス定義は公開対象を決め、サービスバインディングは OData V4 UI などの公開方式を決めます。</p>
+<p>意思是：service definition 决定暴露对象，service binding 决定 OData V4 UI 等发布方式。</p>
+<p>プレビューで開けることと、本番 API として利用できることは別です。権限、エラー応答、メタデータ、移送後の公開状態を確認してください。</p>
+<p>意思是：preview 能打开和能作为正式 API 使用是两件事。请确认权限、错误响应、metadata 和移送后的发布状态。</p>
+<p>このサービスバインディングは UI 用ですか、外部連携 Web API 用ですか。</p>
+<p>意思是：这个 service binding 是给 UI 用，还是给外部集成 Web API 用？</p>
+<p>移送後に QAS でも公開状態、メタデータ、権限、疎通確認を実施してください。</p>
+<p>意思是：移送后也要在 QAS 确认发布状态、metadata、权限和连通性。</p>
+<p>外部連携で利用する場合は、通信ユーザ、認証方式、エラー応答、互換性方針を設計書に記載します。</p>
+<p>意思是：用于外部集成时，要在设计书中写明通信用户、认证方式、错误响应和兼容性策略。</p>
+<h4 id="40-6-english-terms-9e441a28" class="semantic-heading semantic-terms">40.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Service binding</code></li>
+<li>Related terms: <code>binding type</code>, <code>publish</code>, <code>service preview</code>, <code>OData V4 UI</code>, <code>OData V4 Web API</code>, <code>OData V2</code>, <code>metadata</code>, <code>$metadata</code>, <code>endpoint</code>, <code>entity set</code>, <code>communication arrangement</code>, <code>business catalog</code>, <code>authorization</code></li>
+<li>Recommended search pattern: <code>SAP RAP service binding OData V4 UI Web API publish preview</code></li>
+<li>ADT terms to keep in English: <code>Service Binding</code>, <code>Publish</code>, <code>Preview</code>, <code>Binding Type</code>, <code>Local Service Endpoint</code></li>
+</ul>
+<h4 id="40-7-example-26b2b0ee" class="semantic-heading semantic-example">40.7 Example / 学习例子</h4>
+<p>假设前一节已经有 service definition：</p>
+<pre><code class="language-abap">define service ZUI_TRAVEL {
+  expose ZC_TRAVEL as Travel;
+  expose ZC_BOOKING as Booking;
+}</code></pre>
+<p>接下来创建 service binding 时，项目会选择类似 <code>OData V4 - UI</code> 的 binding type，指向 <code>ZUI_TRAVEL</code>。激活并 publish 后，就可以在 ADT 中打开 preview，或通过生成的 endpoint 查看 metadata。</p>
+<p>一个最小测试证据链应该包含：</p>
+<pre><code class="language-text">Binding object: ZUI_TRAVEL_O4
+Service definition: ZUI_TRAVEL
+Binding type: OData V4 UI
+Publish status: published
+Preview: can open Travel list page
+Metadata: entity set Travel exists
+Action: AcceptTravel visible/callable if expected
+Authorization: test user allowed/denied result recorded
+Error payload: validation failure response captured</code></pre>
+<p>如果是 Web API 场景，还要记录 HTTP method、URL、request body、response body、status code、authentication方式、重复请求行为和错误码。不要只保存一张 preview 成功截图。</p>
+<p>在 AC0567C POC 中，service definition 暴露 <code>PriorAllocationImportsC</code> 后，binding/endpoint 决定外部 proxy 如何访问 <code>/PriorAllocationImportsC/validate</code>、<code>/execute</code>、<code>/status</code>。因此，binding 不是“最后点一下发布”的小步骤，而是前端/代理/外部系统真正开始依赖的入口。</p>
+<p>更完整的 AC0567C binding evidence 可以写成这样：</p>
+<pre><code class="language-text">Binding object:
+  ZUI_AC0567C_UPLOAD_O4 or project-specific name
+
+Service definition:
+  exposes PriorAllocationImportsC and required action/status surface
+
+Binding type:
+  OData V4 Web API candidate, because the consumer is an external proxy/automation
+
+Publish evidence:
+  DEV published, QAS publish verified after transport
+
+Metadata evidence:
+  entity set exists
+  validate / execute / status operations visible as designed
+  payload fields match interface design
+
+Access evidence:
+  technical/communication user can call allowed operations
+  unauthorized user receives expected denial
+
+Runtime evidence:
+  validation failure returns stable error payload
+  duplicate request is handled by idempotency/status logic
+  application log or request id connects API response to SAP-side evidence</code></pre>
+<p>这个例子说明，binding 的价值不是“生成 URL”，而是把 API 入口、消费方身份、metadata contract、权限和运行时证据绑在一起。没有 binding evidence，后续 AC0567C 的 API evidence replay、authorization replay 和 idempotency replay 都会缺入口。</p>
+<p>再看一个 UI 场景。假设同一个业务对象未来要给 Fiori Elements 做修正页面。此时可能建立一个 OData V4 UI binding，让页面读取 UI annotation、value help、draft 和 action placement。这个 binding 的验收证据就不应只看 HTTP collection，还要看 list report/object page、字段标签、按钮位置、draft activate、side effect 和用户错误消息。它和 Web API binding 使用同一个底层 BO 并不矛盾，但两者的交付证据不同。</p>
+<h4 id="40-8-counterexample-failure-mode-4bf7a6b9" class="semantic-heading semantic-example">40.8 Counterexample / Failure mode</h4>
+<p>反例一：只看 preview 能打开。开发者看到 Fiori preview 有列表页，就宣布 API 完成。实际 action 调用失败、DCL 过滤不符合预期、错误 payload 没有测试。修正方式是补完整 HTTP/API 测试证据。</p>
+<p>反例二：UI binding 当 Web API 用。外部系统直接依赖一个为 UI 场景设计的服务，后来 UI annotation、projection alias 或 draft 语义调整导致接口破坏。修正方式是明确区分 UI service 和 Web API contract。</p>
+<p>反例三：binding 未 publish。对象存在、激活成功，但服务没有发布，测试用户访问不到 endpoint。修正方式是在检查清单里加入 publish status。</p>
+<p>反例四：DEV 可用，QAS 不可用。transport 过去了，但目标系统缺少 publish、role、communication arrangement 或 runtime 设置。修正方式是把系统环境分层和移送后验证写入交付流程。</p>
+<p>反例五：只测试成功响应。不测试 validation failure、authorization failure、not found、duplicate request、并发冲突。上线后外部系统无法解释错误。修正方式是把错误 payload 和状态码作为 API contract 的一部分。</p>
+<p>反例六：把 binding 当成不可变技术细节。上线后为了 UI 页面调整修改 projection alias 或 action 暴露名，结果外部系统依赖的 <code>$metadata</code> 改了。修正方式是把 metadata 变化纳入 change control，必要时拆分 UI/API binding。</p>
+<p>反例七：只在 DEV publish。对象通过 transport 到 QAS，但目标系统没有完成 publish、role、communication arrangement 或 smoke test。修正方式是把 target-system binding verification 写入移送后检查。</p>
+<p>反例八：混淆 authentication 和 authorization。技术用户能连上 endpoint，但没有业务授权；或者业务用户有角色但 service exposure 没开。修正方式是把连接认证、业务角色、DCL/RAP authorization 分开记录。</p>
+<p>反例九：没有 owner。没人负责这个 binding 的 contract，UI 团队、接口团队、ABAP 团队都可以随意改。修正方式是在设计书中指定 service owner、consumer owner 和 compatibility policy。</p>
+<h4 id="40-9-0ae17777" class="semantic-heading semantic-practice">40.9 思考问题</h4>
+<ul>
+<li>这个 binding 面向 UI 还是 Web API？</li>
+<li>Binding type 是什么？为什么选它？</li>
+<li>是否已 publish？DEV/QAS/PRD 是否都验证？</li>
+<li><code>$metadata</code> 中是否出现预期 entity set、navigation、action？</li>
+<li>Preview 成功之外，还测试了哪些 HTTP 成功/失败场景？</li>
+<li>权限失败时是 authentication、business role、DCL、RAP authorization 还是 service publish 问题？</li>
+<li>如果外部系统依赖这个 endpoint，alias 和 payload 变化如何管理？</li>
+</ul>
+<h4 id="40-10-68869792" class="semantic-heading semantic-reference">40.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-binding" target="_blank" rel="noopener noreferrer">SAP Help - Service Binding</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/service-definition" target="_blank" rel="noopener noreferrer">SAP Help - Service Definition</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/using-service-binding-editor-for-odata-v4-service" target="_blank" rel="noopener noreferrer">SAP Help - Using Service Binding Editor for OData V4 Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-an-odata-ui-service" target="_blank" rel="noopener noreferrer">SAP Learning - Defining OData UI Services</a> (accessed 2026-06-18)</li>
+<li><a href="https://learning.sap.com/courses/getting-started-with-creating-an-sap-fiori-elements-app-based-on-an-odata-v4-rap-service" target="_blank" rel="noopener noreferrer">SAP Learning - Getting Started with Creating an SAP Fiori Elements App Based on an OData V4 RAP Service</a> (accessed 2026-06-18)</li>
+<li><a href="https://github.com/SAP-samples/abap-platform-rap100" target="_blank" rel="noopener noreferrer">SAP-samples - abap-platform-rap100</a> (accessed 2026-06-18)</li>
+<li><a href="https://api.sap.com/" target="_blank" rel="noopener noreferrer">SAP Business Accelerator Hub</a></li>
+<li><span class="wiki unresolved">Service definition exposes RAP entities as an OData contract</span></li>
+<li><a class="wiki" href="section-03-042-odata-v4-8703e611.html">OData V4 基础差异</a></li>
+<li><a class="wiki" href="section-03-043-ui-service-vs-web-api-eae9e36c.html">UI service vs Web API</a></li>
+<li><a class="wiki" href="section-03-044-service-preview-1b5668a5.html">Service preview 服务预览</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="40-11-connections-0ce7e87e">40.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li>Downstream: <a class="wiki" href="section-03-041-odata-v2-9ff5a688.html">OData V2 基础差异</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="40-12-dff8d136" class="semantic-heading semantic-practice">40.12 学习任务</h4>
+<ul>
+<li>用 5 行说明 service definition 和 service binding 的区别。</li>
+<li>找一个 service binding，记录 service definition、binding type、publish status 和 preview 入口。</li>
+<li>打开 <code>$metadata</code>，确认 entity set、navigation、action 是否符合预期。</li>
+<li>补 2 个日语现场句子：一条说明 binding type，一条说明 preview 不能替代正式 API 测试。</li>
+<li>设计一个 API 测试表：成功读取、创建/更新/action、validation failure、authorization failure、重复请求。</li>
+</ul>
+<h4 id="40-13-confidence-next-action-188cd08e" class="semantic-heading semantic-status">40.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-facing service-binding boundaries after official-source closure. 2026-06-18 已复核 SAP Help <code>Service Binding</code> / <code>Service Definition</code>、ADT <code>Using Service Binding Editor for OData V4 Service</code>、SAP Learning <code>Defining OData UI Services</code>、Fiori Elements OData V4 RAP service 课程、SAP-samples RAP100 和 SAP Business Accelerator Hub 入口。正文已覆盖 service binding 把 service definition 绑定到 OData 等协议、binding type / consumption scenario、publish / preview / endpoint、<code>$metadata</code> contract、authorization split、DEV/QAS/PRD target verification、UI service vs Web API 分流、release verification matrix 和 AC0567C API evidence 入口。Claude/Joule review artifacts 仍是 deferred/no usable verdict，且 2026-06-18 Claude CLI 当前 session expired；外部 review debt 保留，但本节不再停留在提纲草稿。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；下一节继续 <a class="wiki" href="section-03-041-odata-v2-9ff5a688.html">OData V2 基础差异</a>，并用 metadata / HTTP request-response / authorization negative test 证明 binding 不只是 preview 成功。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-039-service-definition-0138b5dc.html">Previous section</a><a href="section-03-041-odata-v2-9ff5a688.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

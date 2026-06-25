@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Conditional logic 条件分支 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="26-conditional-logic-7038e126" class="chapter-title">26. Conditional logic 条件分支</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 26</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Conditional logic 条件分支 是把业务规则写成可执行路径的基础：满足条件就走某段逻辑，不满足就走另一段逻辑。Day 04 先掌握 <code>IF ... ELSEIF ... ELSE ... ENDIF</code> 和 <code>CASE ... WHEN ... ENDCASE</code>，并理解 ABAP 的 logical expression、<code>IS INITIAL</code>、<code>AND</code> / <code>OR</code> / <code>NOT</code>、<code>sy-subrc</code> 判断和现代 <code>COND</code> / <code>SWITCH</code> 表达式的边界。</p>
+<p><strong>正文</strong></p>
+<p>条件分支回答的是一个朴素问题：当前数据、状态或返回结果不同，程序应该做什么不同的事。比如订单金额为 0 时跳过计算，币种不是 <code>JPY</code> 时输出提醒，<code>READ TABLE</code> 找不到行时组装错误消息，权限检查失败时停止后续处理。这些都不是 SAP 特有的想法；Java/Python 也有 <code>if</code> / <code>elif</code> / <code>else</code>。但 ABAP 的写法、类型转换、初始值判断、系统字段和项目现场审查点有自己的规则。</p>
+<p>最常用的是 <code>IF ... ENDIF</code>：</p>
+<pre><code class="language-abap">IF ls_item-amount IS INITIAL.
+  out-&gt;write( |Amount is initial| ).
+ELSEIF ls_item-currency &lt;&gt; &#x27;JPY&#x27;.
+  out-&gt;write( |Foreign currency: { ls_item-currency }| ).
+ELSE.
+  out-&gt;write( |JPY amount: { ls_item-amount }| ).
+ENDIF.</code></pre>
+<p><code>IF</code> 后面写 logical expression。它可以是简单比较，例如 <code>amount &gt; 0</code>；也可以组合多个条件，例如 <code>currency = &#x27;JPY&#x27; AND amount &gt; 0</code>；还可以使用 ABAP 常见谓词，例如 <code>IS INITIAL</code>、<code>IS NOT INITIAL</code>、<code>BETWEEN ... AND ...</code>、<code>line_exists( ... )</code>。SAP Learning 特别提醒，ABAP 语句用句号 <code>.</code> 结束，所以 <code>IF ... .</code>、<code>ELSEIF ... .</code>、<code>ELSE.</code>、<code>ENDIF.</code> 都要有 delimiter。注意 <code>ELSEIF</code> 是一个关键字；如果写成 <code>ELSE.</code> 再嵌套 <code>IF ... ENDIF.</code>，内层就需要自己的 <code>ENDIF.</code>。对 Java/Python 背景的人来说，这一点很机械，却很容易在刚开始写代码时漏掉。</p>
+<p><code>ELSEIF</code> 是从上往下依次判断；一旦某个条件成立，执行对应 block，然后跳到 <code>ENDIF</code> 后面。<code>ELSE</code> 可选。如果没有 <code>ELSE</code>，并且所有条件都不成立，就什么也不执行。业务代码里要有一个习惯：如果分支代表“状态分类”“处理结果”“审批路径”这类业务规则，通常要想清楚是否需要 <code>ELSE</code> 或兜底错误消息。没有 <code>ELSE</code> 本身不一定错，但如果它让“未知状态”静默通过，就会变成项目缺陷。</p>
+<p><code>CASE ... ENDCASE</code> 适合“围绕同一个值做多路分支”：</p>
+<pre><code class="language-abap">CASE ls_item-status.
+  WHEN &#x27;N&#x27;.
+    out-&gt;write( |New item| ).
+  WHEN &#x27;A&#x27;.
+    out-&gt;write( |Approved item| ).
+  WHEN &#x27;R&#x27;.
+    out-&gt;write( |Rejected item| ).
+  WHEN OTHERS.
+    out-&gt;write( |Unknown status: { ls_item-status }| ).
+ENDCASE.</code></pre>
+<p>可以把 <code>CASE</code> 理解成一种更易读的特殊 <code>IF</code>：它把一个 operand 依次和多个 <code>WHEN</code> 值做相等比较。这个限制必须说清楚：<code>WHEN</code> 后面是用于等值匹配的值，不能写成 <code>WHEN &gt; 0</code>、<code>WHEN BETWEEN ...</code>、<code>WHEN IS INITIAL</code> 这种条件表达式。ABAP 允许在一个 <code>WHEN</code> 里列多个值，例如 <code>WHEN &#x27;N&#x27; OR &#x27;A&#x27;.</code>，但这仍然是多个等值匹配，不是任意 logical expression。若当前逻辑是“金额是否大于 0、币种是否为空、状态是否在某组值里”这种多条件组合，用 <code>IF</code> 更自然；若逻辑是“状态字段等于 N/A/R 时分别处理”，用 <code>CASE</code> 更清楚。<code>WHEN OTHERS</code> 是兜底分支，类似 <code>ELSE</code>。日本项目 review 里经常会问“这个状态值是否網羅できている”，也就是是否覆盖了所有可能状态。</p>
+<p>logical expression 的细节也要提前建立边界。ABAP 用 <code>=</code> 做值比较，也用 <code>=</code> 做赋值，区别由语句位置决定：<code>lv_amount = 100.</code> 是赋值；<code>IF lv_amount = 100.</code> 是比较。比较运算包括 <code>=</code>、<code>&lt;&gt;</code>、<code>&gt;</code>、<code>&lt;</code>、<code>&gt;=</code>、<code>&lt;=</code>。多个条件可以用 <code>AND</code>、<code>OR</code>、<code>NOT</code> 组合；没有括号时，<code>NOT</code> 优先于 <code>AND</code>，<code>AND</code> 优先于 <code>OR</code>。初学者不要依赖记忆优先级，复杂条件尽量加括号：</p>
+<pre><code class="language-abap">IF ( ls_item-currency = &#x27;JPY&#x27; AND ls_item-amount &gt; 0 )
+   OR ls_item-priority = &#x27;H&#x27;.
+  out-&gt;write( |Process item| ).
+ENDIF.</code></pre>
+<p><code>IS INITIAL</code> 是 ABAP 里非常重要的判断。它不是简单的“空字符串”，而是判断某个 <a class="wiki" href="section-01-020-abap-data-object-e568a611.html">ABAP data object 数据对象</a> 是否等于它所属类型的 initial value。<code>i</code> 类型的 initial value 是 <code>0</code>，<code>string</code> 是空字符串，<code>d</code> 类型日期的 initial value 是 <code>00000000</code>。所以 <code>IF lv_amount IS INITIAL.</code> 对金额字段来说可能意味着“技术上是 0”，不一定等于业务上“未输入金额”。Day 03 已经学过 <a class="wiki" href="section-01-021-elementary-data-types-70039e9a.html">Elementary data types 基础技术类型</a>，这里要把类型意识带回来：分支条件永远不是孤立语法，它依赖字段类型和业务语义。</p>
+<p>还要认识 ABAP 的 truth value / Boolean 限制。ABAP 的 logical expression 会产生 true / false 判断结果，但传统 ABAP 没有像 Java <code>boolean</code> 或 Python <code>bool</code> 那样的内建、普适 Boolean 数据类型。项目代码里会看到几组容易混淆的名字：<code>BOOLE_D</code> 常作为 DDIC data element 表达两值 Boolean-like 字段；<code>ABAP_TRUE</code> 和 <code>ABAP_FALSE</code> 是推荐用于赋值和比较的常量；<code>ABAP_BOOL</code> 来自 type group <code>ABAP</code>，本质上是长度为 1 的字符型，在既存代码里很常见，但不应和 DDIC 的 <code>BOOLE_D</code>、S/4HANA 中的 <code>ABAP_BOOLEAN</code> 混成一回事。初学阶段的安全写法是：遵守项目开发标准，比较时优先使用 <code>ABAP_TRUE</code> / <code>ABAP_FALSE</code>，阅读旧代码时认得 <code>&#x27;X&#x27;</code> / space 和 <code>ABAP_BOOL</code>，但不要把任意 <code>X</code> / space、<code>0</code> / <code>1</code>、空字符串混在一起当“真假”。</p>
+<p>在 ABAP 项目里，条件分支经常和 <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a> 连在一起。比如很多语句执行后会设置 <code>sy-subrc</code>，项目里会看到：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_found) WITH KEY item_no = lv_item_no.
+IF sy-subrc = 0.
+  out-&gt;write( |Found item { ls_found-item_no }| ).
+ELSE.
+  out-&gt;write( |Item not found: { lv_item_no }| ).
+ENDIF.</code></pre>
+<p>这段代码的重点不是“背 <code>sy-subrc</code>”，而是理解：条件分支常常承接前一条语句的执行结果。一般约定是 <code>sy-subrc = 0</code> 表示前一操作成功或命中，非 0 表示没有成功、没有命中或出现某种业务/技术状态；具体非 0 数字的含义由前一条语句或接口定义决定。<code>READ TABLE</code>、<code>AUTHORITY-CHECK</code>、某些 function module、旧式接口调用都可能让后续代码根据返回状态分流。现代 ABAP 也有 table expression、exception、predicate function 等替代写法，但在日本 SAP 既存系统里，<code>IF sy-subrc = 0.</code> 和 <code>IF sy-subrc &lt;&gt; 0.</code> 仍然是必须能读懂的现场语言。</p>
+<p>现代 ABAP 还有 <code>COND</code> 和 <code>SWITCH</code> 这样的 conditional expression。它们不是替代所有 <code>IF</code> / <code>CASE</code> 的银弹，而是让“根据条件决定一个值”可以写在 operand position：</p>
+<pre><code class="language-abap">DATA(status_text) = SWITCH string( ls_item-status
+  WHEN &#x27;N&#x27; THEN &#x27;New&#x27;
+  WHEN &#x27;A&#x27; THEN &#x27;Approved&#x27;
+  WHEN &#x27;R&#x27; THEN &#x27;Rejected&#x27;
+  ELSE &#x27;Unknown&#x27; ).
+
+DATA(message_type) = COND string(
+  WHEN ls_item-amount IS INITIAL THEN &#x27;E&#x27;
+  WHEN ls_item-currency &lt;&gt; &#x27;JPY&#x27; THEN &#x27;W&#x27;
+  ELSE &#x27;S&#x27; ).</code></pre>
+<p>如果整段条件逻辑只是为了决定一个返回值，<code>COND</code> / <code>SWITCH</code> 会很干净；如果分支里有多步处理、数据库访问、消息组装、状态变更，传统 <code>IF</code> / <code>CASE</code> 更容易读、更容易 debug。初学者先把 statement form 和 expression form 分清：<code>IF</code> / <code>CASE</code> 是控制执行 block；<code>COND</code> / <code>SWITCH</code> 是产生一个值。过长的 <code>COND</code> 链和复杂 <code>SWITCH</code> 表达式在 review 中也可能被要求改回显式分支。</p>
+<p>最后，条件分支的质量不只看“语法对不对”。项目 review 会看条件是否和业务规则一致、状态是否覆盖、错误路径是否明确、嵌套是否过深、是否把类型转换风险藏在比较里。比如 <code>IF lv_amount = &#x27;0001&#x27;.</code> 可能触发隐式转换；<code>IF lv_date IS INITIAL.</code> 可能把技术初始日期误当成业务空值；<code>IF sy-subrc &lt;&gt; 0.</code> 后面没有错误消息，测试人员就很难知道为什么数据没有被处理。许多项目也会用 ATC 或本地开发标准限制过深嵌套；看到三层以上 <code>IF</code> 时就应该主动考虑 guard clause、拆方法或表驱动映射，嵌套深度超过 5 往往会成为质量门风险。好的条件分支应该让读者看出“为什么走这条路”，而不是只让机器能执行。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li>条件分支是业务规则落地的第一层：状态、金额、币种、权限、错误路径、例外处理都要靠它分流。</li>
+<li><code>IF</code> / <code>CASE</code> 写得清楚，单体测试和 defect 分析才知道每条路径怎么被触发。</li>
+<li>Java/Python 背景的人容易低估 ABAP 的 <code>=</code> 双重角色、<code>IS INITIAL</code>、<code>sy-subrc</code>、隐式类型转换和 Boolean-like flag 约定。</li>
+<li>日本项目常把条件分支写进详细设计书、单体测试规格和 code review 指摘；分支漏写会直接变成测试ケース漏れ。</li>
+<li>后续 RAP validation、authorization、OData error response、runtime error 处理都建立在“条件判断后走正确路径”这个能力上。</li>
+</ul>
+<p><strong>核心机制</strong></p>
+<ul>
+<li><code>IF ... ELSEIF ... ELSE ... ENDIF</code>：按 logical expression 从上到下判断；命中一个 block 后跳到 <code>ENDIF</code> 后继续。</li>
+<li><code>CASE ... WHEN ... WHEN OTHERS ... ENDCASE</code>：围绕同一个 operand 做等值比较，适合状态码、类别码、固定枚举值；范围、大小比较、<code>IS INITIAL</code> 等复杂条件应使用 <code>IF ... ELSEIF</code>。</li>
+<li>logical expression：由比较、谓词、函数、<code>AND</code> / <code>OR</code> / <code>NOT</code> 和括号组合而成，结果用于控制执行路径。</li>
+<li><code>IS INITIAL</code>：判断类型相关 initial value，不等于所有业务意义上的“未输入”。</li>
+<li><code>sy-subrc</code> 判断：<code>0</code> 通常代表成功或命中，非 0 代表未成功或特定状态；具体含义看前一语句或接口定义。</li>
+<li>Boolean-like flag：新代码遵守项目标准，DDIC 场景优先识别 <code>BOOLE_D</code>，比较/赋值用 <code>ABAP_TRUE</code> / <code>ABAP_FALSE</code>；旧代码里的 <code>ABAP_BOOL</code>、<code>&#x27;X&#x27;</code> / space 要能读懂但不要随意混用。</li>
+<li><code>COND</code> / <code>SWITCH</code>：现代 conditional expression，用于根据条件产生一个值；不要把复杂副作用或过长分支塞进表达式。</li>
+<li>质量判断：条件是否互斥、是否覆盖未知状态、错误路径是否可解释、嵌套是否可读、比较是否存在隐式转换风险。</li>
+</ul>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>条件分岐</code>、<code>分岐条件</code>、<code>IF文</code>、<code>ELSEIF文</code>、<code>CASE文</code>、<code>WHEN OTHERS</code>、<code>判定条件</code>、<code>初期値判定</code>。</li>
+<li>设计相关：<code>業務ルール</code>、<code>ステータス判定</code>、<code>網羅性</code>、<code>排他条件</code>、<code>ガード句</code>、<code>条件漏れ</code>、<code>異常系</code>、<code>未入力チェック</code>。</li>
+<li>Review 相关：<code>ネストが深い</code>、<code>可読性が低い</code>、<code>判定順序</code>、<code>想定外ステータス</code>、<code>テストケース漏れ</code>。</li>
+<li>说明句：この処理はステータスごとの条件分岐であり、<code>WHEN OTHERS</code> で想定外ステータスも明示的に扱います。</li>
+<li>术语区分：<code>条件分岐</code> は分岐構造そのもの、<code>分岐条件</code> はどの分岐に入るかを決める判定条件です。</li>
+<li>初期值句：<code>IS INITIAL</code> は初期値判定であり、業務上の未入力チェックと同一とは限りません。</li>
+<li>覆盖性句：<code>WHEN OTHERS</code> がないため、想定外ステータスに対する網羅性が担保されていません。</li>
+<li>Review 句：条件分岐のネストが深いため、ガード句または <code>CASE文</code> に分割して可読性を上げてください。</li>
+<li>单体测试句：正常系だけでなく、初期値、想定外ステータス、権限エラーの異常系テストケースも追加してください。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>Conditional logic</code></li>
+<li>Official / search term: <code>conditional branching</code></li>
+<li>Official / search term: <code>logical expression</code></li>
+<li>Official / search term: <code>IF ELSEIF ELSE ENDIF</code></li>
+<li>Official / search term: <code>CASE WHEN ENDCASE</code></li>
+<li>Official / search term: <code>COND conditional operator</code></li>
+<li>Official / search term: <code>SWITCH conditional operator</code></li>
+<li>Official / search term: <code>truth value</code></li>
+<li>Official / search term: <code>BOOLE_D</code></li>
+<li>Official / search term: <code>ABAP_TRUE</code></li>
+<li>Official / search term: <code>ABAP_FALSE</code></li>
+<li>Official / search term: <code>ABAP_BOOL</code></li>
+<li>ABAP syntax: <code>IF</code>, <code>ELSEIF</code>, <code>ELSE</code>, <code>ENDIF</code>, <code>CASE</code>, <code>WHEN</code>, <code>WHEN OTHERS</code>, <code>ENDCASE</code>, <code>IS INITIAL</code>, <code>IS NOT INITIAL</code>, <code>BETWEEN</code>, <code>AND</code>, <code>OR</code>, <code>NOT</code>, <code>COND</code>, <code>SWITCH</code></li>
+<li>Recommended search pattern: <code>Conditional branching SAP ABAP IF CASE logical expression</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>把 Day 04 的 <a class="wiki" href="section-01-025-loop-constructs-7301b587.html">Loop constructs 循环语句</a> 和条件分支连起来，可以写一个订单行检查：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  IF ls_item-amount IS INITIAL.
+    out-&gt;write( |Item { ls_item-item_no }: amount is initial| ).
+    CONTINUE.
+  ENDIF.
+
+  IF ls_item-currency &lt;&gt; &#x27;JPY&#x27;.
+    out-&gt;write( |Item { ls_item-item_no }: foreign currency { ls_item-currency }| ).
+  ENDIF.
+
+  CASE ls_item-status.
+    WHEN &#x27;N&#x27;.
+      out-&gt;write( |Item { ls_item-item_no }: new| ).
+    WHEN &#x27;A&#x27;.
+      out-&gt;write( |Item { ls_item-item_no }: approved| ).
+    WHEN &#x27;R&#x27;.
+      out-&gt;write( |Item { ls_item-item_no }: rejected| ).
+    WHEN OTHERS.
+      out-&gt;write( |Item { ls_item-item_no }: unknown status { ls_item-status }| ).
+  ENDCASE.
+ENDLOOP.</code></pre>
+<p>这里第一段 <code>IF</code> 是 guard clause：金额是 initial value 时先输出信息并 <code>CONTINUE</code>，避免后面逻辑继续处理无效行。第二段 <code>IF</code> 是额外提醒：外币不是错误，但需要提示。第三段 <code>CASE</code> 是状态码分流；<code>WHEN OTHERS</code> 让未知状态不会静默漏掉。这个例子虽然简单，但已经覆盖了项目里常见的三种判断：异常先返回、警告路径、状态分类。</p>
+<p>如果只是决定一个显示文本，可以改成 <code>SWITCH</code>：</p>
+<pre><code class="language-abap">DATA(status_text) = SWITCH string( ls_item-status
+  WHEN &#x27;N&#x27; THEN &#x27;New&#x27;
+  WHEN &#x27;A&#x27; THEN &#x27;Approved&#x27;
+  WHEN &#x27;R&#x27; THEN &#x27;Rejected&#x27;
+  ELSE &#x27;Unknown&#x27; ).</code></pre>
+<p>对初学者来说，判断标准很简单：如果分支里要执行多条语句，用 <code>IF</code> / <code>CASE</code>；如果分支只是产生一个值，可以考虑 <code>COND</code> / <code>SWITCH</code>。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>把 <code>IS INITIAL</code> 当成“空字符串”：金额 0、日期初始值、字符空白的业务含义可能完全不同。</li>
+<li><code>IF a = b OR c = d AND e = f.</code> 不加括号：读者很难确认你的真实意图，review 时容易被要求改写。</li>
+<li>用 <code>CASE</code> 处理复杂条件：当条件不是围绕同一个值做相等比较时，<code>IF</code> 往往更清楚。</li>
+<li>没有 <code>ELSE</code> / <code>WHEN OTHERS</code>：未知状态静默通过，单体测试也可能漏掉异常路径。</li>
+<li>把 <code>abap_bool</code> 当作语言内建 Boolean 类型：任意 <code>X</code> / space、<code>0</code> / <code>1</code> 混用会让条件含义变模糊。</li>
+<li>过度嵌套 <code>IF</code>：三四层以后，读者很难看清主路径；可以用 guard clause、拆方法、<code>CASE</code> 或表驱动映射降低复杂度。</li>
+<li>比较不同类型却不显式转换：隐式转换可能让小样本通过，但在真实数据里触发 runtime error 或错误分支。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li><code>IF</code> 和 <code>CASE</code> 的使用场景差异是什么？什么时候 <code>CASE</code> 比连续 <code>ELSEIF</code> 更可读？</li>
+<li><code>IS INITIAL</code> 为什么不是简单的“空”？请分别用金额、日期、字符串举例。</li>
+<li>如果业务状态只定义了 <code>N</code>、<code>A</code>、<code>R</code>，为什么仍然建议处理 <code>WHEN OTHERS</code>？</li>
+<li><code>sy-subrc = 0</code> 这种判断在项目里解决什么问题？为什么后续要专门学习系统字段？</li>
+<li>复杂条件中为什么要主动加括号，而不是依赖 <code>AND</code> / <code>OR</code> 优先级？</li>
+<li><code>COND</code> / <code>SWITCH</code> 适合替代哪一类 <code>IF</code> / <code>CASE</code>？不适合替代哪一类？</li>
+</ul>
+<p><strong>参考资料入口</strong></p>
+<ul>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/using-control-structures-in-abap_a4d7803e-eac2-458e-acf9-8628289f3701" target="_blank" rel="noopener noreferrer">SAP Learning - Using Control Structures in ABAP</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapif.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - IF</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCASE.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - CASE</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENLOGEXP.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Logical Expressions</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCONDITIONAL_EXPRESSIONS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Conditional Expressions</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENDATAOBJECTS_TRUE_VALUE_GUIDL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Data Type for Truth Values</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-01-025-loop-constructs-7301b587.html">Loop constructs 循环语句</a></li>
+<li>Related: <a class="wiki" href="section-01-020-abap-data-object-e568a611.html">ABAP data object 数据对象</a></li>
+<li>Related: <a class="wiki" href="section-01-021-elementary-data-types-70039e9a.html">Elementary data types 基础技术类型</a></li>
+<li>Related: <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a></li>
+<li>Downstream: <a class="wiki" href="section-01-028-string-processing-6715ed4e.html">String processing 字符串处理</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 04 - 控制流、字符串、日期时间与 Runtime Error</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>学习任务</strong></p>
+<ul>
+<li>写一个 <code>IF ... ELSEIF ... ELSE ... ENDIF</code>，判断金额为 initial、金额小于 0、金额大于 0 三种情况。</li>
+<li>写一个 <code>CASE ... WHEN ... WHEN OTHERS ... ENDCASE</code>，判断状态 <code>N</code>、<code>A</code>、<code>R</code> 和未知状态。</li>
+<li>把一个只决定显示文本的 <code>CASE</code> 改写为 <code>SWITCH string( ... )</code>。</li>
+<li>用中文解释：为什么 <code>IS INITIAL</code> 要结合类型和业务语义理解。</li>
+<li>补 1 个日本项目 review 句子，必须包含 <code>条件分岐</code>、<code>網羅性</code>、<code>テストケース漏れ</code> 中至少一个。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-026-conditional-logic-51e0f0a0.html">Conditional logic 条件分支</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-025-loop-constructs-7301b587.html">Previous section</a><a href="section-01-027-abap-system-fields-sy-10231cb6.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

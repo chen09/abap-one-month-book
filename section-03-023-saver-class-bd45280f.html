@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Saver class 保存器类 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="23-saver-class-6a893deb" class="chapter-title">23. Saver class 保存器类</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 23</li><li>self-contained study note</li></ul><h4 id="23-1-d933524b" class="semantic-heading semantic-concept">23.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a> 是 RAP <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a> 中负责 save sequence 的 local class，通常继承 <code>CL_ABAP_BEHAVIOR_SAVER</code>，处理最终保存、unmanaged save、additional save、late numbering、cleanup 等保存阶段逻辑；它和 <a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a> 的核心区别是：handler 处理 BO 行为和交互/保存前检查，saver 处理提交保存阶段。</p>
+<p>一句话记忆：handler 回答“用户请求进来后业务上该怎么反应”，saver 回答“决定要保存之后，如何安全地完成保存序列”。</p>
+<h4 id="23-2-aaa9e810">23.2 概念说明</h4>
+<p>RAP runtime 把一次事务大致分成 interaction phase 和 save sequence。上一节讲的 handler class 主要服务 BO 行为、action、validation、determination、authorization、feature control 以及 unmanaged 标准 operation。Saver class 则在 save sequence 中工作，用来处理保存序列中由项目实现的部分。</p>
+<p>SAP Learning 说明，behavior pool 中 local saver class 的默认命名前缀通常是 <code>lsc_</code>，后接 business object name。和 handler class 不同，saver class 属于整个 BO：composite BO 可以有多个 <code>lhc_</code> handler class，但通常只有一个 <code>lsc_</code> saver class。ABAP Keyword Documentation 也说明，RAP saver class 继承 <code>CL_ABAP_BEHAVIOR_SAVER</code>，并定义在 behavior pool 的 CCIMP / local implementation 区域。</p>
+<p>Saver class 不是每个 managed BO 都要写很多代码。在最简单的 managed save 场景中，RAP runtime 可以负责整个 save sequence，包括写入 BDEF 中指定的 persistent table。只有在 <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a>、<a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a>、<a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a>、late numbering、特殊 cleanup、业务事件或复杂保存需求出现时，saver class 的实现才成为重点。</p>
+<p>因此，初学者不要把 saver class 理解成“所有保存都必须手写的地方”。它更像 RAP 提供给项目的保存阶段扩展点：什么时候需要接管，接管哪一段，必须由 implementation option 决定。</p>
+<h4 id="23-3-b1d8906e" class="semantic-heading semantic-why">23.3 为什么重要</h4>
+<p>Saver class 是 RAP 事务一致性的最后一道项目实现边界。很多严重生产问题都来自 save sequence 误用：handler 中已经写库，saver 又写一次；<code>save()</code> 中调用会内部 commit 的 BAPI；late numbering 消耗 number range 后又失败；additional save 写出重复事件；cleanup 没清 buffer 导致下一次请求串数据。</p>
+<p>对项目交付来说，saver class 决定“保存是否可靠”。设计书里要说明主数据谁保存、附加数据谁保存、失败如何回滚、numbering 何时分配、哪些旧逻辑可调用、是否允许外部副作用、错误消息如何返回。测试证据里也要覆盖保存成功、保存失败、重复提交、并发、回滚和 cleanup。</p>
+<p>对 Java/Python 背景学习者，可以把 saver class 类比成 unit-of-work 的 commit/flush hook，但 SAP RAP 的约束更强：它由 <code>COMMIT ENTITIES</code> 触发，受 SAP LUW、RAP runtime、BDEF-derived types、draft、lock、authorization、strict mode 和 ABAP Cloud released API 限制。</p>
+<h4 id="23-4-3122e083">23.4 边界</h4>
+<p>第一条边界：saver class 属于 save sequence，不属于普通 interaction phase。它不应该处理 UI 按钮能否可见、action 是否允许、字段默认值是否派生这类交互逻辑；这些通常属于 handler、validation、determination、authorization 或 feature control。</p>
+<p>第二条边界：managed save、unmanaged save、additional save 中 saver 责任不同。Managed save 下 runtime 负责标准写库；fully unmanaged BO 中 saver 的 <code>save()</code> 必须把项目 application buffer 写入数据库；managed with unmanaged save 中 <code>save_modified</code> 接收 managed buffer 的修改内容并替代默认写库；additional save 中 <code>save_modified</code> 只做附加保存，不替代主保存。</p>
+<p>第三条边界：save sequence 不是随意提交点。即使进入 saver class，也不能随便 <code>COMMIT WORK</code> 或 <code>ROLLBACK WORK</code>。RAP runtime 仍是事务边界的 owner；项目代码必须按 RAP 调用点执行保存逻辑，而不是自己开关事务。</p>
+<p>第四条边界：业务可预见错误不要拖到 late save 才发现。能在 validation、precheck、authorization、<code>check_before_save()</code> 中发现的问题，应尽量提前处理。越接近 point-of-no-return，错误处理越困难，对 consumer 的消息反馈也越受限。</p>
+<p>第五条边界：saver class 不等于外部系统集成万能入口。若保存时要通知外部系统、发邮件、调 HTTP API，必须评估幂等、重试、outbox、business event 和事务一致性。直接在 saver 中同步调用不可回滚外部系统，常常会制造“SAP 回滚了但外部已执行”的问题。</p>
+<h4 id="23-5-4ff177db" class="semantic-heading semantic-mechanism">23.5 核心机制</h4>
+<p>第一层机制是 class 继承。Saver class 通常写成：</p>
+<pre><code class="language-abap">CLASS lsc_z_i_travel DEFINITION INHERITING FROM cl_abap_behavior_saver.
+  PROTECTED SECTION.
+    METHODS save REDEFINITION.
+    METHODS cleanup REDEFINITION.
+    &quot; Simplified snippet; cleanup_finalize is shown in the full example below.
+ENDCLASS.</code></pre>
+<p>具体方法是否需要重定义，取决于 implementation option。不要为了“看起来完整”把所有 saver methods 都重定义；只重定义真正需要实现的保存阶段。</p>
+<p>第二层机制是一个 BO 一个 saver class。SAP Learning 明确说明，saver class belongs to the business object as a whole。即使 root 有多个 child entity，也通常只有一个 local saver class。默认名称一般以 <code>lsc_</code> 开头，后接 BO name；BO name 等同于 root entity 的 global name，不是 root alias。例如 root entity global name 是 <code>ZI_Travel</code>、alias 是 <code>Travel</code> 时，saver class 命名思路接近 <code>lsc_zi_travel</code>，而不是 <code>lsc_travel</code>。</p>
+<p>第三层机制是 fully unmanaged 的 save sequence。SAP Learning 对 unmanaged BO 的顺序非常清楚：<code>finalize()</code> 做最终计算；<code>check_before_save()</code> 做保存前检查；通过后到达 point-of-no-return；之后可能执行 <code>adjust_numbers()</code> 处理 late numbering；<code>save()</code> 把 transactional/application buffer 中的 BO instance data 持久化；最后 <code>cleanup()</code> 清理 buffer。注意：<code>finalize()</code> 和 <code>check_before_save()</code> 虽然在 save sequence 中执行，但它们属于 handler class (<code>lhc_</code>) 的方法，不是 saver class (<code>lsc_</code>) 的方法；saver class 侧的典型方法从 <code>adjust_numbers()</code>、<code>save()</code>、<code>cleanup()</code>、<code>cleanup_finalize()</code> 这些保存阶段方法开始。若 <code>finalize()</code> 或 <code>check_before_save()</code> 在 point-of-no-return 前失败，<code>cleanup_finalize()</code> 用来清理失败路径上的 buffer。</p>
+<p>第四层机制是 <code>save()</code>。在 unmanaged implementation scenario 中，必须 redefine 并实现 <code>save()</code>，因为项目自己拥有 application buffer，也必须自己把 buffer 写到数据库或旧保存逻辑。此时 <code>save()</code> 是主保存入口，不是 additional save，也不是普通 helper。</p>
+<p>第五层机制是 <code>save_modified()</code>。在 managed BO with unmanaged save 中，runtime 管 interaction phase 和 managed buffer，但把 modified content 传给 <code>save_modified</code>，由项目完成主保存。在 additional save 中，runtime 仍执行 managed write access，<code>save_modified</code> 只做附加保存。方法名相同，语义不同，必须靠 BDEF 的 <code>with unmanaged save</code> / <code>with additional save</code> 判断。</p>
+<p>第六层机制是 late numbering。若 BO 使用 late numbering，最终 key 可能在 point-of-no-return 后通过 <code>adjust_numbers()</code> 分配。这个阶段很敏感：number range 一旦消耗通常不能简单回滚，因此需要在更早阶段尽量完成校验，避免到了 late numbering 后才发现业务错误。</p>
+<p>第七层机制是 cleanup。<code>cleanup()</code> 是正常 save sequence 结束后的 buffer 清理入口；<code>cleanup_finalize()</code> 是 point-of-no-return 前失败时的清理入口。尤其在 unmanaged BO 中，项目自有 application buffer 如果没有清理，会导致下一次请求读到旧数据，出现非常难排查的串单问题。</p>
+<p>第八层机制是 response 和 message。Saver 阶段的错误反馈能力不同于 handler 阶段。若业务错误可以用 <code>failed</code> / <code>reported</code> 在 validation/action 阶段返回，应尽量前移；saver 中的失败更适合处理不可避免的技术保存错误或最终持久化错误。特殊情况下可以研究 <code>CL_ABAP_BEHAVIOR_SAVER_FAILED</code>，但这属于进阶主题，不应成为初学者默认方案。</p>
+<h4 id="23-6-e711dc57" class="semantic-heading semantic-why">23.6 项目意义</h4>
+<p>设计评审时，saver class 要回答四个问题。第一，当前 BO 是 managed save、unmanaged save、managed with unmanaged save，还是 additional save？第二，主保存由谁负责？第三，保存失败时如何反馈、回滚和清理？第四，有没有 late numbering、外部副作用、旧 BAPI、number range、application buffer 或附加日志？</p>
+<p>代码 review 时，重点看 saver 有没有越界。<code>save()</code> 是否只在 unmanaged BO 中承担主保存；<code>save_modified()</code> 是否按 BDEF 语义区分“替代主保存”和“追加附加保存”；是否存在内部 commit；是否在 point-of-no-return 后还做可预见业务校验；cleanup 是否覆盖成功和失败路径；旧 API 是否有 no-commit 版本。</p>
+<p>测试时，saver class 相关测试不能只看“保存成功”。至少要覆盖：保存前 validation 失败是否不会写库；late numbering 失败是否不会留下不一致状态；legacy API 报错时是否有可理解消息；cleanup 后第二次请求是否不受第一次 buffer 影响；additional save 是否幂等；unmanaged save 是否正确处理 create/update/delete 混合请求。</p>
+<p>日本项目里，saver class 常出现在保存シーケンス、移送前確認、障害調査、結合テスト缺陷分析中。比如“handler では成功したが save sequence で落ちた”“cleanup が呼ばれずバッファが残った”“追加保存処理で二重登録された”都是实际项目会遇到的问题。</p>
+<h4 id="23-7-example-997e3698" class="semantic-heading semantic-example">23.7 Example / 学习例子</h4>
+<p>假设 Travel BO 是 fully unmanaged。Handler class 在 create/update/delete 中把请求放入项目 application buffer；saver class 的 <code>save()</code> 才真正写数据库：</p>
+<pre><code class="language-abap">CLASS lsc_z_i_travel DEFINITION INHERITING FROM cl_abap_behavior_saver.
+  PROTECTED SECTION.
+    METHODS save REDEFINITION.
+    METHODS cleanup REDEFINITION.
+    METHODS cleanup_finalize REDEFINITION.
+ENDCLASS.
+
+CLASS lsc_z_i_travel IMPLEMENTATION.
+  METHOD save.
+    &quot; Persist buffered Travel create/update/delete requests.
+    &quot; No COMMIT WORK here; RAP owns the transaction boundary.
+  ENDMETHOD.
+
+  METHOD cleanup.
+    &quot; Clear application buffer after the transaction.
+  ENDMETHOD.
+
+  METHOD cleanup_finalize.
+    &quot; Clear application buffer if save sequence fails before point-of-no-return.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>如果同一个 BO 改成 managed with unmanaged save，代码重点不再是 <code>save()</code>，而是 <code>save_modified</code>。Runtime 已经有 managed buffer，项目从 <code>create</code>、<code>update</code>、<code>delete</code> importing data 中取 modified content，再调用旧保存 API 或写目标表。</p>
+<p>如果是 additional save，<code>save_modified</code> 又换了意义：主 Travel 表仍由 managed runtime 保存，项目只写审计表或 raise <code>TravelCreated</code> business event。读者可以把这三种情况画成表：</p>
+<ul>
+<li>Unmanaged BO：handler 维护 buffer，saver <code>save()</code> 主保存。</li>
+<li>Managed with unmanaged save：runtime 维护 buffer，saver <code>save_modified</code> 主保存。</li>
+<li>Additional save：runtime 主保存，saver <code>save_modified</code> 附加保存。</li>
+</ul>
+<p>最小练习：在一个 behavior pool 里找 <code>lhc_</code> 和 <code>lsc_</code>，说明哪个方法在 interaction phase 被调用，哪个方法在 save sequence 被调用。进阶练习：把一个 “保存时写日志” 的需求分别放到 unmanaged save 和 additional save 中，说明哪种设计更合适。</p>
+<h4 id="23-8-counterexample-failure-mode-6d19a7e2" class="semantic-heading semantic-example">23.8 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 <code>COMMIT WORK</code> 写进 saver。开发者觉得“都到保存阶段了，提交一下没问题”，但 RAP 仍然拥有事务边界。内部 commit 会破坏 LUW、draft、rollback 和 consumer 语义。</p>
+<p>第二个失败模式是把所有业务校验拖到 <code>save()</code>。如果状态、权限、必填字段、金额合法性都到 late save 才发现，UI 消息定位会变差，simulation / precheck 场景也可能无法提前反馈。能早发现的错误应放在 validation、authorization、precheck 或 <code>check_before_save()</code>。</p>
+<p>第三个失败模式是 cleanup 缺失。Unmanaged BO 使用静态内表或共享 helper 保存 buffer，但 <code>cleanup()</code> / <code>cleanup_finalize()</code> 没清，下一次请求会读到旧 buffer。症状可能是“用户 A 的数据串到用户 B”或“第二次保存多写一条明细”。</p>
+<p>第四个失败模式是混淆 <code>save()</code> 和 <code>save_modified()</code>。Fully unmanaged BO 必须实现 <code>save()</code>；managed with unmanaged save / additional save 通常关注 <code>save_modified()</code>。方法名选错会导致框架不调用你的逻辑，或者保存职责重复。</p>
+<p>第五个失败模式是 additional save 写主数据。Additional save 里写主业务表，runtime 又执行 managed save，可能重复写、覆盖写或产生锁冲突。判断标准：如果这是主数据落库，就不应放在 additional save。</p>
+<p>第六个失败模式是 late numbering 后失败。号码已分配，后续又因为可预见业务错误失败，可能造成 number range gap 或业务解释困难。虽然号码跳号在很多 SAP 场景并非绝对错误，但项目必须提前说明策略。</p>
+<h4 id="23-9-197da838" class="semantic-heading semantic-japan">23.9 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>セーバークラス</code>、<code>保存シーケンス</code>、<code>save メソッド</code>、<code>save_modified メソッド</code>、<code>finalize</code>、<code>check_before_save</code>、<code>adjust_numbers</code>、<code>cleanup</code>、<code>cleanup_finalize</code>、<code>ポイント・オブ・ノーリターン</code>。</li>
+<li>说明句：saver class は RAP BO の save sequence を担当する local class で、通常 <code>CL_ABAP_BEHAVIOR_SAVER</code> を継承します。</li>
+<li>分工句：handler class は interaction/check-before-save 側の業務ロジックを担当し、saver class は最終保存、追加保存、後期採番、cleanup を担当します。</li>
+<li>Review 句：この保存処理は managed save、unmanaged save、additional save のどの責任範囲に入るのかを設計書で明確にしてください。</li>
+<li>风险句：saver method 内で <code>COMMIT WORK</code> を実行すると、RAP のトランザクション境界を壊す可能性があります。</li>
+<li>调查句：保存時のエラーであれば、まず behavior pool の <code>lsc_&lt;BO名&gt;</code> クラスと save sequence のどのメソッドで落ちているかを確認します。</li>
+</ul>
+<h4 id="23-10-english-terms-a807510d" class="semantic-heading semantic-terms">23.10 English Terms</h4>
+<ul>
+<li>Official / search term: <code>saver class</code></li>
+<li>Official / search term: <code>CL_ABAP_BEHAVIOR_SAVER</code></li>
+<li>Official / search term: <code>RAP saver class</code></li>
+<li>Official / search term: <code>save sequence</code></li>
+<li>Official / search term: <code>save method</code></li>
+<li>Official / search term: <code>save_modified</code></li>
+<li>Official / search term: <code>finalize</code></li>
+<li>Official / search term: <code>check_before_save</code></li>
+<li>Official / search term: <code>adjust_numbers</code></li>
+<li>Official / search term: <code>cleanup</code></li>
+<li>Official / search term: <code>cleanup_finalize</code></li>
+<li>Official / search term: <code>point-of-no-return</code></li>
+<li>Related terms: <code>CL_ABAP_BEHAVIOR_SAVER_FAILED</code>, <code>managed save</code>, <code>unmanaged save</code>, <code>additional save</code>, <code>late numbering</code>, <code>application buffer</code>, <code>COMMIT ENTITIES</code>, <code>SAP LUW</code>.</li>
+</ul>
+<h4 id="23-11-077d0d64" class="semantic-heading semantic-reference">23.11 参考资料入口</h4>
+<ul>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABP_CL_ABAP_BEH_SAVER.html" target="_blank" rel="noopener noreferrer">CL_ABAP_BEHAVIOR_SAVER, RAP Saver Class</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABP_SAVER_CLASS.html" target="_blank" rel="noopener noreferrer">RAP Saver Class and Methods</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSAVER_METHOD_SAVE.html" target="_blank" rel="noopener noreferrer">save, RAP Saver Method</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSAVER_ADJUST_NUMBERS.html" target="_blank" rel="noopener noreferrer">adjust_numbers, RAP Saver Method</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSAVER_METHOD_CLEANUP.html" target="_blank" rel="noopener noreferrer">cleanup, RAP Saver Method</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSAVER_CLASS_CLEANUP_FINALIZE.html" target="_blank" rel="noopener noreferrer">cleanup_finalize, RAP Saver Method</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/implementing-save-handler-method" target="_blank" rel="noopener noreferrer">Implementing the Save Handler Method</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/implementing-additional-save" target="_blank" rel="noopener noreferrer">Implementing Additional Save</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring Behavior Implementation Options</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/implementing-unmanaged-business-objects" target="_blank" rel="noopener noreferrer">Implementing Unmanaged Business Objects</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a></li>
+<li><a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li><a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a></li>
+<li><a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a></li>
+</ul>
+<h4 id="23-12-connections-5463ce37">23.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a></li>
+<li>Downstream: <a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a></li>
+<li>Related: <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></li>
+<li>Related: <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></li>
+<li>Related: <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></li>
+<li>Related: <a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a></li>
+<li>Related: <a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a></li>
+<li>Related: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="23-13-d930d7cc" class="semantic-heading semantic-practice">23.13 学习任务</h4>
+<ul>
+<li>用三句话说明 handler class 和 saver class 的职责差异。</li>
+<li>画出 unmanaged BO 的 save sequence：<code>finalize()</code> -&gt; <code>check_before_save()</code> -&gt; point-of-no-return -&gt; <code>adjust_numbers()</code> -&gt; <code>save()</code> -&gt; <code>cleanup()</code>。</li>
+<li>用日语写一句 code review 问题：这个保存逻辑属于 unmanaged save、managed with unmanaged save，还是 additional save？</li>
+<li>找一个 saver class，标出 <code>save()</code>、<code>save_modified()</code>、<code>cleanup()</code> 是否被重定义，并说明原因。</li>
+<li>设计一个测试：保存失败后 buffer 被清理，下一次保存不会复用旧数据。</li>
+</ul>
+<h4 id="23-14-confidence-next-action-f85b22d3" class="semantic-heading semantic-status">23.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。正文基于 SAP Help、ABAP Keyword Documentation 和 SAP Learning 的 saver class / save sequence 资料整理，并结合前几节 handler、managed/unmanaged/additional save 的 review 结论；2026-06-18 已重新访问官方资料入口，Claude 初审 <code>Pass with fixes</code>，follow-up <code>Pass</code>。Joule 因前序超时状态未重试，已记录为后续可补充依赖。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a>，继续展开 RAP BO 中 non-standard operation 的设计与实现。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-022-handler-class-36e88880.html">Previous section</a><a href="section-03-024-eml-entity-manipulation-language-546d081f.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Interface 接口定义 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="30-interface-953f10cd" class="chapter-title">30. Interface 接口定义</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 30</li><li>self-contained study note</li></ul><h4 id="30-1-212bd62d" class="semantic-heading semantic-concept">30.1 一句话结论</h4>
+<p>Interface 接口定义是 OO ABAP 中用来表达“这个对象承诺提供哪些能力”的抽象契约。它不关心具体 class 如何实现，只规定调用者可以依赖哪些 method、type、constant 或 event。class 用 <code>INTERFACES</code> 声明自己实现某个 interface；调用者可以用 <code>TYPE REF TO if_xxx</code> 持有 interface reference，只依赖 contract，不依赖具体实现类。</p>
+<p>初学者最重要的判断是：interface 不是“把 class 再包一层”，而是为了把稳定契约和可替换实现分开。它特别适合 constructor injection、ABAP Unit test double、外部依赖隔离、Clean Core 依赖边界和 framework contract。接口设计得好，class 可以换实现，测试可以换替身，调用方仍然只看同一份 contract。</p>
+<h4 id="30-2-56d70644" class="semantic-heading semantic-concept">30.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a> 讲了 constructor injection：把依赖通过 constructor 传给对象。本节讲的是这个依赖最好长什么样。答案通常不是具体 class，而是 interface。</p>
+<p>本节要掌握这些边界：</p>
+<ul>
+<li><code>INTERFACE ... ENDINTERFACE</code> 定义一个 interface contract。interface 没有 <code>DEFINITION</code> addition，也没有 implementation part。</li>
+<li><code>INTERFACE ... ENDINTERFACE</code> 是声明层面的结构，不能写在 class、method、form、event block 这类局部处理块里面。</li>
+<li>interface 里没有 <code>PUBLIC SECTION</code> / <code>PRIVATE SECTION</code> / <code>PROTECTED SECTION</code>；interface components 对实现方和调用方来说都是 public contract。</li>
+<li>interface 可以声明 method、type、constant、attribute、event，甚至嵌套 interface；初学阶段先把 method contract 学稳。</li>
+<li><code>INTERFACES if_xxx.</code> 表示 class 实现这个 interface，通常写在 implementing class 的 <code>PUBLIC SECTION</code>。</li>
+<li>interface method 只声明 signature；实现 class 必须实现 interface 中声明的所有 methods，否则语法检查不会通过。</li>
+<li>实现 interface method 时写完整限定名：<code>METHOD if_xxx~method_name. ... ENDMETHOD.</code>。这里的 <code>~</code> 不是装饰符，而是区分“interface component”和“class 自己的同名 component”的必要写法。</li>
+<li><code>TYPE REF TO if_xxx</code> 表示 interface reference，调用者只知道“这个对象能做什么”，不知道也不需要知道“它具体是哪一个 class”。</li>
+<li>一个 class 可以实现多个 interfaces；ABAP class inheritance 是单继承，interface 常用于补足“多个能力 contract”的表达。</li>
+<li>interface 适合表达 capability，不适合塞进所有方法变成“大而全契约”。</li>
+<li><code>PUBLIC</code> interface 或 global interface 不自动等于 SAP released API；Clean Core / ABAP Cloud 仍要看 release contract 和 package/use access。</li>
+</ul>
+<p>最小例子：</p>
+<pre><code class="language-abap">INTERFACE lif_discount_reader.
+  METHODS get_rate
+    IMPORTING iv_customer_id TYPE string
+    RETURNING VALUE(rv_rate) TYPE decfloat34.
+ENDINTERFACE.
+
+CLASS lcl_fixed_discount_reader DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_discount_reader.
+ENDCLASS.
+
+CLASS lcl_fixed_discount_reader IMPLEMENTATION.
+  METHOD lif_discount_reader~get_rate.
+    rv_rate = &#x27;0.10&#x27;.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>lif_discount_reader</code> 说的是“我能根据 customer id 返回 discount rate”。<code>lcl_fixed_discount_reader</code> 是一种实现。以后可以有 database reader、customizing reader、test double reader，只要它们都实现同一个 interface，调用者就不必改 contract。</p>
+<h4 id="30-3-4dda8394" class="semantic-heading semantic-why">30.3 为什么重要</h4>
+<p>interface 是 ABAP 项目里把代码从“能跑”推进到“能替换、能测试、能长期维护”的关键工具。</p>
+<p>没有 interface 时，业务 service 可能直接依赖一个具体 class：</p>
+<pre><code class="language-abap">DATA(lo_reader) = NEW lcl_db_discount_reader( ).</code></pre>
+<p>这会让调用者知道太多实现细节：依赖来自数据库、具体类名是什么、测试时也必须处理同一个 class 的副作用。后续想换成 customizing reader、mock reader、remote API reader，就会牵动很多调用方。</p>
+<p>有 interface 后，调用者只依赖能力：</p>
+<pre><code class="language-abap">DATA lo_reader TYPE REF TO lif_discount_reader.
+lo_reader = NEW lcl_fixed_discount_reader( ).
+DATA(lv_rate) = lo_reader-&gt;get_rate( iv_customer_id ).</code></pre>
+<p>真实项目里，interface 带来四个价值：</p>
+<ul>
+<li>稳定 contract：调用者只依赖 method signature，不依赖具体实现。</li>
+<li>可测试：ABAP Unit 可以用 local test double 实现同一个 interface。</li>
+<li>可替换：生产实现可以从 DB reader 换成 API reader，调用方不需要知道。</li>
+<li>可治理：Clean Core / package boundary / released API 可以围绕稳定 interface 设计，而不是让调用方直接依赖内部 class。</li>
+</ul>
+<p>Java/Python 背景学习者可以把它类比为 Java interface、Python protocol / duck typing 的显式版本。但 ABAP 是静态类型语言，interface reference、method signature、activation、where-used、transport、package dependency 都是显式存在的项目资产。</p>
+<h4 id="30-4-key-mechanism-18b87816" class="semantic-heading semantic-mechanism">30.4 Key mechanism / 核心机制</h4>
+<h5 id="30-4-1-interface-defines-contract-3480b028">30.4.1 interface defines contract</h5>
+<p>interface 先定义“调用者可以期待什么”：</p>
+<pre><code class="language-abap">INTERFACE lif_tax_calculator.
+  METHODS calculate_tax
+    IMPORTING iv_net_amount    TYPE decfloat34
+              iv_tax_code      TYPE string
+    RETURNING VALUE(rv_tax)    TYPE decfloat34.
+ENDINTERFACE.</code></pre>
+<p>这段代码没有说税率来自哪里，也没有说如何四舍五入。它只说：任何实现 <code>lif_tax_calculator</code> 的对象，都必须提供 <code>calculate_tax</code> 这个能力。</p>
+<p>interface 定义很像 class definition 的 public contract 部分，但它不是 <code>CLASS ... DEFINITION</code> 的缩小版。<code>INTERFACE</code> 语句本身不写 <code>DEFINITION</code>，也没有单独的 implementation part；method body 一定出现在 implementing class 的 <code>CLASS ... IMPLEMENTATION</code> 里。interface 也不写 visibility sections，因为 interface components 本质上就是公开 contract。</p>
+<p>在语法位置上，<code>INTERFACE ... ENDINTERFACE</code> 是 program global context 的定义，不能嵌套在 class、method、form、function module 或其他 processing block 里面。局部 interface 通常放在 global class 的 local types area 或 report/program 的全局定义区；global interface 则是独立 repository object。</p>
+<p>interface 里可以声明 method，也可以声明 type、constant、attribute、event、nested interface 等 public contract。初学阶段先把 method contract 学稳：输入、输出、异常、命名和边界要清楚。</p>
+<h5 id="30-4-2-class-implements-interface-63a5ace3">30.4.2 class implements interface</h5>
+<p>class 用 <code>INTERFACES</code> 声明实现：</p>
+<pre><code class="language-abap">CLASS lcl_simple_tax_calculator DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_tax_calculator.
+ENDCLASS.
+
+CLASS lcl_simple_tax_calculator IMPLEMENTATION.
+  METHOD lif_tax_calculator~calculate_tax.
+    rv_tax = iv_net_amount * &#x27;0.10&#x27;.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>lif_tax_calculator~calculate_tax</code> 中的 <code>~</code> 是 interface component selector。它告诉读者：这个 method 是 interface contract 的实现，而不是 class 自己随便定义的普通 method。</p>
+<p>这里有两个硬规则要记住。第一，<code>INTERFACES lif_tax_calculator.</code> 应放在 class 的 <code>PUBLIC SECTION</code>，因为 interface component 的可见性不能被实现类改成 private 或 protected。第二，只要 class 声明实现 interface，就要实现 interface 中声明的所有 methods，也就是 must implement all interface methods；少一个 method implementation，activation 前的语法检查就会报错。</p>
+<p>如果调用者持有 interface reference，可以这样调用：</p>
+<pre><code class="language-abap">DATA(lo_tax_calculator) = NEW lcl_simple_tax_calculator( ).
+DATA(li_tax_calculator) = CAST lif_tax_calculator( lo_tax_calculator ).
+
+DATA(lv_tax) = li_tax_calculator-&gt;calculate_tax(
+  iv_net_amount = &#x27;100.00&#x27;
+  iv_tax_code   = &#x27;A1&#x27; ).</code></pre>
+<p>在很多场景里，变量一开始就声明成 interface reference 更清楚：</p>
+<pre><code class="language-abap">DATA li_tax_calculator TYPE REF TO lif_tax_calculator.
+li_tax_calculator = NEW lcl_simple_tax_calculator( ).</code></pre>
+<p>把 implementing class reference 放进 interface reference，是安全的 upcast：<code>lcl_simple_tax_calculator</code> 实现了 <code>lif_tax_calculator</code>，所以它一定能被当作“会算税的对象”使用。反过来，从 interface reference 转回具体 class reference 是 downcast，只有当运行时对象真的属于目标 class 时才成立。需要访问具体 class 的额外能力时，才考虑：</p>
+<pre><code class="language-abap">IF li_tax_calculator IS INSTANCE OF lcl_simple_tax_calculator.
+  DATA(lo_simple) = CAST lcl_simple_tax_calculator( li_tax_calculator ).
+ENDIF.</code></pre>
+<p>如果代码经常需要 downcast，通常说明 interface 设计得不够完整，或者调用方其实不应该只依赖这个 interface。interface reference 的好处正在于：它故意只暴露 interface 上声明的 components，隐藏具体 class 的其他 public methods。</p>
+<h5 id="30-4-3-interface-reference-decouples-caller-4cb6917d">30.4.3 interface reference decouples caller</h5>
+<p>调用方使用 interface reference 时，只能看到 interface 上声明的能力：</p>
+<pre><code class="language-abap">METHODS constructor
+  IMPORTING io_tax_calculator TYPE REF TO lif_tax_calculator.</code></pre>
+<p>这比传入 <code>TYPE REF TO lcl_simple_tax_calculator</code> 更稳定。前者说“我需要一个会算税的东西”；后者说“我必须使用这个具体 class”。在项目 review 里，前者通常更利于测试和替换。</p>
+<h5 id="30-4-4-constructor-injection-uses-interface-143c217d">30.4.4 constructor injection uses interface</h5>
+<p>把 interface 和 <a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a> 连起来，就得到常见的 constructor injection：</p>
+<pre><code class="language-abap">CLASS lcl_price_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING io_tax_calculator TYPE REF TO lif_tax_calculator.
+
+    METHODS calculate_gross
+      IMPORTING iv_net_amount       TYPE decfloat34
+                iv_tax_code         TYPE string
+      RETURNING VALUE(rv_gross)     TYPE decfloat34.
+
+  PRIVATE SECTION.
+    DATA mo_tax_calculator TYPE REF TO lif_tax_calculator.
+ENDCLASS.
+
+CLASS lcl_price_service IMPLEMENTATION.
+  METHOD constructor.
+    mo_tax_calculator = io_tax_calculator.
+  ENDMETHOD.
+
+  METHOD calculate_gross.
+    DATA(lv_tax) = mo_tax_calculator-&gt;calculate_tax(
+      iv_net_amount = iv_net_amount
+      iv_tax_code   = iv_tax_code ).
+    rv_gross = iv_net_amount + lv_tax.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>lcl_price_service</code> 不知道税额来自数据库、配置表、固定规则还是 test double。它只知道：<code>mo_tax_calculator</code> 遵守 <code>lif_tax_calculator</code> contract。</p>
+<h5 id="30-4-5-test-double-implements-same-interface-44f933f5">30.4.5 test double implements same interface</h5>
+<p>ABAP Unit 中可以写一个 local test double：</p>
+<pre><code class="language-abap">CLASS lcl_tax_calculator_double DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_tax_calculator.
+ENDCLASS.
+
+CLASS lcl_tax_calculator_double IMPLEMENTATION.
+  METHOD lif_tax_calculator~calculate_tax.
+    rv_tax = &#x27;5.00&#x27;.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>测试里把这个 double 传给 service：</p>
+<pre><code class="language-abap">DATA(lo_service) = NEW lcl_price_service(
+  io_tax_calculator = NEW lcl_tax_calculator_double( ) ).</code></pre>
+<p>这样测试不需要真实数据库，也不需要复杂 customizing。interface 让“生产实现”和“测试实现”共享同一份 contract。</p>
+<h5 id="30-4-6-interface-is-not-inheritance-acc336dd">30.4.6 interface is not inheritance</h5>
+<p>interface 和 <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a> 都能带来多态，但语义不同：</p>
+<ul>
+<li>interface：表达 capability contract，重点是“谁能做这件事”。</li>
+<li>inheritance：表达 is-a / specialization 关系，重点是父类与子类之间的扩展关系。</li>
+</ul>
+<p>ABAP class inheritance 是单继承：一个 class 不能同时继承多个 superclass。但一个 class 可以实现多个 interfaces，例如同一个 service 同时承诺 <code>lif_tax_calculator</code> 和 <code>lif_audit_writer</code> 两种能力。这是 interface 在项目设计里非常实用的原因。</p>
+<p>初学阶段更保守的建议是：如果只是为了让调用方能替换实现、隔离依赖、写 test double，优先考虑 interface；不要为了复用几行代码就引入 inheritance。代码复用可以用小 class、小 method、composition；抽象契约才是 interface 的主要价值。</p>
+<h5 id="30-4-7-global-and-local-interfaces-4e547f1e">30.4.7 global and local interfaces</h5>
+<p>接口可以是 global repository object，例如项目里的 <code>ZIF_TAX_CALCULATOR</code>，也可以是 local interface，例如本节示例里的 <code>lif_tax_calculator</code>。</p>
+<p>常见命名：</p>
+<ul>
+<li>Global interface：<code>ZIF_...</code>、<code>/ABC/IF_...</code> 或项目命名规范要求的前缀。</li>
+<li>Local interface：<code>LIF_...</code>。</li>
+</ul>
+<p>global interface 是独立 ABAP repository object，可以在 ADT 或 SE24 中管理，属于 package，随 transport request 迁移，也能被 where-used、package dependency、release contract、Clean Core 检查追踪。<code>ZIF_...</code>、<code>/ABC/IF_...</code>、<code>IF_...</code> 这类命名是项目或 SAP 命名约定，不是语法要求，但对团队阅读非常重要。</p>
+<p>local interface 不是独立 repository object。它定义在某个 program、global class 的 local types area 或 class pool 的局部上下文中，只服务当前上下文，并随包含它的对象一起激活和传输。不要把 demo 用的 local interface 直接等同于项目对外稳定 API。</p>
+<h5 id="30-4-8-interface-and-clean-core-60f11f94">30.4.8 interface and Clean Core</h5>
+<p>Clean Core 语境下，interface 只是表达 contract 的语言工具，不自动代表“已释放可用”。一个 SAP standard interface 或项目 global interface 是否能被依赖，要看 released API、package interface、use access、language version 和项目治理。</p>
+<p>所以 review 时要区分两句话：</p>
+<ul>
+<li>“这个 class 实现了某个 interface，所以语法上可以通过 interface reference 调用。”</li>
+<li>“这个 interface 是 released / allowed / stable API，所以项目上可以长期依赖。”</li>
+</ul>
+<p>第一句是 OO ABAP 语法问题，第二句是 Clean Core / 架构治理问题。</p>
+<h5 id="30-4-9-interface-design-checklist-ea10cc78">30.4.9 interface design checklist</h5>
+<p>在 code review 里，interface 设计可以用一张表快速收口。重点不是“有没有 interface”，而是“这个 interface 是否表达了稳定、可替换、可测试的能力”。</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Good signal</th><th>Risk signal</th></tr></thead><tbody><tr><td>What capability does it express?</td><td>名字像 <code>lif_tax_calculator</code>、<code>lif_discount_reader</code>，能力清楚</td><td>名字像 <code>lif_service</code>、<code>lif_processor</code>，什么都能塞</td></tr><tr><td>Is the contract small?</td><td>少量 method，围绕同一能力</td><td>giant interface，几十个 method 混在一起</td></tr><tr><td>Are types stable?</td><td>参数类型具体、语义清楚、可被调用方长期理解</td><td>全部 <code>string</code> / <code>ANY</code>，或暴露临时内部结构</td></tr><tr><td>Can implementations vary?</td><td>DB reader、API reader、test double 都能实现同一 contract</td><td>只有一个实现，且 interface 完全复制 class public methods</td></tr><tr><td>Can tests replace it?</td><td>ABAP Unit 能写 local test double</td><td>调用方仍然 new 具体 class 或 static call</td></tr><tr><td>Is it allowed as dependency?</td><td>global interface 有 package / release / Clean Core 证据</td><td>误以为 <code>PUBLIC</code> 或 <code>ZIF_</code> 就自动 released</td></tr></tbody></table></div>
+<p>一个实用判断是：如果 interface 只是把某个 class 的所有 public methods 原样搬出来，它通常没有提供真正抽象；如果 interface 让调用方从“依赖具体实现”变成“依赖一项清楚能力”，它才开始发挥价值。接口越靠近项目边界、包边界、released API 边界，越要控制大小和稳定性；接口越只是 local test seam，越要保持简单，不要过度设计。</p>
+<h4 id="30-5-4e0291ea" class="semantic-heading semantic-japan">30.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>インターフェース</code>、<code>抽象契約</code>、<code>実装クラス</code>、<code>依存性注入</code>、<code>テストダブル</code>、<code>差し替え可能性</code>、<code>疎結合</code>。</li>
+<li>设计说明句：呼び出し側は具象クラスではなく、インターフェース型に依存する設計にしています。</li>
+<li>Review 指摘句：このサービスは具象クラスを直接生成しているため、テストダブルに差し替えにくくなっています。</li>
+<li>Clean Core 指摘句：このインターフェースがリリース済み API かどうかを確認してから依存関係として利用します。</li>
+<li>使用场景：class 设计、constructor injection 设计、ABAP Unit、test double、package dependency review、Clean Core/released API review。</li>
+</ul>
+<p>日本项目里 <code>インターフェース</code> 也可能指外部系统接口、IDoc/RFC/OData 等 integration interface。本节讲的是 OO ABAP interface。现场沟通时要根据上下文说清楚：<code>OOのインターフェース</code>、<code>外部IF</code>、<code>システム間インターフェース</code> 不是同一个层次。</p>
+<h4 id="30-6-english-terms-3dcdbcf7" class="semantic-heading semantic-terms">30.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>INTERFACE</code>, <code>INTERFACES</code>, <code>ABAP interface</code>, <code>interface reference</code>, <code>interface component</code>, <code>interface implementation</code>, <code>polymorphism</code>, <code>test double</code></li>
+<li>Related syntax: <code>INTERFACE lif_xxx</code>, <code>ENDINTERFACE</code>, <code>INTERFACES lif_xxx</code>, <code>METHOD lif_xxx~method</code>, <code>TYPE REF TO lif_xxx</code>, <code>CAST lif_xxx( ... )</code></li>
+<li>Review terms: <code>contract</code>, <code>abstraction</code>, <code>implementation class</code>, <code>interface-typed dependency</code>, <code>dependency inversion</code>, <code>constructor injection</code>, <code>released interface</code>, <code>upcast</code>, <code>downcast</code></li>
+<li>读官方资料时注意：<code>interface</code> 在 SAP 文档里也可能表示 integration/API/interface technology；检索 OO ABAP 语法时加上 <code>ABAP Objects</code> 或 <code>INTERFACES statement</code>。</li>
+</ul>
+<h4 id="30-7-example-17e6f6a2" class="semantic-heading semantic-example">30.7 Example / 学习例子</h4>
+<h5 id="30-7-1-1-17a774e9">30.7.1 例 1：业务能力接口</h5>
+<pre><code class="language-abap">INTERFACE lif_payment_authorizer.
+  METHODS is_allowed
+    IMPORTING iv_user_id        TYPE string
+              iv_amount         TYPE decfloat34
+    RETURNING VALUE(rv_allowed) TYPE abap_bool.
+ENDINTERFACE.</code></pre>
+<p>这个 interface 只说“能判断某用户是否允许支付某金额”。它不说权限来自哪里。</p>
+<h5 id="30-7-2-2-df1a84a7">30.7.2 例 2：生产实现</h5>
+<pre><code class="language-abap">CLASS lcl_role_authorizer DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_payment_authorizer.
+ENDCLASS.
+
+CLASS lcl_role_authorizer IMPLEMENTATION.
+  METHOD lif_payment_authorizer~is_allowed.
+    rv_allowed = xsdbool( iv_amount &lt;= 1000 ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>真实项目里可能会结合 <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">Authorization check 权限检查</a>、角色、DCL 或 RAP authorization；本例只演示 interface 结构。</p>
+<h5 id="30-7-3-3-de855f29">30.7.3 例 3：测试替身</h5>
+<pre><code class="language-abap">CLASS lcl_authorizer_double DEFINITION FINAL.
+  PUBLIC SECTION.
+    INTERFACES lif_payment_authorizer.
+ENDCLASS.
+
+CLASS lcl_authorizer_double IMPLEMENTATION.
+  METHOD lif_payment_authorizer~is_allowed.
+    rv_allowed = abap_true.
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p>这个 double 可以让 ABAP Unit 专注测试业务计算，不依赖真实权限配置。</p>
+<h5 id="30-7-4-4-bffc0f96">30.7.4 例 4：服务依赖接口而不是具体类</h5>
+<pre><code class="language-abap">CLASS lcl_payment_service DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS constructor
+      IMPORTING io_authorizer TYPE REF TO lif_payment_authorizer.
+
+    METHODS can_pay
+      IMPORTING iv_user_id        TYPE string
+                iv_amount         TYPE decfloat34
+      RETURNING VALUE(rv_allowed) TYPE abap_bool.
+
+  PRIVATE SECTION.
+    DATA mo_authorizer TYPE REF TO lif_payment_authorizer.
+ENDCLASS.
+
+CLASS lcl_payment_service IMPLEMENTATION.
+  METHOD constructor.
+    mo_authorizer = io_authorizer.
+  ENDMETHOD.
+
+  METHOD can_pay.
+    rv_allowed = mo_authorizer-&gt;is_allowed(
+      iv_user_id = iv_user_id
+      iv_amount  = iv_amount ).
+  ENDMETHOD.
+ENDCLASS.</code></pre>
+<p><code>lcl_payment_service</code> 只依赖 <code>lif_payment_authorizer</code>。生产代码传 <code>lcl_role_authorizer</code>，测试代码传 <code>lcl_authorizer_double</code>。</p>
+<h4 id="30-8-counterexample-failure-mode-d7fed788" class="semantic-heading semantic-example">30.8 Counterexample / Failure mode</h4>
+<h5 id="30-8-1-1-class-interface-a9ab64c9" class="semantic-heading semantic-failure">30.8.1 误区 1：给每个 class 都建一个 interface</h5>
+<p>interface 有成本。没有替换需求、没有测试替身、没有稳定边界，只是机械创建 <code>zif_xxx</code>，会增加文件和认知负担。</p>
+<p>修正动作：有多实现、可替换依赖、跨 package contract、ABAP Unit 替身或 Clean Core 边界时优先考虑 interface。</p>
+<h5 id="30-8-2-2-00ea3bd9" class="semantic-heading semantic-failure">30.8.2 误区 2：接口太大</h5>
+<p>一个 interface 里塞几十个 method，会让所有实现类都被迫承诺太多能力。</p>
+<p>修正动作：按 capability 拆小接口，例如 reader、writer、validator、formatter，而不是一个万能 service interface。</p>
+<h5 id="30-8-3-3-2475cede" class="semantic-heading semantic-failure">30.8.3 误区 3：接口暴露不稳定内部类型</h5>
+<p>interface method 参数如果直接使用临时结构、具体实现类、内部缓存类型，调用方就被内部实现绑住。</p>
+<p>修正动作：interface signature 使用稳定 DDIC type、public type、released API type 或项目稳定 value object。</p>
+<h5 id="30-8-4-4-interface-new-926a786d" class="semantic-heading semantic-failure">30.8.4 误区 4：有 interface 但仍直接 new 具体类</h5>
+<p>service 内部直接 <code>NEW lcl_db_reader( )</code>，即使这个 class 实现了 interface，也没有真正解耦。</p>
+<p>修正动作：把 interface reference 通过 constructor、factory 或 framework context 传入，调用方依赖 interface，创建逻辑集中管理。</p>
+<h5 id="30-8-5-5-oo-interface-039bc6dd" class="semantic-heading semantic-failure">30.8.5 误区 5：把 OO interface 当外部接口</h5>
+<p>OO interface 是代码 contract；OData/RFC/IDoc/API 是系统间接口或 integration interface。二者会有关联，但不是同一个概念。</p>
+<p>修正动作：文档里明确说 <code>OO ABAP interface</code>、<code>OData API</code>、<code>外部IF</code>，避免把抽象层级混在一起。</p>
+<h5 id="30-8-6-6-public-interface-released-api-e6c11b93" class="semantic-heading semantic-failure">30.8.6 误区 6：把 public interface 当 released API</h5>
+<p>能看到一个 public global interface，不代表它是 ABAP Cloud / Clean Core 允许依赖的 released API。</p>
+<p>修正动作：查 released object 状态、package/use access、SAP Help、SAP API Business Hub 或项目架构标准。</p>
+<h5 id="30-8-7-7-interface-reference-downcast-0af5aea2" class="semantic-heading semantic-failure">30.8.7 误区 7：通过 interface reference 后又立刻 downcast</h5>
+<p>如果调用方拿到 <code>TYPE REF TO lif_xxx</code> 以后马上 <code>CAST zcl_concrete_xxx( ... )</code>，说明调用方并没有真正依赖抽象契约，而是在绕回具体实现。</p>
+<p>修正动作：确认缺少的方法是否应该进入 interface contract；如果只是某个实现类的额外细节，就不要让通用调用方依赖它。</p>
+<h4 id="30-9-55494f8f" class="semantic-heading semantic-practice">30.9 思考问题</h4>
+<ul>
+<li>这个 interface 表达的是一个清楚 capability，还是只是某个 class 的影子？</li>
+<li>调用方是否真的只需要 interface contract，而不需要知道具体实现类？</li>
+<li>这个 interface 是否能让 ABAP Unit 使用 test double？</li>
+<li>如果明天从 DB reader 换成 API reader，调用方是否需要改？</li>
+<li>interface method signature 是否稳定，是否暴露了内部临时类型？</li>
+<li>这个 interface 是 local demo contract、项目内部 contract，还是 released API？</li>
+<li>在日本项目里，应说 <code>OOのインターフェース</code>，还是 <code>外部IF</code>？</li>
+<li>哪一个 SAP Help 页面可以证明 <code>INTERFACE</code> / <code>INTERFACES</code> 的语法？</li>
+</ul>
+<h4 id="30-10-f8eca0e1" class="semantic-heading semantic-reference">30.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENINTERFACES.html" target="_blank" rel="noopener noreferrer">ABAP Objects - Interfaces</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPINTERFACE.html" target="_blank" rel="noopener noreferrer">INTERFACE</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPINTERFACES.html" target="_blank" rel="noopener noreferrer">INTERFACES</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENDEFINING_CLASSES_INTERFACES.html" target="_blank" rel="noopener noreferrer">Defining Classes and Interfaces</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENINTERFACE_COMPOSITION.html" target="_blank" rel="noopener noreferrer">Interface Composition</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/defining-interfaces_ab3c7c07-bb66-424b-ba06-6cfa7cc39439" target="_blank" rel="noopener noreferrer">Defining Interfaces</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/using-interfaces_e45af9bb-46e5-457b-88ef-d5ad6b0d38d7" target="_blank" rel="noopener noreferrer">Using Interfaces</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASSES.html" target="_blank" rel="noopener noreferrer">ABAP Objects - Classes</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCLASS_METHODS.html" target="_blank" rel="noopener noreferrer">Methods of Classes</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+</ul>
+<h4 id="30-11-connections-88b2192c">30.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC OO ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-029-constructor-d3a7146e.html">Constructor 构造方法</a></li>
+<li>Downstream: <a class="wiki" href="section-02-031-inheritance-2b2c6749.html">Inheritance 继承</a></li>
+<li>Related: <a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li>Related: <a class="wiki" href="section-02-027-method-visibility-944fe011.html">Method visibility 可见性</a></li>
+<li>Related: <a class="wiki" href="section-02-028-static-vs-instance-e9b8f033.html">Static vs instance 静态与实例</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a></li>
+<li>Related: <a class="wiki" href="section-02-032-polymorphism-889652ed.html">Polymorphism 多态</a></li>
+<li>Related: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 12 - OO ABAP 抽象、异常与单元测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="30-12-e068361e" class="semantic-heading semantic-practice">30.12 学习任务</h4>
+<ul>
+<li>写一个 <code>lif_tax_calculator</code>，声明一个 <code>calculate_tax</code> method。</li>
+<li>写一个 production class 和一个 test double class，都实现同一个 interface。</li>
+<li>把一个 constructor 参数从具体 class reference 改成 interface reference。</li>
+<li>用 5 行中文说明 interface 与 inheritance 的区别。</li>
+<li>用日语写一句 review comment，指出某个 service 直接依赖具象クラス，难以差し替え。</li>
+<li>打开 SAP Help 的 <code>INTERFACE</code> / <code>INTERFACES</code> 页面，对照 interface 定义与实现语法。</li>
+<li>如果已经进入 Week 3/4，观察 RAP handler/service 代码中哪些依赖适合通过 interface 隔离。</li>
+</ul>
+<h4 id="30-13-confidence-next-action-2d9d88e0" class="semantic-heading semantic-status">30.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容已用 SAP Help / ABAP Keyword Documentation 的 <code>INTERFACE</code>、<code>INTERFACES</code>、ABAP Objects interface、interface composition 页面，以及 SAP Learning 的 Defining / Using Interfaces 校准；旧 Joule snapshot 对本节给出 <code>Pass with fixes</code>，要求补充的声明区、无 implementation part、无 visibility section、实现全部 interface methods、<code>if_xxx~method</code>、interface reference/upcast/downcast、global/local interface 和 Clean Core/released API 区分已经集成。</li>
+<li>Next action: 已同步为书稿质量候选；Claude CLI 旧 review 因 credential loading error 没有返回 verdict，后续 Claude 恢复时可按 <code>90-Review/Claude Day12 Interface Section Review Prompt 2026-06-13.md</code> 做补充可读性 review。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-029-constructor-d3a7146e.html">Previous section</a><a href="section-02-031-inheritance-2b2c6749.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

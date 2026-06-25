@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Join vs association 二者区别 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="7-join-vs-association-d4584ffe" class="chapter-title">7. Join vs association 二者区别</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 07</li><li>self-contained study note</li></ul><h4 id="7-1-d616014b" class="semantic-heading semantic-concept">7.1 一句话结论</h4>
+<p>Join 和 association 都能表达“两个数据源之间有关联”，但它们解决的是不同层级的问题：join 是当前查询里立即组合数据源的 SQL 操作；association 是 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a> 中声明可复用、可导航关系的建模机制。Join 回答“这一次查询现在要把哪些行和字段合在一起”；association 回答“这个实体和另一个实体之间有什么关系，后续消费者是否可以沿着这个关系导航”。</p>
+<p>本节最重要的结论是：不要用“性能好不好”或“写法新不新”来简单选择。需要当前结果集马上合并字段时，用明确的 join；需要在 CDS/RAP/OData 模型中表达稳定业务关系、让 projection/service/Fiori/API 后续按需消费时，用 association。Association 最后也可能生成 join 或导航访问，但它的价值不是隐藏 join，而是把关系放到模型层，让复用、cardinality、服务暴露和 review 有一个稳定入口。</p>
+<h4 id="7-2-c83debfc" class="semantic-heading semantic-concept">7.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a> 已经说明 association source、target、alias、ON condition、cardinality 和 exposed association。本节换一个角度：当读者看到两种写法时，如何判断它们不是同一件事？</p>
+<p>需要掌握七个判断点。</p>
+<ul>
+<li>层级不同：join 属于当前 ABAP SQL / CDS SELECT 的查询结构；association 属于 CDS data model 的关系声明。</li>
+<li>发生时机不同：join 是当前查询的一部分；association 可以先定义和暴露，之后才通过 path expression、Data Preview、ABAP SQL 或 OData navigation 被消费。</li>
+<li>复用方式不同：join 通常只服务当前查询；association 可以被 projection view、service definition、OData metadata、Fiori Elements 或其他 CDS view 复用。</li>
+<li>结果集风险不同：join 的行数变化直接发生在当前结果集；association 的行数风险通常在 path expression 或 to-many navigation 被消费时显现。</li>
+<li>语义信息不同：join 本身不声明 cardinality；association 用 cardinality 表达 source -&gt; target 的语义契约。</li>
+<li>API 边界不同：join 不会自然形成 OData navigation property；exposed association 才可能进入服务导航链路。</li>
+<li>Review 重点不同：join review 看 ON/WHERE、字段来源、结果行数、null、排序和性能；association review 看关系是否真实、cardinality 是否可信、是否应暴露、是否符合 service/Clean Core 边界。</li>
+</ul>
+<h4 id="7-3-232c92fd" class="semantic-heading semantic-why">7.3 为什么重要</h4>
+<p>在初学阶段，把所有关系都写成 join，看起来最直观：订单要客户名，就 join 客户；订单要项目，就 join 项目；页面要供应商文本，就 join 供应商文本。问题是，这种写法把关系逻辑散落在每个查询里。项目一大，ON condition、字段别名、语言文本、cardinality、权限、服务暴露和性能约束会被复制很多次，后续变更很难评估。</p>
+<p>但反过来，把所有 join 都改成 association 也不对。某些查询就是要一次性拿到一个报表结果集，字段来源固定，消费方单一，后面也不需要 OData navigation 或 CDS 模型复用。此时一个清楚的 ABAP SQL join 或 CDS join 可能比为了“现代化”强行建一层 association 更简单。</p>
+<p>对 SAP 项目交付来说，本节决定的是建模边界。底层 interface view / root view 里是否应该建 association？projection view 是否应该暴露这个 association？ABAP class 里是否应该直接 join SAP 标准底表？Fiori/OData 是否需要 navigation property？这些问题会影响设计说明、代码 review、单体测试、性能测试、权限测试、API 契约和上线后的变更成本。</p>
+<p>对 Java/Python 背景学习者，可以把 join 理解成 SQL query 的组合操作，把 association 粗略理解成 schema/model relationship。但 SAP 的差异在于：association 是 ABAP repository object 的 CDS DDL 语义，进入 activation、transport、where-used、DCL、projection、service binding 和 OData metadata 链路；join 则更像某个查询语句里的执行结构。二者会在数据库层相遇，但在项目设计层不是同一个东西。</p>
+<h4 id="7-4-key-mechanism-48ce986d" class="semantic-heading semantic-mechanism">7.4 Key mechanism / 核心机制</h4>
+<h5 id="7-4-1-join-ef645e33">7.4.1 Join 是当前查询立即组合数据源</h5>
+<p>ABAP SQL join 的核心，是在一个 <code>SELECT</code> 中把两个或多个数据源按 <code>ON</code> 条件组合成一个结果集。SAP-samples 的 ABAP SQL cheat sheet 也把 join 放在“Combining Data of Multiple Data Sources”下：inner join 只保留满足 join condition 的组合；outer join 会保留一侧数据源的行，并在另一侧没有匹配时产生 null。</p>
+<p>一个典型 ABAP SQL join：</p>
+<pre><code class="language-abap">SELECT FROM zso_header AS so
+       INNER JOIN zcustomer AS cu
+          ON cu~customer_id = so~customer_id
+       FIELDS so~sales_order,
+              so~customer_id,
+              cu~customer_name,
+              so~created_at
+       WHERE so~status = @lc_status_open
+       ORDER BY so~created_at DESCENDING,
+                so~sales_order DESCENDING
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这段代码的问题空间很明确：</p>
+<ul>
+<li><code>ON</code> 是否表达真实业务关系？</li>
+<li>inner join 是否允许右侧缺失时丢掉左侧记录？</li>
+<li><code>WHERE</code> 是过滤订单，还是过滤客户？</li>
+<li>结果是否可能因为 1:n 关系被放大？</li>
+<li>没有 <code>ORDER BY</code> 时，多行结果顺序是否不稳定？</li>
+</ul>
+<p>Join 的优点是直接、明确、局部可读。缺点是复用性弱：如果十个消费方都需要“订单 -&gt; 客户”，十个查询都可能复制这段关系。</p>
+<h5 id="7-4-2-association-fc0d36d0">7.4.2 Association 是模型层声明关系</h5>
+<p>CDS association 把关系放到 model 中：</p>
+<pre><code class="language-abap">define view entity ZI_SalesOrder
+  as select from zso_header as Header
+  association [0..1] to ZI_Customer as _Customer
+    on $projection.CustomerId = _Customer.CustomerId
+{
+  key Header.sales_order as SalesOrder,
+      Header.customer_id as CustomerId,
+      Header.created_at  as CreatedAt,
+
+      _Customer
+}</code></pre>
+<p>这段代码的重点不是“比 join 短”，而是把 <code>SalesOrder -&gt; Customer</code> 这个关系命名为 <code>_Customer</code>，并声明 cardinality。后续 projection view、另一个 CDS view、Data Preview、ABAP SQL path expression 或 OData service 可以按需要消费这个关系。</p>
+<p>Association 的优点是关系可复用、可导航、可被服务层理解。缺点是它更依赖模型设计：target 是否合适，cardinality 是否真实，是否应该暴露，是否会泄漏内部模型细节，都需要 review。</p>
+<h5 id="7-4-3-e197c504">7.4.3 一个简单判断：字段现在要不要进入当前结果集</h5>
+<p>如果当前查询马上需要 target 字段，而且这个查询就是最终消费形态，join 往往更清楚：</p>
+<pre><code class="language-abap">SELECT FROM zso_header AS so
+       LEFT OUTER JOIN zdelivery AS dlv
+          ON dlv~sales_order = so~sales_order
+       FIELDS so~sales_order,
+              dlv~delivery_id
+       INTO TABLE @DATA(lt_rows).</code></pre>
+<p>如果当前 view 只是要表达“订单可以导航到客户”，但不一定每个消费方都要客户字段，association 更自然：</p>
+<pre><code class="language-abap">association [0..1] to ZI_Customer as _Customer
+  on $projection.CustomerId = _Customer.CustomerId</code></pre>
+<p>判断句可以这样写：</p>
+<ul>
+<li>这一次查询一定要这些字段：优先考虑 join 或当前 view 的 path expression。</li>
+<li>这是一个稳定业务关系，多个消费者可能按需使用：优先考虑 association。</li>
+<li>这是外部 API 的导航契约：优先考虑 exposed association + projection/service 设计，而不是把 target 字段全部 join 进一个扁平列表。</li>
+</ul>
+<h5 id="7-4-4-join-association-8acaa625">7.4.4 Join 的行数变化立即发生；association 的行数风险在消费时显现</h5>
+<p>Join 的 cardinality 风险很直观。订单 header join item，如果一张订单有 5 行 item，结果就会有 5 行。后续如果还把 <code>sales_order</code> 当唯一 key，就会出错。</p>
+<p>Association 把这个风险推迟到消费时。定义一个 <code>_Item</code> association 不会马上把 header 行变成 item 行；但如果后续通过 path expression 取 <code>_Item.Material</code>，或者 OData consumer expand 到 items，to-many 关系就会影响结果结构、行数、分页或 UI 展示。</p>
+<p>所以不要说 association “不会放大行数”。更准确的说法是：</p>
+<ul>
+<li>定义或暴露 association 本身不是立即展开 target。</li>
+<li>一旦用 path expression 或 navigation 消费 to-many target，结果行数或响应结构就可能变化。</li>
+<li>Cardinality 必须由真实业务关系和测试数据支撑。</li>
+</ul>
+<h5 id="7-4-5-join-cardinality-association-cardinality-f6f551f8">7.4.5 Join 不声明 cardinality；association 必须面对 cardinality</h5>
+<p>Join 的 <code>ON</code> condition 能让数据库组合行，但它不会告诉 reader 这是 1:1、0:1、1:n 还是 n:m。reviewer 必须从表 key、唯一索引、业务规则和测试数据推断。</p>
+<p>Association 则把 cardinality 写进模型：</p>
+<pre><code class="language-abap">association [0..1] to ZI_Customer as _Customer ...
+association [0..*] to ZI_SalesOrderItem as _Item ...</code></pre>
+<p>这是一种语义承诺。写 <code>[0..1]</code>，就是告诉消费者“一条 source 记录最多一个 target”；写 <code>[0..*]</code>，就是承认可能多条。这个承诺不会替代数据库约束，但它会影响 syntax warning、reader 预期、OData navigation、Fiori 展示和性能分析。</p>
+<p>项目上常见问题是：开发者为了消除 warning 或让代码好看，随手写 <code>[1..1]</code>。这是危险的。正确做法是反过来：先确认 target key、ON condition 和真实数据，再写 cardinality；如果确实一对多，就要让消费者知道它是一对多，而不是假装一对一。</p>
+<h5 id="7-4-6-join-null-association-target-894c05b2">7.4.6 Join 的 null 与 association 的“没有 target”要分清</h5>
+<p>Left outer join 中，右侧没有匹配行时，右侧列会进入 null 语义。ABAP 处理结果时，常常需要 <code>coalesce( )</code> 或明确的业务默认值，避免把“没有右侧记录”和“右侧字段初始值”混在一起。</p>
+<p>Association 中也会遇到 target 不存在的场景，尤其是 <code>[0..1]</code>。但读者要分清：association 层说的是关系可能没有 target；当它被 path expression 消费时，底层如何表现为 null、默认值或导航结果，要看使用位置、join 类型、SQL/path 表达式和服务协议。不要在模型层写了 <code>[0..1]</code>，就在应用层假设 target 字段永远有值。</p>
+<h5 id="7-4-7-join-odata-navigation-association-7819af95">7.4.7 Join 不会自然产生 OData navigation；association 才进入导航链路</h5>
+<p>显式 join 通常把结果做成一个扁平结构：</p>
+<pre><code class="language-text">SalesOrder | CustomerId | CustomerName</code></pre>
+<p>这对报表或列表很方便，但它不表达“SalesOrder entity 可以导航到 Customer entity”。OData/Fiori/RAP 想要对象间导航，通常需要 CDS association、projection view 暴露、service definition 暴露和 service binding 激活。换句话说，join 更像“把客户名带到订单列表里”；association 更像“订单对象有一个可导航的客户关系”。</p>
+<p>这也是 API 设计中的关键差异：</p>
+<ul>
+<li>如果外部 consumer 只需要订单列表中的客户名称，可以用 projection 字段或 join 派生一个扁平字段。</li>
+<li>如果外部 consumer 需要从订单导航到客户详情，或者用 <code>$expand</code> 取相关 entity，就要认真设计 association / navigation property。</li>
+<li>如果不希望暴露内部关系，projection/service 层不要随手公开 association。</li>
+</ul>
+<h5 id="7-4-8-join-association-0e8da8da">7.4.8 Join 和 association 都不自动解决权限</h5>
+<p>Join 不是 authorization。直接 join 两张数据库表，不会自动执行某个 CDS DCL，也不会自动等同于业务授权。</p>
+<p>Association 也不是 authorization。它只是关系声明。即使 association target 是一个带 DCL 的 CDS entity，也要结合当前消费路径、access control annotation、RAP authorization、service exposure 和运行时场景来验证。安全的写法不是“用了 CDS association 就有权限”，而是明确说明权限在哪里生效：</p>
+<ul>
+<li>直接 ABAP SQL table join：需要自己确认 <code>AUTHORITY-CHECK</code>、业务服务层或其他授权机制。</li>
+<li>选择带 DCL 的 CDS entity：要确认 access-control check 是否启用、DCL 是否覆盖当前消费。</li>
+<li>RAP/OData 服务：还要确认 RAP authorization、feature control、service binding 和用户角色。</li>
+</ul>
+<h5 id="7-4-9-clean-core-join-released-model-07982d1d">7.4.9 Clean Core 视角：不要用 join 绕开 released model</h5>
+<p>在 S/4HANA / ABAP Cloud / Clean Core 语境下，一个常见风险是：为了快，直接 join SAP 标准底表。传统 on-premise 项目中这种写法可能存在很多，但新开发尤其要先问：</p>
+<ul>
+<li>是否有 released CDS view / released API / RAP BO？</li>
+<li>是否允许直接访问该表？</li>
+<li>该表的字段语义、client handling、authorization、extension 和升级兼容性是否清楚？</li>
+<li>如果标准模型已经提供 association，为什么还要在应用代码里重写 join？</li>
+</ul>
+<p>这不是说 join 不能用，而是说 join 的数据源要合规。Join 是工具，不能绕开平台契约。</p>
+<h5 id="7-4-10-c0722226">7.4.10 一个实用选择表</h5>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>更自然的选择</th><th>理由</th></tr></thead><tbody><tr><td>一次性报表需要固定字段组合</td><td>Join</td><td>当前结果集明确，导航复用需求低</td></tr><tr><td>循环 <code>SELECT SINGLE</code> 补文本</td><td>Join 或 CDS 模型</td><td>避免 N+1；如果关系复用，优先建模</td></tr><tr><td>稳定业务对象关系</td><td>Association</td><td>关系应进入 CDS model，可复用、可导航</td></tr><tr><td>OData/Fiori 需要导航或 <code>$expand</code></td><td>Association + projection/service</td><td>需要 navigation metadata</td></tr><tr><td>只需要列表展示一个 target 字段</td><td>Join / path expression / projection 字段</td><td>不一定要暴露整个 target 关系</td></tr><tr><td>target 是 SAP 标准对象</td><td>Released CDS/API 优先</td><td>Clean Core / 升级稳定性</td></tr><tr><td>需要隐藏内部关系</td><td>不暴露 association</td><td>防止内部模型成为外部 API 契约</td></tr></tbody></table></div>
+<h5 id="7-4-11-review-evidence-checklist-b44c023f">7.4.11 Review evidence checklist</h5>
+<p>选择 join 或 association 后，review 不应只停在“设计上应该这样”。至少要准备能证明结果正确的证据：</p>
+<div class="table-wrap"><table><thead><tr><th>Evidence</th><th>Join choice should prove...</th><th>Association choice should prove...</th></tr></thead><tbody><tr><td>Sample data result</td><td>行数、null、重复行、outer join 保留行符合预期。</td><td>path expression / Follow Association 能找到正确 target。</td></tr><tr><td>Generated SQL / trace</td><td>join 条件、filter、排序和性能可解释。</td><td>association 被消费时实际生成的访问可解释。</td></tr><tr><td>Cardinality check</td><td>join 没有意外放大结果集。</td><td><code>[0..1]</code> / <code>[0..*]</code> 与真实数据一致。</td></tr><tr><td>Authorization evidence</td><td>join 没绕开 DCL/released model/authorization boundary。</td><td>source 和 target navigation 都有合适授权考虑。</td></tr><tr><td>OData metadata</td><td>通常不产生 navigation property。</td><td>exposed association 是否进入 service metadata，是否允许 <code>$expand</code> / navigation。</td></tr><tr><td>Consumer contract</td><td>字段组合只服务当前查询。</td><td>association alias、target、cardinality 是否已成为服务/API contract。</td></tr><tr><td>Regression test</td><td>ABAP Unit / integration evidence 覆盖代表性组合。</td><td>navigation、projection、service binding preview 或 API test 覆盖消费链路。</td></tr></tbody></table></div>
+<p>一个实用判断是：join 的证据重点是“当前结果集是否正确”；association 的证据重点是“模型关系和后续消费是否正确”。两者都要看数据，但看数据的角度不同。</p>
+<h4 id="7-5-ac56aa02" class="semantic-heading semantic-japan">7.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>結合</code>：join。</li>
+<li><code>内部結合</code>：inner join。</li>
+<li><code>左外部結合</code>：left outer join。</li>
+<li><code>結合条件</code>、<code>ON条件</code>：join condition / ON condition。</li>
+<li><code>アソシエーション</code>：association。</li>
+<li><code>公開アソシエーション</code>：exposed association。</li>
+<li><code>パス式</code>：path expression。</li>
+<li><code>ナビゲーションプロパティ</code>：navigation property。</li>
+<li><code>カーディナリティ</code>：cardinality。</li>
+<li><code>件数増加</code>、<code>重複行</code>：row multiplication / duplicate rows。</li>
+<li><code>N+1問題</code>：loop 中重复查询导致的 N+1 problem。</li>
+<li><code>Released API</code>、<code>Released CDS View</code>：Clean Core / ABAP Cloud review 中常用。</li>
+</ul>
+<p>项目说明句：</p>
+<ul>
+<li><code>この処理は一回限りの一覧取得なので、明示的なJOINで十分です。</code></li>
+<li><code>この関連は複数サービスで再利用されるため、CDSアソシエーションとしてモデル化してください。</code></li>
+<li><code>ODataのナビゲーションとして公開する必要がある場合は、JOINではなくアソシエーションとprojection/service側の公開を確認してください。</code></li>
+<li><code>このJOINは1対多の関係なので、結果件数が増える前提で後続処理を確認してください。</code></li>
+<li><code>SAP標準テーブルを直接JOINする前に、Released CDS View または Released API の有無を確認してください。</code></li>
+</ul>
+<p>Review 中常见指摘：</p>
+<ul>
+<li><code>このJOIN条件は業務キーを正しく表しているか確認してください。</code></li>
+<li><code>アソシエーションのカーディナリティと実データの一意性が一致していません。</code></li>
+<li><code>外部API契約にしたくない関連は、projection view で公開しないでください。</code></li>
+<li><code>権限制御はJOINやアソシエーションでは代替できないため、DCL / RAP authorization / AUTHORITY-CHECK を確認してください。</code></li>
+</ul>
+<h4 id="7-6-english-terms-45a9cd70" class="semantic-heading semantic-terms">7.6 English Terms</h4>
+<ul>
+<li>Join terms: <code>ABAP SQL join</code>, <code>INNER JOIN</code>, <code>LEFT OUTER JOIN</code>, <code>RIGHT OUTER JOIN</code>, <code>CROSS JOIN</code>, <code>join condition</code>, <code>ON condition</code>, <code>column selector</code>, <code>alias</code>, <code>null value</code>, <code>coalesce</code>, <code>row multiplication</code>.</li>
+<li>Association terms: <code>CDS association</code>, <code>association source</code>, <code>association target</code>, <code>association name</code>, <code>cardinality</code>, <code>exposed association</code>, <code>path expression</code>, <code>join on demand</code>, <code>navigation property</code>.</li>
+<li>Architecture terms: <code>CDS view entity</code>, <code>projection view</code>, <code>service definition</code>, <code>service binding</code>, <code>OData $expand</code>, <code>RAP business object</code>, <code>DCL</code>, <code>authorization</code>, <code>released API</code>, <code>Clean Core</code>.</li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL JOIN SAP Help</code></li>
+<li><code>SELECT FROM JOIN ABAP Keyword Documentation</code></li>
+<li><code>ABAP SQL SQL path expression CDS association</code></li>
+<li><code>CDS association join on demand SAP Learning</code></li>
+<li><code>CDS association exposed association path expression</code></li>
+</ul>
+<h4 id="7-7-example-cffd1a2e" class="semantic-heading semantic-example">7.7 Example / 学习例子</h4>
+<h5 id="7-1-15f7f3e9">7.例 1：当前列表只需要客户名称</h5>
+<p>如果需求是“显示订单列表和客户名称”，并且这个列表就是最终消费形态，一个清楚的 join 可以很合适：</p>
+<pre><code class="language-abap">SELECT FROM zso_header AS so
+       INNER JOIN zcustomer AS cu
+          ON cu~customer_id = so~customer_id
+       FIELDS so~sales_order,
+              so~customer_id,
+              cu~customer_name
+       WHERE so~status = @lc_status_open
+       INTO TABLE @DATA(lt_rows).</code></pre>
+<p>Review 重点是：<code>ON</code> 是否正确、客户是否必须存在、是否会因为 1:n 文本/联系人而放大行数、是否需要 <code>ORDER BY</code>、是否有权限和 released model 问题。</p>
+<h5 id="7-2-23651b84">7.例 2：订单对象需要可导航到客户</h5>
+<p>如果需求是“订单对象在 RAP/OData/Fiori 中可以导航到客户对象”，association 更合适：</p>
+<pre><code class="language-abap">define view entity ZI_SalesOrder
+  as select from zso_header as Header
+  association [0..1] to ZI_Customer as _Customer
+    on $projection.CustomerId = _Customer.CustomerId
+{
+  key Header.sales_order as SalesOrder,
+      Header.customer_id as CustomerId,
+
+      _Customer
+}</code></pre>
+<p>Review 重点变成：<code>ZI_Customer</code> 是否是合适 target、<code>[0..1]</code> 是否真实、是否应该在 projection view 暴露、是否会形成 OData navigation property、target 数据是否有 DCL/authorization 保护。</p>
+<h5 id="7-3-b10d85a2">7.例 3：错误选择会带来不同问题</h5>
+<p>把该建 association 的关系写成到处 join，会导致关系分散、API 导航缺失、复用困难。把一次性报表强行拆成很多 association，也可能让读者看不出当前结果集到底从哪里来。</p>
+<p>一个判断练习：</p>
+<ol>
+<li>当前需求是不是“这次查询必须立刻拿 target 字段”？</li>
+<li>这个关系以后是否会被多个 view / service / API 复用？</li>
+<li>外部 consumer 是否需要 navigation / <code>$expand</code>？</li>
+<li>关系 cardinality 是否足够稳定，可以写进模型？</li>
+<li>数据源是否合规，尤其是否有 released CDS/API？</li>
+</ol>
+<h4 id="7-8-counterexample-failure-mode-72da57ba" class="semantic-heading semantic-example">7.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下。</p>
+<ul>
+<li>所有关联都写成 join：导致 CDS/RAP/OData 模型没有导航关系，后续 Fiori/API 只能拿扁平字段。</li>
+<li>所有 join 都改成 association：简单报表变成过度建模，当前结果集来源反而不清楚。</li>
+<li>用 join 绕开 CDS model：标准对象已有 released CDS/API，却直接 join 底表，埋下 Clean Core 和升级风险。</li>
+<li>误以为 association 不会执行 join：定义时不执行，不代表消费时免费；path expression 或 OData navigation 仍然会触发访问。</li>
+<li>误以为 join 更快或 association 更快：性能取决于数据量、条件、索引、cardinality、生成 SQL、DCL、缓存和数据库优化器。</li>
+<li>误以为 join/association 处理权限：两者都不是授权机制，要看 DCL、RAP authorization、<code>AUTHORITY-CHECK</code> 或服务层。</li>
+<li>忽略 outer join 的 null：right side 没匹配时，字段语义要明确，必要时使用 <code>coalesce( )</code> 或业务默认值。</li>
+<li>忽略 to-many：join 或 association path 都可能导致行数增加，影响分页、聚合、后续 <code>READ TABLE</code> 和 UI 展示。</li>
+</ul>
+<p>修正动作：</p>
+<ul>
+<li>先写一句业务意图：这次是“取字段”，还是“建关系”？</li>
+<li>再画出 source -&gt; target 的 cardinality。</li>
+<li>然后决定当前层：ABAP SQL、CDS interface view、projection view、service definition、OData。</li>
+<li>最后用 ADT Data Preview、Show SQL Create Statement、SQL trace、OData metadata / <code>$expand</code> 测试验证。</li>
+</ul>
+<h4 id="7-9-02db29b9" class="semantic-heading semantic-practice">7.9 思考问题</h4>
+<ul>
+<li>当前代码里的 join 是否只是为了补一个文本字段？这个文本关系是否应该进入 CDS model？</li>
+<li>当前 association 是否真的需要暴露到 projection/service？</li>
+<li>这段逻辑需要扁平结果，还是需要对象导航？</li>
+<li>如果关系是一对多，当前结果集或 OData response 会如何变化？</li>
+<li>如果右侧 target 不存在，业务上要显示空、默认值，还是不返回该行？</li>
+<li>权限在哪里生效？是否误以为 join/association 自动处理？</li>
+<li>Clean Core 场景下，是否存在 released CDS view / released API 可以替代直接 join？</li>
+<li>日本项目 review 时，这里应该说 <code>JOINで十分</code>，还是 <code>CDSアソシエーションとしてモデル化</code>？</li>
+</ul>
+<h4 id="7-10-b55c68b6" class="semantic-heading semantic-reference">7.10 参考资料入口</h4>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSELECT_JOIN.html" target="_blank" rel="noopener noreferrer">SAP Help - SELECT, FROM JOIN</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENJOINS_ABEXA.html" target="_blank" rel="noopener noreferrer">SAP Help - SELECT, Inner, Outer, and Cross Joins</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_PATH.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP SQL - SQL Path Expressions</a>（accessed 2026-06-18）</li>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/defining-associations-between-cds-views_b325f87f-ff81-4bbe-a5c3-06d0c3ba5def" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Associations Between CDS Views</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_ASSOCIATION_V2.html" target="_blank" rel="noopener noreferrer">SAP Help - CDS DDL - CDS View Entity, SELECT, Associations</a>（accessed 2026-06-18）</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_PROJ_VIEW_ASSOCIATION.html" target="_blank" rel="noopener noreferrer">SAP Help - CDS DDL - ASSOCIATION, Transactional Query</a>（accessed 2026-06-18）</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP SQL Cheat Sheet</a>（accessed 2026-06-18）</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/15_CDS_View_Entities.md" target="_blank" rel="noopener noreferrer">SAP Samples - CDS View Entities Cheat Sheet</a>（accessed 2026-06-18）</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/src/zdemo_abap_cds_ve_assoc.ddls.asddls" target="_blank" rel="noopener noreferrer">SAP Samples - CDS Association Example</a>（accessed 2026-06-18）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="7-11-connections-e245d611">7.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-03-006-association-ff10d65e.html">Association 关联关系</a></li>
+<li>Related: <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a></li>
+<li>Related: <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li>Related: <a class="wiki" href="section-03-008-path-expression-a44162f7.html">Path expression 路径表达式</a></li>
+<li>Related: <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li>Related: <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li>Related: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Related: <a class="wiki" href="section-03-047-odata-v4-expand-and-navigation-properties-28c33331.html">OData V4 expand and navigation properties</a></li>
+<li>Related: <a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a></li>
+<li>Related: <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Downstream: <a class="wiki" href="section-03-008-path-expression-a44162f7.html">Path expression 路径表达式</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 16 - CDS Association、Path 与 Projection</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="7-12-108a3844" class="semantic-heading semantic-practice">7.12 学习任务</h4>
+<ul>
+<li>找一个 ABAP SQL join，说明它是否只是当前查询需要字段，还是隐藏了一个应进入 CDS model 的稳定关系。</li>
+<li>找一个 CDS association，说明它是否应该暴露到 projection/service。</li>
+<li>用中文写出 join 与 association 的三点区别：层级、发生时机、复用方式。</li>
+<li>用日语写一句 review コメント，建议把某个重复 join 改成 CDS association，或说明当前 join 已足够。</li>
+<li>用一个 to-many 例子解释 join/path expression 为什么会造成结果件数增加。</li>
+<li>检查一个直接 join SAP 标准底表的例子，尝试寻找 released CDS view、released API 或 RAP BO。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中的 CDS/RAP/OData navigation 链路。</li>
+</ul>
+<h4 id="7-13-confidence-next-action-e47081e7" class="semantic-heading semantic-status">7.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level distinction。本节已按 SAP Help / ABAP Keyword Documentation 的 ABAP SQL join、SQL path expression、CDS association / projection association 入口，SAP Learning 的 CDS association 教程，以及 SAP-samples ABAP SQL / CDS association 示例完成官方资料闭环。旧 Joule review 因 Joule UI 错误阻塞，不能作为通过证据；本轮 Claude health check 60 秒超时，所以 Claude 仍是外部 review debt，不作为阻塞条件。</li>
+<li>Next action: 已可同步到 Chapter 03 和离线书稿；后续在 Claude / Joule 稳定时补做批量 review，并继续 <a class="wiki" href="section-03-008-path-expression-a44162f7.html">Path expression 路径表达式</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-007-join-vs-association-d3fb9ff7.html">Join vs association 二者区别</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-006-association-ff10d65e.html">Previous section</a><a href="section-03-008-path-expression-a44162f7.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

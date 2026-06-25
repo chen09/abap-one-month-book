@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP Cloud 现代开发模型 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="6-abap-cloud-7db0df45" class="chapter-title">6. ABAP Cloud 现代开发模型</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 06</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>ABAP Cloud 是 SAP 面向 cloud-ready、upgrade-stable 扩展和应用开发提出的现代 ABAP 开发模型；它不是“ABAP 放到云上运行”的泛称，也不等于 <a class="wiki" href="section-01-005-sap-btp-abap-environment-9f7f1d20.html">SAP BTP, ABAP environment</a> 这个运行环境本身。</p>
+<p><strong>正文</strong></p>
+<p>前一节讲的是 BTP 上的 ABAP 云开发环境，这一节讲的是更抽象的一层：开发模型。一个环境回答“代码跑在哪里”，一个开发模型回答“代码应该用什么语言版本、对象类型、API 边界和质量检查来写”。这就是为什么不能把 ABAP Cloud 简单翻译成“云上的 ABAP”。它是一套规则：哪些 ABAP 语言特性可以用，哪些 SAP 对象可以依赖，哪些接口被认为生命周期稳定，哪些开发方式能通过 Clean Core 检查。</p>
+<p>SAP Learning 对 ABAP Cloud 的描述可以拆成几块：<code>ABAP for Cloud Development</code> 这样的语言版本，RAP 和 ABAP analytics 这样的 cloud-native programming models，reuse services、identity/access management、connectivity 这样的平台能力，SAP S/4HANA Cloud 的 business APIs、extension points、events，以及 <a class="wiki" href="section-01-008-abap-development-tools-in-eclipse-fef5783a.html">ADT</a> 作为主要开发工具。Day 01 不要求把这些都学会，但要先知道它们属于同一套现代 ABAP 方向。</p>
+<p>最关键的是语言版本。开发者创建对象时，会遇到 <code>Standard ABAP</code>、<code>ABAP for Cloud Development</code>、<code>ABAP for Key Users</code> 这样的语言版本概念。<code>Standard ABAP</code> 对应传统/Classic ABAP 世界；<code>ABAP for Cloud Development</code> 是开发者做 ABAP Cloud pro-code 开发时最需要关注的版本；<code>ABAP for Key Users</code> 也属于 ABAP Cloud 语境，但更多出现在 key user extensibility 场景。语言版本不是装饰字段，它会影响语法检查、可用对象、可调用 API 和 <a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC</a> 检查结果。</p>
+<p>另一个关键点是 released APIs。ABAP Cloud 要求开发者优先使用 SAP 释放给客户使用的接口、对象和扩展点，而不是直接依赖 SAP 内部实现。例如，过去开发者可能会直接 <code>SELECT</code> 某张 SAP 标准表；在 ABAP Cloud 语境里，如果这张表没有 release，正确方向可能是使用 released CDS view、business API、RAP BO interface、BAdI extension point 或事件。这不是为了增加麻烦，而是为了让客户扩展在升级后仍然稳定。</p>
+<p>本节只建立边界，不展开实现细节。<a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object</a>、<a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity</a>、<a class="wiki" href="section-03-039-service-definition-0138b5dc.html">service definition</a>、<a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">service binding</a>、DCL、EML、save sequence、authorization、connectivity、software component lifecycle、gCTS / cTMS 等内容都会在后续章节展开。Day 01 只要读者能说清：“ABAP Cloud 是现代 ABAP 的受控开发方式，核心是语言版本、released APIs、ADT/ATC 检查、RAP/CDS/service 化，以及 Clean Core。”</p>
+<p><strong>为什么重要</strong></p>
+<p>ABAP Cloud 是理解现代 SAP 开发方向的分水岭。传统 SAP 项目里，开发者经常会遇到 report、function module、BAPI、BAdI、enhancement、SAP GUI dynpro、直接读表、后台 job 等经典做法。它们在 on-premise 或 Private Edition 的 brownfield 项目中仍然重要，本教程 Week 4 也会专门讲 recognition-level 的经典项目现实。但如果一个学习者只用这些旧经验理解 SAP S/4HANA Cloud、Clean Core 和 RAP，他会很快踩到边界：某些对象不能用，某些 API 未释放，某些语句会被检查拦住，某些直接修改标准对象的方案在架构 review 中过不了。</p>
+<p>对 Java/Python 背景的人来说，可以把 ABAP Cloud 粗略类比成“带强约束的框架 + 平台 API 契约 + 静态检查规则”。但 SAP 的差异在于：这些约束不是某个团队自定的 lint 规则，而是嵌入到 ABAP Platform、ADT、compiler/runtime、ATC、SAP released objects 和 S/4HANA 扩展模型里的交付边界。它影响的不只是代码风格，还影响升级、传输、权限、测试、运维和客户审计。</p>
+<p>在项目里，ABAP Cloud 还承担一个沟通作用。当团队说“这个方案要符合 Clean Core”，不是说“代码写得漂亮一点”，而是要回答：是否使用 released APIs？是否避免修改 SAP standard objects？是否能经受升级？是否适合 Public Edition、Private Edition 或 on-premise 的部署形态？是否通过 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a> 和 ATC 检查？因此，Day 01 就要先把 ABAP Cloud 作为“现代 SAP 开发的边界词”讲清楚。</p>
+<p><strong>核心机制</strong></p>
+<p>第一层机制是 product / platform / model 分离。<a class="wiki" href="section-01-004-sap-s-4hana-932c3511.html">SAP S/4HANA</a> 是业务套件，<a class="wiki" href="section-01-003-abap-platform-fe67ad23.html">ABAP Platform</a> 是技术基础，<code>SAP BTP, ABAP environment</code> 是 BTP 上的 ABAP PaaS 运行和开发环境，ADT 是开发工具，而 ABAP Cloud 是开发模型。可以在不同环境里使用同一个开发模型：SAP BTP, ABAP environment 和 SAP S/4HANA Cloud Public Edition 以 ABAP Cloud 为默认且唯一的 ABAP 开发模型；SAP S/4HANA Cloud Private Edition 和 on-premise 中，ABAP Cloud 可以与 Classic ABAP 并存。</p>
+<p>第二层机制是 evolution not revolution。SAP 官方资料强调，ABAP Cloud 不是要求客户把所有既有 Classic ABAP 一夜之间重写。Private Edition / on-premise 的现实是：历史代码、经典增强、BAPI、IDoc、报表和事务会长期存在。正确理解是：既有 Classic ABAP 可以继续被治理和维护；新开发、重构和面向云迁移的扩展，应尽量使用 ABAP Cloud、released APIs 和 Clean Core 方式。它是向前演进，不是把过去项目经验全部作废。</p>
+<p>第三层机制是 language version。<code>Standard ABAP</code>、<code>ABAP for Cloud Development</code>、<code>ABAP for Key Users</code> 代表不同开发上下文。选择 ABAP Cloud 语言版本后，开发对象会受到更严格的检查：过时语句、classic UI 技术、未释放 SAP 对象、直接依赖内部表或内部 function module 的做法，都可能被语法检查或 ATC 拦下。学习者不需要 Day 01 就记住全部规则，但必须知道“为什么同样是 ABAP，有的代码在一个系统能跑，在 ABAP Cloud 对象里却不能写”。</p>
+<p>第四层机制是 released object / released API。ABAP Cloud 里的“能不能用”，重点不只是语法上能不能写，而是对象是否被 SAP 释放给客户使用。Released APIs 可以是本地 ABAP platform APIs、SAP S/4HANA Cloud business APIs、released CDS views、released classes、BAdI extension points、events 或其他 extension points。ADT 的 released objects view、SAP Business Accelerator Hub、SAP Help / SAP Learning 都是寻找证据的入口。后续看到 <code>I_COUNTRY</code> 这类 released CDS view 替代直接读标准表的例子时，要把它理解成 ABAP Cloud 的核心思想，而不是零散技巧。</p>
+<p>第五层机制是 checks。ABAP Cloud 不只是倡议，也会通过 compiler、runtime 和 ATC 检查落地。不同系统和版本里会看到不同 ATC check variants，例如 <code>ABAP_CLOUD_DEVELOPMENT_DEFAULT</code>、<code>ABAP_CLOUD_READINESS</code>，以及面向 3-tier clean-core setup 的 <code>ABAP_CLOUD_DEVELOPMENT_3TIER</code>。粗略说，<code>ABAP_CLOUD_DEVELOPMENT_DEFAULT</code> / <code>ABAP_CLOUD_DEVELOPMENT_3TIER</code> 更接近新开发时的边界检查，<code>ABAP_CLOUD_READINESS</code> 更多用于扫描存量 Classic ABAP 代码的 cloud-readiness。Day 01 不配置 ATC，只要知道这些名字代表“系统会检查你的代码是否遵守 ABAP Cloud / Clean Core 边界”；具体检查集、豁免和质量门禁放到 Week 2 / Week 4。</p>
+<p>第六层机制是 programming model。ABAP Cloud 的核心实现路径通常会连接到 CDS、RAP、service definition / service binding、OData、events、authorization 和 testability。它不是让开发者随便把旧 report 包一层 API，而是鼓励围绕业务对象、released interfaces、服务化暴露和可测试逻辑来组织开发。也正因为如此，本节后面会自然连接到 Week 3 的 RAP / OData 学习。</p>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>ABAP Cloud</code>、<code>ABAP for Cloud Development</code>、<code>ABAP for Key Users</code>、<code>クラウド対応</code>、<code>アップグレード安定性</code>、<code>リリース済み API</code>、<code>クリーンコア開発モデル</code>、<code>クリーンコア準拠</code>、<code>制限付き言語バージョン</code>、<code>制限付き ABAP</code>、<code>クラシック ABAP</code>、<code>ATC チェック</code>、<code>ATCチェック違反</code>、<code>RAP ベースの開発</code>、<code>利用可能なオブジェクト</code>、<code>リリース済みオブジェクト</code>。</li>
+<li>说明句：ABAP Cloud は単なるクラウド上の ABAP ではなく、リリース済み API と言語バージョンに基づくクリーンコア向けの開発モデルです。</li>
+<li>说明句：Private Edition / オンプレミスではクラシック ABAP と ABAP Cloud が併存するため、既存コードは維持しつつ、新規開発では ABAP Cloud を優先できるか確認します。</li>
+<li>说明句：この実装は <code>ABAP for Cloud Development</code> の制約と ATC チェックを前提に、利用可能なリリース済みオブジェクトを確認します。</li>
+<li>注意点：<code>制限付き ABAP</code> だけだと“機能が少ない ABAP”に聞こえやすいので、初回は <code>制限付き言語バージョン</code> と言い、設計説明では <code>クラウド対応</code>、<code>アップグレード安定性</code>、<code>クリーンコア準拠</code>、<code>リリース済み API</code> とセットで説明する。</li>
+<li>使用场景：Clean Core review、開発方式選定、RAP / OData 方案说明、Public Edition / Private Edition 差异说明、移行影響調査、ATC 指摘说明。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>ABAP Cloud</code></li>
+<li>Related terms: <code>ABAP Cloud development model</code>, <code>ABAP for Cloud Development</code>, <code>ABAP for Key Users</code>, <code>Standard ABAP</code>, <code>Classic ABAP</code>, <code>released APIs</code>, <code>released objects</code>, <code>public-released interfaces</code>, <code>Clean Core</code>, <code>cloud-ready</code>, <code>upgrade-stable</code>, <code>ABAP Test Cockpit</code>, <code>ABAP_CLOUD_DEVELOPMENT_DEFAULT</code>, <code>ABAP_CLOUD_READINESS</code>, <code>ABAP_CLOUD_DEVELOPMENT_3TIER</code>, <code>RAP</code>, <code>CDS</code>, <code>service definition</code>, <code>service binding</code>, <code>SAP Business Accelerator Hub</code>, <code>Released Objects view</code></li>
+<li>Recommended search pattern: <code>ABAP Cloud development model SAP Learning</code>, <code>ABAP Cloud released APIs SAP Learning</code>, <code>ABAP Cloud restricted language version SAP Help</code>, <code>ABAP Cloud ATC check variants SAP Help</code></li>
+<li>读官方资料时优先保留英文对象名和检查变体名；不要把 <code>ABAP Cloud</code> 翻成只表示部署位置的“云 ABAP”。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>假设你要做一个国家代码下拉框。Classic ABAP 经验可能会让人想到直接从 SAP 标准表 <code>T005</code> 读取国家主数据。这个想法在很多历史项目里并不陌生，但在 ABAP Cloud 语境里，问题不是“SQL 会不会写”，而是“这张表是否 released、直接依赖它是否 upgrade-stable”。如果对象未释放，系统可能会给出错误或 ATC finding，并提示使用 released CDS entity，例如 <code>I_COUNTRY</code>。</p>
+<p>这个例子很小，但能说明 ABAP Cloud 的思维方式：开发者不应该把 SAP 标准表当成任意数据库表随便读；应该先找 released API / released CDS view / business API / extension point。这样写出来的扩展更有可能在升级后继续工作，也更容易通过 Clean Core review。</p>
+<p>再看一个业务例子：客户想在销售订单审批时加入额外风控逻辑。Day 01 不需要决定完整实现，但要知道判断路径。Public Edition 中要优先看 key user extensibility、released BAdI、released APIs、developer extensibility 和 side-by-side extension；Private Edition / on-premise 中可能还会遇到 classic BAdI 或既有增强，但新开发仍要问是否能用 ABAP Cloud / released API 方式实现。这个判断决定后面是走 RAP、OData、event、BAdI，还是只能作为 brownfield awareness 处理。</p>
+<p>最小练习：打开 SAP Learning 的 <code>Exploring ABAP Cloud</code>，用自己的话写出三句话：ABAP Cloud 不是什么；它要求什么；它和 Classic ABAP 如何并存。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>误区 1：把 ABAP Cloud 理解成“部署在云上的 ABAP”。修正：它首先是开发模型，重点是语言版本、released APIs、ADT/ATC 检查和 Clean Core。</li>
+<li>误区 2：以为有了 ABAP Cloud，Classic ABAP 就全部过时。修正：Private Edition / on-premise 中二者会长期并存，SAP 的思路是 evolution not revolution；既有代码需要治理，新开发尽量向 ABAP Cloud 靠拢。</li>
+<li>误区 3：把“语法能写”当成“项目可用”。修正：在 SAP 项目里，released state、upgrade stability、authorization、transport、ATC、客户部署形态都可能影响可用性。</li>
+<li>误区 4：直接把任意 SAP 标准表、function module 或 class 当成可依赖接口。修正：先查 released objects / SAP Business Accelerator Hub / SAP Help，必要时使用 released CDS view、business API、RAP BO interface、event 或 extension point。</li>
+<li>误区 5：Day 01 过早陷入 RAP save sequence、EML、DCL、IAM、gCTS 配置细节。修正：先建立边界；实现细节在对应章节学。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>如果一个对象在 Classic ABAP 中能用，但在 ABAP Cloud 中不能用，可能是哪个层面的限制：语言版本、object type、released API，还是 ATC？</li>
+<li>为什么 SAP 强调 released APIs？它和 Java/Python 项目里的 public API / internal API 边界有什么相似点和差异？</li>
+<li>Private Edition / on-premise 中“ABAP Cloud 与 Classic ABAP 并存”对项目评审有什么影响？</li>
+<li>在日本项目里说明“不能直接读 SAP 标准表”时，应该用 <code>リリース済み API</code>、<code>利用可能なオブジェクト</code>、<code>クリーンコア</code> 中的哪个词组合？</li>
+<li>如果后续在 AC0567C POC 中看到 RAP service binding 或 released object 检查，它如何证明本节的边界？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/exploring-the-abap-cloud-development-model_cd64db9d-409e-4f09-8ffa-3597a3cf3960" target="_blank" rel="noopener noreferrer">Exploring ABAP Cloud</a>（accessed 2026-06-13）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/exploring-released-apis_d80ce197-097e-4e7b-8696-b960738089c7" target="_blank" rel="noopener noreferrer">Exploring Released APIs</a>（accessed 2026-06-13）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/practicing-clean-core-extensibility-for-sap-s-4hana-cloud/creating-tier-2-cloud-apis_a75bf2cd-815c-42bb-8d3b-2bba4931ecad" target="_blank" rel="noopener noreferrer">Setting Up For Clean Core Development</a>（accessed 2026-06-13）</li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_CLOUD_GLOSRY.html" target="_blank" rel="noopener noreferrer">ABAP Cloud</a>（accessed 2026-06-13）</li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRESTRICTED_VERSION_GLOSRY.html" target="_blank" rel="noopener noreferrer">restricted ABAP language version</a>（accessed 2026-06-13）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-cloud/public-released-apis" target="_blank" rel="noopener noreferrer">Public Released APIs - ABAP Cloud</a>（accessed 2026-06-13）</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-006-abap-cloud-80dd1a89.html">ABAP Cloud 现代开发模型</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-005-sap-btp-abap-environment-9f7f1d20.html">Previous section</a><a href="section-01-007-clean-core-extensibility-levels-and-released-api-dependency-c330067a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

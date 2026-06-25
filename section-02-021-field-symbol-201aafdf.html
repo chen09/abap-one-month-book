@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Field symbol 字段符号 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="21-field-symbol-9be52fac" class="chapter-title">21. Field symbol 字段符号</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 21</li><li>self-contained study note</li></ul><h4 id="21-1-b71dc55f" class="semantic-heading semantic-concept">21.1 一句话结论</h4>
+<p>Field symbol 字段符号，是 ABAP 里一种“指向已有数据对象或 internal table 行的运行时别名”：它自己不保存业务值，而是在 <code>ASSIGN</code>、<code>LOOP AT ... ASSIGNING</code>、<code>READ TABLE ... ASSIGNING</code> 等语句成功后，像一个可直接读写的占位符一样访问被指向的内存区域。理解它的关键，不是把它背成“指针”，而是知道什么时候它避免了复制，什么时候它会直接改到原始数据，什么时候必须检查是否已经 assigned。</p>
+<h4 id="21-2-8382fbf0" class="semantic-heading semantic-concept">21.2 到底学什么</h4>
+<p>上一节 <a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a> 讲了用 <code>itab[ ... ]</code> 读取一行。field symbol 解决的是另一个常见问题：读到这一行之后，是复制到一个 work area 里处理，还是直接“贴着原表行”处理？</p>
+<p>传统写法常是：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  ls_item-status = &#x27;X&#x27;.
+  MODIFY lt_items FROM ls_item TRANSPORTING status.
+ENDLOOP.</code></pre>
+<p><code>INTO DATA(ls_item)</code> 会把当前 internal table 行复制到 work area。修改 <code>ls_item</code> 只是修改副本，必须 <code>MODIFY</code> 回表。</p>
+<p>field symbol 写法是：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+ENDLOOP.</code></pre>
+<p><code>&lt;ls_item&gt;</code> 指向当前 table row。修改 <code>&lt;ls_item&gt;-status</code> 就是直接修改 <code>lt_items</code> 当前行，不需要再 <code>MODIFY</code>。这就是 field symbol 在 internal table 处理中最常见、最应该先掌握的用法。</p>
+<p>本节要学的核心问题：</p>
+<ul>
+<li>field symbol 是什么，不是什么？</li>
+<li><code>FIELD-SYMBOLS &lt;fs&gt; TYPE ...</code> 和 <code>FIELD-SYMBOL(&lt;fs&gt;)</code> inline declaration 怎么读？</li>
+<li><code>ASSIGN ... TO &lt;fs&gt;</code> 成功或失败时应该检查什么？</li>
+<li><code>LOOP AT ... ASSIGNING</code> 和 <code>LOOP AT ... INTO</code> 的语义差别是什么？</li>
+<li>为什么 field symbol 可能改善性能，但不能被当成“总是更快”的万能写法？</li>
+<li>为什么修改 <code>&lt;fs&gt;</code> 可能直接改到原始数据，review 时必须看清楚副作用？</li>
+</ul>
+<h4 id="21-3-9eedf10c" class="semantic-heading semantic-why">21.3 为什么重要</h4>
+<p>Field symbol 是 ABAP 项目里很容易“看起来会写，实际上不理解”的语法。初学者常看到 <code>&lt;ls_item&gt;</code> 这种尖括号变量，以为它只是命名风格特殊；真正的差异在于，它不是普通 work area，而是运行时指向某个数据对象或 table row 的别名。</p>
+<p>在项目代码里，field symbol 常出现在三类场景：</p>
+<ol>
+<li>处理大 internal table，避免把每一行复制到 work area 后再 <code>MODIFY</code> 回去。</li>
+<li>在 <code>READ TABLE ... ASSIGNING</code> 或 <code>ASSIGN itab[ ... ] TO &lt;fs&gt;</code> 后直接修改命中的那一行。</li>
+<li>做动态结构处理，例如 <code>ASSIGN COMPONENT lv_name OF STRUCTURE ls_data TO &lt;field&gt;</code>。</li>
+</ol>
+<p>对 Java/Python 背景学习者，可以先把它粗略理解为“引用式访问”，但不要完全等同于 Java object reference 或 Python name binding。ABAP field symbol 更像一个由 ABAP runtime 管理的临时别名。它必须先被 assigned，未 assigned 时不能安全访问；它也通常不适合表达长期对象关系，长期引用关系应优先理解 <a class="wiki" href="section-02-022-field-symbol-vs-data-reference-b4fb9e9a.html">FIELD-SYMBOL vs DATA reference</a> 和 data reference。</p>
+<h4 id="21-4-key-mechanism-94db7802" class="semantic-heading semantic-mechanism">21.4 Key mechanism / 核心机制</h4>
+<h5 id="21-4-1-declaration-20a3a053">21.4.1 declaration</h5>
+<p>经典声明：</p>
+<pre><code class="language-abap">FIELD-SYMBOLS &lt;ls_item&gt; TYPE ty_item.</code></pre>
+<p>现代代码也常用 inline declaration：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  ...
+ENDLOOP.</code></pre>
+<p>尖括号是 field symbol 名称的一部分。<code>&lt;ls_item&gt;</code> 的类型最好尽量具体，例如 table line type；只有确实在做通用框架、动态组件或工具类时，才使用 <code>TYPE any</code>、<code>TYPE data</code> 等 generic typing。</p>
+<h5 id="21-4-2-assignment-a13129a6">21.4.2 assignment</h5>
+<p>field symbol 必须被 assigned 到某个数据对象或内存区域后才能使用：</p>
+<pre><code class="language-abap">ASSIGN ls_item-status TO FIELD-SYMBOL(&lt;status&gt;).
+
+&lt;status&gt; = &#x27;X&#x27;.</code></pre>
+<p>这是静态 <code>ASSIGN</code>：目标字段在编译时已经确定，assignment 本身不会设置 <code>sy-subrc</code>，通常也不需要把 <code>IS ASSIGNED</code> 当成“本次是否成功”的检查。</p>
+<p>真正需要 review 的，是动态或可能失败的 assignment。初学阶段可以这样分：</p>
+<ul>
+<li>静态 <code>ASSIGN dobj TO &lt;fs&gt;</code>：已知数据对象，通常不会失败，也不设置 <code>sy-subrc</code>。</li>
+<li>动态 <code>ASSIGN COMPONENT ...</code>、动态名称、动态对象：会设置 <code>sy-subrc</code>，应检查当前这次 assignment 是否成功。</li>
+<li><code>ASSIGN itab[ ... ] TO &lt;fs&gt;</code>：table expression 放进 <code>ASSIGN</code> 后，not-found 通常通过 <code>sy-subrc</code> 表达，而不是按普通 operand position 抛 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>。</li>
+</ul>
+<p>动态 <code>ASSIGN</code> 场景里，尤其不要只凭 <code>&lt;fs&gt; IS ASSIGNED</code> 判断当前这次 assignment 是否成功，因为失败时是否保留旧 assignment 与具体变体、语法和版本有关。项目里更清楚的写法是：</p>
+<pre><code class="language-abap">ASSIGN COMPONENT lv_component
+  OF STRUCTURE ls_item
+  TO FIELD-SYMBOL(&lt;value&gt;).
+
+IF sy-subrc = 0.
+  &quot; The current assignment succeeded.
+  &lt;value&gt; = lv_new_value.
+ENDIF.</code></pre>
+<p>如果代码复用同一个 field symbol 做多次动态 assignment，失败路径要特别清楚。必要时用 <code>UNASSIGN &lt;fs&gt;</code>，或在可用版本中使用更清楚的一句式 <code>ASSIGN ... TO &lt;fs&gt; ELSE UNASSIGN</code>，避免 field symbol 还指向上一轮成功 assignment 的对象。</p>
+<h5 id="21-4-3-loop-assigning-37c586f4">21.4.3 loop assigning</h5>
+<p>最常见的 internal table 写法是：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-changed_at = cl_abap_context_info=&gt;get_system_date( ).
+ENDLOOP.</code></pre>
+<p>这段代码不需要 <code>MODIFY lt_items FROM ...</code>，因为 <code>&lt;ls_item&gt;</code> 不是副本。它指向当前行，赋值会直接反映到 <code>lt_items</code>。</p>
+<p>对比：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  ls_item-changed_at = cl_abap_context_info=&gt;get_system_date( ).
+ENDLOOP.</code></pre>
+<p>这段代码只改了 work area <code>ls_item</code>，没有改回 <code>lt_items</code>。如果意图是更新 internal table，这是一个常见 bug。</p>
+<h5 id="21-4-4-read-and-assign-2609f202">21.4.4 read and assign</h5>
+<p><code>READ TABLE</code> 也可以配合 field symbol：</p>
+<pre><code class="language-abap">READ TABLE lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)
+  WITH KEY item_id = lv_item_id.
+
+IF sy-subrc = 0.
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+ENDIF.</code></pre>
+<p>现代写法也常和 table expression 结合：</p>
+<pre><code class="language-abap">ASSIGN lt_items[ item_id = lv_item_id ]
+  TO FIELD-SYMBOL(&lt;ls_item&gt;).
+
+IF sy-subrc = 0.
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+ENDIF.</code></pre>
+<p>这里与普通 table expression 的 not-found 行为不同：把 table expression 放进 <code>ASSIGN</code> 时，runtime 改为设置 <code>sy-subrc</code>，而不是让调用者直接依赖 <code>CX_SY_ITAB_LINE_NOT_FOUND</code>。这正好连接上一节的 not-found 处理模式。</p>
+<h5 id="21-4-5-side-effect-457f4a42">21.4.5 side effect</h5>
+<p>field symbol 的威力也是风险。下面这行不是修改副本：</p>
+<pre><code class="language-abap">&lt;ls_item&gt;-quantity += 1.</code></pre>
+<p>如果 <code>&lt;ls_item&gt;</code> 指向 internal table 行，这就是直接修改 internal table。如果 <code>&lt;ls_item&gt;</code> 指向结构字段，这就是直接修改原结构字段。review 时必须问清楚：这是有意的直接更新，还是本来只想临时计算？</p>
+<h5 id="21-4-6-key-field-restriction-c8d1019e">21.4.6 key field restriction</h5>
+<p>如果 field symbol 指向 sorted table 或 hashed table 的行，不要把它当成随便改 key 的入口。对这些表的 key 字段通过 field symbol 赋值会触发运行时错误，因为 key 维护关系到 internal table 的内部一致性。业务上需要改变 key 值时，通常应该删除旧行并插入新行，或重新构造目标表，而不是试图在原位置上改 key 字段。</p>
+<h4 id="21-5-bbb0c243" class="semantic-heading semantic-japan">21.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>フィールドシンボル</code>、<code>ワークエリア</code>、<code>ASSIGNING</code>、<code>直接更新</code>、<code>コピー削減</code>、<code>未割当</code>、<code>sy-subrc確認</code>。</li>
+<li>说明句：このループは <code>ASSIGNING</code> で内部テーブル行を直接参照しているため、<code>&lt;ls_item&gt;</code> の変更は元の内部テーブルに反映されます。</li>
+<li>Review 句：動的 <code>ASSIGN</code> の結果は <code>IS ASSIGNED</code> だけで判断せず、<code>sy-subrc</code> も確認し、失敗時に前回の割り当てが残っていないか（必要なら <code>UNASSIGN</code>）チェックしてください。</li>
+<li>性能说明：大量データ更新ではコピー削減の効果がありますが、読み取りだけの処理では必ずしも大きな性能差になるとは限りません。</li>
+<li>使用场景：内部表批量更新、RAP handler 的 result/update table 处理、动态组件处理、性能 review、缺陷调查中确认“是否直接改了原表”。</li>
+</ul>
+<h4 id="21-6-english-terms-434b8ba7" class="semantic-heading semantic-terms">21.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>field symbol</code></li>
+<li>ABAP statement: <code>FIELD-SYMBOLS</code></li>
+<li>ABAP inline declaration: <code>FIELD-SYMBOL(&lt;fs&gt;)</code></li>
+<li>Assignment statement: <code>ASSIGN ... TO &lt;fs&gt;</code></li>
+<li>Unassignment statement: <code>UNASSIGN &lt;fs&gt;</code></li>
+<li>Predicate expression: <code>&lt;fs&gt; IS ASSIGNED</code></li>
+<li>Internal table loop: <code>LOOP AT itab ASSIGNING FIELD-SYMBOL(&lt;fs&gt;)</code></li>
+<li>Related term: <code>work area</code></li>
+<li>Related term: <code>data reference</code></li>
+<li>Related term: <code>generic typing</code></li>
+</ul>
+<h4 id="21-7-example-e58a813c" class="semantic-heading semantic-example">21.7 Example / 学习例子</h4>
+<h5 id="21-7-1-1-internal-table-034548e8">21.7.1 例 1：更新 internal table 行</h5>
+<p>复制 work area 的写法：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  ls_item-status = &#x27;C&#x27;.
+  MODIFY lt_items FROM ls_item TRANSPORTING status.
+ENDLOOP.</code></pre>
+<p>field symbol 写法：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p>第二段更短，但它不是“语法糖”而已。它改变的是数据访问模型：第一段改副本再写回，第二段直接改当前行。</p>
+<h5 id="21-7-2-2-387d73af">21.7.2 例 2：找到一行再更新</h5>
+<pre><code class="language-abap">ASSIGN lt_items[ item_id = lv_item_id ]
+  TO FIELD-SYMBOL(&lt;ls_item&gt;).
+
+IF sy-subrc &lt;&gt; 0.
+  RETURN.
+ENDIF.
+
+&lt;ls_item&gt;-status = &#x27;C&#x27;.
+&lt;ls_item&gt;-changed_by = sy-uname.</code></pre>
+<p>这适合“找得到就直接改，找不到就是正常分支”的场景。比起先 <code>line_exists</code> 再读一次，这通常更清楚，也避免重复 lookup。</p>
+<h5 id="21-7-3-3-9e4d11b0">21.7.3 例 3：动态组件处理</h5>
+<pre><code class="language-abap">ASSIGN COMPONENT lv_component
+  OF STRUCTURE ls_item
+  TO FIELD-SYMBOL(&lt;value&gt;).
+
+IF sy-subrc = 0.
+  &lt;value&gt; = lv_new_value.
+ENDIF.</code></pre>
+<p>这种写法常用于通用 mapping、导入文件字段映射、动态 ALV/结构处理。风险是可读性和类型安全下降，所以要把 <code>lv_component</code> 的来源、白名单和失败处理写清楚。</p>
+<h5 id="21-7-4-4-field-symbol-88ea4626">21.7.4 例 4：只读循环不一定需要 field symbol</h5>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  lv_total += ls_item-amount.
+ENDLOOP.</code></pre>
+<p>如果只是读几个字段、表不大、代码清晰度更重要，<code>INTO DATA(...)</code> 未必有问题。field symbol 的主要价值在于避免大结构复制和直接更新 table row，而不是把所有 loop 都改成 <code>ASSIGNING</code>。</p>
+<h4 id="21-8-counterexample-failure-mode-aedecfe1" class="semantic-heading semantic-example">21.8 Counterexample / Failure mode</h4>
+<h5 id="21-8-1-1-fs-98bdae43" class="semantic-heading semantic-failure">21.8.1 误区 1：以为 <code>&lt;fs&gt;</code> 是普通变量</h5>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-status = &#x27;X&#x27;.
+ENDLOOP.</code></pre>
+<p>这会直接改 <code>lt_items</code>。如果代码作者只是想做临时计算，这就是副作用 bug。</p>
+<h5 id="21-8-2-2-assign-27155ca0" class="semantic-heading semantic-failure">21.8.2 误区 2：<code>ASSIGN</code> 后不检查</h5>
+<pre><code class="language-abap">ASSIGN COMPONENT lv_component OF STRUCTURE ls_item TO FIELD-SYMBOL(&lt;value&gt;).
+&lt;value&gt; = lv_new_value.</code></pre>
+<p>如果组件不存在或 assignment 失败，后续访问可能出错，或者在某些动态场景中误用旧 assignment。修正动作：检查 <code>sy-subrc</code>，必要时 <code>UNASSIGN</code> 或使用 <code>ELSE UNASSIGN</code>。</p>
+<h5 id="21-8-3-3-field-symbol-9da2501a" class="semantic-heading semantic-failure">21.8.3 误区 3：把 field symbol 当性能银弹</h5>
+<p><code>LOOP AT ... ASSIGNING</code> 对大表、大结构、更新场景通常有明显意义；但只读、很小的表、已经清楚的表达式代码，不一定需要为了“现代 ABAP”强行改成 field symbol。性能判断要结合数据量、结构大小、是否修改、是否已有 secondary key 或 sorted/hashed table 设计。</p>
+<h5 id="21-8-4-4-9cd46402" class="semantic-heading semantic-failure">21.8.4 误区 4：泛型过度</h5>
+<pre><code class="language-abap">FIELD-SYMBOLS &lt;any&gt; TYPE any.</code></pre>
+<p><code>TYPE any</code> 很灵活，但也降低静态检查能力。业务代码里如果知道 line type，就写具体类型或 inline declaration，让 ADT 和 syntax check 帮你发现错误。</p>
+<h5 id="21-8-5-5-sorted-hashed-table-key-8732893f" class="semantic-heading semantic-failure">21.8.5 误区 5：改 sorted/hashed table 的 key 字段</h5>
+<p>field symbol 不是绕过 internal table key 规则的后门。只要指向 table row，就要遵守 table category 和 key 的限制。需要改变 key 时，按 delete/insert 或重建表设计。</p>
+<h4 id="21-9-39da4176" class="semantic-heading semantic-practice">21.9 思考问题</h4>
+<ul>
+<li>这段代码里的 <code>&lt;ls_item&gt;</code> 是副本，还是指向原 internal table 行？</li>
+<li>如果 <code>&lt;ls_item&gt;-status = &#x27;X&#x27;</code> 执行后，原 internal table 会不会改变？</li>
+<li><code>ASSIGN</code> 失败时，代码检查的是 <code>sy-subrc</code>、<code>IS ASSIGNED</code>，还是完全没检查？</li>
+<li>这个场景是批量更新，还是只读统计？是否真的需要 field symbol？</li>
+<li>如果 field symbol 指向 sorted/hashed table 行，是否可能修改 key 字段？</li>
+<li>这里用 <code>TYPE any</code> 是必要的通用处理，还是偷懒导致类型检查变弱？</li>
+<li>在日本项目 review 中，应该说明“コピー削減”还是“直接更新の副作用”？</li>
+</ul>
+<h4 id="21-10-b55400bd" class="semantic-heading semantic-reference">21.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_FIELD_SYMBOLS.html" target="_blank" rel="noopener noreferrer">Field Symbols</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENFIELD_SYMBOL_GLOSRY.html" target="_blank" rel="noopener noreferrer">field symbol glossary</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENFIELD-SYMBOL_INLINE.html" target="_blank" rel="noopener noreferrer">FIELD-SYMBOL, Inline Declaration for Field Symbols</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenset_field_symbols.html" target="_blank" rel="noopener noreferrer">Assigning Field Symbols</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapassign.html" target="_blank" rel="noopener noreferrer">ASSIGN</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPUNASSIGN.html" target="_blank" rel="noopener noreferrer">UNASSIGN</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPLOOP_AT_ITAB_RESULT.html" target="_blank" rel="noopener noreferrer">LOOP AT itab, result</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPREAD_TABLE_OUTDESC.html" target="_blank" rel="noopener noreferrer">READ TABLE, result</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/using-field-symbols-to-process-internal-tables_f1855f41-00d3-4f8d-9a2c-663a321c6637" target="_blank" rel="noopener noreferrer">Using Field Symbols to Process Internal Tables</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="21-11-connections-5c2646a2">21.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li><a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li><a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></li>
+<li><a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li><a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li><a class="wiki" href="section-02-022-field-symbol-vs-data-reference-b4fb9e9a.html">FIELD-SYMBOL vs DATA reference</a></li>
+<li><a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Upstream: <a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li>Downstream: <a class="wiki" href="section-02-022-field-symbol-vs-data-reference-b4fb9e9a.html">FIELD-SYMBOL vs DATA reference</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 10 - 内部表类型与读取方式</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="21-12-51e6e3ee" class="semantic-heading semantic-practice">21.12 学习任务</h4>
+<ul>
+<li>用自己的中文解释：field symbol 为什么不是普通 work area？</li>
+<li>写一段 <code>LOOP AT ... INTO</code> 修改 internal table 的代码，再改写成 <code>LOOP AT ... ASSIGNING</code>。</li>
+<li>写一个 <code>ASSIGN itab[ ... ] TO FIELD-SYMBOL(&lt;fs&gt;)</code> 的例子，并处理 <code>sy-subrc &lt;&gt; 0</code>。</li>
+<li>用日语写一句 review 说明：<code>ASSIGNING</code> 会直接更新内部表行，需要确认是否符合意图。</li>
+<li>在一段现有 ABAP 代码里找出 <code>&lt;...&gt;</code> field symbol，判断它指向的是结构字段、internal table 行，还是动态组件。</li>
+<li>找一个 SAP Help 或 SAP Learning 页面，确认 <code>FIELD-SYMBOLS</code>、<code>ASSIGN</code>、<code>LOOP AT ... ASSIGNING</code> 的官方说法。</li>
+</ul>
+<h4 id="21-13-confidence-next-action-a8b819d5" class="semantic-heading semantic-status">21.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，核心语义来自 SAP Help / ABAP Keyword Documentation 与 SAP Learning；性能收益表述按“场景相关”处理，不承诺所有读取场景都有显著收益。</li>
+<li>Next action: 用 Joule 复核 <code>ASSIGN</code> 失败处理、<code>LOOP AT ... ASSIGNING</code> 直接更新、性能边界和日本项目表达；再把本节同步到 Chapter 02 与离线书稿。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-020-table-expression-15adfaac.html">Previous section</a><a href="section-02-022-field-symbol-vs-data-reference-b4fb9e9a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

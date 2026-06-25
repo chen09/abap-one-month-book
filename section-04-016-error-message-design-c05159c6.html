@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Error message design 错误消息设计 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="16-error-message-design-dbdcad4c" class="chapter-title">16. Error message design 错误消息设计</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 16</li><li>self-contained study note</li></ul><h4 id="16-1-4d9afc7d" class="semantic-heading semantic-concept">16.1 一句话结论</h4>
+<p>Error message design 错误消息设计 是把错误信息设计成“可判断、可处理、可追踪”的项目交付能力；在本教程里要学的是：错误消息不只是给用户看的文字，而是调用方、测试、运维和开发共同使用的诊断接口。</p>
+<p>一个坏错误消息只说 <code>处理失败</code>、<code>System error</code>、<code>不正な値です</code>。这种消息看似提醒了用户，实际没有告诉任何人下一步该做什么：是输入数据错了？没有权限？对象被锁？配置缺失？系统异常？网络超时？还是已经处理过不能重复执行？如果调用方无法判断问题类型，就无法决定是否重试、是否修正数据、是否联系业务、是否转给 Basis，或者是否必须开发修复。</p>
+<p>好的错误消息应该回答四个问题：发生了什么、影响哪个对象、原因是什么、下一步怎么做。对接口和批处理来说，还要能回答：是否可重试、是否部分成功、失败明细在哪里、有没有 <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a> 编号或 request id 可追踪。错误消息设计得越清楚，生产障碍调查越短；错误消息越含糊，项目就越依赖开发者临时读代码。</p>
+<p>把这节放在日志和异常章节之间，是因为错误消息是“人和系统共同消费的接口”。用户看到的是一句话，外部系统看到的是 error code 和 payload，运维需要 log id，开发者需要 request id 和上下文，测试人员需要可断言的稳定字段。一个成熟的错误消息设计，必须同时服务这些角色，而不是只在屏幕上显示一段中文或日文。</p>
+<h4 id="16-2-14c10665" class="semantic-heading semantic-concept">16.2 到底学什么</h4>
+<p>第一，要学错误分类。SAP 项目里常见错误至少可以分为业务数据错误、权限错误、锁冲突、状态不允许、配置缺失、重复请求、外部系统错误、技术异常。不同错误类型对应不同处理动作：业务数据错误通常由业务或调用方修正；权限错误需要角色或授权分析；锁冲突可能稍后重试；配置缺失需要功能顾问或运维确认；技术异常需要开发或 Basis 调查。</p>
+<p>第二，要学错误消息和异常的边界。<a class="wiki" href="section-04-017-exception-vs-message-414fed45.html">Exception vs message 异常与消息</a> 说明的是程序控制流和用户/调用方反馈之间的关系。异常用于中断不应继续的执行路径，消息用于传达可理解的结果。不要把所有异常原文直接抛给用户，也不要把所有业务校验都写成不可区分的技术异常。</p>
+<p>第三，要学错误消息和日志的配合。前台用户需要简洁可行动的提示；接口调用方需要稳定字段，例如 error code、message type、message text、target field、retryable、log id；运维需要 request id、业务键、时间和应用日志入口。错误消息不必承载所有细节，但必须能把人带到正确证据。</p>
+<p>第四，要学 SAP 的消息体系。经典 ABAP 常用 message class / T100 message 管理可翻译消息文本，参见 <a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a>；RAP、OData、Fiori 场景还涉及 reported messages、field messages、HTTP status、business error payload 等表现方式。RAP 中可以粗略记成：<code>failed</code> 表示某个实例或操作不能继续完成，<code>reported</code> 负责把消息带回 consumer；字段级消息应尽量绑定到对象/字段，而不是只给一个全局泛化错误。不同技术栈形式不同，但设计原则一致：稳定、具体、可翻译、可追踪、不过度暴露敏感信息。</p>
+<p>第五，要学错误响应契约。对外 API 不应该让调用方解析自由文本来判断错误类型。自由文本可以翻译、可以优化表达，但 error code、target、retryable、log id、业务键这类字段应稳定。特别是在日本项目中，UI 文言可能随客户表达调整，但系统间集成需要稳定契约。</p>
+<p>第六，要学多语言和安全。SAP 项目经常需要中文学习、日语现场、英语技术术语并存。错误消息对用户可以本地化，但日志和接口证据要保留稳定的技术字段。同时，安全敏感信息不应出现在用户可见消息里：比如 SQL、内部类名、token、密码、完整 payload、个人信息、授权配置细节。</p>
+<p>接口或批处理场景可以固定使用一个最小 error response evidence packet：</p>
+<pre><code class="language-text">Error Response Evidence Packet
+
+Error category:
+Stable error code / message id:
+User-facing message:
+Target object / field / row:
+Business key:
+HTTP status or job status:
+Retryable:
+Application log id:
+Request / correlation id:
+Suggested next action:
+Sensitive detail excluded:</code></pre>
+<p>这个模板不是要求每个 UI 弹窗都显示所有字段，而是要求测试证据和接口契约中能找到这些信息。用户消息可以简洁，日志和 payload 要足够让支持团队定位。</p>
+<h4 id="16-3-ee6d964d" class="semantic-heading semantic-why">16.3 为什么重要</h4>
+<p>错误消息是生产系统的第一层诊断界面。很多时候，用户不会打开调试器，也不会知道底层表名、类名、异常栈；他们只会看到一条消息，并据此决定下一步。如果消息不清楚，用户会截图发给支持；支持看不懂再转开发；开发再要求重现；时间就在来回确认中消耗掉。</p>
+<p>对接口来说，错误消息更像契约。外部系统需要根据错误类型判断是否自动重试、是否丢入人工队列、是否回滚本地状态、是否通知业务用户。如果 SAP 只返回 <code>500 Internal Server Error</code> 或一段不稳定文本，外部系统就无法做可靠处理。特别是 AC0567C 这类 API/批处理场景，错误消息必须和幂等、事务边界、应用日志、状态查询一起设计。</p>
+<p>对日本项目交付来说，错误消息还影响测试证据和客户说明。结合测试缺陷单里经常需要写：<code>原因</code>、<code>再現手順</code>、<code>期待結果</code>、<code>実際結果</code>、<code>対応方針</code>。如果消息本身就能区分 <code>業務エラー</code>、<code>権限エラー</code>、<code>ロックエラー</code>、<code>システムエラー</code>，缺陷分流会快很多。</p>
+<p>错误消息设计也是生产成本控制。没有稳定错误码，外部系统只能人工判断；没有 target field，业务用户不知道改哪一列；没有 retryable，接口可能反复重试不可重试的业务错误；没有 log id，运维找不到证据。好的错误消息不是“写得漂亮”，而是能让正确的人采取正确动作。</p>
+<h4 id="16-4-key-mechanism-f37a64d3" class="semantic-heading semantic-mechanism">16.4 Key mechanism / 核心机制</h4>
+<p>错误消息设计可以从“分类、定位、动作、追踪”四个维度做。</p>
+<p>分类，是指给错误一个稳定类型。比如 <code>BUSINESS_VALIDATION_FAILED</code>、<code>AUTHORIZATION_FAILED</code>、<code>LOCK_CONFLICT</code>、<code>CONFIGURATION_MISSING</code>、<code>DUPLICATE_REQUEST</code>、<code>TECHNICAL_ERROR</code>。中文和日语消息可以面向用户，但内部 error code 或 message id 应稳定，方便接口、测试和日志检索。</p>
+<p>定位，是指指出哪个对象、字段、行号或业务键出错。批量上传不能只说“数据错误”，而应告诉第几行、哪个字段、哪个业务键；OData/Fiori 场景应尽量把字段级消息挂到对应字段；后台任务应记录业务对象和应用日志编号。定位信息越精确，用户越能自己修正。</p>
+<p>动作，是指告诉下一步。比如“请维护公司代码配置后重试”“请联系权限管理员补充角色”“对象正在被其他用户处理，请稍后重试”“该请求已处理过，请使用状态查询接口确认结果”。动作不需要写成长篇说明，但必须让用户知道问题属于谁、能不能重试。</p>
+<p>追踪，是指把错误消息连接到证据。接口响应中可返回 request id、correlation id、application log id；前台消息可提示日志编号；缺陷单可记录时间、用户、输入条件。这样 <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a>、Security Audit Log、trace、后台 job 和业务状态才能串起来。</p>
+<p>还要控制信息暴露。不要在错误消息中显示 SQL 语句、内部表名、完整异常栈、token、密码、完整个人信息或过度敏感的权限配置。对用户可见的消息应可行动但不过度泄露；详细技术信息可写入受控日志，由有权限人员查看。</p>
+<p>可以用下面的错误分类表：</p>
+<div class="table-wrap"><table><thead><tr><th>Error category</th><th>Retryable</th><th>Owner</th><th>Typical evidence</th></tr></thead><tbody><tr><td><code>BUSINESS_VALIDATION_FAILED</code></td><td>通常修正数据后可重试</td><td>Business / caller</td><td>target field、row、business key</td></tr><tr><td><code>AUTHORIZATION_FAILED</code></td><td>否，除非角色修正</td><td>Security / role owner</td><td>user、role、SU53/trace</td></tr><tr><td><code>LOCK_CONFLICT</code></td><td>通常可稍后重试</td><td>User / operation</td><td>locked object、holder、time</td></tr><tr><td><code>DUPLICATE_REQUEST</code></td><td>不应重复执行，改查状态</td><td>Caller / API owner</td><td>idempotency key、existing result</td></tr><tr><td><code>CONFIGURATION_MISSING</code></td><td>配置修正后可重试</td><td>Functional / Basis</td><td>missing config key、client</td></tr><tr><td><code>EXTERNAL_SYSTEM_ERROR</code></td><td>视情况重试</td><td>Integration owner</td><td>external status、correlation id</td></tr><tr><td><code>TECHNICAL_ERROR</code></td><td>通常不可盲目重试</td><td>Dev / Basis</td><td>dump/log id/request id</td></tr></tbody></table></div>
+<p>这些 error category 是教程中的设计示例，不是 SAP 固定枚举。项目可以按接口、客户标准和框架约束收敛成自己的稳定 error code set，但不能让调用方解析自由文本来判断错误类型。</p>
+<p>一个 API error payload 可以这样设计：</p>
+<pre><code class="language-json">{
+  &quot;errorCode&quot;: &quot;BUSINESS_VALIDATION_FAILED&quot;,
+  &quot;message&quot;: &quot;Row 27: Company code 9999 is not valid for this process.&quot;,
+  &quot;target&quot;: &quot;items[27].companyCode&quot;,
+  &quot;retryable&quot;: true,
+  &quot;nextAction&quot;: &quot;Correct the company code and submit the request again.&quot;,
+  &quot;businessKey&quot;: &quot;BATCH-2026-0001&quot;,
+  &quot;requestId&quot;: &quot;AC0567C-20260615-0001&quot;,
+  &quot;applicationLogId&quot;: &quot;ZUPLOAD/20260615/0001&quot;
+}</code></pre>
+<p>这不要求所有 SAP 标准 OData 响应都长这样，而是给自建 API、批处理状态 API 和错误设计提供思路。RAP/OData/Fiori 的具体消息结构要按框架实现，但稳定字段、可行动消息和可追踪证据这几个原则不变。</p>
+<h4 id="16-5-9e73c7fa" class="semantic-heading semantic-japan">16.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>エラーメッセージ設計</code>、<code>業務エラー</code>、<code>権限エラー</code>、<code>ロックエラー</code>、<code>システムエラー</code>、<code>再実行可否</code>、<code>エラーコード</code>、<code>メッセージID</code>、<code>ログ番号</code>、<code>原因切り分け</code>、<code>障害調査</code>。</p>
+<p>设计说明中可以这样写：</p>
+<ul>
+<li>エラー応答には、エラーコード、メッセージ、対象項目、再実行可否、アプリケーションログ番号を含めます。</li>
+<li>業務エラー、権限エラー、ロックエラー、システムエラーを区別し、呼び出し元が後続処理を判断できるようにします。</li>
+<li>ユーザ向けメッセージには機微情報や内部例外スタックを出力しません。</li>
+</ul>
+<p>缺陷分析时可以这样问：</p>
+<ul>
+<li>このエラーは業務データ修正で解消できますか、それとも権限・設定・プログラム修正が必要ですか。</li>
+<li>再実行可能なエラーですか。二重登録のリスクはありませんか。</li>
+<li>該当エラーのログ番号またはリクエストIDはありますか。</li>
+</ul>
+<p>更接近设计 review 的表达：</p>
+<pre><code class="language-text">エラーコードは外部連携の契約項目として扱い、文言変更とは別に管理します。</code></pre>
+<p>含义：error code 作为外部集成契约字段管理，与文案变更分开。</p>
+<pre><code class="language-text">業務ユーザ向けメッセージと運用調査用のログ情報を分離し、必要最小限の情報だけを画面に表示します。</code></pre>
+<p>含义：把业务用户消息和运维调查日志分离，画面只显示必要最小信息。</p>
+<pre><code class="language-text">再実行可能なエラーかどうかを明示し、二重登録リスクがある場合は status API で確認させます。</code></pre>
+<p>含义：明确是否可重试；如果有重复登记风险，让调用方通过 status API 确认。</p>
+<h4 id="16-6-english-terms-8f9aa7eb" class="semantic-heading semantic-terms">16.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>error message design</code>, <code>message class</code>, <code>T100 message</code>, <code>business error</code>, <code>technical error</code>, <code>reported message</code>.</li>
+<li>Related terms: <code>error code</code>, <code>message ID</code>, <code>message type</code>, <code>target field</code>, <code>retryable</code>, <code>correlation ID</code>, <code>request ID</code>, <code>application log ID</code>.</li>
+<li>Interface terms: <code>HTTP status code</code>, <code>OData error response</code>, <code>problem details</code>, <code>validation error</code>, <code>authorization error</code>, <code>lock conflict</code>.</li>
+<li>Recommended search pattern: <code>SAP ABAP message class T100</code>, <code>SAP RAP reported messages</code>, <code>SAP OData error response</code>, <code>SAP Application Log error message</code>.</li>
+</ul>
+<h4 id="16-7-example-f3afd43c" class="semantic-heading semantic-example">16.7 Example / 学习例子</h4>
+<p>假设 AC0567C 有一个 <code>execute upload</code> API。外部系统传入一个 batch id 和 100 行数据，SAP 校验并执行。坏设计可能只返回：</p>
+<pre><code class="language-text">status = E
+message = Process failed.</code></pre>
+<p>调用方看到这条消息后什么都不能判断。更好的设计可以返回：</p>
+<pre><code class="language-text">status = E
+errorCode = BUSINESS_VALIDATION_FAILED
+message = Row 27: Company code 9999 is not valid for this process.
+target = items[27].companyCode
+retryable = true
+requestId = AC0567C-20260615-0001
+applicationLogId = ZUPLOAD/20260615/0001</code></pre>
+<p>如果是权限错误，应该不同：</p>
+<pre><code class="language-text">errorCode = AUTHORIZATION_FAILED
+message = User is not authorized to execute upload for company code 1000.
+retryable = false
+nextAction = Contact the role administrator or execute with an authorized user.</code></pre>
+<p>如果是锁冲突，又不同：</p>
+<pre><code class="language-text">errorCode = LOCK_CONFLICT
+message = Batch AC0567C-20260615-0001 is currently processed by another request.
+retryable = true
+nextAction = Retry after the current process finishes or check the status API.</code></pre>
+<p>这三个错误都叫“失败”，但处理动作完全不同。错误消息设计的目的，就是让系统和人都能做正确分流。</p>
+<p>AC0567C 可以设计一张最小错误矩阵：</p>
+<div class="table-wrap"><table><thead><tr><th>errorCode</th><th>HTTP/status idea</th><th>retryable</th><th>next action</th></tr></thead><tbody><tr><td><code>VALIDATION_FAILED</code></td><td>400 / business error</td><td>true after correction</td><td>修正字段后重新 validate</td></tr><tr><td><code>AUTHORIZATION_FAILED</code></td><td>403</td><td>false</td><td>申请角色或更换授权用户</td></tr><tr><td><code>JOB_ALREADY_RUNNING</code></td><td>409</td><td>true later</td><td>稍后查询 status 或等待当前 job 完成</td></tr><tr><td><code>DUPLICATE_REQUEST</code></td><td>200/409 by design</td><td>false for execute</td><td>使用 status API 查询既有结果</td></tr><tr><td><code>CONFIGURATION_MISSING</code></td><td>500/422 by design</td><td>true after config</td><td>功能/Basis 维护配置后重试</td></tr><tr><td><code>TECHNICAL_FAILURE</code></td><td>500</td><td>do not blindly retry</td><td>提供 request id / log id 给运维调查</td></tr></tbody></table></div>
+<p>注意 HTTP status 和业务 error code 是两个层次。HTTP status 表示协议层结果，errorCode 表示业务/技术错误类型。对于某些幂等场景，重复请求可能返回既有结果而不是错误；关键是契约要稳定，并在 API testing workflow 中记录。</p>
+<h4 id="16-8-counterexample-failure-mode-358abb34" class="semantic-heading semantic-example">16.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有八类。</p>
+<p>第一，只返回通用文本。<code>処理に失敗しました</code>、<code>エラーが発生しました</code>、<code>System error</code> 不能支持调用方判断，也不能支持测试验收。</p>
+<p>第二，把技术异常直接暴露给用户。完整 class name、SQL 错误、stack trace、内部表名、服务器路径、token 或个人信息都不应出现在普通用户或外部系统可见的消息里。</p>
+<p>第三，错误码不稳定。今天返回 <code>E001</code> 表示业务校验，明天同一个代码改成权限错误，外部系统就会误处理。对接口来说，error code 是契约，必须谨慎变更。</p>
+<p>第四，不说明可重试性。网络超时、锁冲突、重复请求、业务校验失败、权限不足的重试策略完全不同。如果消息不说明 retryable 或状态查询方式，调用方可能反复提交，造成重复处理。</p>
+<p>第五，消息和日志脱节。用户拿到错误消息，但没有 request id、log id、业务键或时间窗口，运维无法定位对应 <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a>，障碍调查就会变成猜谜。</p>
+<p>第六，错误分类过细或过粗。过粗会失去分流能力，过细会让调用方无法维护判断逻辑。项目中常用做法是保持少量稳定 category，再用 message id/target/log 细化。</p>
+<p>第七，把 retryable 写错。把不可重试的业务错误标成可重试，会造成重复提交；把锁冲突或临时外部错误标成不可重试，会增加人工处理。</p>
+<p>第八，没有字段级定位。批量上传只说“第 27 行有误”还不够，最好指出字段、值、原因和可修正动作。</p>
+<h4 id="16-9-44bdd7d5" class="semantic-heading semantic-practice">16.9 思考问题</h4>
+<ul>
+<li>一个接口错误响应中，哪些字段应该稳定给调用方使用？哪些信息只应该放在受控日志里？</li>
+<li>为什么 <code>System error</code> 不是一个合格的生产错误消息？</li>
+<li>业务校验失败、权限不足、锁冲突、重复请求、技术异常的后续处理动作有什么不同？</li>
+<li>在日本项目里，怎样向客户说明“这个错误可重试 / 不可重试”？</li>
+<li>AC0567C POC 中哪些 API 或批处理最需要标准化 error code、request id 和 application log id？</li>
+<li>HTTP status、error code、message text 三者为什么不能混为一谈？</li>
+<li>哪些错误信息应该放在受控日志，而不是对外响应？</li>
+<li>错误分类过细或过粗分别会带来什么问题？</li>
+</ul>
+<h4 id="16-10-c67f3c19" class="semantic-heading semantic-reference">16.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMESSAGE.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - MESSAGE</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/validation-definition" target="_blank" rel="noopener noreferrer">SAP Help - RAP Validation Definition</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">SAP Help - Entity Manipulation Language EML</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm?search=MESSAGE%20statement" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation search - MESSAGE statement</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20message%20class%20T100" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP message class T100</a></li>
+<li><a href="https://help.sap.com/docs/search?q=RAP%20reported%20messages%20validation" target="_blank" rel="noopener noreferrer">SAP Help search - RAP reported messages validation</a></li>
+<li><a href="https://help.sap.com/docs/search?q=OData%20error%20response%20SAP%20Gateway" target="_blank" rel="noopener noreferrer">SAP Help search - OData error response SAP Gateway</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Application%20Log%20error%20handling%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - Application Log error handling ABAP</a></li>
+<li><a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li><a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a></li>
+<li><a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">AC0567C idempotency replay</a></li>
+</ul>
+<h4 id="16-11-connections-4a612a5c">16.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-015-read-access-logging-3f099ea9.html">Read Access Logging 读取访问日志</a></li>
+<li>Downstream: <a class="wiki" href="section-04-017-exception-vs-message-414fed45.html">Exception vs message 异常与消息</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a></li>
+<li>Related: <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 24 - 错误消息、应用日志与审计日志</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="16-12-807e9ba2" class="semantic-heading semantic-practice">16.12 学习任务</h4>
+<ul>
+<li>为一个批量上传 API 设计 5 个 error code：业务校验、权限、锁、重复请求、技术异常。</li>
+<li>给每个 error code 写中文消息、日语现场说明、retryable 判断和 next action。</li>
+<li>检查一个既有 POC：错误响应里是否有 request id、application log id 或可定位的业务键？</li>
+<li>把一条坏消息 <code>処理に失敗しました</code> 改写成 3 条可行动消息。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 ABAP message class、RAP reported message 或 OData error response 的官方说法。</li>
+<li>为 AC0567C 设计一张 6 行错误矩阵，包含 errorCode、retryable、nextAction、log id。</li>
+<li>选一个技术异常，写出用户可见消息和受控日志内容的差异。</li>
+<li>判断 5 个错误是否可重试，并说明理由。</li>
+</ul>
+<h4 id="16-13-confidence-next-action-ba54ded2" class="semantic-heading semantic-status">16.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the message-design principles, business/authorization/lock/duplicate/technical error categories, stable error-code versus localized text boundary, Application Log / request-id tracing, sensitive-detail exclusion, RAP <code>failed</code> versus <code>reported</code> clarification, and eight failure-mode framing; Claude 2026-06-18 follow-up returned <code>Pass with fixes</code>, and the prior hard blocker (<code>五类</code> versus eight failure modes) is already fixed. Medium-High for exact ABAP message class/T100 usage, RAP/Fiori/OData reported-message payload shapes, HTTP status mapping, and API error contract details because they depend on the target framework and project interface standard. Joule review remains deferred for this section.</li>
+</ul>
+<ul>
+<li>Next action: 继续学习 <a class="wiki" href="section-04-017-exception-vs-message-414fed45.html">Exception vs message 异常与消息</a>，把“程序控制流中的异常”和“用户/调用方可理解的消息”区分清楚；后续如找到稳定 OData error-response 官方精确页，再替换当前 search-style reference。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-015-read-access-logging-3f099ea9.html">Previous section</a><a href="section-04-017-exception-vs-message-414fed45.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

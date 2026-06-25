@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Precheck 预检查 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="6-precheck-06855c96" class="chapter-title">6. Precheck 预检查</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 06</li><li>self-contained study note</li></ul><h4 id="6-1-26e780dd" class="semantic-heading semantic-concept">6.1 一句话结论</h4>
+<p>Precheck 是“尽早拒绝明显不应继续的请求”的设计动作：在进入昂贵计算、锁定、编号、保存、外部调用或不可回滚副作用之前，先检查请求是否缺少必要数据、是否明显违反状态规则、是否没有基本操作资格，或者是否会造成后续流程必然失败。</p>
+<p>它不是 <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a>、<a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a>、validation 或 lock 的替代品。更准确地说，precheck 是把“越早知道一定失败的事情，越早返回清楚错误”作为交付原则。做得好，系统更快、更可预测，错误更容易测试；做得差，问题会拖到 save sequence、外部接口或生产数据之后才暴露。</p>
+<h4 id="6-2-9d648b34" class="semantic-heading semantic-concept">6.2 到底学什么</h4>
+<p>本节学习 precheck 的边界和设计时机。</p>
+<p>第一，precheck 关注“早拒绝”。例如必填字段缺失、文件格式明显错误、action 不适用于当前状态、用户根本没有执行此类动作的资格、请求参数组合互相矛盾、重复请求已能被识别，这些都适合在进入正式处理前尽早挡住。</p>
+<p>第二，precheck 不应承担所有最终一致性责任。某些业务规则必须在读取最新实例状态、加锁、保存前 validation、save sequence 或底层业务 API 中再次确认。precheck 可以降低失败成本，但不能假装后续世界不会变化。</p>
+<p>第三，precheck 应避免副作用。预检查阶段如果已经创建正式数据、提交事务、调用不可回滚外部服务或消耗正式编号，就违背了“预”的意义。必要的轻量读取、参数检查、授权粗筛和幂等键检查可以做；真正的写入和不可回滚动作应留到正确阶段。</p>
+<p>第四，precheck 要服务于错误体验。用户或 API 调用者应该尽早拿到明确错误：缺字段、无权限、状态不允许、重复请求、对象不存在、格式不合法。错误越晚、越模糊，测试和运维成本越高。</p>
+<p>第五，precheck 要能形成交付清单。设计书不能只写“执行前做检查”，而要列出检查项、检查时机、是否有副作用、失败消息、是否按行返回、是否需要最终阶段再次确认。测试书也不能只测“validate 成功”，还要覆盖缺字段、重复 key、无权限、状态不允许、幂等重复、文件格式错误、对象不存在等负例。</p>
+<h4 id="6-3-5404c50b" class="semantic-heading semantic-why">6.3 为什么重要</h4>
+<p>生产系统最怕“明明一开始就知道会失败，却拖到最后才失败”。在 SAP 项目里，后续阶段往往涉及 enqueue lock、number range、update task、RAP save sequence、BAPI 调用、application log、外部接口、后台 job 或人工重试。一旦错误晚发生，就可能带来锁等待、编号空洞、部分处理、重复提交、难以解释的日志和用户投诉。</p>
+<p>对 API 场景，precheck 尤其重要。调用者希望快速知道请求是否可执行，而不是等待系统处理半天后返回一个泛泛的失败。对批量上传场景，precheck 可以把文件结构、必填列、重复键、基本授权、明显状态冲突先报告出来，让用户在真正执行前修正。</p>
+<p>从 Java/Python 背景看，可以把 precheck 类比成 controller/service 边界上的 request guard、dry-run check 或 early validation。但 SAP/RAP 的差异是：precheck 必须和授权、锁、事务边界、save sequence、reported/failed 消息和业务对象状态配合，不能只是一个孤立的 <code>if</code>。</p>
+<p>precheck 的价值还在于保护后续资源。一个错误请求如果很早被拒绝，就不会占用 enqueue lock，不会消耗正式编号，不会把 update task 排进去，不会写“成功处理中”的 application log，也不会调用外部系统。它不是为了让代码多几层判断，而是为了把失败控制在最便宜、最可解释、最容易回滚的位置。</p>
+<h4 id="6-4-key-mechanism-a68122f0" class="semantic-heading semantic-mechanism">6.4 Key mechanism / 核心机制</h4>
+<p>precheck 可以按“越早越轻、越晚越权威”来理解：</p>
+<pre><code class="language-text">Request received
+  -&gt; cheap syntactic checks
+  -&gt; basic authorization / operation eligibility
+  -&gt; idempotency or duplicate-key precheck
+  -&gt; state plausibility check
+  -&gt; lock / transaction / save sequence
+  -&gt; final validation and persistence</code></pre>
+<p>在 RAP 语境里，<code>precheck</code> 也不是随便起的名字，而是 behavior definition / projection 中可以声明的具体机制。读代码时可能会看到类似 <code>create ( precheck )</code>、<code>update ( precheck )</code>、<code>delete ( precheck )</code>，以及 ADT 生成的 <code>precheck_create</code>、<code>precheck_update</code>、<code>precheck_delete</code>、<code>FOR PRECHECK</code> 相关 handler 入口。不同 ABAP Platform / ABAP Cloud 版本、managed/unmanaged 场景和 projection 设置会影响实际签名，所以本节不背模板；但读者必须知道：RAP <code>precheck</code> 是“modify 请求进入后续处理前的早期检查钩子”，不是普通注释里的一个泛称。</p>
+<p>它和 <a class="wiki" href="section-03-029-validation-44a4b013.html">validation on save</a> 的边界尤其重要。precheck 偏向在 create/update/delete 等请求进入更重处理前给出早期反馈；validation <code>on save</code> 偏向保存前的一致性闸门。项目里可以两者都存在：precheck 提前挡住明显错误，validation on save 兜住最终一致性。draft/update 场景还要注意 <code>%control</code> 和 delta payload：更新请求可能只带修改字段，不能把未传字段当成空值；必要时要通过 <code>READ ENTITIES ... IN LOCAL MODE</code> 读取当前实例状态，再按 changed fields 合并后判断。</p>
+<p>早期检查适合做低成本、低副作用、高确定性的判断。例如字段是否为空、文件头是否正确、action 名称是否支持、用户是否完全没有此类操作权限、请求中同一个 key 是否重复、对象 ID 格式是否明显不合法。</p>
+<p>后期检查则更权威。例如实例状态可能在 precheck 后被其他用户改变，所以保存前仍需要 validation 或 instance authorization；并发冲突需要 enqueue 或 optimistic locking；数据库唯一约束和业务 API 也可能在最终保存时发现问题。</p>
+<p>一个实用判断是：如果某个检查失败时一定不能继续，且检查不需要产生副作用，就尽量放早；如果检查依赖最新数据、锁或正式保存上下文，就不能只依赖 precheck。</p>
+<p>可以用下面的判断表区分：</p>
+<div class="table-wrap"><table><thead><tr><th>检查项</th><th>适合 precheck 吗</th><th>为什么</th></tr></thead><tbody><tr><td>必填字段缺失</td><td>适合</td><td>不需要锁和保存上下文，失败确定</td></tr><tr><td>文件格式明显错误</td><td>适合</td><td>解析失败时不应进入业务处理</td></tr><tr><td>请求内重复 key</td><td>适合</td><td>可以在内存中发现，避免后续重复处理</td></tr><tr><td>已处理过的幂等 key</td><td>适合做早期提示</td><td>可提前读取已处理记录，但最终仍要在锁内或保存前权威确认</td></tr><tr><td>用户完全没有 execute 资格</td><td>适合做粗筛</td><td>不应进入昂贵处理，但最终授权仍要在正确层确认</td></tr><tr><td>对象当前状态不允许 action</td><td>适合做初步检查</td><td>但加锁后或保存前可能需要重新读取最新状态</td></tr><tr><td>两个请求同时处理同一对象</td><td>不只靠 precheck</td><td>需要 <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a> 或 RAP locking</td></tr><tr><td>数据库唯一性冲突</td><td>不只靠 precheck</td><td>precheck 可提前查，但最终仍要靠保存/唯一约束兜底，避免 look-then-act 竞态</td></tr><tr><td>外部系统是否最终接受</td><td>不只靠 precheck</td><td>外部调用结果是正式处理阶段的一部分</td></tr></tbody></table></div>
+<p>precheck 的输出也要设计。批量场景里，错误通常应该能定位到 header、row、field 或 business key；RAP 场景里要通过 <code>failed</code> / <code>reported</code>、<code>%tky</code>、message class、状态区域或项目日志表达具体实例和字段的失败原因；API 场景里，应能区分 <code>400 Bad Request</code> 风格的输入错误、<code>403 Forbidden</code> 风格的权限错误、<code>409 Conflict</code> 风格的状态/并发/幂等冲突，以及真正的系统错误。SAP/RAP 项目不一定直接手写这些 HTTP status code，但这种分类有助于设计消息和测试期望。</p>
+<h4 id="6-5-d8161266" class="semantic-heading semantic-japan">6.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>事前チェック</code>、<code>早期エラー返却</code>、<code>入力チェック</code>、<code>権限事前確認</code>、<code>重複チェック</code>、<code>ステータス確認</code>、<code>副作用を起こさない確認</code>。</li>
+<li>设计说明：本 API では、保存処理に入る前に必須項目、重複キー、基本権限、対象ステータスを事前チェックします。</li>
+<li>Review 说法：事前チェックで外部連携や正式更新などの副作用が発生していないか確認してください。</li>
+<li>测试说法：正常系だけでなく、必須項目不足、権限不足、重複リクエスト、ステータス不正の早期エラーを確認します。</li>
+<li>缺陷调查：エラーが保存後に発生している場合、事前チェックで検出できる条件か、最終 validation でしか検出できない条件かを切り分けます。</li>
+<li>设计书条目：チェック項目、チェックタイミング、副作用有無、エラーメッセージ、再チェック要否を一覧化します。</li>
+<li>API 说明：validate は正式更新ではなく、入力・権限・重複・ステータスの早期確認を目的とします。</li>
+<li>边界说明：事前チェックで OK になっても、保存直前の validation、authorization、locking を省略してよい意味ではありません。</li>
+<li>证据要求：プリチェック設計書には、対象項目、<code>%control</code> 確認、ドラフト差分の扱い、エラーメッセージ、性能影響、テスト結果、承認記録を残します。</li>
+</ul>
+<h4 id="6-6-english-terms-da8dbe82" class="semantic-heading semantic-terms">6.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>precheck</code>, <code>pre-check</code>, <code>RAP precheck</code>, <code>FOR PRECHECK</code>, <code>validation on save</code>, <code>RAP validation</code>, <code>RAP authorization</code>, <code>idempotency check</code></li>
+<li>Related terms: <code>failed</code>, <code>reported</code>, <code>%tky</code>, <code>%control</code>, <code>READ ENTITIES IN LOCAL MODE</code>, <code>validation</code>, <code>determination</code>, <code>save sequence</code>, <code>side effect</code>, <code>idempotency</code>, <code>enqueue lock</code></li>
+<li>Related terms: <code>early rejection</code>, <code>dry run</code>, <code>side-effect free check</code>, <code>business validation</code>, <code>conflict</code>, <code>retry</code>, <code>application log</code></li>
+<li>Recommended search pattern: <code>SAP RAP precheck validation authorization save sequence FOR PRECHECK</code></li>
+<li>注意：SAP 官方资料里不一定总用同一个 <code>Precheck</code> 标题。检索时要结合 <code>RAP validation</code>、<code>authorization</code>、<code>save sequence</code>、<code>early check</code>、<code>side effect</code> 等词。</li>
+</ul>
+<h4 id="6-7-example-93068947" class="semantic-heading semantic-example">6.7 Example / 学习例子</h4>
+<p>以 AC0567C 类似的批量上传 API 为例，可以把流程分成 <code>validate</code> 和 <code>execute</code>。</p>
+<p><code>validate</code> 阶段适合做 precheck：</p>
+<ul>
+<li>文件是否能解析。</li>
+<li>必填列是否存在。</li>
+<li>每行 key 是否重复。</li>
+<li>company code / plant / material 等字段格式是否明显错误。</li>
+<li>当前用户是否具备基本上传或执行资格。</li>
+<li>目标对象是否处于明显不能处理的状态。</li>
+</ul>
+<p><code>execute</code> 阶段仍要再次确认关键条件：</p>
+<ul>
+<li>实例状态是否在 validate 后被改变。</li>
+<li>是否需要锁定对象。</li>
+<li>是否通过最终 authorization / validation。</li>
+<li>是否已经处理过相同幂等键。</li>
+<li>保存失败时如何返回 failed/reported 和 application log。</li>
+</ul>
+<p>这样设计后，用户可以先用 validate 得到可修正的问题清单，再用 execute 执行真正写入。precheck 不是“假执行”，也不是“提前保存”；它是降低失败成本的正式设计。</p>
+<p>一个更接近项目设计书的 precheck 表可以这样写：</p>
+<div class="table-wrap"><table><thead><tr><th>阶段</th><th>检查内容</th><th>失败响应</th><th>是否产生正式副作用</th><th>后续是否再确认</th></tr></thead><tbody><tr><td>validate</td><td>文件结构、必填列、行内重复 key</td><td>返回行级错误清单</td><td>否</td><td>execute 前仍可重复检查关键字段</td></tr><tr><td>validate</td><td>用户是否具备基本上传资格</td><td>返回权限错误</td><td>否</td><td>execute 时仍做 operation/instance authorization</td></tr><tr><td>validate</td><td>batch 是否已处理完成</td><td>返回重复/状态错误</td><td>否</td><td>execute 拿锁后再读最新状态</td></tr><tr><td>execute before lock</td><td>请求格式、幂等键、cheap authorization</td><td>早期拒绝</td><td>否</td><td>进入关键区前完成</td></tr><tr><td>execute after lock</td><td>最新状态、实例授权、业务规则</td><td>failed/reported 或业务错误</td><td>否/受控</td><td>save sequence 前最终确认</td></tr><tr><td>save sequence</td><td>数据库约束、保存 API、不可避免的运行时错误</td><td>保存失败并记录日志</td><td>可能有受控日志</td><td>由事务边界决定</td></tr></tbody></table></div>
+<p>以 AC0567C 上传为例，<code>validate</code> 可以告诉用户：“第 12 行缺少 material，第 18 行 company code 不在允许范围，第 21 行和第 25 行 key 重复。”这类错误不需要锁，也不应该写正式表。<code>execute</code> 则要面对更接近生产的事实：validate 之后别人可能已经处理了同一个 batch，用户授权可能变了，状态可能更新了，幂等键可能已被使用。因此 execute 不能只相信 validate 的结果，而要在关键点重新确认。</p>
+<p>一个好的 API 响应还应避免把所有错误混在一起：</p>
+<pre><code class="language-text">Input error:
+  missing field, invalid format, duplicate row key
+
+Authorization error:
+  user cannot execute this operation or organization value
+
+Business-state error:
+  batch already processed, object not in executable status
+
+Conflict / retry error:
+  same idempotency key already processed, object locked by another process
+
+System error:
+  unexpected save failure, downstream unavailable</code></pre>
+<p>这种分类能帮助调用方决定下一步：修文件、换用户、等待重试、放弃重复请求，还是联系运维。</p>
+<h4 id="6-8-counterexample-failure-mode-77361fee" class="semantic-heading semantic-example">6.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十类。</p>
+<p>第一，没有 precheck。所有错误都到保存阶段才出现，用户只能拿到晚而模糊的失败。</p>
+<p>第二，precheck 做了副作用。预检查阶段就写正式表、调用外部系统、消耗编号或提交事务，失败后很难清理。</p>
+<p>第三，把 precheck 当最终保证。预检查通过后不再做最终 validation、authorization 或 locking，导致并发变更后仍错误保存。</p>
+<p>第四，错误分类混乱。权限不足、输入错误、状态不允许、重复请求都返回同一种消息，测试和调用方无法处理。</p>
+<p>第五，只测 happy path。没有验证无权限、重复请求、边界状态、批量部分失败和 API 直调。</p>
+<p>第六，precheck 太重。为了“提前发现所有问题”读取大量数据、执行复杂计算或锁定资源，反而拖慢接口并制造竞争。</p>
+<p>第七，validate 和 execute 语义混乱。validate 里已经写正式表，execute 只是补提交；或者 execute 完全相信 validate 的旧结果，不再做最新状态检查。</p>
+<p>第八，批量错误粒度不清。一个文件里只有一行错，却返回整批“失败”；或者整批失败但没有指出行号、字段和业务 key。</p>
+<p>第九，把 precheck 放在锁内做太久。先拿锁，再做大量文件解析、权限粗筛和格式检查，会让其他用户长时间等待。一般应把 cheap、side-effect-free 检查放在锁前，把依赖最新状态的确认放在锁后。</p>
+<p>第十，日志写反。precheck 失败却写成业务处理失败或成功日志，后续审计会误以为正式执行过。precheck 日志应明确是 early rejection / validation result，而不是 final posting result。</p>
+<p>修正动作：把这些失败模式归入 early check、authorization、instance rule、locking、final validation、save error 等责任桶，并为每一类指定错误消息、测试用例和证据位置。</p>
+<h4 id="6-9-bcb23b4a" class="semantic-heading semantic-practice">6.9 思考问题</h4>
+<ul>
+<li>这个错误是否可以在进入保存/外部调用/锁定前发现？</li>
+<li>precheck 是否产生了任何正式副作用？</li>
+<li>precheck 通过后，哪些条件仍需要在最终保存前重新确认？</li>
+<li>错误消息是否区分输入错误、权限错误、状态错误、重复请求和系统错误？</li>
+<li>批量请求中是否能返回每行/每实例的预检查结果？</li>
+<li>precheck 的错误分类是否能指导调用方下一步行动？</li>
+<li>哪些检查应该放在锁前，哪些必须放在锁后重新确认？</li>
+<li>AC0567C POC 中 validate 与 execute 的职责是否清楚分开？</li>
+</ul>
+<h4 id="6-10-da75c373" class="semantic-heading semantic-reference">6.10 参考资料入口</h4>
+<p><strong>书稿补强：Precheck 是早拒绝，不是提前保存</strong></p>
+<p>Precheck 的核心价值是把“明显不能继续的请求”尽早挡住，而且尽量不产生副作用。它适合检查输入格式、必填字段、重复 key、基本权限、对象是否存在、当前状态是否显然不允许执行等问题。它不适合偷偷创建正式数据、发送外部请求、消耗不可回滚的 number range、写成功日志或替代最终保存阶段的 validation。换句话说，precheck 的理想结果是：失败时给出清楚、可修正的原因；成功时只说明“可以进入下一阶段”，而不是承诺“最终一定会保存成功”。</p>
+<p>读者可以把 precheck、validation、authorization、locking 和 save sequence 分成一条时间线：precheck 负责便宜、早期、可重复的检查；authorization 负责谁能做；locking 负责并发期间谁能改；validation on save 负责保存前基于最新状态的业务判断；save sequence 负责真正持久化和失败回滚。这样就不会把“前面检查通过”误解成“后面不会失败”。在 RAP 或批处理 API 中，即使 validate/precheck 通过，execute 时仍然要重新读取关键状态、重新确认锁或实例授权，并在失败时返回清楚的 <code>failed</code> / <code>reported</code> 或业务错误结构。</p>
+<p>项目里最容易出事故的是“看起来像检查，实际上已经做了事”。例如 validate 接口顺手写了 application log 的成功记录、预检查中调用外部系统确认额度、或者为了判断是否重复而先插入一条正式记录。这些设计会让用户以为只是检查，系统却已经改变状态。更稳的做法是把 precheck 输出设计成一个 evidence object：包含 check item、target field、business key、error category、retryable flag、message 和下一步建议；真正的保存、外部发送、不可回滚副作用留给明确的 execute/save 阶段。</p>
+<p>日本项目现场可以这样说：事前チェックは副作用を起こさず、早期に修正可能なエラーを返すための処理です。保存可否の最終判断は、最新状態を再確認したうえで保存処理側で行います。也就是：预检查负责早期发现，最终保存判断仍要在真正保存前重新确认。</p>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/save-sequence-runtime" target="_blank" rel="noopener noreferrer">SAP Help - RAP Save Sequence Runtime</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/validation-definition" target="_blank" rel="noopener noreferrer">SAP Help - RAP Validation Definition</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-control" target="_blank" rel="noopener noreferrer">SAP Help - RAP Authorization Control</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">SAP Help - Entity Manipulation Language EML</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT_ENTITIES.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - COMMIT ENTITIES</a></li>
+<li><a href="https://help.sap.com/docs/search?q=RAP%20precheck%20FOR%20PRECHECK" target="_blank" rel="noopener noreferrer">SAP Help search - RAP precheck / FOR PRECHECK</a></li>
+<li><a href="https://help.sap.com/docs/search?q=RAP%20failed%20reported%20messages" target="_blank" rel="noopener noreferrer">SAP Help search - RAP failed / reported messages</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="6-11-connections-84e880f9">6.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-041-ac0567c-idempotency-replay-b22fe515.html">Idempotency key 幂等键</a></li>
+<li>Related: <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存顺序</a></li>
+<li>Downstream: <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 22 - 授权检查与 Precheck</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="6-12-3431a106" class="semantic-heading semantic-practice">6.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明 precheck、authorization、validation 的区别。</li>
+<li>为一个上传 API 设计 validate / execute 两阶段检查清单。</li>
+<li>写一句日语 review 评论，要求确认 precheck 不产生正式副作用。</li>
+<li>为批量请求设计 5 个失败样例：缺字段、重复 key、无权限、状态不允许、幂等重复。</li>
+<li>在 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中标出哪些检查应放在 validate，哪些必须留到 execute/save 前。</li>
+</ul>
+<h4 id="6-13-confidence-next-action-76285fbf" class="semantic-heading semantic-status">6.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the early-rejection / side-effect-free design principle, validate-vs-execute boundary, validation-on-save distinction, idempotency caveat, and batch error-classification framing; Joule 2026-06-17 and Claude 2026-06-17 follow-up both support <code>expanded-review</code>. Medium-High for exact RAP <code>precheck</code> syntax, generated handler signatures, projection behavior details, and <code>failed</code> / <code>reported</code> response mapping because these remain release- and framework-dependent.</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a>，把“早拒绝”与“并发控制/锁定”分开理解；后续如 SAP Help 提供稳定的 <code>FOR PRECHECK</code> 精确页面，再替换当前 SAP Help search 入口。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-005-rap-instance-authorization-6183d5b9.html">Previous section</a><a href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

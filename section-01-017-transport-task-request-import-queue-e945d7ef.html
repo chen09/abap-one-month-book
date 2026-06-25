@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Transport task / request / import queue 治理 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="17-transport-task-request-import-queue-3ac61a1a" class="chapter-title">17. Transport task / request / import queue 治理</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 17</li><li>self-contained study note</li></ul><p><strong>1) 一句话结论</strong></p>
+<p>Transport task / request / import queue 治理，是把 <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a> 从“一个变更容器”推进到“谁 release、何时 export、如何进入 QAS/PRD import queue、哪些 approval 和 log 证明可上线”的项目管理链路；本节要学的是：task release、request release、QAS import、QA approval、PRD import 是不同关口。</p>
+<p><strong>2) 到底学什么</strong></p>
+<p>前面已经知道 transport request 不是 Git commit，也不是 deployment。现在要继续追问：一个 request 里为什么有 task？开发者 release task 后发生了什么？request owner release request 后是否已经进 QAS？QAS import 后为什么 PRD import queue 里还显示 approval / inactive？STMS 里的 RC 4 到底能不能签收？这些问题不只是 Basis 的事，ABAP 开发者至少要能读懂状态、说清责任边界。</p>
+<p>最基本的层级是 request / task。transport request 是上层容器，task 是开发者记录自己对象变更的下层单位。团队开发时，系统会给参与者各自的 task；开发者完成自己的对象后，先 release task。所有相关 task release 后，request owner / project lead 才能 release transport request。这个顺序不能反过来：未 release 的 task 会阻止 request 正式释放。</p>
+<p>接下来要分清三个动作。<code>task release</code> 是开发者动作，表示自己的变更记录完成；<code>request release</code> 是负责人动作，通常触发 export，把 transportable request 从 DEV 导出到 transport directory / transport buffer；<code>import</code> 是把 request 导入 QAS/PRD 等目标系统的动作，由 TMS/cTMS、transport admin、项目流程或相应 cloud transport 工具控制。看到 <code>Released</code>，不代表 QAS 已经变了，更不代表 PRD 已经上线。</p>
+<p>import queue 是目标系统侧的关键证据。按照 SAP transport route，DEV release 后，request 会进入后续系统的 import buffer / import queue。import queue 不只是“待导入列表”，还保留 import sequence。SAP Learning 明确说明 import queue 包含已释放的 transport requests，并记住它们 release 的顺序；TMS import all 的目的之一，就是避免缺少依赖 request 或旧对象版本覆盖新对象版本。开发者可以读 import queue 状态，但不应该擅自 reorder 或手动 import。</p>
+<p>QAS 不是装饰层。标准流程是：request import 到 QAS 后，团队做测试；若启用 QA approval procedure，request 进入后续 delivery system / PRD import queue 时可能先是 inactive / approval pending，只有 approval steps 全部完成后才变成可导入状态。若客户系统没有配置 STMS_QA，也不代表可以省略测试签收；流程上仍应有 test sign-off、approval evidence 和本番リリース计划。</p>
+<p>本节只讲开发者必须懂的 governance awareness：task / request / release / import queue / return code / QA approval / log / Japanese reporting。STMS 路由配置、transport domain controller、tp command、client import、ChaRM release cycle、Cloud ALM deployment setup 等，是 Basis / project governance 深水区，后面或附录再讲。</p>
+<p><strong>3) 为什么重要</strong></p>
+<p>这个小节的核心价值，是让初学者不要把 SAP 移送看成“我点了 release，就等于上线”。真实日本 SAP 项目里，一次变更从开发到本番反映，至少会经过开发者 task release、request owner release、QAS import、QAS test、approval、PRD import、return code/log check、post-import verification。每个关口都可能卡住，也都有不同责任人。</p>
+<p>它也解释了项目沟通中为什么总在问 <code>移送依頼番号</code>。别人问这个编号，不只是为了查对象列表，而是为了追踪：task 是否 release？request 是否 release？是否进入 QAS import queue？QAS import RC 是多少？是否已测试？是否 QA承認済み？PRD import queue 中状态是 active 还是 承認待ち？本番リリース窗口是哪天？本番反映是否完成？</p>
+<p>对 Java/Python 背景学习者来说，这类似 CI/CD pipeline 的 stage，但不要直接等同。GitHub Actions 里一个 job status 可能就是当前流水线状态；SAP transport 里有 source system、target system、transport buffer、import queue、return code、QA approval、client、Basis 操作窗口、change request 审批。开发者不一定执行 import，但必须能读懂 evidence，不能只说“我这边开发完了”。</p>
+<p>错误理解会带来高风险事故。比如开发者为了让自己的 request 快点进 PRD，要求 Basis 调整 import queue 顺序，可能导致旧版本覆盖新版本；看到 RC 4 就以为“只是 warning”直接签收，可能漏掉详细 log 中的 object-level error；看到 request 已在 PRD queue 里就催 import，却不知道 QA approval 尚未完成。上线周末最怕的，往往不是不会写 ABAP，而是看不懂移送状态。</p>
+<p><strong>4) Key mechanism / 核心机制</strong></p>
+<p>第一层机制是 task / request ownership。task 通常归开发者，request 通常归 request owner / project lead。开发者 release task 前，要确认自己的对象已经激活、where-used / impact check 已完成、ATC / unit test / 手动测试证据齐全、request description 有意义。request owner release request 前，要确认所有相关 task 都已 release，object list 属于同一个 testable unit。</p>
+<p>第二层机制是 release sequence。release task 不会把对象送到 QAS；release request 才把 transportable request 导出并放入后续系统 import queue。request release 也不是 import；import 是目标系统侧动作。把这三步混在一起，会造成沟通错位。正确说法是：<code>タスクリリース済み</code>、<code>移送依頼リリース済み</code>、<code>QASインポート済み</code>、<code>本番インポート待ち</code>、<code>本番反映済み</code>，每个状态都不同。</p>
+<p>第三层机制是 import queue sequence。import queue 会保留 released requests 和 import sequence。不要把它想成可以任意拖动的个人优先级列表。SAP 文档强调要确保 request 以正确顺序导入；若多个 request 包含同一个对象，后导入的版本会成为目标系统 active version。擅自调整顺序可能让旧对象覆盖新对象，尤其在 PRD release weekend 是严重事故。SAP 建议尽量整体导入完整的 CTS project / 相关 request 组，避免漏掉依赖 request，这也是不要单独抽取或插队的原因之一。开发者应报告依赖和优先级，由 transport admin / project lead 按批准的 <code>移送シーケンス</code> 处理。</p>
+<p>第四层机制是 return code / log。常见 awareness：RC 0 通常表示成功；RC 4 是 warning，但不能自动签收，必须看 detailed log；RC 8 表示 error；RC 12 或更高通常是严重错误或中止。request-level RC 4 里也可能有 object-level 错误或未导入对象，必须打开 transport log / import history / detailed step log 判断。日本项目里 <code>RC4なので問題ありません</code> 这种说法不够严谨，至少要补一句 <code>詳細ログ確認済み</code>。</p>
+<p>第五层机制是 QA approval。启用 QA approval procedure 时，QAS import 完成后，request 可能进入 PRD import queue 但处于 inactive / 承認待ち 状态；只有配置的 approval steps 完成后才变成 active / importable。看到 PRD queue 中有 request，不等于可以立刻 import。若没有系统级 QA approval，也要用项目流程保证测试完成、approval evidence 可追踪。</p>
+<p>第六层机制是 developer role boundary。开发者要会读 Transport Organizer、object list、task/request status、QAS/PRD queue status、return code、import log、approval status，并能把 blocker 写清楚。开发者通常不应配置 STMS、调整 transport route、手动 reorder queue、执行 PRD import、使用 tp command，除非项目明确授权。边界清楚，才不会把技术问题变成治理事故。</p>
+<p>第七层机制是 cloud caveat。SAP S/4HANA Cloud Public Edition、SAP BTP ABAP Environment、ABAP Cloud、cTMS、Cloud ALM、Manage Software Components、software collections 的 UI 和机制可能不同。BTP ABAP Environment 里可能通过 Manage Software Components / Git-backed lifecycle 推进，而不是 classic STMS import queue；Public Edition 也可能使用 ATO / Export Software Collection / Import Collection 等 Fiori apps。Day 02 只要记住：工具不同，但 task/request/import/approval evidence 的治理思维仍然要问清。</p>
+<p><strong>5) 日本项目现场说法</strong></p>
+<ul>
+<li>常见日语：<code>タスク</code>、<code>タスクリリース</code>、<code>移送依頼</code>、<code>移送依頼番号</code>、<code>移送依頼リリース</code>、<code>依頼リリース</code>、<code>インポートキュー</code>、<code>移送ログ</code>、<code>インポートログ</code>、<code>戻りコード</code>、<code>RC</code>、<code>QA承認</code>、<code>品質承認</code>、<code>承認待ち</code>、<code>品質承認済み</code>、<code>移送シーケンス</code>、<code>移送前確認</code>、<code>リリース前確認</code>、<code>本番リリース</code>、<code>本番反映</code>。</li>
+<li>用语区别：<code>本番リリース</code> 是计划中的生产导入事件，常出现在 release 计划和作业窗口说明；<code>本番反映</code> 是 import 完成后确认已经反映到生产的状态，不要把“计划 release”误读成“已经反映完毕”。</li>
+<li>用语区别：<code>品質承認</code> / <code>品質承認済み</code> 常用于移送承认证据和测试完成确认；<code>QA承認</code> 更常用于 STMS_QA 或系统级 approval 讨论，<code>承認待ち</code> 是状态表达。</li>
+<li>说明句：タスクリリース、移送依頼リリース、QASインポート、本番インポートはそれぞれ別の状態として確認してください。</li>
+<li>说明句：RC4 の場合でも、詳細ログを確認したうえで品質承認可否を判断します。</li>
+<li>使用场景：移送前确认、QAS 导入后测试、QA approval、release weekend 本番リリース、import error triage、变更审批和上线报告。</li>
+</ul>
+<p><strong>6) English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>transport task</code>, <code>transport request</code>, <code>task release</code>, <code>request release</code>, <code>import queue</code></li>
+<li>TMS terms: <code>Transport Organizer</code>, <code>Transport Management System</code>, <code>STMS</code>, <code>import buffer</code>, <code>import history</code>, <code>transport log</code>, <code>return code</code></li>
+<li>Governance terms: <code>QA approval procedure</code>, <code>approval step</code>, <code>test sign-off</code>, <code>import sequence</code>, <code>transport route</code></li>
+<li>Cloud terms: <code>SAP Cloud Transport Management</code>, <code>Manage Software Components</code>, <code>software collection</code>, <code>Adaptation Transport Organizer</code></li>
+<li>Recommended search pattern: <code>SAP transport task request import queue QA approval return code</code></li>
+</ul>
+<p><strong>7) Example / 学习例子</strong></p>
+<ul>
+<li>在 ADT Transport Organizer 或 SE09/SE10 中找一个 request，观察它下面的 tasks、owner、status、object list。说明谁 release task，谁 release request。</li>
+<li>读一个 request 的生命周期：<code>modifiable</code> -&gt; task released -&gt; request released -&gt; QAS import queue -&gt; QAS import history/log -&gt; QA approval -&gt; PRD import queue -&gt; PRD import log。</li>
+<li>看一次 STMS import history 或项目移送记录，记录 RC 值。若是 RC 4，写出详细 log 里具体 warning 内容，而不是只写“warning”。</li>
+<li>用日语写一段汇报：<code>移送依頼番号</code>、<code>QASインポート状況</code>、<code>戻りコード</code>、<code>品質承認状況</code>、<code>本番リリース予定</code>。</li>
+<li>Week 3/4 后，把一个 RAP/OData 修正映射到 transport request、service binding activation、QAS test evidence、API test evidence、PRD import evidence。</li>
+</ul>
+<p><strong>8) Counterexample / Failure mode</strong></p>
+<ul>
+<li>误区一：开发者 release task 后就告诉团队“已经移送”。task release 只是开发者动作，不是 request release，也不是 import。</li>
+<li>误区二：request release 后以为 QAS/PRD 已经改变。request release 通常只是 export / 进入 import queue，目标系统 import 是单独动作。</li>
+<li>误区三：看到 RC 4 就直接签收。RC 4 也必须查详细 log，确认是否有 object-level error、生成 warning 或后续测试风险。</li>
+<li>误区四：为了赶进度随意调整 import queue 顺序。可能导致依赖缺失或旧版本覆盖新版本。</li>
+<li>误区五：看到 PRD import queue 里有 request，就以为可以立刻 import。若 QA approval 未完成，状态可能是 inactive / 承認待ち。</li>
+<li>误区六：把 classical STMS 经验直接套到 Public Edition / BTP ABAP Environment。cloud 场景工具不同，必须按客户系统和项目手顺确认。</li>
+</ul>
+<p><strong>9) 思考问题</strong></p>
+<ul>
+<li><code>タスクリリース済み</code>、<code>移送依頼リリース済み</code>、<code>QASインポート済み</code>、<code>本番反映済み</code> 分别意味着什么？</li>
+<li>为什么 transport request 应该表达一个 testable unit，而不是每个对象一个 request？</li>
+<li>import queue 的顺序为什么不能随便改？</li>
+<li>RC 4 和 RC 8 的项目处理方式有什么不同？为什么 RC 4 也要看 detailed log？</li>
+<li>如果 PRD import queue 里 request 是 承認待ち，应该找开发者、Basis、QA approver 还是 project lead？</li>
+<li>在 cloud / BTP 环境下，如果看不到 STMS import queue，应该问哪些替代工具和 evidence？</li>
+</ul>
+<p><strong>10) 参考资料入口</strong></p>
+<ul>
+<li><a href="https://learning.sap.com/courses/introducing-sap-abap-platform-fundamentals/introducing-transport-requests-and-the-transport-process" target="_blank" rel="noopener noreferrer">SAP Learning - Introducing Transport Requests and the Transport Process</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-ii-of-sap-s-4hana-and-sap-business-suite/the-transport-process-1" target="_blank" rel="noopener noreferrer">SAP Learning - The Transport Process</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-ii-of-sap-s-4hana-and-sap-business-suite/imports-using-tms-1" target="_blank" rel="noopener noreferrer">SAP Learning - Imports Using TMS</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-ii-of-sap-s-4hana-and-sap-business-suite/monitoring-tools-1" target="_blank" rel="noopener noreferrer">SAP Learning - Monitoring Tools</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-ii-of-sap-s-4hana-and-sap-business-suite/qa-approval-procedure-and-transport-proposals-1" target="_blank" rel="noopener noreferrer">SAP Learning - QA Approval Procedure and Transport Proposals</a> (accessed 2026-06-13).</li>
+<li><a href="https://learning.sap.com/courses/technical-implementation-and-operation-ii-of-sap-s-4hana-and-sap-business-suite/setting-up-the-transport-management-system-tms--1" target="_blank" rel="noopener noreferrer">SAP Learning - Setting Up the Transport Management System</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/4a368c163b08418890a406d413933ba7/5738e2454eb711d182bf0000e829fbfe.html" target="_blank" rel="noopener noreferrer">SAP Help - Releasing Tasks</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/4a368c163b08418890a406d413933ba7/5738e26c4eb711d182bf0000e829fbfe.html" target="_blank" rel="noopener noreferrer">SAP Help - Return Codes in the Transport Log</a> (accessed 2026-06-13).</li>
+<li><a href="https://help.sap.com/docs/cloud-transport-management/sap-cloud-transport-management/statuses-of-transport-requests" target="_blank" rel="noopener noreferrer">SAP Help - Statuses of Transport Requests</a> (accessed 2026-06-13).</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>11) Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li><span class="wiki unresolved">MOC ADT Workflow</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Upstream: <a class="wiki" href="section-01-014-abapgit-gcts-d16f46ae.html">abapGit and gCTS awareness</a></li>
+<li>Downstream: <a class="wiki" href="section-01-018-client-strategy-in-dev-qas-prd-f855e422.html">Client strategy in DEV QAS PRD</a></li>
+<li>Related: <a class="wiki" href="section-01-013-activation-ff7e1caa.html">Activation 激活机制</a></li>
+<li>Related: <a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a></li>
+<li>Related: <a class="wiki" href="section-01-016-abap-debugger-05add8e6.html">ABAP debugger 调试器入口</a></li>
+<li>Related: <a class="wiki" href="section-04-037-change-request-and-incident-workflow-00ea541f.html">Change request and incident workflow</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 02 - ADT 与 Repository Object 生命周期</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>12) 学习任务</strong></p>
+<ul>
+<li>用自己的中文解释 task release、request release、QAS import、PRD import 的区别。</li>
+<li>写 1 句日语说明 RC 4 也必须检查 detailed log。</li>
+<li>找 1 个 SAP 官方页面，说明 import queue 和 import sequence 的意义。</li>
+<li>用一个虚构 transport request 画出 DEV -&gt; QAS -&gt; QA approval -&gt; PRD 的状态流。</li>
+<li>如果已经进入 Week 3/4，把一个 POC 修正映射到 transport evidence、test evidence、approval evidence。</li>
+</ul>
+<p><strong>13) Confidence &amp; Next Action</strong></p>
+<ul>
+<li>Confidence: High for beginner governance scope；关键结论已用 SAP Learning、SAP Help 和 Joule SAP accuracy review 交叉确认。</li>
+<li>Next action: 继续 <a class="wiki" href="section-01-018-client-strategy-in-dev-qas-prd-f855e422.html">Client strategy in DEV QAS PRD</a>，把 system landscape 和 client 维度补齐。</li>
+</ul>
+<blockquote>Atomic note: <a class="wiki" href="section-01-017-transport-task-request-import-queue-e945d7ef.html">Transport task request import queue governance</a></blockquote><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-016-abap-debugger-05add8e6.html">Previous section</a><a href="section-01-018-client-strategy-in-dev-qas-prd-f855e422.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

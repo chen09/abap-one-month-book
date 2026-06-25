@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>CORRESPONDING FIELDS and MOVE-CORRESPONDING risks | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="44-corresponding-fields-and-move-corresponding-risks-20c39d53" class="chapter-title">44. CORRESPONDING FIELDS and MOVE-CORRESPONDING risks</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 44</li><li>self-contained study note</li></ul><h4 id="44-1-a0a4410b" class="semantic-heading semantic-concept">44.1 一句话结论</h4>
+<p><code>MOVE-CORRESPONDING</code> 和 ABAP SQL 的 <code>INTO CORRESPONDING FIELDS</code> 都是在“按同名字段 / 同名 component 对应”这个思想下减少手工赋值的工具；它们能避免位置错位，也能让结构映射更短，但风险同样明显：同名不等于同义，不同名不会自动映射，未匹配字段在不同语法中会被初始化、保留或忽略，类型转换可能静默发生，内表场景还会受到初始化、追加、<code>KEEPING TARGET LINES</code>、<code>BASE</code>、duplicate key、nested table 等行为影响。本节不重复 <a class="wiki" href="section-02-039-corresponding-expression-74c9f3e8.html">CORRESPONDING expression 字段映射</a> 的完整语法，而是专门讲旧式 statement、SQL 接收和项目 review 中最容易出问题的边界。</p>
+<h4 id="44-2-39775a27" class="semantic-heading semantic-concept">44.2 到底学什么</h4>
+<p>前面 Section 39 已经讲过现代 <code>CORRESPONDING #( ... )</code>：它是 constructor expression，可以写 <code>MAPPING target = source</code>、<code>EXCEPT</code>、<code>BASE</code>、<code>DISCARDING DUPLICATES</code>、<code>DEEP</code> 等。本节关注另外两个你会在真实项目里大量遇到的入口：</p>
+<pre><code class="language-abap">MOVE-CORRESPONDING ls_source TO ls_target.</code></pre>
+<p>以及：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       INTO CORRESPONDING FIELDS OF TABLE @lt_orders.</code></pre>
+<p>这两个写法看起来都在“自动对字段”，但语境不同。<code>MOVE-CORRESPONDING</code> 是 ABAP statement，常见于 legacy report、function module、批处理、迁移程序和旧式 helper。<code>INTO CORRESPONDING FIELDS</code> 是 ABAP SQL 的结果接收语法，常见于把数据库表、CDS view 或 projection result 放入已有结构 / 内表时。读者要学会看到它们之后追问四件事：</p>
+<ul>
+<li>source 和 target 里哪些同名字段会被移动？</li>
+<li>哪些字段没有被移动，结果是 initial、保留旧值，还是没有进入目标？</li>
+<li>同名字段的业务语义和类型是否真的兼容？</li>
+<li>如果以后新增字段、改名、加 alias、换目标结构，映射是否会悄悄变化？</li>
+</ul>
+<h4 id="44-3-3f6226f3" class="semantic-heading semantic-why">44.3 为什么重要</h4>
+<p>字段映射类 bug 通常很隐蔽。它不像语法错误那样立刻失败，也不像 runtime error 那样直接 dump；它经常表现为“订单状态看起来对，但其实来自另一个状态字段”“金额字段被复制了，但 currency/unit 没有跟上”“新加字段上线后没有进入接口响应”“SQL 列顺序改了，旧结构位置赋值错位”。这些问题很适合在开发机中漏掉，在结合测试、数据迁移、接口联调或本番障害调查中才暴露。</p>
+<p><code>CORRESPONDING FIELDS</code> 的价值是降低位置依赖。没有它时，把查询结果放入一个已有结构或内表时，很多场景会出现位置赋值风险，字段名并不能保护你。写上 <code>INTO CORRESPONDING FIELDS</code> 后，列名和目标 component 名称才成为主要匹配依据。但这只是把“位置风险”换成“名称风险”：名字相同也可能业务含义不同，名字不同但业务含义相同也不会自动匹配。</p>
+<p>对 Java/Python 背景学习者，可以把它类比成“按属性名把一个 DTO 映射成另一个 DTO”。区别是：ABAP 的 DDIC type、fixed-length CHAR/NUMC、packed number、currency/unit reference、client、conversion exit、SQL result target 都会影响最终结果。它不是 JSON mapper，也不是 ORM mapper，更不是业务转换引擎。</p>
+<h4 id="44-4-key-mechanism-ef27b6a2" class="semantic-heading semantic-mechanism">44.4 Key mechanism / 核心机制</h4>
+<h5 id="44-4-1-ff4019c5">44.4.1 名称对应，不是位置对应</h5>
+<p><code>MOVE-CORRESPONDING</code> 的基本思想是：source 和 target 中名称相同的 components 被赋值。</p>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_source,
+         order_id TYPE string,
+         status   TYPE string,
+         note     TYPE string,
+       END OF ty_source.
+
+TYPES: BEGIN OF ty_target,
+         order_id TYPE string,
+         status   TYPE string,
+         text     TYPE string,
+       END OF ty_target.
+
+MOVE-CORRESPONDING ls_source TO ls_target.</code></pre>
+<p>这里会移动 <code>order_id</code> 和 <code>status</code>。<code>note</code> 因为 target 没有同名 component，不会进入 target；<code>text</code> 因为 source 没有同名 component，不会从 source 获得新值。对结构 target，要特别关注目标中未匹配字段在当前语境下是保留旧值还是被初始化；对内表 target，要关注是替换内容、追加内容，还是保留原有 target lines。不同语法位置的初始化 / 保留行为不同，不能凭“都是 corresponding”做推断。</p>
+<p>最容易被初学者忽略的是：<code>MOVE-CORRESPONDING</code> 是修改已有变量的 statement，而 <code>CORRESPONDING #( ... )</code> 是构造一个新值的 expression。把旧代码机械替换成现代表达式时，未匹配 target 字段的行为可能改变：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>未匹配 target component</th><th>结果对象</th></tr></thead><tbody><tr><td><code>MOVE-CORRESPONDING source TO target</code></td><td>保留 target 里的既有值</td><td>修改已有 <code>target</code></td></tr><tr><td><code>target = CORRESPONDING #( source )</code></td><td>初始化为类型初始值</td><td>构造新值后赋给 <code>target</code></td></tr><tr><td><code>target = CORRESPONDING #( BASE ( target ) source )</code></td><td>通过 <code>BASE</code> 保留旧值</td><td>构造带旧值基础的新值</td></tr></tbody></table></div>
+<p>所以，<code>BASE</code> 不是“现代写法里总该加的安全选项”。它只在旧代码本来就需要保留目标旧值时才是正确迁移方向。如果旧 <code>MOVE-CORRESPONDING</code> 的目标原本会被清空或重建，错误地加上 <code>BASE</code> 反而会把旧行、旧字段带到新结果里。</p>
+<h5 id="44-4-2-move-corresponding-statement-5e48ee22">44.4.2 <code>MOVE-CORRESPONDING</code> 是 statement</h5>
+<p><code>MOVE-CORRESPONDING</code> 修改已有目标对象。它不像 <code>CORRESPONDING #( source )</code> 那样构造一个新的值，也没有 <code>MAPPING target = source</code>、<code>EXCEPT</code>、<code>DEEP</code>、<code>BASE</code> 这些现代表达式式 addition。不同名字段要么先调整命名，要么手工赋值，要么改用现代 <code>CORRESPONDING #( ... MAPPING ... )</code>，复杂场景则放进 converter method。</p>
+<pre><code class="language-abap">MOVE-CORRESPONDING ls_db_order TO ls_api_order.
+
+ls_api_order-order_id    = ls_db_order-vbeln.
+ls_api_order-customer_id = ls_db_order-kunnr.</code></pre>
+<p>这段代码很常见：用 <code>MOVE-CORRESPONDING</code> 先复制同名字段，再补不同名字段。它可以读，但要注意 review 语义：如果不同名字段越来越多，或者业务转换越来越复杂，就应该改成显式 mapping method，而不是继续在 <code>MOVE-CORRESPONDING</code> 后面堆赋值。</p>
+<p>如果使用现代 <code>CORRESPONDING #( ... MAPPING ... )</code>，还要特别注意方向：在 <code>MAPPING target_comp = source_comp</code> 中，左边是 target component，右边是 source component。这个写法和普通赋值语句 <code>target = source</code> 在视觉上相似，但它嵌在 constructor expression 里，初学者常把左右方向看反。nested component 也不能简单写成 <code>a-b = c-d</code> 这种路径式 mapping；深层结构应结合 <code>DEEP</code>、嵌套 mapping 或显式转换方法处理。</p>
+<h5 id="44-4-3-keeping-target-lines-b3ccf858">44.4.3 内表场景要看 <code>KEEPING TARGET LINES</code></h5>
+<p>内表 target 场景里，是否保留目标表既有行不是小细节，而是业务行为。</p>
+<pre><code class="language-abap">MOVE-CORRESPONDING lt_new_items TO lt_items.</code></pre>
+<p>和：</p>
+<pre><code class="language-abap">MOVE-CORRESPONDING lt_new_items TO lt_items
+  KEEPING TARGET LINES.</code></pre>
+<p>不能机械互换。没有 <code>KEEPING TARGET LINES</code> 时，旧式内表 <code>MOVE-CORRESPONDING</code> 的目标表会按 source 表重新建立同名字段结果；有 <code>KEEPING TARGET LINES</code> 时，目标表原有行会被保留，再把 source 的 corresponding 结果纳入目标表。对应到现代表达式，常见判断可以先记成：</p>
+<div class="table-wrap"><table><thead><tr><th>legacy 写法</th><th>迁移时通常对应的意图</th></tr></thead><tbody><tr><td><code>MOVE-CORRESPONDING lt_source TO lt_target</code></td><td><code>lt_target = CORRESPONDING #( lt_source )</code>，不要自动加 <code>BASE</code></td></tr><tr><td><code>MOVE-CORRESPONDING lt_source TO lt_target KEEPING TARGET LINES</code></td><td><code>lt_target = CORRESPONDING #( BASE ( lt_target ) lt_source )</code>，保留目标既有行</td></tr></tbody></table></div>
+<p>看到 <code>KEEPING TARGET LINES</code> 时，review 要问：目标表原有行是否应该保留？如果把旧代码迁移成 <code>CORRESPONDING #( ... )</code>，是否需要 <code>BASE ( lt_items )</code> 或其它显式逻辑保持原行为？漏掉这个 addition 可能把“追加 / 保留”变成“覆盖 / 重建”；反过来，给原本不保留目标行的旧代码误加 <code>BASE</code>，也会把不该留下的旧数据混进结果。</p>
+<p>进阶提醒：如果代码使用 <code>ANY</code>、泛型 field symbol 或非常动态的 target，语法层面能看到的信息会变少，<code>KEEPING TARGET LINES</code> / <code>BASE</code> 的行为更需要在目标系统中用小型 POC 或 ABAP Unit 固定。不要在泛型迁移里只靠“语义看起来等价”下结论。</p>
+<p>更进一步，如果这段迁移发生在泛型参数、动态内表或跨版本系统上，还要确认目标系统的 ABAP release、kernel patch level 和相关 SAP Notes。这里不要求初学者记住某个补丁号，而是要养成一个项目习惯：凡是 <code>KEEPING TARGET LINES</code>、<code>BASE</code>、<code>DEEP</code>、泛型 operand 同时出现，就不要只做文字级替换，要在目标系统里用最小数据集证明行为。</p>
+<h5 id="44-4-4-deep-structure-expanding-nested-tables-2a49ef2a">44.4.4 deep structure 要看 <code>EXPANDING NESTED TABLES</code></h5>
+<p>如果 structure 或 row type 中包含 nested internal table、深层结构、string/reference 等 deep component，浅层同名复制和深层展开复制不是一回事。旧代码里可能出现：</p>
+<pre><code class="language-abap">MOVE-CORRESPONDING lt_source TO lt_target
+  EXPANDING NESTED TABLES
+  KEEPING TARGET LINES.</code></pre>
+<p>现代 <code>CORRESPONDING #( DEEP ... )</code> 能表达相近方向，但不等于可以无脑替换。可以先用下面这张表做 review 导航：</p>
+<div class="table-wrap"><table><thead><tr><th>legacy 写法</th><th>modern 方向</th><th>需要验证的重点</th></tr></thead><tbody><tr><td><code>MOVE-CORRESPONDING s TO t</code></td><td><code>t = CORRESPONDING #( s )</code></td><td>顶层同名字段；nested table 是否被整体替换或初始化</td></tr><tr><td><code>MOVE-CORRESPONDING s TO t EXPANDING NESTED TABLES</code></td><td><code>t = CORRESPONDING #( DEEP s )</code></td><td>nested table 是否按同名字段逐层映射</td></tr><tr><td><code>MOVE-CORRESPONDING s TO t KEEPING TARGET LINES</code></td><td><code>t = CORRESPONDING #( BASE ( t ) s )</code></td><td>顶层 target 既有行是否保留</td></tr><tr><td><code>MOVE-CORRESPONDING s TO t EXPANDING NESTED TABLES KEEPING TARGET LINES</code></td><td><code>t = CORRESPONDING #( DEEP BASE ( t ) s )</code></td><td>deep mapping 与既有行保留是否同时符合预期</td></tr></tbody></table></div>
+<p>看到 <code>EXPANDING NESTED TABLES</code> 时，至少要用 ABAP Unit 或小型 POC 确认 nested target table 的行数、顺序、保留行为和重复 key 行为都符合预期。尤其是包含 table key、金额/数量、状态、文本行、附件行这类业务明细时，deep copy 的错误不会显得像语法错误，而会表现成“少了一行”“多保留了一行”“明细字段没更新”。</p>
+<h5 id="44-4-5-into-corresponding-fields-sql-result-e9a484c4">44.4.5 <code>INTO CORRESPONDING FIELDS</code> 是 SQL result 接收语境</h5>
+<p>ABAP SQL 里最常见的风险，是把 selected columns 接收到一个已有结构或内表时，误以为列名总会保护你。实际 review 时要区分两种写法：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @lt_orders.</code></pre>
+<p>和：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       INTO CORRESPONDING FIELDS OF TABLE @lt_orders.</code></pre>
+<p>不写 <code>CORRESPONDING FIELDS</code> 时，已有目标对象场景里可能发生位置赋值风险；写上之后，匹配依据是 result column 名称和 target component 名称。使用 <code>CORRESPONDING</code> 之后，列的位置不再是核心，名称才是核心。</p>
+<p>这里要和 <code>CORRESPONDING #( ... )</code> 表达式分开理解：ABAP SQL 的 <code>INTO CORRESPONDING FIELDS OF ...</code> 是 SQL result 接收规则，不支持 <code>MAPPING</code>、<code>EXCEPT</code>、<code>BASE</code>、<code>DEEP</code> 这些 constructor expression addition。也就是说，SQL 里想处理不同名字段，入口不是 <code>MAPPING</code>，而是 SELECT list 的 alias；想处理 deep mapping 或业务转换，入口也不是 <code>INTO CORRESPONDING FIELDS</code>，而是后续显式转换逻辑。</p>
+<h5 id="44-4-6-sql-alias-mapping-290b00a3">44.4.6 SQL alias 是 mapping 的入口</h5>
+<p><code>INTO CORRESPONDING FIELDS</code> 没有 <code>MAPPING target = source</code> 这种语法。如果 SQL result column 名称和 target component 不同，通常要在 SELECT list 中用 alias：</p>
+<pre><code class="language-abap">SELECT FROM vbak
+       FIELDS vbeln AS sales_order_id,
+              kunnr AS customer_id,
+              erdat AS created_on
+       WHERE kunnr = @lv_customer_id
+       INTO CORRESPONDING FIELDS OF TABLE @lt_orders.</code></pre>
+<p>这个写法把“数据库字段名”和“程序 DTO 字段名”的对应关系放在读取处。风险是 alias 写错时字段会进不去；因此 SQL list、target type 和 ABAP Unit 预期结果要一起 review。</p>
+<h5 id="44-4-7-into-appending-163b5ca1">44.4.7 <code>INTO</code> 与 <code>APPENDING</code> 是不同生命周期</h5>
+<p>ABAP SQL 的 <code>INTO TABLE</code> 通常表示把结果接收到目标内表，<code>APPENDING TABLE</code> 则保留已有 internal table 行并追加新结果。<code>APPENDING CORRESPONDING FIELDS OF TABLE</code> 也存在：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id
+       WHERE customer_id = @lv_customer_id
+       APPENDING CORRESPONDING FIELDS OF TABLE @lt_orders.</code></pre>
+<p>看到 <code>APPENDING</code> 时，review 要问：这段代码是有意把多次查询结果合并到同一张内表，还是忘了清空目标表？如果没有这个问题意识，很容易把上一次循环的数据和这一次的数据混在一起。</p>
+<h5 id="44-4-8-fd005ad8">44.4.8 同名字段不等于同义字段</h5>
+<p>最危险的 bug 不是字段完全对不上，而是字段“刚好同名”。例如两个结构都有 <code>status</code>：</p>
+<pre><code class="language-abap">MOVE-CORRESPONDING ls_db_order TO ls_api_order.</code></pre>
+<p>如果 <code>ls_db_order-status</code> 表示数据库技术状态，<code>ls_api_order-status</code> 表示对外接口状态，那么同名复制就是错的。更清楚的写法可能是：</p>
+<pre><code class="language-abap">ls_api_order-status = status_mapper-&gt;to_api_status( ls_db_order-status ).</code></pre>
+<p>或者在现代 expression 中用 <code>EXCEPT status</code> 后显式赋值。<code>MOVE-CORRESPONDING</code> 没有 <code>EXCEPT</code> 的表达力时，就要靠后续显式覆盖或 dedicated mapping method 让风险可见。</p>
+<h5 id="44-4-9-39afc284">44.4.9 不同名字段不会自动对应</h5>
+<p>另一类 bug 是字段语义相同但名字不同：</p>
+<pre><code class="language-text">source-vbeln  -&gt; target-sales_order_id
+source-kunnr  -&gt; target-customer_id
+source-waerk  -&gt; target-currency</code></pre>
+<p><code>MOVE-CORRESPONDING</code> 不会知道这些关系。ABAP SQL 可以用 alias；modern <code>CORRESPONDING #( ... )</code> 可以用 <code>MAPPING</code>；复杂转换应放进专门 method。不要指望字段名映射替代业务 mapping 表。</p>
+<h5 id="44-4-10-300a1020">44.4.10 类型转换仍然会发生</h5>
+<p>同名字段被赋值时，仍然要按 ABAP assignment / conversion rules 处理。风险包括：</p>
+<ul>
+<li>CHAR / NUMC / string 长度截断或补零。</li>
+<li>packed number 小数位、舍入、溢出。</li>
+<li>date/time 字段格式不符合预期。</li>
+<li>amount 没有 currency，quantity 没有 unit。</li>
+<li>conversion exit 没有在你以为的地方执行。</li>
+<li>同名 key 字段类型不同，导致前导零或大小写问题。</li>
+</ul>
+<p>因此，金额、数量、日期、状态、key、语言、client、currency/unit 这些字段不要只靠“同名”通过。它们需要显式 review 和测试。</p>
+<h5 id="44-4-11-select-corresponding-fields-02dd29ae">44.4.11 <code>SELECT *</code> 加 <code>CORRESPONDING FIELDS</code> 不是好习惯</h5>
+<p><code>SELECT * INTO CORRESPONDING FIELDS OF TABLE @lt_result</code> 在旧代码里很常见，但新教程里不应该把它当成默认推荐。它的问题有两个：第一，<code>SELECT *</code> 可能过度读取；第二，目标结构只接收同名字段，看起来安全，实际上可能把未进入目标的字段静默忽略。更好的默认模式是写清楚 <code>FIELDS</code> 列表，并用 alias 对齐 target type。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status
+       WHERE customer_id = @lv_customer_id
+       INTO CORRESPONDING FIELDS OF TABLE @lt_orders.</code></pre>
+<p>这让 reader 能 review “到底读取了什么”和“到底接收了什么”。</p>
+<h5 id="44-4-12-mapping-engine-5897d04d">44.4.12 它不是业务 mapping engine</h5>
+<p><code>MOVE-CORRESPONDING</code> / <code>CORRESPONDING FIELDS</code> 不会自动完成 status code 翻译、amount / currency 组合校验、unit conversion、timezone / date formatting、language-dependent text selection、authorization filtering、RAP validation / determination 或 external API version adaptation。如果映射需要业务判断，就应该放到 named method、mapping table、factory、converter class 或 RAP behavior helper 中。<code>CORRESPONDING</code> 家族适合“技术字段搬运”，不适合隐藏业务转换。</p>
+<h5 id="44-4-13-legacy-mapping-migration-checklist-0a6bede2">44.4.13 legacy mapping migration checklist</h5>
+<p>迁移旧代码时，不要把 <code>MOVE-CORRESPONDING</code> 机械替换成 <code>CORRESPONDING #( ... )</code>，也不要看到 <code>INTO CORRESPONDING FIELDS</code> 就默认安全。先用下面的表固定现有行为：</p>
+<div class="table-wrap"><table><thead><tr><th>Step</th><th>Check</th><th>Evidence to keep</th></tr></thead><tbody><tr><td>1. Inventory fields</td><td>source / target 全字段、同名字段、不同名但同义字段。</td><td>mapping 表或注释化的字段清单。</td></tr><tr><td>2. Identify lifecycle</td><td>target 是新建、覆盖、保留旧值，还是 append 到已有内表。</td><td><code>BASE</code>、<code>KEEPING TARGET LINES</code>、<code>APPENDING</code> 等行为说明。</td></tr><tr><td>3. Check semantic pairs</td><td>amount/currency、quantity/unit、status/domain、date/timezone、client/key。</td><td>review 结论或 ABAP Unit test case。</td></tr><tr><td>4. Lock SQL aliases</td><td>SQL result 列名是否和 target component 一致。</td><td>SELECT list + alias，不使用模糊 <code>SELECT *</code>。</td></tr><tr><td>5. Test old vs new</td><td>用代表性数据比较旧 statement 和新 expression 结果。</td><td>ABAP Unit expected structure/table。</td></tr><tr><td>6. Decide business mapping location</td><td>纯技术搬运留在 <code>CORRESPONDING</code>，业务转换抽 method/class/table。</td><td>converter method、mapping table 或接口规格。</td></tr><tr><td>7. Document exceptions</td><td>哪些字段故意不映射、故意 initial、故意保留。</td><td><code>EXCEPT</code>、<code>BASE</code>、字段映射表或 review 记录。</td></tr></tbody></table></div>
+<p>一个很实用的迁移原则是：先让旧行为可见，再决定是否改变旧行为。若迁移同时改变字段语义、默认值、SQL alias 和业务转换，测试失败时很难判断问题来自语法迁移，还是来自业务规则变更。</p>
+<h4 id="44-5-7175f44f" class="semantic-heading semantic-japan">44.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>MOVE-CORRESPONDING文</code></li>
+<li><code>CORRESPONDING FIELDS</code></li>
+<li><code>同名項目コピー</code></li>
+<li><code>項目マッピング</code></li>
+<li><code>名前対応</code></li>
+<li><code>位置対応</code></li>
+<li><code>暗黙変換</code></li>
+<li><code>型変換</code></li>
+<li><code>項目漏れ</code></li>
+<li><code>未設定項目</code></li>
+<li><code>初期値</code></li>
+<li><code>既存値保持</code></li>
+<li><code>KEEPING TARGET LINES</code></li>
+<li><code>EXPANDING NESTED TABLES</code></li>
+<li><code>APPENDING CORRESPONDING FIELDS</code></li>
+<li><code>項目対応表</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li><code>このMOVE-CORRESPONDINGは同名項目コピーであり、業務上同じ意味の項目であることを確認してください。</code></li>
+<li><code>CORRESPONDING FIELDSを使わない場合、列名ではなく位置で代入される点に注意してください。</code></li>
+<li><code>同名項目ですが、業務上の意味が異なる可能性があるため、明示的なマッピングに変更してください。</code></li>
+<li><code>APPENDING CORRESPONDING FIELDSを使用しているため、既存行を保持する意図があるか確認してください。</code></li>
+<li><code>MOVE-CORRESPONDINGをCORRESPONDING式へ置き換える場合、未対応項目の初期化有無が変わらないか確認してください。</code></li>
+<li><code>KEEPING TARGET LINESあり／なしで、既存行保持の仕様が変わらないことをテストで確認してください。</code></li>
+<li><code>MAPPING指定では左辺がターゲット項目、右辺がソース項目です。左右を取り違えないようにしてください。</code></li>
+<li><code>DEEPまたはEXPANDING NESTED TABLESを使う場合、ネストした内部テーブルの行保持・追加・キー重複を確認してください。</code></li>
+<li><code>汎用型や動的テーブルを含む置換では、対象環境のリリース差異と関連ノートを確認した上で、最小データで動作確認してください。</code></li>
+</ul>
+<h4 id="44-6-english-terms-020747f8" class="semantic-heading semantic-terms">44.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>MOVE-CORRESPONDING</code></li>
+<li>Official / search term: <code>CORRESPONDING FIELDS</code></li>
+<li>Official / search term: <code>INTO CORRESPONDING FIELDS OF TABLE</code></li>
+<li>Official / search term: <code>APPENDING CORRESPONDING FIELDS OF TABLE</code></li>
+<li>Official / search term: <code>KEEPING TARGET LINES</code></li>
+<li>Official / search term: <code>EXPANDING NESTED TABLES</code></li>
+<li>Official / search term: <code>CORRESPONDING operator</code></li>
+<li>Official / search term: <code>MAPPING</code></li>
+<li>Official / search term: <code>EXCEPT</code></li>
+<li>Official / search term: <code>BASE</code></li>
+<li>Official / search term: <code>DEEP</code></li>
+<li>Official / search term: <code>DISCARDING DUPLICATES</code></li>
+<li>Official / search term: <code>CL_ABAP_CORRESPONDING</code></li>
+<li>Recommended search pattern: <code>MOVE-CORRESPONDING KEEPING TARGET LINES SAP Help</code></li>
+<li>Recommended search pattern: <code>ABAP SQL INTO CORRESPONDING FIELDS OF TABLE SAP Help</code></li>
+<li>Recommended search pattern: <code>MOVE-CORRESPONDING EXPANDING NESTED TABLES SAP ABAP</code></li>
+<li>Recommended search pattern: <code>MOVE-CORRESPONDING KEEPING TARGET LINES generic operands SAP Note</code></li>
+</ul>
+<h4 id="44-7-example-4b32f0c2" class="semantic-heading semantic-example">44.7 Example / 学习例子</h4>
+<h5 id="44-7-1-sql-20f84ce9" class="semantic-heading semantic-example">44.7.1 例子一：SQL 结果列和目标结构对齐</h5>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_order,
+         sales_order_id TYPE vbeln_va,
+         customer_id    TYPE kunnr,
+         created_on     TYPE erdat,
+       END OF ty_order.
+
+DATA lt_orders TYPE STANDARD TABLE OF ty_order WITH EMPTY KEY.
+
+SELECT FROM vbak
+       FIELDS vbeln AS sales_order_id,
+              kunnr AS customer_id,
+              erdat AS created_on
+       WHERE kunnr = @lv_customer_id
+       INTO CORRESPONDING FIELDS OF TABLE @lt_orders.</code></pre>
+<p>这段代码的优点是 mapping 意图可见：<code>vbeln</code> 进入 <code>sales_order_id</code>，<code>kunnr</code> 进入 <code>customer_id</code>，<code>erdat</code> 进入 <code>created_on</code>。reviewer 不需要猜列顺序，也不需要猜目标结构中哪些字段会被填。</p>
+<h5 id="44-7-2-11571c72" class="semantic-heading semantic-example">44.7.2 例子二：同名但不同义</h5>
+<pre><code class="language-abap">MOVE-CORRESPONDING ls_db_order TO ls_api_order.
+
+&quot; Do not rely on same-name status if the business meaning differs.
+ls_api_order-status = status_mapper-&gt;to_api_status( ls_db_order-status ).</code></pre>
+<p>如果 <code>status</code> 字段需要转换，就要显式覆盖，或者把整个 mapping 迁移到 dedicated method 中。否则读者会以为 <code>MOVE-CORRESPONDING</code> 已经完成了业务转换。</p>
+<h5 id="44-7-3-975765e1" class="semantic-heading semantic-example">44.7.3 例子三：迁移旧代码前先固定行为</h5>
+<p>旧代码：</p>
+<pre><code class="language-abap">MOVE-CORRESPONDING lt_source TO lt_target
+  EXPANDING NESTED TABLES
+  KEEPING TARGET LINES.</code></pre>
+<p>迁移前不要直接改成：</p>
+<pre><code class="language-abap">lt_target = CORRESPONDING #( lt_source ).</code></pre>
+<p>正确做法是先用 ABAP Unit 或最小 POC 固定：target 原有行是否保留、nested table 是否展开、重复 key 是否允许、未匹配字段是保留还是 initial。然后再决定用 <code>CORRESPONDING #( BASE ... DEEP ... )</code>、显式 loop，还是保留 legacy statement。</p>
+<h5 id="44-7-4-base-a21f0fab" class="semantic-heading semantic-example">44.7.4 例子四：<code>BASE</code> 不是自动安全选项</h5>
+<p>假设旧代码的业务含义是“用新来源重建目标表”：</p>
+<pre><code class="language-abap">MOVE-CORRESPONDING lt_source TO lt_target.</code></pre>
+<p>迁移成：</p>
+<pre><code class="language-abap">lt_target = CORRESPONDING #( BASE ( lt_target ) lt_source ).</code></pre>
+<p>可能就是错的，因为 <code>BASE ( lt_target )</code> 会把目标表的既有内容带入新结果。只有当旧代码明确用了 <code>KEEPING TARGET LINES</code>，或者需求明确要求保留旧目标内容时，<code>BASE</code> 才是迁移候选。项目 review 里应把问题说清楚：这里是“重建目标”，还是“在既有目标上追加 / 合并”？</p>
+<h4 id="44-8-counterexample-failure-mode-b3d43250" class="semantic-heading semantic-example">44.8 Counterexample / Failure mode</h4>
+<p>常见失败模式：</p>
+<ul>
+<li>把 <code>MOVE-CORRESPONDING</code> 当成业务 mapping engine。</li>
+<li>同名字段业务含义不同，却被自动复制。</li>
+<li>字段语义相同但名字不同，结果没有进入 target。</li>
+<li><code>SELECT * INTO CORRESPONDING FIELDS</code> 过度读取，并静默忽略目标没有的列。</li>
+<li><code>APPENDING CORRESPONDING FIELDS</code> 把上一次循环的数据和本次结果混在一起。</li>
+<li>忘记 <code>KEEPING TARGET LINES</code>，导致迁移后目标表原有行消失。</li>
+<li>给原本不保留目标内容的旧代码误加 <code>BASE</code>，导致旧数据残留。</li>
+<li>忘记 <code>EXPANDING NESTED TABLES</code> / <code>DEEP</code> 差异，nested table 行为改变。</li>
+<li>泛型 operand 或动态内表迁移时没有确认目标 release / kernel / SAP Notes，只按语法相似性替换。</li>
+<li>把 SQL 的 <code>INTO CORRESPONDING FIELDS</code> 误认为也能使用 <code>MAPPING</code>、<code>EXCEPT</code>、<code>BASE</code>、<code>DEEP</code>。</li>
+<li>amount 被复制了，currency/unit 没有同步检查。</li>
+<li>用 <code>CORRESPONDING FIELDS</code> 避免位置错位，但没有对 target type 写测试。</li>
+<li>把 <code>MOVE-CORRESPONDING</code> 机械替换成 <code>CORRESPONDING #( ... )</code>，忽略初始化差异。</li>
+</ul>
+<p>一个危险反例：</p>
+<pre><code class="language-abap">SELECT *
+  FROM vbak
+  INTO CORRESPONDING FIELDS OF TABLE @lt_api_orders
+  WHERE kunnr = @lv_customer_id.</code></pre>
+<p>更好的教学写法：</p>
+<pre><code class="language-abap">SELECT FROM vbak
+       FIELDS vbeln AS sales_order_id,
+              kunnr AS customer_id,
+              erdat AS created_on
+       WHERE kunnr = @lv_customer_id
+       INTO CORRESPONDING FIELDS OF TABLE @lt_api_orders.</code></pre>
+<p>重点不是 <code>CORRESPONDING FIELDS</code> 不能用，而是不要让它替代字段清单、alias、业务转换和测试。</p>
+<h4 id="44-9-79950d99" class="semantic-heading semantic-practice">44.9 思考问题</h4>
+<ul>
+<li>这段 mapping 是技术同名复制，还是包含业务转换？</li>
+<li>source 和 target 中有哪些同名字段？它们是否真的业务同义？</li>
+<li>有哪些不同名但业务应映射的字段？用 SQL alias、<code>MAPPING</code>，还是手工 method？</li>
+<li>未匹配字段在当前语境下是 initial、保留旧值，还是完全不进入目标？</li>
+<li>内表 target 是否需要保留原有行？是否涉及 <code>KEEPING TARGET LINES</code> 或 <code>APPENDING</code>？</li>
+<li>旧代码迁移到 <code>CORRESPONDING #( ... )</code> 时，<code>BASE</code> 是保持语义，还是引入旧数据残留？</li>
+<li>是否涉及 nested table，需要 <code>EXPANDING NESTED TABLES</code>、<code>DEEP</code> 或显式 loop？</li>
+<li>金额、数量、日期、状态、key 字段是否有类型转换或 currency/unit 风险？</li>
+<li>是否可以写一个 ABAP Unit 固定 mapping 结果？</li>
+</ul>
+<h4 id="44-10-c28db869" class="semantic-heading semantic-reference">44.10 参考资料入口</h4>
+<ul>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPMOVE-CORRESPONDING.html" target="_blank" rel="noopener noreferrer">MOVE-CORRESPONDING</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSELECT_INTO_TARGET.html" target="_blank" rel="noopener noreferrer">SELECT, INTO target</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPINTO_CLAUSE.html" target="_blank" rel="noopener noreferrer">SELECT, INTO, APPENDING</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCORRESPONDING.html" target="_blank" rel="noopener noreferrer">CORRESPONDING, Basic Form</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCORRESPONDING_CONSTR_MAPPING.html" target="_blank" rel="noopener noreferrer">CORRESPONDING, Mapping</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-02-039-corresponding-expression-74c9f3e8.html">CORRESPONDING expression 字段映射</a></li>
+<li><a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="44-11-connections-f6be49a7">44.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-02-039-corresponding-expression-74c9f3e8.html">CORRESPONDING expression 字段映射</a></li>
+<li>Related: <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></li>
+<li>Related: <a class="wiki" href="section-02-038-value-expression-a0792b7e.html">VALUE expression 值构造表达式</a></li>
+<li>Related: <a class="wiki" href="section-02-043-sy-subrc-discipline-and-silent-failure-patterns-17a684f1.html">sy-subrc discipline and silent failure patterns</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Downstream: <a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="44-12-663196f3" class="semantic-heading semantic-practice">44.12 学习任务</h4>
+<ul>
+<li>找一段 <code>MOVE-CORRESPONDING</code> 代码，列出实际会复制的同名字段。</li>
+<li>把一个 <code>SELECT * INTO CORRESPONDING FIELDS</code> 改成显式 <code>FIELDS ... AS ...</code> 列表。</li>
+<li>为一个 mapping 写 ABAP Unit，验证至少 3 个字段：同名字段、不同名字段、未匹配字段。</li>
+<li>用日语写一句 review 指摘，说明同名字段不一定业务同义。</li>
+<li>比较 <code>MOVE-CORRESPONDING</code> 和 <code>CORRESPONDING #( ... )</code> 在未匹配 target 字段上的行为差异。</li>
+<li>比较 <code>MOVE-CORRESPONDING ... KEEPING TARGET LINES</code> 与 <code>CORRESPONDING #( BASE ( target ) source )</code> 的迁移语义。</li>
+</ul>
+<h4 id="44-13-confidence-next-action-f3246efd" class="semantic-heading semantic-status">44.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容基于 SAP Help / ABAP Keyword Documentation、SAP Samples cheat sheets，以及已扩写的 <code>CORRESPONDING expression 字段映射</code> 和 <code>INTO vs INTO TABLE 结果接收</code> 章节整理；Joule SAP 专家已给出 <code>Pass with fixes</code>，关于 <code>KEEPING TARGET LINES</code>、<code>BASE</code>、<code>DEEP</code>、SQL alias、泛型 operand 与 release / kernel 差异的核心修正已合入。Claude CLI 文字审校仍作为外部 review debt 记录，因为当前会话 health check 多次超时。</li>
+<li>Next action: 后续若 Claude CLI 恢复稳定，再补一次文件式文字审校；当前本节可作为 <code>expanded-review</code> 书稿正文使用。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-044-corresponding-fields-and-move-corresponding-risks-209a3881.html">CORRESPONDING FIELDS and MOVE-CORRESPONDING risks</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-043-sy-subrc-discipline-and-silent-failure-patterns-17a684f1.html">Previous section</a><a href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

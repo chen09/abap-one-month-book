@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Internal table 内部表基础 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="24-internal-table-d7d87f90" class="chapter-title">24. Internal table 内部表基础</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 24</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>Internal table 内部表 是 ABAP 程序运行时内存里的 typed row collection：它用同一个 row type 保存 0 到多行数据，适合接住 SQL 查询结果、临时整理业务记录、循环处理和传递结果集。它不是数据库表，不会自己持久化数据，也不是无类型 list/dict；学会 internal table，才真正进入 ABAP 的日常数据处理世界。</p>
+<p><strong>正文</strong></p>
+<p>上一节的 <a class="wiki" href="section-01-023-structure-3269a877.html">Structure 结构类型</a> 解释了“一条记录”是什么。Internal table 则解释“多条记录”如何存在 ABAP 程序内存里。一个 internal table 是一个 data object，它的类型叫 table type；table type 至少要说明 row type，通常还要说明 table category 和 key。最常见的业务内表是“行类型为结构”的内表，也就是每一行都是一个结构，多个结构排成一张程序内存中的表。</p>
+<p>先把边界画清楚。Database table 是数据库里的持久化表，internal table 是 ABAP 程序运行时的内存对象。<code>SELECT ... INTO TABLE @lt_items</code> 会把查询结果放进 internal table，得到的是程序内存里的结果集副本；SELECT 结束后，<code>lt_items</code> 不会自动和数据库保持连接。现代代码里还常见 inline form：<code>SELECT ... INTO TABLE @DATA(lt_items)</code>，这会根据 SELECT 结果在编译期推断 internal table 的 row type。若这个内表要跨多个步骤复用，预先显式声明 <code>lt_items</code> 也完全合理。</p>
+<p>Internal table 的 row type 可以是 elementary、structured、reference，甚至可以更复杂；但初学阶段先把“多数业务内表的 row type 是 structure”学稳。比如订单行、航班连接、消息明细、RAP reported/failed 记录，通常都是结构行。只有一个整数列表或字符串列表才接近 simple internal table。后面学 ABAP SQL 时还要注意：deep row type 在某些 SQL 数据源/结果场景有额外限制，本节先不展开。</p>
+<p>Table type 可以直接写在 <code>DATA</code> 上，也可以先用 <code>TYPES</code> 命名，还可以来自 DDIC/global table type：</p>
+<pre><code class="language-abap">TYPES tt_items TYPE STANDARD TABLE OF ty_order_item WITH EMPTY KEY.
+
+DATA lt_items TYPE tt_items.
+DATA lt_items_local TYPE STANDARD TABLE OF ty_order_item WITH EMPTY KEY.</code></pre>
+<p>局部 helper 变量用 <code>TYPE STANDARD TABLE OF ... WITH EMPTY KEY</code> 很常见；方法参数、返回值、跨对象复用的类型，则更适合放在 DDIC table type 或 global class/interface public type 里，便于 review、复用和接口稳定。</p>
+<p>本节只预览 table category。<code>STANDARD TABLE</code> 是 Day 03 的默认心智模型：它适合小到中等结果集、顺序处理、先 append 再 loop 的代码；按主键查找时主要是线性搜索。<code>SORTED TABLE</code> 按 key 保持排序，适合有序和 key-based 访问；<code>HASHED TABLE</code> 依赖 hash key，适合按唯一 key 快速读取。sorted/hashed、secondary key 和性能选择在后面专门展开；今天只要知道：内表不是单一的“数组”，它有 table category，访问模式和数据量会影响选择。</p>
+<p>再讲 key。每个 internal table 都有 primary key，但“有 key”不等于“有业务主键”。如果 standard table 没有显式写 key，ABAP 会使用 default key。对 structured row type 来说，可以先粗略理解为：standard table 的 default key 来自行类型中所有非数值的 key-eligible components，而不是你心里想的订单号、物料号或业务主键。sorted/hashed table 的 key 规则又不同，后面再展开，不要把 standard table 的 default key 说明泛化到所有 table category。这个暗黙デフォルトキー 很容易让 <code>READ TABLE</code>、<code>DELETE ADJACENT DUPLICATES</code>、去重和比较逻辑变得意外。现代代码如果不打算用 key 查找，常显式写 <code>WITH EMPTY KEY</code>；如果有明确业务 key，就写 <code>WITH NON-UNIQUE KEY field1 field2</code> 或其他明确 key 形式。完整 key 规则留到 Week 2。</p>
+<p>常见操作可以按四类记。第一，构造：<code>VALUE #( ( ... ) ( ... ) )</code> 一次构造多行。第二，追加：对 standard table，<code>APPEND row TO lt_items</code> 把一行加到末尾。第三，循环：<code>LOOP AT lt_items INTO DATA(ls_item).</code> 把当前行复制到 work area；在 loop 里修改 <code>ls_item</code> 不会自动改回 internal table。若要原地修改，后面要学 <code>ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)</code> 或 <code>MODIFY</code>。第四，读取：<code>READ TABLE lt_items INTO DATA(ls_found) WITH KEY field = value</code> 或 table expression 可以取单行；这里的 <code>WITH KEY field = value</code> 是按 component 条件查找的 free-key search，不等于在 <code>WITH EMPTY KEY</code> 表上使用 primary key。使用 <code>INDEX</code> 访问时，ABAP internal table 的索引从 1 开始，不是 Python list 的 0 开始。</p>
+<p>还要认识 header line。旧 ABAP 代码里可能出现 <code>DATA itab TYPE ... WITH HEADER LINE</code> 或没有显式 work area 的短写法。它会让表体和一行隐式 work area 共用同一个名字，读起来非常容易混乱。SAP 文档已把 internal tables with header lines 标为 obsolete，并且在 classes 里不允许使用。新代码不要写 header line。维护旧代码时还要特别小心：对有 header line 的旧式内表，<code>CLEAR itab</code> 清的是 header line，不是表体；要清表体要写 <code>CLEAR itab[]</code>。普通无 header line 的现代内表，<code>CLEAR lt_items</code> 会把它清成 0 行的空表；<code>FREE lt_items</code> 也删除行，并且在内存释放行为上和 <code>CLEAR</code> 有区别，细节以后再讲。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li>ABAP 的业务处理大量围绕 internal table 展开：SQL 结果、接口 payload、校验消息、ALV/Fiori 数据、RAP failed/reported、批量更新前的中间结果，都经常是 internal table。</li>
+<li>Internal table 把 <a class="wiki" href="section-01-023-structure-3269a877.html">Structure 结构类型</a>、循环、条件分支、SQL、性能和 key 连接起来；它不是单纯的“数组”。</li>
+<li><code>LOOP ... INTO</code> 是 copy 语义，<code>ASSIGNING</code> 是更接近原地访问的语义；如果混淆，修改代码会静默无效。</li>
+<li>Default key 和 <code>WITH EMPTY KEY</code> 是现代 ABAP review 的高频点；不懂 key，后面 standard/sorted/hashed、READ、table expression 都会学歪。</li>
+<li>对 Java/Python 背景学习者来说，internal table 可以类比 typed list of rows，但不能照搬 0-based index、动态 key、无类型 dict 的习惯。</li>
+</ul>
+<p><strong>核心机制</strong></p>
+<ul>
+<li>Internal table 是 variable-size data object，初始值是 0 行的 empty table。</li>
+<li>Row type 决定每一行长什么样；多数业务内表的 row type 是 structured type。</li>
+<li>Table type 描述 row type、table category、primary key，并可通过 local <code>TYPES</code>、inline <code>TYPE TABLE OF</code>、DDIC/global table type 表达。</li>
+<li><code>STANDARD TABLE</code> 是基础入口；<code>SORTED TABLE</code>、<code>HASHED TABLE</code> 与 secondary key 先作为性能/访问模式 preview。</li>
+<li><code>WITH EMPTY KEY</code> 显式说明“不打算使用默认 key”；不写 key 可能触发 implicit default key，常被 ATC/code review 标出。</li>
+<li><code>VALUE #( )</code> 构造多行，<code>APPEND</code> 追加行，<code>LOOP AT ... INTO</code> 复制行到 work area，<code>READ TABLE</code> / table expression 读取单行。</li>
+<li><code>CLEAR lt_itab</code> 对现代无 header line 内表会清空行；legacy header-line table 的 <code>CLEAR itab</code> 只清 header line，需识别但不要新写。</li>
+</ul>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>内部テーブル</code>、<code>行型</code>、<code>テーブル型</code>、<code>テーブルカテゴリ</code>、<code>標準テーブル</code>、<code>ソートテーブル</code>、<code>ハッシュテーブル</code>。</li>
+<li>Key 相关：<code>主キー</code>、<code>二次キー</code>、<code>デフォルトキー</code>、<code>暗黙デフォルトキー</code>、<code>明示的なキー</code>、<code>WITH EMPTY KEY</code>、<code>空テーブル（行数0）</code>。</li>
+<li>操作相关：<code>ワークエリア</code>、<code>APPEND</code>、<code>LOOP AT</code>、<code>READ TABLE</code>、<code>テーブル式</code>、<code>フィールドシンボル</code>、<code>ヘッダ行</code>、<code>ヘッダ行あり内部テーブル</code>。</li>
+<li>说明句：内部テーブルはプログラム実行時のメモリ上で複数行を保持するデータオブジェクトであり、DBテーブルそのものではありません。</li>
+<li>Review 句：この宣言は暗黙デフォルトキーになるため、キーを使わない前提であれば <code>WITH EMPTY KEY</code> を明示してください。</li>
+<li>Legacy 句：ヘッダ行あり内部テーブルは廃止扱いのため、新規開発では使用しません。保守時は <code>CLEAR itab</code> がヘッダ行だけを初期化する点に注意してください。</li>
+<li>语义边界：<code>ワークエリア</code> は <code>LOOP AT ... INTO wa</code> のようなコピー先の1行バッファを指すことが多く、<code>ASSIGNING</code> のフィールドシンボルとは区別します。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>internal table</code></li>
+<li>Official / search term: <code>table category</code></li>
+<li>Official / search term: <code>standard table</code></li>
+<li>Official / search term: <code>sorted table</code></li>
+<li>Official / search term: <code>hashed table</code></li>
+<li>Official / search term: <code>primary table key</code></li>
+<li>Official / search term: <code>default key</code></li>
+<li>Official / search term: <code>header line</code></li>
+<li>ABAP syntax: <code>TYPE STANDARD TABLE OF</code>, <code>WITH EMPTY KEY</code>, <code>WITH NON-UNIQUE KEY</code>, <code>APPEND</code>, <code>LOOP AT</code>, <code>READ TABLE</code>, <code>INTO DATA(...)</code>, <code>ASSIGNING FIELD-SYMBOL(...)</code>, <code>CLEAR</code>, <code>FREE</code></li>
+<li>Recommended search pattern: <code>ABAP Keyword Documentation internal table default key WITH EMPTY KEY</code></li>
+</ul>
+<p><strong>例子</strong></p>
+<p>用上一节的结构思想，构造一个订单行内表：</p>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_item,
+         travel_id TYPE /dmo/travel_id,
+         item_no   TYPE n LENGTH 6,
+         amount    TYPE p LENGTH 11 DECIMALS 2,
+         currency  TYPE c LENGTH 3,
+       END OF ty_item.
+
+TYPES tt_items TYPE STANDARD TABLE OF ty_item WITH EMPTY KEY.
+
+DATA lt_items TYPE tt_items.
+
+lt_items = VALUE #(
+  ( travel_id = &#x27;0000004711&#x27; item_no = &#x27;000010&#x27; amount = &#x27;1980.00&#x27; currency = &#x27;JPY&#x27; )
+  ( travel_id = &#x27;0000004711&#x27; item_no = &#x27;000020&#x27; amount = &#x27;2500.00&#x27; currency = &#x27;JPY&#x27; ) ).
+
+APPEND VALUE #( travel_id = &#x27;0000004711&#x27;
+                item_no   = &#x27;000030&#x27;
+                amount    = &#x27;900.00&#x27;
+                currency  = &#x27;JPY&#x27; ) TO lt_items.
+
+LOOP AT lt_items INTO DATA(ls_item).
+  out-&gt;write( |{ ls_item-travel_id } { ls_item-item_no } { ls_item-amount } { ls_item-currency }| ).
+ENDLOOP.</code></pre>
+<p>这里 <code>ty_item</code> 是 row type，<code>tt_items</code> 是 table type，<code>lt_items</code> 是 internal table data object，<code>ls_item</code> 是 work area copy。<code>WITH EMPTY KEY</code> 明确告诉读者：这张 standard table 当前只按顺序处理，不依赖默认 key。后面如果要按 <code>travel_id</code>、<code>item_no</code> 查找或去重，就应该重新设计显式 key，而不是指望 default key 刚好符合业务含义。</p>
+<p>再看一个容易误解的 loop：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_copy).
+  ls_copy-amount = 0.
+ENDLOOP.</code></pre>
+<p>这段代码只改了 work area copy，不会把 <code>lt_items</code> 里的金额自动改成 0。要原地修改内表行，后面会学 <code>ASSIGNING</code>、<code>MODIFY</code> 和 table expressions。本节先记住：<code>INTO</code> 是复制到 work area，不是引用到原行。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>把 internal table 当数据库表：以为改了 <code>lt_items</code> 就会自动更新 DB，忘了它只是程序内存里的数据对象。</li>
+<li>把 internal table 当 Python list：写 <code>INDEX 0</code> 或以为 loop 变量修改会自动改回集合。</li>
+<li>不写 key：standard table 触发 default key，ATC 或 reviewer 要求改成 <code>WITH EMPTY KEY</code> 或显式 key。</li>
+<li>用 <code>READ TABLE</code> 做大量线性查找：小数据能跑，大数据性能突然变差；后面要学 sorted/hashed/key。</li>
+<li>看到 header line legacy 写法就模仿：新代码不应使用 <code>WITH HEADER LINE</code>，classes 里也不允许。</li>
+<li>把 <code>空テーブル</code> 和 <code>初期行</code> 混淆：空表是 0 行，不是一行所有字段都是 initial value。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>为什么说 internal table 不是 database table？<code>SELECT ... INTO TABLE</code> 后两者是什么关系？</li>
+<li><code>ty_item</code>、<code>tt_items</code>、<code>lt_items</code>、<code>ls_item</code> 分别是 row type、table type、internal table object、work area 中的哪一个？</li>
+<li><code>LOOP AT lt_items INTO DATA(ls_item)</code> 为什么不会让你直接修改原表行？</li>
+<li>如果 standard table 没写 key，default key 为什么可能不是业务主键？</li>
+<li>什么时候应该先写 <code>WITH EMPTY KEY</code>，什么时候要设计明确 key？</li>
+<li>在 legacy code 里看到 header line 时，<code>CLEAR itab</code> 和 <code>CLEAR itab[]</code> 的差异是什么？</li>
+</ul>
+<p><strong>参考资料</strong></p>
+<ul>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/working-with-simple-internal-tables_a4beb937-0c7b-45b9-92be-ff26a5159fad" target="_blank" rel="noopener noreferrer">SAP Learning - Working with Simple Internal Tables</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENITAB.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Internal Tables</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/LATEST/en-US/ABENITAB_STANDARD_KEY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - itab - Standard Key</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENITAB_HEADER_LINE.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Internal Tables with a Header Line</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPLOOP_AT_ITAB_RESULT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - LOOP AT itab, result</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapread_table.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - READ TABLE itab</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a></p>
+<p><strong>本日收束</strong></p>
+<p>读完 Day 03 后，应能设计一个很小的订单行结构：包含物料、数量、单位、金额、币种和状态字段，并说明每个字段为什么选择相应类型。然后把多条订单行放进 internal table，准备在 Day 04 用 LOOP、条件分支和消息文本处理它。若还只把 internal table 当成普通数组，先回到本日第 24 节重读。</p>
+<h4 id="24-1-day-04-runtime-error-61acba90">24.1 Day 04 - 控制流、字符串、日期时间与 Runtime Error</h4>
+<p>每日课程入口：<span class="wiki unresolved">Day 04 - 控制流、字符串、日期时间与 Runtime Error</span></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-023-structure-3269a877.html">Previous section</a><a href="section-01-025-loop-constructs-7301b587.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

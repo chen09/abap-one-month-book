@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SU53 and authorization trace workflow | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="7-su53-and-authorization-trace-workflow-ebeea288" class="chapter-title">7. SU53 and authorization trace workflow</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 07</li><li>self-contained study note</li></ul><h4 id="7-1-d616014b" class="semantic-heading semantic-concept">7.1 一句话结论</h4>
+<p><code>SU53</code> 和 authorization trace 是授权失败排查的证据工具：它们帮助团队看到最近一次或特定范围内的授权检查失败信息，但它们不是授权机制本身，也不能替代对 <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a>、<a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>、<a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a>、<a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a> 和 role 配置的分析。</p>
+<p>初学者要先记住：<code>SU53</code> 常用于“用户刚刚操作失败后，截图给权限/开发团队看”；authorization trace 更适合“需要更完整地追踪某个用户、某段时间或某个操作路径里的授权检查”。二者都要和复现步骤、用户 ID、系统环境、时间点、错误消息、请求/API payload、业务对象和角色配置一起看。</p>
+<h4 id="7-2-c83debfc" class="semantic-heading semantic-concept">7.2 到底学什么</h4>
+<p>本节学习授权失败的排查流程，而不是把 <code>SU53</code> 当作万能答案。</p>
+<p>第一，知道 <code>SU53</code> 的定位。用户遇到无权限错误后，立刻执行 <code>SU53</code>，通常可以看到最近一次相关 authorization check 的失败信息。它适合快速收集 evidence，但如果用户之后又做了别的操作，最近失败记录可能被覆盖。更准确地说，<code>SU53</code> 主要记录失败的授权检查，而不是完整记录所有成功和失败的检查；没有看到有用结果，不等于系统没有权限逻辑，只能说明这次 <code>SU53</code> 没有捕捉到足够证据。</p>
+<p>第二，知道 trace 的定位。authorization trace 通常由有权限的技术人员在受控范围内开启，用来观察某个用户或过程触发了哪些授权检查、哪些通过、哪些失败。它比 <code>SU53</code> 更系统，但也更需要权限、时间窗口和安全注意。</p>
+<p>第三，知道二者的边界。列表为空可能是 DCL 过滤、查询条件、服务暴露或业务角色问题，不一定会表现成清楚的 <code>SU53</code> 缺权限。RAP action 被拒绝也可能来自 global/instance authorization 或业务规则，不一定只是 PFCG role 缺字段值。</p>
+<p>第四，知道用户缓冲区怎么影响判断。PFCG role 调整、profile 生成、用户分配和会话刷新之间可能存在生效边界；修复后如果用户没有重新登录或按客户流程刷新 user buffer，测试结果可能仍然失败。<code>SU56</code> 可以作为检查当前用户 authorization buffer 的辅助工具，但最终仍要按客户安全/Basis 运维流程确认。</p>
+<p>第五，知道交付证据怎么整理。一个可处理的权限缺陷，不应该只有一句“没有权限”。它至少要包含：用户、系统、客户端、时间、操作步骤、期望/实际结果、错误消息、SU53/trace 截图、相关对象、业务数据条件和是否 API 直调。</p>
+<p>第六，区分四类证据：现象证据、运行时检查证据、角色配置证据和业务对象证据。现象证据说明用户看到了什么；运行时检查证据说明系统检查了什么；角色配置证据说明用户被授予了什么；业务对象证据说明这次操作涉及哪家公司、组织、状态、责任人或审批范围。缺一类，缺陷就容易在团队之间被退回。</p>
+<p>第七，知道 <code>SU53</code> 不够用的场景。API 调用、后台 job、Fiori 列表“无数据”、RAP action 的 failed/reported 消息、CDS DCL 的行级过滤、以及 technical user 的接口执行，都可能需要 trace、application log、HTTP request/response、RAP 消息、测试数据和角色矩阵一起判断。</p>
+<h4 id="7-3-232c92fd" class="semantic-heading semantic-why">7.3 为什么重要</h4>
+<p>权限缺陷是 SAP 项目里最容易跨团队来回转的缺陷之一。业务用户说“点不了”，测试说“报权限”，开发说“代码没问题”，权限团队说“角色已经给了”，Basis 说“请提供 SU53”。如果没有统一工作流，大家都在对不同证据说话。</p>
+<p><code>SU53</code> 和 trace 的价值是把讨论从口头判断拉回证据：到底缺的是哪个 authorization object？哪个 field value？发生在哪个用户、哪个系统、哪个时间？是 classic check 失败，还是 DCL 过滤，还是 RAP behavior 拒绝？是 UI 入口问题，还是 API 直调也失败？</p>
+<p>对 Java/Python 背景读者，可以把它类比成 authorization middleware 的 debug log、audit log 和 policy decision trace。但 SAP 的差异在于：权限对象、role、业务组织字段、CDS DCL、RAP authorization、SAP GUI/Fiori/OData 入口可能同时参与，所以单一日志很少能解释全部。</p>
+<p>在交付现场，授权缺陷还会牵涉责任边界。开发团队负责说明代码在哪里检查权限、RAP behavior 如何拒绝操作、DCL 如何过滤数据；权限团队负责 PFCG role、authorization object、field value 和组织值；Basis 或安全团队负责 trace 工具、生产系统操作规范和审计；测试团队负责稳定复现和保存证据；业务团队负责确认“谁应该能做什么”。本节的重点不是让初学者立刻成为权限管理员，而是学会把证据整理到这些团队都能继续处理的粒度。</p>
+<p>对 OData/API 和后台处理尤其要小心。UI 失败时，用户还能截图；API 失败时，往往只有 HTTP status、response body、request id、technical user、payload、timestamp 和后端日志。如果没有这些证据，团队很难判断是 authentication、authorization、DCL 过滤、RAP authorization、业务状态、锁冲突，还是接口参数错误。</p>
+<h4 id="7-4-key-mechanism-48ce986d" class="semantic-heading semantic-mechanism">7.4 Key mechanism / 核心机制</h4>
+<p>推荐的排查顺序如下：</p>
+<pre><code class="language-text">1. Capture symptom
+   user / system / client / time / UI or API path / exact message
+
+2. Reproduce carefully
+   same user, same data, same operation, minimal repeated steps
+
+3. Collect quick evidence
+   SU53 immediately after failure, screenshots or copied details
+
+4. Classify likely layer
+   app access, classic AUTHORITY-CHECK, CDS DCL, RAP authorization,
+   service exposure, query condition, business state, or role setup
+
+5. Use trace when needed
+   limited user/time/action scope, avoid broad production tracing
+
+6. Decide fix owner
+   role maintenance, DCL rule, RAP behavior, classic check, test data,
+   service assignment, or documentation/test-case correction</code></pre>
+<p><code>SU53</code> 适合快速证明“最近一次授权检查失败了什么”。但它的局限也很明显：它关注最近失败，不是完整流程图；它不一定解释 DCL 过滤导致的“无数据”；它也不一定说明 RAP 业务规则为什么拒绝某个 action。</p>
+<p>authorization trace 更适合疑难场景。例如用户操作触发多次检查，<code>SU53</code> 只看到最后一次；后台 job 或接口用户无法方便截图；某个操作在 UI 和 API 下行为不同；权限团队需要确认 role 中具体字段值是否被检查到。trace 应该限定范围，避免在生产系统长时间、广范围开启。</p>
+<p>一个实用的 evidence packet 可以固定成下面的格式：</p>
+<pre><code class="language-text">Authorization evidence packet
+  - user or technical user
+  - system / client / tenant
+  - timestamp and timezone
+  - UI app, SAP GUI transaction, job, or API endpoint
+  - operation / action name
+  - business object key
+  - organization value, company code, plant, sales org, or responsibility field
+  - exact message, HTTP status, or RAP failed/reported payload
+  - SU53 screenshot or authorization trace id
+  - related role / authorization matrix row
+  - final classification and proposed owner</code></pre>
+<p>初学者可以先用一个小判断表来避免“所有现象都归为权限”的误判：</p>
+<div class="table-wrap"><table><thead><tr><th>现象</th><th>首先收集什么</th><th>优先判断层</th></tr></thead><tbody><tr><td>列表为空</td><td>同一查询条件下不同用户结果、DCL 规则、服务暴露和测试数据</td><td>CDS DCL、query、service assignment</td></tr><tr><td>action 按钮可见但执行失败</td><td>SU53、RAP failed/reported、API response、业务对象状态</td><td>RAP global/instance authorization、classic check、business rule</td></tr><tr><td>只有某一条对象不能操作</td><td>对象 key、组织字段、负责人、状态、role value</td><td>instance authorization、组织权限、业务状态</td></tr><tr><td>API 用户失败</td><td>endpoint、payload、technical user、trace、application log</td><td>communication user、service authorization、backend check</td></tr><tr><td>后台 job 失败</td><td>job log、执行用户、时间窗口、trace、变更记录</td><td>job user、classic check、批处理数据</td></tr></tbody></table></div>
+<p>Trace 的安全边界也要写进流程：只针对必要用户、必要时间、必要操作开启；避免在生产系统做长时间、大范围 trace；提前和 Basis / security 团队确认审计、性能和数据保护要求；trace 结束后保存 trace id、时间窗口和结论，不要只保存一张模糊截图。</p>
+<p>工具边界可以先记成下面这张表。项目中不要把任一工具当作“最终答案”，而要用它们拼出可复核的证据链。</p>
+<div class="table-wrap"><table><thead><tr><th>工具 / 证据</th><th>主要回答的问题</th><th>常见边界</th></tr></thead><tbody><tr><td><code>SU53</code></td><td>当前用户最近失败的授权检查是什么</td><td>只适合刚失败后快速取证；可能被后续操作覆盖；通常不解释成功检查、DCL 行过滤或完整 RAP 上下文</td></tr><tr><td><code>SU56</code></td><td>当前用户 buffer 里加载了哪些授权值</td><td>反映当前会话/缓冲区状态；role 修改后仍要按客户流程确认 profile、分配和刷新</td></tr><tr><td><code>STAUTHTRACE</code></td><td>某用户、时间、服务或操作触发了哪些授权检查</td><td>需要权限和运维规范；生产系统要限制用户、时间和范围，结束后及时关闭</td></tr><tr><td><code>ST01</code></td><td>低层 trace 或旧系统/特定应用服务器上的授权检查</td><td>常更依赖应用服务器范围和 Basis 操作经验，通常作为 fallback</td></tr><tr><td><code>SUIM</code> / <code>PFCG</code></td><td>角色、authorization object、field value 是否被设计和授予</td><td>不应把 trace 原样变成新增权限；需要最小权限、组织值和既有角色分析</td></tr><tr><td><code>/IWFND/ERROR_LOG</code> / <code>SLG1</code> / <code>SM37</code> / <code>SM21</code></td><td>OData、应用日志、后台 job、系统日志里的运行证据</td><td>只能解释各自层面的现象，需要和用户、时间、payload、业务对象一起看</td></tr></tbody></table></div>
+<p>把 <code>SU53</code> 或 trace 证据转成 role 变更之前，应先和下一节 <a class="wiki" href="section-04-008-sap-role-profile-authorization-object-hierarchy-547b4ecb.html">SAP role profile authorization object hierarchy</a> 的 role、profile、authorization object、field value 层级对齐。生产项目里不要把 trace 中出现的对象和值直接扩成 broad role；要确认最小权限、组织范围、既有角色和测试矩阵。</p>
+<p>Trace 结果中常见 return code 也要会读。<code>RC 0</code> 通常表示该授权检查通过；<code>RC 4</code> 常表示对象存在但具体 activity、organization value 或 field value 不满足；<code>RC 12</code> 常表示对象/值不可用、用户 buffer 中没有相应对象，或用户完全缺少相应授权上下文。不同系统界面可能展示文字略有差异，书写缺陷时要保留原始 trace 文本或截图。</p>
+<p>RAP / OData 场景建议按证据链排查：先保存 OData response、HTTP status、request id 和 payload 摘要，再看 RAP <code>failed</code> / <code>reported</code> 消息；如果是 Gateway/OData 层错误，查 <code>/IWFND/ERROR_LOG</code>；如果 handler 或 legacy API 内部调用 <code>AUTHORITY-CHECK</code>，再用 <code>STAUTHTRACE</code> / <code>ST01</code> 限定 technical user 与时间窗口；如果应用写了业务日志，再补 <code>SLG1</code>。<code>SU53</code> 可以显示底层 classic check 的线索，但通常不会自动说明 RAP entity、action、instance key、DCL 过滤条件和业务状态。</p>
+<p>后台 job 的路径也不同。作业失败时，先看 <code>SM37</code> job log、执行用户、开始/结束时间、variant 或输入参数，再用 scoped trace 看该执行用户在对应时间段触发的检查。不要要求最终业务用户提供 <code>SU53</code> 来解释后台技术用户的失败。</p>
+<h4 id="7-5-ac56aa02" class="semantic-heading semantic-japan">7.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>SU53を取得してください</code>、<code>権限トレース</code>、<code>再現手順</code>、<code>権限オブジェクト</code>、<code>権限項目</code>、<code>不足権限</code>、<code>証跡</code>、<code>切り分け</code>。</li>
+<li>用户请求：エラー発生直後に <code>SU53</code> を実行し、画面キャプチャを取得してください。</li>
+<li>调查说明：SU53 の結果だけでなく、対象ユーザ、実行時刻、操作手順、対象データ、ロール設定を合わせて確認します。</li>
+<li>Trace 说明：必要に応じて対象ユーザと時間帯を限定して権限トレースを取得します。</li>
+<li>Buffer 确认：<code>SU56</code> でユーザバッファを確認し、ロール変更後の再ログオン要否を確認します。</li>
+<li>结论写法：本件は PFCG ロール不足ではなく、CDS DCL によるデータ絞り込みが原因と判断します。</li>
+<li>范围限定：対象ユーザ、実行時刻、操作、対象キーを限定してトレースを取得します。</li>
+<li>Trace 安全：本番環境では対象ユーザ・時間帯・操作を限定し、取得後は速やかにトレースを停止します。</li>
+<li>Role 分析：トレース結果をそのまま権限追加に反映せず、既存ロールと最小権限を確認します。</li>
+<li>DCL/RAP 边界：SU53 のスクリーンショットだけでは、DCL による絞り込みや RAP instance authorization の判定までは説明できません。</li>
+<li>API 调查：API の場合は、リクエストID、技術ユーザ、payload、レスポンス、アプリケーションログを合わせて確認します。</li>
+</ul>
+<h4 id="7-6-english-terms-45a9cd70" class="semantic-heading semantic-terms">7.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>SU53</code>, <code>SU56</code>, <code>STAUTHTRACE</code>, <code>ST01</code>, <code>SUIM</code>, <code>PFCG</code>, <code>authorization trace</code>, <code>authorization object</code>, <code>authorization field</code>, <code>authorization return code</code>, <code>user buffer</code>, <code>S_SERVICE</code>, <code>/IWFND/ERROR_LOG</code>, <code>SM37</code>, <code>SM21</code>, <code>SLG1</code>, <code>failed authorization check</code>, <code>RAP authorization</code>, <code>CDS access control</code></li>
+<li>Recommended search pattern: <code>SAP SU53 STAUTHTRACE SU56 authorization object field</code></li>
+<li>日语现场常直接说 <code>SU53</code>、<code>権限トレース</code>、<code>権限オブジェクト</code>。英文检索时用 <code>authorization trace</code>，不要只搜中文“权限日志”。</li>
+</ul>
+<h4 id="7-7-example-cffd1a2e" class="semantic-heading semantic-example">7.7 Example / 学习例子</h4>
+<p>场景：测试用户在 Fiori 应用中点击 <code>Execute</code> action，页面提示无权限。</p>
+<p>一个可交付的调查步骤可以写成：</p>
+<ol>
+<li>记录用户 ID、系统、client、时间、应用名、操作路径、业务对象 ID、错误消息。</li>
+<li>要求用户在错误发生后立即运行 <code>SU53</code>，保存截图。</li>
+<li>开发者判断这是 action 执行失败，不是单纯列表读取，因此优先看 RAP authorization 和 classic check，而不是只看 DCL。</li>
+<li>如果 <code>SU53</code> 显示缺少某 authorization object/field value，把对象和字段值发给权限团队确认 role。</li>
+<li>如果 <code>SU53</code> 没有有效信息，但 API 同样失败，考虑 authorization trace、RAP failed/reported 消息、<code>/IWFND/ERROR_LOG</code>、应用日志和 behavior implementation。</li>
+<li>如果列表本身为空，再回到 DCL、查询条件和 service exposure 路径排查。</li>
+<li>如果权限团队已经调整 role，确认 profile/role 分配是否生效，并要求用户按客户流程重新登录或刷新 user buffer；必要时用 <code>SU56</code> 检查当前缓冲区。</li>
+</ol>
+<p>这样写出来的缺陷就能被分派：是权限团队补 role，还是开发修 RAP authorization，还是测试数据/角色矩阵不一致。</p>
+<p>再看一个 AC0567C 风格的接口例子。外部系统调用批次导入的 <code>validate</code> 或 <code>execute</code> API，返回 403 或 RAP error response。这里不能只问“有没有 SU53”。更可靠的证据包应该包含：HTTP method、endpoint、technical user、batch id、company code 或组织值、payload 摘要、response body、request id、application log、SU53/trace 结果、预期权限矩阵，以及同一数据在 UI 或测试用户下是否可操作。</p>
+<p>拿到证据后，再分类判断：如果 technical user 没有服务访问、communication arrangement 或 backend authorization object value，这是 service/role/authorization issue；如果读取列表时对象不可见，可能是 DCL 或服务查询过滤；如果 action 对部分实例失败，可能是 RAP instance authorization 或业务状态；如果失败发生在保存阶段，也可能是 <a class="wiki" href="section-03-036-rap-save-modified-implementation-84f70d3a.html">RAP save_modified implementation</a>、锁、幂等或最终校验问题。这样的分类比一句“接口权限失败”更接近可修复缺陷。</p>
+<p>后台 job 的例子也类似。<code>SM37</code> 显示 job 在凌晨失败，不能简单要求白天的测试用户执行 <code>SU53</code>。正确做法是记录 job name、job step、执行用户、运行时间、variant、业务 key 和错误消息，再由有权限的技术人员在可控窗口内对执行用户做 trace，并结合 <code>SM21</code>、应用日志和 role 分析判断是否真是授权缺失。</p>
+<h4 id="7-8-counterexample-failure-mode-72da57ba" class="semantic-heading semantic-example">7.8 Counterexample / Failure mode</h4>
+<p>常见失败模式包括下面这些。</p>
+<p>第一，只说“权限问题”，没有用户、时间、步骤、截图和业务对象 ID。</p>
+<p>第二，过了很久才取 <code>SU53</code>。用户已经做了其他操作，最近失败记录被覆盖。</p>
+<p>第三，把 <code>SU53</code> 当作唯一证据。DCL 过滤、RAP instance authorization、服务分配、查询条件和业务状态可能不会被一张 <code>SU53</code> 截图完整解释。</p>
+<p>第四，在生产系统随意开大范围 trace。trace 需要控制用户、时间和范围，避免性能与安全风险。</p>
+<p>第五，看到缺权限就直接扩大 role。没有确认最小权限、组织字段、测试用户矩阵和业务审批范围，容易造成过授权。</p>
+<p>第六，修复后不回归 API 直调。UI 成功不代表 OData/API/后台 job 的授权路径也正确。</p>
+<p>第七，把 authentication 和 authorization 混在一起。登录失败、token 无效、destination 配置错误和 CSRF/session 问题，通常不是业务授权本身。</p>
+<p>第八，不记录时区、系统和 client。跨系统联调时，“下午三点失败”没有足够意义；要写清系统、client、tenant、timestamp 和 timezone。</p>
+<p>第九，用 <code>SU53</code> 解释所有“无数据”。如果列表为空，需要对比查询条件、DCL、测试数据、service exposure 和 role assignment；<code>SU53</code> 没有失败记录并不等于系统没有权限限制。</p>
+<p>第十，role 修复后马上判定完成，但没有刷新用户会话/重新登录、没有确认 profile 生成与分配生效，也没有重跑 API/job 场景。实际项目里要按客户权限运维流程确认生效点。</p>
+<p>第十一，把 trace return code 只当作“红绿灯”。<code>RC 4</code>、<code>RC 12</code> 等结果需要结合 authorization object、field value、执行用户、组织值和调用路径解释；不能只截一行 trace 就要求新增 broad authorization。下一节 <a class="wiki" href="section-04-008-sap-role-profile-authorization-object-hierarchy-547b4ecb.html">SAP role profile authorization object hierarchy</a> 会继续说明 role、profile、authorization object 和 field value 如何形成授予结构。</p>
+<p>修正动作：为权限缺陷建立固定 evidence template，要求提交用户、时间、系统、步骤、错误、SU53/trace、业务数据、API 请求和预期授权矩阵。</p>
+<h4 id="7-9-02db29b9" class="semantic-heading semantic-practice">7.9 思考问题</h4>
+<ul>
+<li>错误发生后是否立即取得 <code>SU53</code>？</li>
+<li><code>SU53</code> 能证明的是 classic authorization check 失败，还是只提供部分线索？</li>
+<li>当前现象更像 role 缺字段值、DCL 过滤、RAP authorization、服务暴露，还是业务状态规则？</li>
+<li>是否需要 authorization trace？如果需要，用户、时间窗口和操作范围如何限制？</li>
+<li>如果是 API 或后台 job，缺少哪些 UI 截图以外的证据？</li>
+<li>这个问题是 authentication、authorization、DCL 过滤、RAP authorization、业务状态，还是锁/幂等问题？</li>
+<li>修复方案是补 role、改 DCL、改 RAP behavior、改测试数据，还是修正文档/测试预期？</li>
+<li>AC0567C POC 中 API 失败时，如何保存请求、响应、用户、时间和授权证据？</li>
+</ul>
+<h4 id="7-10-b55c68b6" class="semantic-heading semantic-reference">7.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPAUTHORITY-CHECK.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - AUTHORITY-CHECK OBJECT</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-control" target="_blank" rel="noopener noreferrer">SAP Help - RAP Authorization Control</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_ACCESS_CONTROL.html" target="_blank" rel="noopener noreferrer">SAP Help - ABAP CDS Access Control</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENCDS_1180334353_ANNO.html" target="_blank" rel="noopener noreferrer">SAP Help - AccessControl.authorizationCheck</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SU53%20authorization" target="_blank" rel="noopener noreferrer">SAP Help search - SU53 authorization</a></li>
+<li><a href="https://help.sap.com/docs/search?q=authorization%20trace" target="_blank" rel="noopener noreferrer">SAP Help search - authorization trace</a></li>
+<li><a href="https://help.sap.com/docs/search?q=STAUTHTRACE%20authorization%20trace" target="_blank" rel="noopener noreferrer">SAP Help search - STAUTHTRACE authorization trace</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SU56%20user%20buffer" target="_blank" rel="noopener noreferrer">SAP Help search - SU56 user buffer</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SUIM%20authorization" target="_blank" rel="noopener noreferrer">SAP Help search - SUIM authorization</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ST01%20authorization%20trace" target="_blank" rel="noopener noreferrer">SAP Help search - ST01 authorization trace</a></li>
+<li><a href="https://help.sap.com/docs/search?q=S_SERVICE%20OData%20authorization" target="_blank" rel="noopener noreferrer">SAP Help search - S_SERVICE OData authorization</a></li>
+<li><a href="https://help.sap.com/docs/search?q=%2FIWFND%2FERROR_LOG%20OData" target="_blank" rel="noopener noreferrer">SAP Help search - /IWFND/ERROR_LOG OData</a></li>
+<li><a href="https://help.sap.com/docs/search?q=AUTHORITY-CHECK%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - AUTHORITY-CHECK ABAP</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="7-11-connections-e245d611">7.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a></li>
+<li>Downstream: <a class="wiki" href="section-04-008-sap-role-profile-authorization-object-hierarchy-547b4ecb.html">SAP role profile authorization object hierarchy</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 22 - 授权检查与 Precheck</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="7-12-108a3844" class="semantic-heading semantic-practice">7.12 学习任务</h4>
+<ul>
+<li>写一份权限缺陷 evidence template，包含用户、时间、系统、步骤、错误、SU53/trace、业务对象和预期权限。</li>
+<li>用中文说明 <code>SU53</code> 和 authorization trace 的差异。</li>
+<li>写一句日语给测试人员，请求错误后立即取得 SU53。</li>
+<li>设计一个“列表为空”和一个“action 无权限”的排查路径，说明二者优先看哪些层。</li>
+<li>在 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中标出 API 失败时应该保存哪些授权证据。</li>
+</ul>
+<h4 id="7-13-confidence-next-action-e47081e7" class="semantic-heading semantic-status">7.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for the evidence-tool framing, <code>SU53</code> scope caveat, trace / SU56 / background-job / API evidence workflow, and DCL/RAP boundary; Joule 2026-06-17 and Claude 2026-06-17 both support <code>expanded-review</code>. Medium-High for exact transaction availability, trace UI names, return-code wording, and production trace operation because these depend on Basis policy, system release, and customer security rules.</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-04-008-sap-role-profile-authorization-object-hierarchy-547b4ecb.html">SAP role profile authorization object hierarchy</a>，把排查证据连接到 role、profile、authorization object、field value 的授予结构；后续如 SAP Help 提供稳定的 <code>SU53</code> / <code>STAUTHTRACE</code> / <code>SU56</code> 精确页面，再替换当前工具搜索入口。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-006-precheck-937e701e.html">Previous section</a><a href="section-04-008-sap-role-profile-authorization-object-hierarchy-547b4ecb.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

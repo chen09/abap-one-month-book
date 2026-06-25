@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP data object 数据对象 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="20-abap-data-object-e21f8d38" class="chapter-title">20. ABAP data object 数据对象</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 20</li><li>self-contained study note</li></ul><h4 id="20-1-232d0dd2" class="semantic-heading semantic-concept">20.1 一句话结论</h4>
+<p>ABAP data object 数据对象，是 ABAP 程序运行时占用内存并保存值的对象；本节要学的是：它不是 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a>，也不是 <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a> 或 <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a>，而是一个带有 data type 的运行时值容器，例如 variable、constant、literal、system field 或后续会遇到的 anonymous data object。</p>
+<h4 id="20-2-71b037f2" class="semantic-heading semantic-concept">20.2 到底学什么</h4>
+<p>先把“对象”这个词放回 ABAP 语境里。前面讲的 repository object 是系统里可创建、激活、传输的开发对象；data object 则是 ABAP program 执行时内存里的数据实例。一个 class、program、CDS DDL source 可以是 repository object；而 <code>lv_amount</code>、<code>ls_item</code>、<code>lt_items</code>、<code>sy-subrc</code>、<code>&#x27;A&#x27;</code>、`<code> </code>ABC<code> </code>` 这类东西，是运行时参与语句计算的数据对象或字面值。</p>
+<p>SAP Learning 的入门说法很直接：ABAP program 中的 data object 表示程序内存中保留的一段区域。ABAP 语句不是对“抽象变量名”做魔法，而是在读写这些内存区域里的值。变量、常量和 literal 是初学者最先要掌握的三类。variable 的内容可以在运行时变化；constant 有名字但值不能在运行时改变；literal 是写死在源码里的匿名值，没有可复用名字。</p>
+<p>第二个边界是 data object 与 data type。data object 是“装值的实例”，data type 是“这个实例能装什么、如何表示”的规则。SAP 文档也用类似 class/instance 的类比解释：data object 是 data type 的实例，就像对象是 class 的实例。<code>DATA lv_count TYPE i.</code> 创建的是一个名叫 <code>lv_count</code> 的 data object；<code>i</code> 是它的数据类型。<code>TYPE</code>、<code>LIKE</code>、DDIC data element、domain、structure、table type 的细节后面展开，本节先记住：对象和值在运行时存在，类型决定它能以什么形态存在。</p>
+<p>ABAP data object 总是 typed。对普通静态声明的 named data object 来说，类型在声明时确定，并在一次 program execution 中保持稳定。不要把 ABAP 变量理解成 Python 那种“名字先绑定一个整数，下一行又绑定一个字符串”的动态模型。ABAP 可以发生 implicit conversion，但这不是“变量变类型”，而是赋值、比较、表达式或参数传递时按规则转换值。</p>
+<p>这里也要加一个早期 caveat：field symbol、data reference、generic type 会让“类型稳定”看起来变复杂。比如 field symbol 可以在运行时 assign 到不同对象；data reference variable 保存的是引用；generic type 可能到赋值或调用时才具体化。这些不是 Day 03 第一节要掌握的语法，但要知道它们是后续动态编程内容，不要拿它们反驳基础规则。</p>
+<p>第三个边界是初始值。ABAP 变量不是“未初始化就是 null”。如果 <code>DATA</code> 没写 <code>VALUE</code>，系统会按类型给 type-specific initial value：数值型通常是 0，character type <code>C</code> 是空白，numeric text type <code>N</code> 等类型有自己的初始值规则，日期和时间也有各自初始表示，reference 初始时没有指向对象。<code>VALUE</code> 可以给 start value；对 constant，如果希望它就是类型对应的初始值，ABAP 也有 <code>VALUE IS INITIAL</code> 这种写法。项目 code review 里经常会问：这个 initial value 是业务上有意义，还是只是技术初始值？</p>
+<p>第四个边界是 literal。ABAP 的引号很重要：单引号 <code>&#x27;ABC&#x27;</code> 是 text literal，类型行为更接近固定长度 character；反引号 `<code> </code>ABC<code> </code>` 是 string literal，更接近 variable-length string。数字 literal 也有自己的类型推断规则。Java/Python 背景的人如果把单引号和双引号经验直接带进 ABAP，很容易在字符串、尾随空格、比较和接口 payload 上踩坑。</p>
+<p>本节先只讲 elementary data object、variable、constant、literal、initial value 和类型边界。structure、internal table、reference object、field symbol、inline declaration、<code>FINAL</code>、generic type、DDIC 绑定，会在后续小节逐步展开。Day 03 的目标不是一口气背完语法，而是先建立“值在内存中、类型决定行为、业务语义不能靠变量名自动保证”的基础模型。</p>
+<h4 id="20-3-07512a76" class="semantic-heading semantic-why">20.3 为什么重要</h4>
+<p>data object 是后面所有 ABAP 语法的地基。<code>SELECT ... INTO</code> 要把数据库结果放进 data object；<code>IF</code> 判断读的是 data object 的当前值；<code>LOOP</code> 每次把 internal table 行放进 work area 或 field symbol；RAP handler、BAPI call、OData service、application log 最终也都在读写 typed data object。这个概念不稳，后面看代码会像看一堆关键字。</p>
+<p>它也决定很多缺陷的根因。比如金额用 character 接收，比较时发生隐式转换；日期用字符串拼接，结果格式和时区被忽略；数量没有单位，后续计算看似正确但业务含义错；常量没有集中定义，多个 literal 分散在代码里，改规则时漏掉一处。这些问题不是“语法不会”，而是没有把 data object、type 和业务语义连起来。</p>
+<p>对 Java/Python 背景的人，ABAP 的核心差异在于类型和业务字段更紧密。Python 变量名可以在运行时绑定不同类型对象；Java 变量有静态类型，但很多业务语义靠 class/model 层封装。ABAP 项目里，很多业务字段直接带着 DDIC data element、domain、currency/unit、date/time 等语义进入程序。你可以写出能跑的赋值语句，但如果类型选错，后面 SQL、接口、ALV、CDS、RAP、日志都会被影响。</p>
+<p>日本 SAP 项目里，code review 经常会围绕 <code>型</code>、<code>初期値</code>、<code>暗黙型変換</code>、<code>固定値</code>、<code>リテラル直書き</code> 讨论。能说清 data object 是什么，才能解释为什么要定义 constant、为什么要避免 magic literal、为什么金额和数量要配单位、为什么某个变量初始值不是业务默认值。</p>
+<h4 id="20-4-key-mechanism-09b53684" class="semantic-heading semantic-mechanism">20.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 declaration。<code>DATA</code> 声明 variable，<code>CONSTANTS</code> 声明 named constant，literal 直接出现在源码里。最小形态可以是 <code>DATA lv_count TYPE i.</code>、<code>CONSTANTS lc_status_open TYPE c VALUE &#x27;O&#x27;.</code>。本教程会逐步把 <code>DATA</code>、<code>TYPES</code>、<code>CONSTANTS</code>、<code>VALUE</code>、<code>TYPE</code>、<code>LIKE</code> 拆开学。</p>
+<p>第二层机制是 name and visibility。named data object 可以通过名字在其作用域内访问；literal 没有名字，所以不能被复用；system-defined data object 例如 <code>sy-subrc</code>、<code>sy-datum</code> 是系统提供的运行时字段。text symbol、anonymous data object、field symbol、data reference 都属于后续 awareness；现在先知道它们存在，避免看到项目代码时以为它们不是 data object。</p>
+<p>第三层机制是 type-specific initial value。每种类型有自己的初始值，不要用 Java/Python 的 <code>null</code> 心智模型套 ABAP。<code>IS INITIAL</code> 判断的是“是否等于该类型的初始值”，不是“是否没有分配内存”。对业务代码来说，<code>initial</code> 有时表示“未输入”，有时只是技术空值，两者必须在设计和 precheck 中分清。</p>
+<p>第四层机制是 assignment and conversion。赋值看似简单，但 ABAP 会在某些场景做隐式转换。<code>&#x27;001&#x27;</code>、<code>1</code>、<code>&#x27;1 &#x27;</code>、`<code> </code>1<code> </code>` 在不同类型、比较和输出中可能表现不同。开发者要学会在语法检查、debugger、ABAP Unit 和边界测试里观察实际值，而不是只看源码表面。</p>
+<p>第五层机制是 business meaning. ABAP data object 的类型既有技术层，也常常连接业务语义。金额字段需要 currency，数量字段需要 unit，日期和时间要关注格式和时区，状态值应尽量用 constant 或 domain fixed value 管理。变量名可以帮助阅读，但真正约束行为的是类型、检查、domain、precheck 和测试。</p>
+<p>第六层机制是 scope of learning。Day 03 先从 elementary data object 开始，因为它是 structure、internal table、SQL result、RAP request/response 的组成单位。后面看到 <code>ls_</code>、<code>lt_</code>、<code>lr_</code>、<code>&lt;fs&gt;</code>、<code>VALUE #( )</code> 时，都可以回到这一层：这是某个 type 的 data object，只是形态更复杂。</p>
+<p>第七层机制是 runtime memory。Data object 只在程序执行期间存在；它的生命周期取决于声明位置和调用上下文。局部变量在方法或过程执行期间使用，全局数据在程序/类上下文中更长时间可见，internal table 可能承载多行运行时数据，reference 变量则保存指向对象的引用。理解生命周期，才能解释为什么某个值在下一次 dialog step、另一个 work process、另一个后台 job 中不一定还在。</p>
+<p>第八层机制是 DDIC 语义。ABAP data object 可以直接用内置类型声明，也可以通过 DDIC data element、structure、table type 或 CDS/RAP 生成的类型承载业务语义。项目中更推荐让金额、数量、日期、状态、组织字段尽量贴近业务定义，而不是全部用 <code>c</code> 或 <code>string</code> 接收。这样 ALV、接口、日志、SQL、RAP response 和测试都会更稳定。</p>
+<p>可以用下面的表快速区分几个容易混淆的概念：</p>
+<div class="table-wrap"><table><thead><tr><th>概念</th><th>存在位置</th><th>作用</th><th>例子</th></tr></thead><tbody><tr><td>Repository object</td><td>SAP repository</td><td>开发对象，可激活/传输</td><td>class、program、CDS DDL source</td></tr><tr><td>Data type</td><td>类型定义</td><td>规定值的表示和操作规则</td><td><code>i</code>、<code>string</code>、DDIC data element</td></tr><tr><td>Data object</td><td>程序运行时内存</td><td>保存具体值</td><td><code>lv_amount</code>、<code>ls_item</code>、<code>lt_items</code></td></tr><tr><td>Literal</td><td>源码中的匿名值</td><td>直接参与表达式</td><td><code>&#x27;O&#x27;</code>、`<code> </code>ABC<code> </code><code>、</code>123`</td></tr><tr><td>Domain</td><td>DDIC 语义/取值约束</td><td>字段技术属性和固定值范围</td><td>状态域、公司代码域</td></tr></tbody></table></div>
+<p>接口和 RAP 场景中，data object 的选择会直接影响 payload。比如 OData JSON 里来的数字、日期、布尔状态、金额和文本，进入 ABAP 后都要映射到 typed data object。类型太宽，错误会被延后；类型太窄，合法输入可能被截断或转换失败；把业务字段全当字符串，短期省事，长期会让 validation、message、application log 和测试证据变差。</p>
+<h4 id="20-5-dbe3c440" class="semantic-heading semantic-japan">20.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>データオブジェクト</code>、<code>データ型</code>、<code>変数</code>、<code>定数</code>、<code>リテラル</code>、<code>名前付きデータオブジェクト</code>、<code>無名データオブジェクト</code>。</li>
+<li>值与类型：<code>初期値</code>、<code>型依存初期値</code>、<code>実行時値</code>、<code>代入</code>、<code>暗黙変換</code>、<code>暗黙型変換</code>、<code>固定値</code>。</li>
+<li>review 说法：<code>この変数の型は業務項目に合っていますか</code>、<code>リテラル直書きではなく定数化してください</code>、<code>初期値と業務上のデフォルト値を分けてください</code>。</li>
+<li>说明句：このデータオブジェクトは実行時に値を保持するもので、リポジトリオブジェクトとは別の概念です。</li>
+<li>说明句：この項目は数量なので、数値だけでなく単位との関係も確認してください。</li>
+<li>使用场景：code review、単体テスト、障害調査、型変換问题、接口字段映射、RAP precheck、日志输出。</li>
+</ul>
+<h4 id="20-6-english-terms-9489632a" class="semantic-heading semantic-terms">20.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>ABAP data object</code>, <code>ABAP data type</code>, <code>DATA statement</code>, <code>CONSTANTS statement</code>, <code>literal</code>, <code>initial value</code>, <code>type-specific initial value</code>.</li>
+<li>Recommended search pattern: <code>ABAP data object variables constants literals SAP Learning</code></li>
+<li>Related terms: <code>variable</code>, <code>constant</code>, <code>literal</code>, <code>named data object</code>, <code>anonymous data object</code>, <code>system field</code>, <code>sy-subrc</code>, <code>VALUE</code>, <code>VALUE IS INITIAL</code>, <code>IS INITIAL</code>, <code>implicit conversion</code>, <code>field symbol</code>, <code>data reference</code>.</li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="20-7-example-7f684d7e" class="semantic-heading semantic-example">20.7 Example / 学习例子</h4>
+<ul>
+<li>例子 1：<code>DATA lv_count TYPE i VALUE 0.</code> 中，<code>lv_count</code> 是 variable data object，<code>i</code> 是 data type，<code>0</code> 是 <code>VALUE</code> addition 给出的 start value；如果不写 <code>VALUE</code>，系统才按 type-specific initial value 创建初始内容。运行时可以给 <code>lv_count</code> 赋新值，但它仍然是整数型变量。</li>
+<li>例子 2：<code>CONSTANTS lc_status_open TYPE c VALUE &#x27;O&#x27;.</code> 中，<code>lc_status_open</code> 是 named constant。比起在多处直接写 <code>&#x27;O&#x27;</code>，constant 更容易 review、搜索和修改。</li>
+<li>例子 3：<code>&#x27;ABC&#x27;</code> 和 `<code> </code>ABC<code> </code>` 看起来都像字符串，但 ABAP 中前者是 text literal，后者是 string literal。后面学字符串比较和接口 payload 时，要特别注意这个差异。</li>
+<li>例子 4：<code>sy-subrc</code> 是系统字段，也是 system-defined data object。它不是你用 <code>DATA</code> 声明的变量，但它在运行时保存上一条语句的结果码。</li>
+<li>最小动作：写 3 行代码，分别声明一个 variable、一个 constant、一个 literal 使用场景，并说明 data object 与 data type 各是什么。</li>
+<li>进阶动作：在 debugger 中观察一个变量的当前值、type、initial value，以及赋值前后的变化。</li>
+</ul>
+<p>调试时可以这样观察 data object：</p>
+<div class="table-wrap"><table><thead><tr><th>观察项</th><th>要看什么</th></tr></thead><tbody><tr><td>Name</td><td>变量名是否表达业务含义</td></tr><tr><td>Type</td><td>是内置类型、DDIC 类型、structure 还是 internal table</td></tr><tr><td>Current value</td><td>当前运行时值是什么</td></tr><tr><td>Initial value</td><td><code>IS INITIAL</code> 是否成立，业务上是否也代表“未输入”</td></tr><tr><td>Conversion</td><td>赋值或比较前后是否发生隐式转换</td></tr><tr><td>Unit / currency</td><td>金额/数量是否有配套单位或币种</td></tr></tbody></table></div>
+<p>这张表能帮助初学者把 debugger 从“看值”升级为“看类型和值是否符合业务语义”。</p>
+<h4 id="20-8-counterexample-failure-mode-0b62e15e" class="semantic-heading semantic-example">20.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把 data object 当 repository object。修正：前者是运行时内存里的值容器，后者是系统开发对象。</li>
+<li>误区 2：把 ABAP 变量当 Python 动态变量。修正：普通 ABAP data object 的 type 稳定，转换发生在赋值/表达式/参数传递中。</li>
+<li>误区 3：把 initial 当 null。修正：ABAP 有 type-specific initial value，业务“未输入”和技术初始值要分开判断。</li>
+<li>误区 4：到处写 literal。修正：业务状态、标志、固定码值应优先考虑 constant、domain fixed value 或集中定义。</li>
+<li>误区 5：忽略 quote 差异。修正：单引号 text literal 和反引号 string literal 在类型行为上不同。</li>
+<li>误区 6：金额、数量、日期都用 character 接。修正：先确认业务字段语义，再选 data type / DDIC data element / unit / currency。</li>
+<li>误区 7：把运行时 data object 当成跨请求缓存。修正：不同 dialog step、work process、job 或 API request 的生命周期不同，需要持久化就用数据库、application log、shared memory 或明确的缓存设计。</li>
+<li>误区 8：接口 payload 全部先接成 string。修正：输入解析可以有 string 阶段，但进入业务逻辑前应转换成有业务语义的 typed data object，并处理转换错误。</li>
+<li>误区 9：变量名好看但类型错误。修正：变量名只是阅读辅助，真正影响行为的是 type、domain、conversion、unit/currency 和 validation。</li>
+</ul>
+<h4 id="20-9-79e37626" class="semantic-heading semantic-practice">20.9 思考问题</h4>
+<ul>
+<li><code>DATA lv_amount TYPE p DECIMALS 2.</code> 里，data object 和 data type 分别是什么？</li>
+<li>为什么 <code>sy-subrc</code> 可以被读，但不是你自己声明的 variable？</li>
+<li><code>VALUE</code> 没写时，ABAP 变量为什么仍然有 well-defined initial value？</li>
+<li>为什么业务状态值不建议到处写 literal？</li>
+<li>Java/Python 背景下，最容易误解 ABAP data object 的哪一点？</li>
+<li>为什么运行时 data object 不能直接替代数据库持久化或 application log？</li>
+<li>OData/RAP payload 进入 ABAP 后，为什么不能长期都用 string 保存业务字段？</li>
+<li>Debugger 中除了当前值，还应该看哪些类型和语义信息？</li>
+</ul>
+<h4 id="20-10-444c73a3" class="semantic-heading semantic-reference">20.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/basic-abap-programming/working-with-basic-data-objects-and-data-types_cf92dee2-85ec-4b9f-a778-1a7cfef70dad" target="_blank" rel="noopener noreferrer">SAP Learning - Working With Basic Data Objects and Data Types</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDOBJ_GENERAL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - General Properties of Data Objects</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenobjects_statements.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Data Objects</a> (accessed 2026-06-13)</li>
+<li>SAP Help Portal / ABAP Keyword Documentation search: <code>ABAP data objects lifetime</code>, <code>ABAP literals text string</code>, <code>ABAP initial values</code>, <code>ABAP implicit conversion</code>.</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="20-11-connections-09e55b5f">20.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-01-016-abap-debugger-05add8e6.html">ABAP debugger 调试器入口</a></li>
+<li>Downstream: <a class="wiki" href="section-01-021-elementary-data-types-70039e9a.html">Elementary data types 基础技术类型</a></li>
+<li>Related: <a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a></li>
+<li>Related: <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a></li>
+<li>Related: <a class="wiki" href="section-01-002-application-server-abap-b0de96bf.html">Application Server ABAP 运行时基础</a></li>
+<li>Related: <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 03 - ABAP 数据对象、类型、结构、内部表</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="20-12-a5f84a55" class="semantic-heading semantic-practice">20.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明：data object、data type、repository object、DDIC data element 的区别。</li>
+<li>写 3 行 ABAP：一个 <code>DATA</code> variable、一个 <code>CONSTANTS</code> constant、一个 literal 使用场景。</li>
+<li>在日语里写一句 code review 评论：建议把 magic literal 改成 constant。</li>
+<li>找一个包含 <code>sy-subrc</code> 的代码片段，说明它为什么是 system field / system-defined data object。</li>
+<li>用 debugger 观察一个 variable 的初始值和赋值后的值。</li>
+<li>为一个 OData/RAP 输入字段设计 ABAP data object，说明为什么不用纯 string。</li>
+<li>写一张表比较 repository object、data type、data object、literal、domain。</li>
+</ul>
+<h4 id="20-13-confidence-next-action-962c4a0d" class="semantic-heading semantic-status">20.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level ABAP data object awareness, based on SAP Learning, ABAP Keyword Documentation, and Joule SAP review. Field symbols、data references、generic typing、inline declaration、structure、internal table 的细节会在后续章节展开。</li>
+<li>Next action: 继续学习 <a class="wiki" href="section-01-021-elementary-data-types-70039e9a.html">Elementary data types 基础技术类型</a>，把“值容器”推进到“基础技术类型如何决定长度、精度、初始值和转换行为”。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-020-abap-data-object-e568a611.html">ABAP data object 数据对象</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-019-japanese-sap-naming-convention-sap-2bdcfbd7.html">Previous section</a><a href="section-01-021-elementary-data-types-70039e9a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

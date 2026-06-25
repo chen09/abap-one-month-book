@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Clean Core extensibility | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="29-clean-core-extensibility-1de83d62" class="chapter-title">29. Clean Core extensibility</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 29</li><li>self-contained study note</li></ul><h4 id="29-1-0f073d41" class="semantic-heading semantic-concept">29.1 一句话结论</h4>
+<p>Clean Core extensibility 是在不破坏 SAP 标准核心、尽量使用 released API 和官方扩展点的前提下实现业务差异化的设计原则；在本教程里要学的是：当业务提出“标准不够”时，如何选择配置、key user extension、developer extensibility、side-by-side extension 或受控增强，而不是直接改标准或依赖未释放对象。</p>
+<p>Clean Core 不是“不许开发”，也不是“所有自开发都放到 BTP”。它的核心问题是：这次扩展会不会让未来升级、补丁、云迁移、合规审计和运维变得困难？如果一个增强直接修改 SAP 标准对象、读取未释放表、调用未释放接口、复制标准逻辑或绕过授权/事务边界，短期可能跑通，长期会变成升级风险。</p>
+<p>在一个月入门的学习路径里，这一节是从“会写 ABAP”转向“能交付 SAP 项目”的关键分界线。ABAP 开发者不能只问“代码怎么写”，还要问“这个扩展方式是否符合目标系统的 extensibility model，是否能通过 <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a>，是否依赖 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a>，是否能在下一次升级后继续稳定运行”。</p>
+<h4 id="29-2-4f6a98cd" class="semantic-heading semantic-concept">29.2 到底学什么</h4>
+<p>第一，要学 Clean Core 的边界。它关注的是 SAP 标准核心与客户扩展之间的边界管理，目标是降低升级、维护和云化风险。它不是一个单独工具，也不是某个 ABAP 语法点；它是一组设计选择、治理规则和检查动作。</p>
+<p>第二，要学扩展方式的优先级。项目通常先看标准配置和业务流程是否可满足；再看 key user / in-app extensibility 是否足够；再看 ABAP Cloud / developer extensibility、RAP、released API、extension point；如果必须做复杂集成或松耦合创新，再考虑 side-by-side extension。只有在有明确理由、风险评估和客户批准时，才讨论更重的 enhancement 或 legacy 改造。</p>
+<p>第三，要学“released”意识。SAP 系统里能看到的表、类、function module、CDS view 并不等于都适合作为扩展依赖。Clean Core 倾向于使用已释放 API、已释放 CDS view、稳定扩展点和受支持的通信场景。下一节 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a> 会专门展开这个检查。</p>
+<p>第四，要学项目交付语言。Clean Core 不是纯技术偏好，而是交付治理：设计文档要说明扩展类型，代码 review 要看依赖边界，ATC 要检查不合规用法，上线前要说明升级影响，维护阶段要能解释为什么这个扩展不会污染核心。</p>
+<h4 id="29-3-dbf9bea8" class="semantic-heading semantic-why">29.3 为什么重要</h4>
+<p>SAP 项目的生命周期通常比普通 Web 应用长很多。一个系统可能运行十年，经历多次 support package、feature upgrade、S/4HANA 迁移、业务组织变化和接口改造。今天为了赶进度写的“临时访问标准表”或“复制标准程序改一点”，几年后可能变成升级停滞、测试爆炸和运维黑盒。</p>
+<p>Clean Core 的重要性在于，它把扩展设计从“能不能实现”推进到“能不能长期维护”。SAP 语境中的 Clean Core 不只覆盖扩展，也会涉及流程、数据、集成、运维和软件生命周期；本节聚焦其中的 extensibility，因为它最直接影响 ABAP 开发者每天的设计选择。它要求团队在设计阶段就考虑：这个需求能否配置完成？有没有标准 API？有没有官方扩展点？是否可以 side-by-side 解耦？是否会影响升级？ATC 能否检查？测试如何覆盖？运维如何监控？</p>
+<p>对 Java/Python 背景学习者来说，Clean Core 类似“不要 patch 框架内部、不要依赖私有 API、不要 fork 标准库再改”的工程原则，但 SAP 语境更强：标准业务流程、主数据、权限、transport、client、upgrade、released API 和云限制都在同一个交付模型里。写 ABAP 时如果忽略这些边界，代码可能技术上正确，却项目上不可交付。</p>
+<p>Clean Core 还决定项目讨论的质量。没有 Clean Core 语言时，团队容易陷入两个极端：一边说“标准不能改，所以做不了”，另一边说“能写 ABAP，所以随便增强”。两种都不适合真实项目。好的讨论应该能把需求拆成：标准是否已有能力、配置能否满足、是否有受支持扩展点、是否需要 released API、是否适合 side-by-side、是否存在必须接受的例外。这样讨论，客户、业务顾问、ABAP 开发、Basis、运维和项目经理才能围绕同一张风险表决策。</p>
+<p>在日本 SAP 项目里，Clean Core 往往会进入基本设计、詳細設計、移行方針、改修方針、品質ゲート、アップグレード影響調査。它不是一个漂亮口号，而是交付证据的一部分。设计书如果只写“クリーンコア対応”，但没有写扩展方式、依赖对象、ATC 结果、例外审批和测试范围，review 时仍然是不充分的。</p>
+<h4 id="29-4-key-mechanism-070c3046" class="semantic-heading semantic-mechanism">29.4 Key mechanism / 核心机制</h4>
+<p>Clean Core extensibility 可以按“从标准到扩展、从低风险到高风险”的顺序思考。</p>
+<p>第一层是 standard-first。先确认 SAP 标准配置、业务流程、Fiori app、输出管理、workflow、pricing、determination、BRF+ 或其他标准能力是否能满足需求。能配置就不要开发；能用标准流程就不要复制流程。</p>
+<p>第二层是 in-app / key user extensibility。适合字段扩展、简单 UI 调整、表单/报表字段、轻量业务规则等。优点是更贴近业务配置和升级路径；缺点是能力有限，不适合复杂算法、大量集成或深层事务逻辑。</p>
+<p>第三层是 developer extensibility。这里会进入 ABAP 开发、RAP、CDS、behavior、service binding、BAdI、extension point、released API 等。关键不是“能不能访问”，而是“是否使用受支持的扩展点和 released 对象”。在 ABAP Cloud 或 cloud-ready 场景中，只有 released / cloud-enabled BAdI、API、CDS view 或 extension point 才能作为稳定依赖；classic BAdI 或 classic enhancement 在 Private Edition / on-premise 中可能仍然存在，但不能直接当成云化或 Clean Core 新方案的默认答案。</p>
+<p>第四层是 side-by-side extension。适合与核心系统松耦合的应用、集成、创新功能、外部 UI、事件驱动处理、复杂计算或跨系统流程。常见平台语境是 SAP BTP，但设计重点不是“换个平台”，而是把核心系统保持稳定，把变化快的能力放在外部扩展中，通过 released API、events、OData、communication arrangement 等受支持方式连接。</p>
+<p>第五层是受控例外。真实项目中可能遇到 legacy 系统、历史增强、客户强制需求或版本限制。Clean Core 并不否认现实，但要求把例外显式化：为什么不能用标准/扩展点？依赖了哪些未释放对象？升级风险是什么？有没有替代路线？谁批准？如何测试和回退？</p>
+<p>可以把 Clean Core 决策写成一个从左到右的漏斗：</p>
+<pre><code class="language-text">Business requirement
+  -&gt; Standard process / configuration
+  -&gt; Key user or in-app extensibility
+  -&gt; Developer extensibility with released APIs / extension points
+  -&gt; Side-by-side extension through stable integration contracts
+  -&gt; Controlled exception with explicit risk ownership</code></pre>
+<p>这个漏斗不是说每个需求都要走到最后，而是提醒团队：越往右，技术自由度可能更高，但治理成本、测试成本、升级风险和运维责任也更高。一个字段扩展不应该直接变成大型 side-by-side 应用；一个跨系统复杂风控算法也不应该硬塞进核心保存逻辑。Clean Core 的价值在于把需求放到合适层级，而不是把所有需求压成同一种技术方案。</p>
+<p>还要区分三种 deployment 语境。</p>
+<div class="table-wrap"><table><thead><tr><th>语境</th><th>Clean Core 重点</th><th>学习者应避免的误解</th></tr></thead><tbody><tr><td>SAP S/4HANA Cloud Public Edition</td><td>严格遵守受控扩展模型、released APIs、key user/developer extensibility 和 communication scenarios</td><td>把 on-premise 的 classic exit 经验直接套用</td></tr><tr><td>SAP S/4HANA Cloud Private Edition / on-premise</td><td>既要处理历史 Z 资产和 classic enhancement，又要逐步降低升级风险</td><td>因为系统允许就认为设计上推荐</td></tr><tr><td>ABAP Cloud / cloud-ready development</td><td>使用受限 ABAP language version、released objects、ATC 和 clean dependency</td><td>把“在系统或 ADT 里能看到”当成“可以依赖”</td></tr></tbody></table></div>
+<p>在 SAP S/4HANA Cloud Private Edition / on-premise 的自定义代码治理里，还常见 on-stack extensibility 的 Tier 1 / Tier 2 / Tier 3 说法。可以把 Tier 1 理解为 ABAP Cloud 风格、依赖 released objects 的方向；Tier 2 理解为对无法立刻迁移的本地 API 或包装对象做受控过渡；Tier 3 理解为 classic ABAP / 历史对象，通常是需要治理和逐步降低风险的区域。这个分类主要帮助做风险分层和迁移路线，不等于所有部署形态都允许同样的开发方式；尤其在 Public Cloud 语境下，不要把 Tier 2 / Tier 3 当成可用选项。</p>
+<p>因此，本节和 <a class="wiki" href="section-04-032-classic-enhancement-options-awareness-fc045290.html">Classic enhancement options awareness</a> 是互补关系：Clean Core 给出未来方向，classic enhancement awareness 帮助读懂既有系统。一个成熟项目不会假装旧增强不存在，也不会把旧增强当成新方案的默认答案。</p>
+<p>验证机制通常包括：</p>
+<ul>
+<li>设计审查：扩展类型、依赖对象、升级影响、运维方式写入设计文档。</li>
+<li>代码审查：避免直接修改标准、复制标准逻辑、访问未释放对象或绕过授权/事务。</li>
+<li>ATC/quality gate：用规则检查 cloud readiness、released API、性能和安全问题；迁移或治理场景还可以结合 Custom Code Migration app、Cloudification Repository 和 SAP Business Accelerator Hub 查询候选依赖与替代入口。</li>
+<li>测试证据：ABAP Unit、集成测试、回归测试、性能观察和上线前检查。</li>
+<li>依赖清单：列出使用的 API、CDS view、BAdI、communication scenario 和自开发对象。</li>
+</ul>
+<p>上线前至少要能留下这类 evidence：</p>
+<div class="table-wrap"><table><thead><tr><th>Evidence</th><th>要回答的问题</th></tr></thead><tbody><tr><td>Extension decision</td><td>本需求为什么选择配置、key user、developer、side-by-side 或例外？</td></tr><tr><td>Dependency list</td><td>用了哪些 SAP 标准对象、API、CDS、BAdI、service、communication scenario？</td></tr><tr><td>Release proof</td><td>哪些对象是 released？证据来自 SAP Help、API catalog、ADT/API state、ATC 还是项目 catalog？</td></tr><tr><td>Exception record</td><td>如果用了未释放对象，理由、影响范围、审批人、替代路线是什么？</td></tr><tr><td>Test and operation</td><td>回归测试、性能、权限、日志、监控、回退方式是否覆盖？</td></tr></tbody></table></div>
+<p>如果这些 evidence 缺失，不能只靠“我们遵循 Clean Core”这句话通过 review。Clean Core 的落地不是形容词，而是可检查的设计和运维资料。</p>
+<h4 id="29-5-8692de7d" class="semantic-heading semantic-japan">29.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>クリーンコア</code>、<code>標準優先</code>、<code>拡張方式</code>、<code>キーユーザ拡張</code>、<code>開発者拡張</code>、<code>サイドバイサイド拡張</code>、<code>リリース済みAPI</code>、<code>未リリースオブジェクト</code>、<code>アップグレード影響</code>、<code>保守性</code>、<code>例外管理</code>。</p>
+<p>设计说明中可以这样说：</p>
+<ul>
+<li>本要件は標準設定で対応可能かを先に確認し、不足分のみ拡張方式を検討します。</li>
+<li>クリーンコア方針に従い、標準オブジェクトの直接変更は避け、リリース済みAPIまたは公式拡張ポイントを利用します。</li>
+<li>未リリースオブジェクトへの依存が必要な場合は、アップグレード影響と代替案を明記し、例外として承認を取得します。</li>
+</ul>
+<p>review 时可以这样问：</p>
+<ul>
+<li>この拡張は標準設定、キーユーザ拡張、開発者拡張、サイドバイサイド拡張のどれに該当しますか。</li>
+<li>利用しているAPIやCDS Viewはリリース済みですか。</li>
+<li>次回アップグレード時の影響調査ポイントは設計書に残っていますか。</li>
+<li>標準オブジェクトを直接変更せずに対応できる代替案は確認済みですか。</li>
+<li>例外対応とする場合、承認者、期限、将来の置換方針は明記されていますか。</li>
+</ul>
+<h4 id="29-6-english-terms-00551468" class="semantic-heading semantic-terms">29.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Clean Core</code>, <code>clean core extensibility</code>, <code>SAP S/4HANA extensibility</code>.</li>
+<li>Related terms: <code>key user extensibility</code>, <code>in-app extensibility</code>, <code>developer extensibility</code>, <code>side-by-side extensibility</code>, <code>released APIs</code>, <code>extension points</code>, <code>ABAP Cloud</code>, <code>upgrade stability</code>, <code>cloud readiness</code>.</li>
+<li>Recommended search pattern: <code>SAP Clean Core extensibility</code>, <code>SAP S/4HANA extensibility released APIs</code>, <code>SAP ABAP Cloud released APIs</code>, <code>SAP Clean Core ATC</code>.</li>
+<li>读官方资料时要注意 deployment 差异：SAP S/4HANA Cloud Public Edition、Private Edition、on-premise、ABAP Cloud、classic ABAP 的可用扩展方式和约束不同。</li>
+</ul>
+<h4 id="29-7-example-46aaaea0" class="semantic-heading semantic-example">29.7 Example / 学习例子</h4>
+<p>假设客户要求在销售订单保存时，把一个自定义风险等级传给外部系统，并在查询 API 中展示风险状态。一个不符合 Clean Core 的做法可能是：直接修改标准保存逻辑、复制标准程序、直接读取多个标准表，再在自开发代码里拼接业务判断。</p>
+<p>更 Clean Core 的思考路径可以是：</p>
+<pre><code class="language-text">1. 标准确认：
+   是否已有标准字段、配置、输出、workflow 或事件可以满足？
+
+2. 轻量扩展：
+   是否可以通过 key user extension 增加字段并暴露到 UI/API？
+
+3. 开发者扩展：
+   是否有 released CDS view、released API、BAdI、RAP extension point 可用？
+
+4. Side-by-side：
+   风险评分是否可以放在外部服务，通过 released API/event 与 S/4HANA 连接？
+
+5. 例外：
+   如果只能依赖未释放对象，是否记录理由、风险、替代方案和审批？</code></pre>
+<p>在 AC0567C POC 语境中，也可以这样检查：批量上传 API 是否直接依赖了未释放标准对象？状态查询是否读取了稳定的自定义表或 released view？如果未来要接入 S/4HANA 标准对象，是否已经预留 released API 检查点？这类问题比“代码能不能跑”更接近真实项目 review。</p>
+<p>一个简短的设计说明可以写成：</p>
+<pre><code class="language-text">本扩展采用 developer extensibility。业务逻辑保留在自开发 package 内，
+外部依赖仅通过已确认的 released API / CDS view / communication scenario 访问。
+不修改 SAP 标准对象，不复制标准程序。ATC cloud readiness 和 released API
+检查作为移送前质量门禁。若后续发现必须使用未释放对象，需提交例外说明。</code></pre>
+<p>再看一个反向例子。客户要求“在标准发票画面上追加一个字段，并在外部系统里读取这个字段”。一个 Clean Core 风险较高的方案是：修改标准画面、复制标准程序、在外部接口里直接读标准表和自定义 append 的组合。更稳的讨论应该是：</p>
+<pre><code class="language-text">Requirement:
+  Add field and expose it to external consumer.
+
+Clean Core questions:
+  1. Is the field already available in standard business context?
+  2. Can key user extensibility add the field to UI/report/API?
+  3. Is there a released API or released CDS view that exposes the field?
+  4. If developer extensibility is needed, which released object is used?
+  5. If external logic is complex, should it be side-by-side?
+  6. If a gap remains, is it an approved exception or a scope change?</code></pre>
+<p>这段例子要训练的是顺序感。Clean Core 不是在代码写完以后贴一个标签，而是在需求分析阶段就开始筛选方案。越早问这些问题，越少返工；越晚问，越容易变成上线前质量门挡住整个 transport。</p>
+<h4 id="29-8-counterexample-failure-mode-ec1eeb52" class="semantic-heading semantic-example">29.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十一类。</p>
+<p>第一，把 Clean Core 理解成“不许做增强”。结果是业务无法落地，团队只会说“不行”，而不是提出合适扩展方式。</p>
+<p>第二，把 Clean Core 理解成“都搬到 BTP”。Side-by-side 是选项之一，不是所有需求的默认答案。简单字段和轻量逻辑可能更适合 in-app 或 developer extensibility。</p>
+<p>第三，直接修改标准对象或复制标准程序。短期改得快，长期升级、补丁和问题定位都会变难。</p>
+<p>第四，看到对象就直接用。SAP 系统里可见对象很多，但未释放表、类、function module、CDS view 不一定是稳定依赖。</p>
+<p>第五，只在代码完成后才做 Clean Core 检查。到那时架构已经定型，返工成本很高；应该在设计阶段就确认扩展路线。</p>
+<p>第六，只写“符合 Clean Core”，没有证据。需要列出扩展类型、released API、ATC 结果、例外清单和测试证据。</p>
+<p>第七，忽略 deployment 差异。Public Cloud、Private Cloud、on-premise、ABAP Cloud 和 classic ABAP 的可用扩展方式不同，不能用一个答案覆盖所有系统。</p>
+<p>第八，把性能、授权、事务和日志排除在 Clean Core 之外。Clean Core 不只是不改标准，还要求扩展可维护、可测试、可监控、可升级。</p>
+<p>第九，把“side-by-side”当成逃避核心治理。外部应用如果通过不稳定接口、手工抽数、未授权 RFC 或直接数据库连接读取核心数据，同样不 clean。side-by-side 必须通过稳定 API、event、OData、communication arrangement 或正式集成契约连接核心系统。</p>
+<p>第十，把 Clean Core 只交给开发者。很多 Clean Core 决策其实在业务流程、标准配置、scope 管理、接口契约和上线治理阶段已经决定。只让 ABAP 开发最后兜底，往往太晚。</p>
+<p>第十一，例外没有生命周期。某个例外在当前 release、当前项目阶段可能被接受，但它应该有 owner、复查时间点和替代路线；否则例外会永久化，下一次升级又重新变成风险。</p>
+<h4 id="29-9-f96bd247" class="semantic-heading semantic-practice">29.9 思考问题</h4>
+<ul>
+<li>Clean Core 为什么不是“不许开发”？</li>
+<li>如果客户要求修改标准流程，应该按什么顺序寻找扩展方案？</li>
+<li><code>released API</code> 和“系统里能看到的对象”有什么区别？</li>
+<li>哪些需求适合 key user extensibility，哪些更适合 developer 或 side-by-side extensibility？</li>
+<li>AC0567C POC 如果未来接入 S/4HANA 标准对象，最需要提前检查哪些依赖？</li>
+</ul>
+<h4 id="29-10-4346e56b" class="semantic-heading semantic-reference">29.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>SAP Help Portal: <a href="https://help.sap.com/docs/abap-cloud" target="_blank" rel="noopener noreferrer">ABAP Cloud</a></li>
+<li>SAP Help Portal: <a href="https://help.sap.com/docs/SAP_S4HANA_CLOUD" target="_blank" rel="noopener noreferrer">SAP S/4HANA Cloud</a></li>
+<li>SAP Help Portal / SAP Learning: search <code>Clean Core</code>, <code>SAP S/4HANA extensibility</code>, <code>released APIs</code>, <code>ABAP Cloud</code>.</li>
+<li>SAP Developers / SAP Samples: search <code>ABAP Cloud</code>, <code>RAP extensibility</code>, <code>released API</code> sample projects.</li>
+<li><a href="https://help.sap.com/docs/search?q=Clean%20Core%20extensibility" target="_blank" rel="noopener noreferrer">SAP Help search - Clean Core extensibility</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20S%2F4HANA%20extensibility%20released%20APIs" target="_blank" rel="noopener noreferrer">SAP Help search - SAP S/4HANA extensibility released APIs</a></li>
+<li><a href="https://learning.sap.com/search?query=Clean%20Core%20extensibility" target="_blank" rel="noopener noreferrer">SAP Learning search - Clean Core extensibility</a></li>
+<li><a href="https://learning.sap.com/search?query=released%20APIs%20ABAP%20Cloud" target="_blank" rel="noopener noreferrer">SAP Learning search - released APIs ABAP Cloud</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20Cloud%20three-tier%20extensibility%20model" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP Cloud three-tier extensibility model</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Custom%20Code%20Migration%20app%20Clean%20Core" target="_blank" rel="noopener noreferrer">SAP Help search - Custom Code Migration app Clean Core</a></li>
+<li><a href="https://api.sap.com/" target="_blank" rel="noopener noreferrer">SAP Business Accelerator Hub</a></li>
+<li><a href="https://github.com/SAP/abap-atc-cr-cv-s4hc" target="_blank" rel="noopener noreferrer">SAP Cloudification Repository - Released &amp; Classic API list for ATC</a></li>
+</ul>
+<h4 id="29-11-connections-fbfc1704">29.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a></li>
+<li>Downstream: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Related: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-03-049-rap-extensibility-a515afa6.html">RAP extensibility</a></li>
+<li>Related: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Related: <a class="wiki" href="section-04-032-classic-enhancement-options-awareness-fc045290.html">Classic enhancement options awareness</a></li>
+<li>Related: <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 27 - Clean Core 与上线前加固</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+</ul>
+<h4 id="29-12-6256c50f" class="semantic-heading semantic-practice">29.12 学习任务</h4>
+<ul>
+<li>用 10 行中文解释 Clean Core、standard-first、released API、side-by-side extension 的关系。</li>
+<li>为一个“标准字段不够，需要新增字段并对外暴露”的需求，写出从配置到扩展的判断路径。</li>
+<li>在 AC0567C POC 中选 1 个对象，说明它当前是否污染 SAP 标准核心；如果未来接入 S/4HANA，需要补什么依赖检查。</li>
+<li>补 2 句日本项目现场表达：一句用于设计评审，一句用于例外审批。</li>
+<li>用 English Terms 找 1-2 个 SAP 官方链接，补到 <code>## 10) 参考资料入口</code>。</li>
+<li>追加练习：把一个“新增字段并对外暴露”的需求放进 Clean Core 漏斗，写出每一层为什么通过或不通过。</li>
+<li>追加练习：写一张 evidence 表，包含 extension decision、dependency list、release proof、exception record、test and operation。</li>
+</ul>
+<h4 id="29-13-confidence-next-action-3df21819" class="semantic-heading semantic-status">29.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High，Clean Core 的原则、扩展分层和 released API 意识稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已补足 ABAP Cloud/ADT 可见性 caveat、released / cloud-enabled BAdI 边界、Clean Core 不只等于 extensibility 的范围说明、Private/on-prem on-stack Tier 1 / Tier 2 / Tier 3 风险分层，以及 ATC / Custom Code Migration / Cloudification Repository / Business Accelerator Hub 这类 evidence 入口。具体可用扩展方式、工具入口和限制需要按 SAP S/4HANA deployment、ABAP release、cloud readiness 范围查官方资料确认，Joule scoped review 仍保留为 deferred / partially integrated 证据。</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a>，把本节的设计原则落到可执行的依赖检查、ATC 检查和上线前 evidence checklist。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-028-sql-monitor-sql-4fef5db4.html">Previous section</a><a href="section-04-030-released-api-dependency-check-14931541.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

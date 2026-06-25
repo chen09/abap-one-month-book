@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SQL Trace performance analysis | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="26-sql-trace-performance-analysis-f1a18da5" class="chapter-title">26. SQL Trace performance analysis</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 26</li><li>self-contained study note</li></ul><h4 id="26-1-d2c4af4d" class="semantic-heading semantic-concept">26.1 一句话结论</h4>
+<p>SQL Trace performance analysis 是用运行时证据定位数据库访问瓶颈的方法；在本教程里要学的是：当 ABAP 程序、CDS、OData 或后台作业变慢时，不靠感觉猜 SQL 问题，而是用 trace 看实际执行了哪些 SQL、执行了多少次、花了多久、读了多少数据。</p>
+<p><a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a> 可以静态提示潜在性能风险，例如循环里 SELECT、缺少 WHERE、未使用 key 等；SQL Trace 关注实际运行时。它回答的是：这一段操作真实发出了哪些数据库访问？哪个 SQL 最慢？是不是同一条 SQL 被执行了上千次？是否读取了远超需要的数据？是否缺少选择条件？</p>
+<p>SQL Trace 不是万能性能工具。它主要帮助分析数据库访问，不负责解释全部 ABAP CPU 时间、UI 渲染、网络、锁等待、外部系统调用或应用服务器内存问题。遇到整体性能问题时，它要和 <a class="wiki" href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">ABAP Profiler performance analysis</a>、<a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a>、应用日志和业务输入条件一起使用。</p>
+<h4 id="26-2-3687636a" class="semantic-heading semantic-concept">26.2 到底学什么</h4>
+<p>第一，要学 trace 的范围。SQL Trace 应该尽量小范围、可复现、可比较：明确用户、时间窗口、事务/API/job、输入条件、数据量。范围太大，trace 会充满无关 SQL；范围太小，又可能漏掉真正慢的步骤。</p>
+<p>第二，要学看结果。初学者不要只看“总时间最长”一列，还要看执行次数、单次耗时、总耗时、读取行数、数据库表/视图、调用位置、是否重复执行。一次慢 SQL 和一条快 SQL 被调用一万次，是两类不同问题。</p>
+<p>第三，要学典型问题模式。常见模式包括：循环内 SELECT 造成 N+1；WHERE 条件不完整；没有限制数据范围；缺少明确排序导致后续逻辑不稳定；JOIN 条件不正确导致行数膨胀；读取了很多字段但只用少数字段；CDS association/path expression 在特定消费下展开成昂贵 SQL。</p>
+<p>第四，要学 trace 证据如何进入项目沟通。性能缺陷单里最好记录：测试用户、输入条件、数据量、trace 时间、最耗时 SQL、调用对象、怀疑原因、修改前后对比。没有证据的“感觉很慢”很难推动正确优化。</p>
+<p>第五，要学 trace 的边界。SQL Trace 能告诉你数据库访问发生了什么，但它不能单独说明为什么业务流程设计成这样，也不能直接证明 UI、网络、authorization、lock、RFC、外部 API 或 ABAP CPU 是瓶颈。看到 SQL 热点后，还要回到业务输入、代码路径、CDS 分层、权限过滤和事务边界一起判断。</p>
+<p>第六，要学“可复现”的价值。性能分析最怕一次性偶然结果：缓存是否已热、数据量是否一致、用户权限是否不同、后台负载是否异常、网络是否波动，都会影响结论。因此书稿里要训练读者写清楚复现条件，而不是只保存一张 trace 截图。</p>
+<h4 id="26-3-74845953" class="semantic-heading semantic-why">26.3 为什么重要</h4>
+<p>性能优化最大的风险是猜错方向。开发者看到程序慢，可能先重构 ABAP 内表，实际瓶颈是数据库重复访问；也可能怀疑数据库，实际慢在外部 RFC 或应用层循环。SQL Trace 让团队先看证据，再决定是否改 SQL、加缓存、批量读取、调整 CDS、减少字段，或在性能/Basis/DB 专家判断后调整数据库对象。</p>
+<p>对 SAP 项目交付来说，性能不是上线后再说的“优化项”。批量处理、报表、Fiori 列表、OData 查询、后台 job，如果在真实数据量下过慢，会直接影响业务窗口、夜间批处理、用户体验和系统资源。Trace 证据能让性能问题从争论变成可处理任务。</p>
+<p>对 Java/Python 背景学习者来说，SQL Trace 类似数据库 query log / ORM SQL logging / APM database span，但 SAP 场景会跨 ABAP SQL、CDS、Open SQL、DB interface、应用服务器和业务事务。开发者要学会从 SAP 工具看到“ABAP 代码最终对数据库做了什么”。</p>
+<p>在日本项目里，SQL Trace 还是沟通工具。性能问题很容易变成“开发说数据库慢、Basis 说代码慢、业务说系统慢”的循环。Trace 证据能把讨论压缩到具体对象：哪个用户、哪个输入、哪个 SQL、多少次、多少行、多少时间、从哪个 ABAP/CDS/OData 路径触发。它不是为了追责，而是为了让修正方向不漂。</p>
+<h4 id="26-4-key-mechanism-6eb4be28" class="semantic-heading semantic-mechanism">26.4 Key mechanism / 核心机制</h4>
+<p>SQL Trace 的基本流程是：准备可复现场景，开启 trace，执行目标操作，停止 trace，过滤和分析结果，记录结论。常见 on-premise 语境中会提到 ST05，但具体工具入口随 release、权限和部署模式不同，项目中要以系统实际可用工具为准。</p>
+<p>分析结果时先看几个指标：</p>
+<ul>
+<li>Executions：SQL 执行次数。次数异常高常提示循环内访问或重复读取。</li>
+<li>Duration / Total time：总耗时和单次耗时。总耗时高可能来自次数多或单次慢。</li>
+<li>Records / Rows：读取行数。行数远超业务需要，常提示 WHERE 条件或 join/filter 问题。</li>
+<li>Object：访问的表、view、CDS 相关对象。</li>
+<li>Call position：从哪个 ABAP 程序、类或框架路径触发。</li>
+</ul>
+<p>在 classic / on-premise 语境下，SQL Trace 还可能帮助观察 table buffer 相关现象，例如某些访问是否经过表缓冲、是否频繁绕过缓冲。初学阶段不需要把 table buffering 当成主要优化手段，但看到这类线索时，要知道它属于 SAP 数据访问行为的一部分，需要结合表设置、数据一致性要求和项目规范判断。</p>
+<p>常见优化方向包括：把循环内 SELECT 改成批量读取；补充 WHERE 条件；减少读取字段；用合适的 key 和排序；检查 join 条件；把重复读取缓存到内表；重新设计 CDS 消费方式；对大数据量场景分页或分批处理。具体是否需要数据库索引或 HANA 层优化，应由有权限的性能/Basis/DB 专家结合系统证据判断。</p>
+<p>还要保留修改前后对比。同样输入条件下，优化前 trace 和优化后 trace 对比最有说服力。只说“我改了，应该快了”不够；要能说明 SQL 次数减少、读取行数减少、总耗时下降或热点转移。</p>
+<p>一个更完整的 SQL Trace 作业模板如下：</p>
+<pre><code class="language-text">Before trace
+  - Identify one scenario: UI action, API call, report, or background job.
+  - Fix user, system/client, input parameters, data volume, and time window.
+  - Decide what &quot;slow&quot; means: response time, job duration, row count, timeout.
+
+During trace
+  - Start trace only for the target user/process when possible.
+  - Execute the smallest reproducible operation.
+  - Stop trace immediately after the target operation.
+
+After trace
+  - Sort by total time and execution count.
+  - Identify repeated SQL, large row reads, missing filters, expensive joins.
+  - Map SQL back to ABAP class/report/CDS/service path.
+  - Record the top findings and compare with business expectation.
+
+After change
+  - Rerun the same scenario with the same input and comparable data volume.
+  - Compare executions, total time, rows, and result correctness.</code></pre>
+<p>判读时可以用下面的表：</p>
+<div class="table-wrap"><table><thead><tr><th>Trace 现象</th><th>常见含义</th><th>下一步</th></tr></thead><tbody><tr><td>Executions 很高，单次很快</td><td>N+1 / loop SELECT / 重复读取</td><td>批量读取、缓存、调整调用位置</td></tr><tr><td>单次 Duration 很高</td><td>SQL 本身昂贵、join/filter/key 问题</td><td>看 WHERE、join、索引/DB 计划、CDS 展开</td></tr><tr><td>Rows 远超业务需要</td><td>条件过宽、filter 下推不足、权限/前端过滤后置</td><td>收紧 WHERE、分页、CDS 分层</td></tr><tr><td>同一 SQL 在不同用户结果差异大</td><td>DCL/authorization/filter 数据范围不同</td><td>固定用户和权限条件，比较返回行数</td></tr><tr><td>SQL 不多但整体仍慢</td><td>瓶颈可能在 ABAP CPU、RFC、外部 API、锁、UI</td><td>转向 ABAP Profiler、日志、trace 其他层</td></tr><tr><td>优化后结果变快但数据不一致</td><td>优化破坏语义</td><td>先修正确性，再谈性能</td></tr></tbody></table></div>
+<p>注意：HANA 系统上“全表扫描”“索引”这类词不要机械套用传统数据库经验。是否需要新增或调整数据库对象，应由项目规范、性能专家和系统证据共同判断。ABAP 开发者首先要做到：减少不必要访问、让过滤尽早发生、避免 N+1、控制字段和行数、证明修改前后结果一致。</p>
+<h4 id="26-5-820ba46a" class="semantic-heading semantic-japan">26.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>SQLトレース</code>、<code>パフォーマンス分析</code>、<code>性能調査</code>、<code>検索条件</code>、<code>実行回数</code>、<code>総実行時間</code>、<code>取得件数</code>、<code>ボトルネック</code>、<code>性能劣化</code>、<code>改善前後の比較</code>、<code>再現条件</code>。</p>
+<p>障碍调查或性能分析中可以这样说：</p>
+<ul>
+<li>推測ではなく、SQLトレースで実際に発行されたSQLと実行回数を確認します。</li>
+<li>同じ条件で改善前後のトレースを取得し、総実行時間と取得件数を比較します。</li>
+<li>この性能問題はDBアクセス起因か、ABAP処理起因かを切り分ける必要があります。</li>
+<li>対象ユーザ、入力条件、データ件数、実行時間帯を固定して SQL トレースを取得します。</li>
+<li>トレース結果から、実行回数、総実行時間、取得件数、呼び出し元を確認します。</li>
+<li>SQL の改善後も、取得結果が業務的に同一であることを確認します。</li>
+</ul>
+<p>review 时可以这样问：</p>
+<ul>
+<li>ループ内 SELECT になっていませんか。</li>
+<li>検索条件と取得件数は業務要件に対して妥当ですか。</li>
+<li>性能改善の根拠となるトレース結果はありますか。</li>
+<li>N+1 アクセスになっていないことをトレースで確認していますか。</li>
+<li>改善前後で同一条件の比較になっていますか。</li>
+</ul>
+<h4 id="26-6-english-terms-8c4449a0" class="semantic-heading semantic-terms">26.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>SQL Trace</code>, <code>performance trace</code>, <code>SQL performance analysis</code>, <code>ABAP SQL trace</code>.</li>
+<li>Related terms: <code>execution count</code>, <code>duration</code>, <code>records</code>, <code>rows</code>, <code>database access</code>, <code>N+1 query</code>, <code>full table scan (traditional-DB term; see HANA caution)</code>, <code>table buffer</code>, <code>SQL Monitor</code>, <code>ABAP Profiler</code>.</li>
+<li>Common SAP on-premise search term: <code>ST05 SQL Trace</code>; tool availability and recommended entry points depend on release/deployment.</li>
+<li>Recommended search pattern: <code>SAP SQL Trace ABAP</code>, <code>SAP ST05 SQL Trace</code>, <code>SAP ABAP SQL performance analysis</code>.</li>
+</ul>
+<h4 id="26-7-example-5c6eae76" class="semantic-heading semantic-example">26.7 Example / 学习例子</h4>
+<p>假设 AC0567C 的 status API 在查询 100 个 batch 时变慢。代码看起来只是循环调用 <code>get_status( batch_id )</code>，每次内部 SELECT 一次 header 和一次 item。手工测试 3 条数据时没问题，真实数据 1000 条时很慢。</p>
+<p>SQL Trace 可能显示：</p>
+<pre><code class="language-text">SQL A: SELECT header by batch_id
+Executions: 1000
+Total time: high
+
+SQL B: SELECT items by batch_id
+Executions: 1000
+Total rows: very high</code></pre>
+<p>这说明问题可能不是单条 SQL 很慢，而是重复访问次数过多。优化方向可能是一次性批量读取 header 和 item，再在内表中关联，或调整 CDS/query 设计。优化后再 trace，如果执行次数从 2000 降到 2，总耗时明显下降，就有证据说明优化有效。</p>
+<p>另一个例子：CDS view 使用 association 后，上层 path expression 导致展开了昂贵 join。Trace 能帮助确认最终 SQL 是否行数膨胀，是否需要调整 CDS 分层、过滤条件或消费方式。</p>
+<p>再看一个缺陷票写法：</p>
+<pre><code class="language-text">Symptom:
+  Status API response time is 18 seconds for 1,000 upload batches.
+
+Trace condition:
+  System/client: QAS/100
+  User: TEST_API_1000
+  Endpoint: GET /.../UploadBatches?$filter=status eq &#x27;OPEN&#x27;
+  Data volume: 1,000 batch headers, 20,000 item rows
+  Time window: 2026-06-16 14:00-14:05 JST
+
+Trace finding:
+  SELECT item by batch_id executed 1,000 times.
+  Total time and rows are dominated by item lookup.
+
+Hypothesis:
+  Service logic performs per-batch item SELECT instead of bulk read.
+
+Fix candidate:
+  Bulk-read items for all batch ids, then aggregate in internal table or CDS.
+
+Regression evidence:
+  Same input after change: item SQL executions reduced from 1,000 to 1,
+  response time reduced from 18s to 2.5s, returned status count unchanged.</code></pre>
+<p>这个例子强调两件事：性能结论必须和业务结果一起验证；优化后的“快”如果改变了返回状态、漏了权限过滤或丢了排序，就不是合格优化。</p>
+<h4 id="26-8-counterexample-failure-mode-699f6131" class="semantic-heading semantic-example">26.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十类。</p>
+<p>第一，凭感觉优化。没有 trace 就改代码，可能花很多时间优化非瓶颈。</p>
+<p>第二，trace 范围太大。开着 trace 跑一堆无关操作，结果无法分析。</p>
+<p>第三，只看单次耗时，不看执行次数。N+1 问题常常单次很快、总次数很高。</p>
+<p>第四，只看 SQL，不看业务输入。数据量、选择条件、用户权限、时间范围不同，性能结论可能完全不同。</p>
+<p>第五，把 SQL Trace 当长期生产监控。Trace 适合短时间诊断，不是持续监控全部生产 SQL 的工具；长期观察应考虑 SQL Monitor 等。</p>
+<p>第六，没有前后对比。优化是否有效，要用同条件证据比较。</p>
+<p>第七，把 SQL Trace 当成唯一真相。Trace 显示数据库访问，但不显示完整业务语义；有时 SQL 多是因为权限过滤、业务拆分或框架行为，不一定都是 bug。</p>
+<p>第八，优化后不跑功能回归。减少 SQL 次数可能改变排序、重复处理、权限过滤或锁时机，必须确认结果仍然正确。</p>
+<p>第九，把开发机小数据结论搬到生产。DEV 里 20 条数据很快，不代表 QAS/PRD 里百万数据和真实权限条件也快。</p>
+<p>第十，没有控制权限和 DCL 条件。同一个 API 在不同用户下可能触发不同数据范围；性能比较时如果用户权限不同，结论可能失真。</p>
+<h4 id="26-9-3f10387d" class="semantic-heading semantic-practice">26.9 思考问题</h4>
+<ul>
+<li>SQL Trace 能证明什么？不能证明什么？</li>
+<li>如果一条 SQL 单次很快但执行一万次，问题可能在哪里？</li>
+<li>何时应使用 SQL Trace，何时更适合 ABAP Profiler 或 SQL Monitor？</li>
+<li>AC0567C POC 中哪个列表、状态查询或批处理最可能出现 N+1 查询？</li>
+<li>性能缺陷单中至少应该记录哪些 trace 条件和结果？</li>
+<li>如果 trace 显示 SQL 很少但用户仍觉得慢，下一步应该看哪个工具或证据？</li>
+<li>优化后如何证明“结果正确性”和“性能改善”同时成立？</li>
+<li>DCL、authorization 和输入数据量如何影响性能 trace 结论？</li>
+</ul>
+<h4 id="26-10-6ab518c6" class="semantic-heading semantic-reference">26.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/docs/search?q=SQL%20Trace%20ST05%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - SQL Trace ST05 ABAP</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20SQL%20performance%20analysis" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP SQL performance analysis</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SQL%20Monitor%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - SQL Monitor ABAP</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20Profiler" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP Profiler</a></li>
+</ul>
+<h4 id="26-11-connections-22075d19">26.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Downstream: <a class="wiki" href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">ABAP Profiler performance analysis</a></li>
+<li>Related: <a class="wiki" href="section-04-028-sql-monitor-sql-4fef5db4.html">SQL Monitor 生产级 SQL 观察</a></li>
+<li>Related: <a class="wiki" href="section-02-001-abap-sql-overview-3115f94b.html">ABAP SQL overview</a></li>
+<li>Related: <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a></li>
+<li>Related: <a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 26 - ATC、Trace、Profiler、SQL Monitor</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="26-12-837c4bd7" class="semantic-heading semantic-practice">26.12 学习任务</h4>
+<ul>
+<li>设计一个可复现 SQL Trace 场景：用户、输入条件、数据量、操作步骤。</li>
+<li>观察一个慢查询问题时，记录 execution count、total time、rows 和调用位置。</li>
+<li>写 2 句日语调查说明：一句要求取得 SQL trace，一句要求改善前后比较。</li>
+<li>判断一个性能问题更适合 SQL Trace、ABAP Profiler 还是 SQL Monitor。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 SQL Trace 或 ST05 的官方说法。</li>
+</ul>
+<h4 id="26-13-confidence-next-action-65679cea" class="semantic-heading semantic-status">26.13 Confidence &amp; Next Action</h4>
+<p>Confidence: Medium-High。SQL Trace 的分析原则稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已补足 HANA/索引谨慎表述、<code>full table scan</code> 术语 caveat、table buffer 观察边界、改善前后比较和功能回归验证。具体工具入口、字段名称、权限和云/本地可用性依赖系统版本与部署模式，需要以目标系统工具为准，Joule scoped review 仍保留为 deferred 证据。</p>
+<p>Next action: 继续学习 <a class="wiki" href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">ABAP Profiler performance analysis</a>，把数据库访问瓶颈和 ABAP 应用层 CPU/调用栈瓶颈区分开。</p>
+<p>原子笔记入口：<a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-025-atc-check-set-68824dd3.html">Previous section</a><a href="section-04-027-abap-profiler-performance-analysis-54d1e482.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

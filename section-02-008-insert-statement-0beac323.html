@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>INSERT statement 新增数据 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="8-insert-statement-49af2f0a" class="chapter-title">8. INSERT statement 新增数据</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 08</li><li>self-contained study note</li></ul><h4 id="8-1-51e02aee" class="semantic-heading semantic-concept">8.1 一句话结论</h4>
+<p>ABAP SQL 的 <code>INSERT</code> 用来把新行写入可写数据库对象，例如项目自有 DDIC table、可写 CDS entity 或其他被允许写入的持久化对象。它的关键不是“把一行塞进表里”这么简单，而是确认写入对象是否允许、主键是否唯一、重复键如何处理、实际插入了几行、谁来提交或回滚事务，以及这次写入是否符合权限、锁和 Clean Core 边界。</p>
+<h4 id="8-2-eb84a66a" class="semantic-heading semantic-concept">8.2 到底学什么</h4>
+<p>先把边界说清楚：本节讲的是 ABAP SQL <code>INSERT</code>，也就是写数据库持久化对象；它不是内部表的 <code>INSERT</code> 语句。内部表插入只是改 ABAP 内存，ABAP SQL <code>INSERT</code> 会进入数据库修改路径，会影响事务、锁、提交、回滚、权限、测试数据和生产数据安全。</p>
+<p>最小单行写入长这样：</p>
+<pre><code class="language-abap">DATA(ls_note) = VALUE zorder_note(
+  note_id        = lv_note_id
+  sales_order_id = lv_sales_order_id
+  note_text      = lv_note_text
+  created_by     = sy-uname ).
+
+INSERT zorder_note FROM @ls_note.
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; Handle duplicate key or failed insert according to the business rule.
+ENDIF.</code></pre>
+<p>这里 <code>zorder_note</code> 是示例自定义表，<code>ls_note</code> 是要插入的一行。<code>INSERT</code> 的意思是“这行应该是新记录”。如果同一主键已经存在，业务上必须回答：这是错误、重复请求、幂等成功，还是应该改用 <code>UPDATE</code> / <code>MODIFY</code> / RAP action？不要用一个语句把业务规则糊过去。</p>
+<p>多行写入通常来自内表：</p>
+<pre><code class="language-abap">INSERT zorder_note FROM TABLE @lt_new_notes.</code></pre>
+<p>这比循环里逐行 <code>INSERT</code> 更接近数据库批量操作，但也更要求提前处理重复键和错误路径。项目里真正要学的是：写入前准备数据，写入时处理数据库结果，写入后由正确的事务边界提交或回滚。</p>
+<h4 id="8-3-0fa8ebcd" class="semantic-heading semantic-why">8.3 为什么重要</h4>
+<p><code>SELECT</code> 写错，通常是读错数据或性能差；<code>INSERT</code> 写错，可能直接制造脏数据、重复数据、锁等待、短 dump、接口重试不幂等、测试环境污染，甚至生产事故。读操作可以慢慢查，写操作一旦提交，就进入业务事实的一部分。</p>
+<p>它的第一层价值是明确“新建”的语义。<code>INSERT</code> 表示目标行不应该已经存在；如果存在同主键行，就不是普通新增，而是冲突。初学者常把 <code>INSERT</code>、<code>UPDATE</code>、<code>MODIFY</code> 混在一起用，最后看不出业务到底是新增、修改还是 upsert。</p>
+<p>第二层价值是事务意识。<code>INSERT</code> 执行成功不等于业务已经安全结束。数据库变更通常要到 database commit 后才永久生效；在 SAP 程序里又要放进更大的 SAP LUW 里理解。一个可复用方法里随手 <code>COMMIT WORK</code>，可能破坏上层事务；一个批处理里不处理失败路径，可能半路写入一批不一致数据。</p>
+<p>第三层价值是并发和锁。数据库会有自己的锁，但 SAP 业务对象常常还需要 enqueue lock、RAP lock、号码段、唯一性检查或幂等键设计。比如“先 <code>SELECT MAX( id )</code> 再 <code>INSERT id + 1</code>”在多人并发下很危险，因为两个用户可能算出同一个新 ID。</p>
+<p>第四层价值是 Clean Core。传统项目里直接写自定义表很常见；但直接写 SAP 标准表通常是高风险动作。S/4HANA、ABAP Cloud、RAP 和 Clean Core 语境下，优先找 released API、BAPI、RAP BO、released CDS/write model 或项目认可的扩展点。会写 <code>INSERT</code> 不代表应该直接写任意表。</p>
+<h4 id="8-4-key-mechanism-4c750ebc" class="semantic-heading semantic-mechanism">8.4 Key mechanism / 核心机制</h4>
+<h5 id="8-4-1-insert-f94526e7">8.4.1 <code>INSERT</code> 的目标必须是可写对象</h5>
+<p>官方文档把 <code>INSERT</code>、<code>UPDATE</code>、<code>MODIFY</code>、<code>DELETE</code> 的目标归为 writable database object。对初学者来说，先按三类理解：</p>
+<ul>
+<li>项目自有 DDIC database table：最常见的练习和自定义开发场景。</li>
+<li>可写 CDS / RAP 相关对象：要遵守对应框架的事务模型。</li>
+<li>SAP 标准持久化对象：不能因为语法可写就直接写，必须有官方 API 或项目治理许可。</li>
+</ul>
+<p>因此，写 <code>INSERT mara ...</code> 这类直接写标准表的想法，在真实项目里应先停下来做架构确认。多数业务写入应该通过事务、API、BAPI、RAP BO 或应用服务完成。</p>
+<h5 id="8-4-2-from-wa-values-wa-724d4e34">8.4.2 单行写入：<code>FROM @wa</code> 或 <code>VALUES @wa</code></h5>
+<p>常见写法有两种：</p>
+<pre><code class="language-abap">INSERT zorder_note FROM @ls_note.</code></pre>
+<p>以及：</p>
+<pre><code class="language-abap">INSERT INTO zorder_note VALUES @ls_note.</code></pre>
+<p>两者都表达插入一行。现代 ABAP 里也经常用 host expression 直接构造一行：</p>
+<pre><code class="language-abap">INSERT zorder_note FROM @( VALUE #(
+  note_id        = lv_note_id
+  sales_order_id = lv_sales_order_id
+  note_text      = lv_note_text
+  created_by     = sy-uname ) ).</code></pre>
+<p>这适合简单场景；如果字段多、校验多、默认值多，先构造 <code>ls_note</code> 并写清楚每个字段来源通常更可读。</p>
+<h5 id="8-4-3-from-table-itab-bbc0835f">8.4.3 多行写入：<code>FROM TABLE @itab</code></h5>
+<p>批量新增使用内表作为来源：</p>
+<pre><code class="language-abap">INSERT zorder_note FROM TABLE @lt_new_notes.</code></pre>
+<p>不要轻易写成：</p>
+<pre><code class="language-abap">LOOP AT lt_new_notes INTO DATA(ls_new_note).
+  INSERT zorder_note FROM @ls_new_note.
+ENDLOOP.</code></pre>
+<p>循环逐行写不仅慢，还会把错误处理拆散。批量写入更容易让 reviewer 看出“这是一批新增”，也更容易统一处理 <code>sy-subrc</code>、<code>sy-dbcnt</code>、异常和日志。</p>
+<p>但批量写入有一个危险点：如果内表中某些行和数据库已有行主键重复，或者内表内部存在重复键，不能假设系统会自动帮你合并。SAP Samples 的 ABAP SQL cheat sheet 明确提醒，<code>FROM TABLE @itab</code> 的重复键可能导致运行时错误；如果使用 <code>ACCEPTING DUPLICATE KEYS</code>，重复行会被丢弃，<code>sy-subrc</code> 会反映并非全部插入成功。</p>
+<h5 id="8-4-4-accepting-duplicate-keys-4718407a">8.4.4 <code>ACCEPTING DUPLICATE KEYS</code> 不是“忽略错误就好”</h5>
+<p>如果业务允许重复请求被跳过，可以写：</p>
+<pre><code class="language-abap">INSERT zorder_note FROM TABLE @lt_new_notes ACCEPTING DUPLICATE KEYS.
+
+DATA(lv_inserted_count) = sy-dbcnt.
+
+IF sy-subrc = 4.
+  &quot; Some rows were skipped because of duplicate primary/unique keys.
+  &quot; Log or report skipped rows according to the business rule.
+ENDIF.</code></pre>
+<p>这里 <code>sy-dbcnt</code> 才是实际插入行数。<code>sy-subrc = 4</code> 不应被当作“没事”。它表示不是所有行都插入成功。项目里要说明被跳过的重复行是预期幂等、数据清洗结果，还是需要报错给调用方。</p>
+<p>如果业务不允许重复键，通常不要加 <code>ACCEPTING DUPLICATE KEYS</code>，而是让错误路径明确暴露，并用 <code>TRY ... CATCH cx_sy_open_sql_db</code> 或上层异常策略处理：</p>
+<pre><code class="language-abap">TRY.
+    INSERT zorder_note FROM TABLE @lt_new_notes.
+  CATCH cx_sy_open_sql_db INTO DATA(lx_sql).
+    &quot; Convert the database failure into a business/application error.
+ENDTRY.</code></pre>
+<h5 id="8-4-5-sy-subrc-sy-dbcnt-8b2ada5c">8.4.5 <code>sy-subrc</code> 和 <code>sy-dbcnt</code> 要立刻读</h5>
+<p>ABAP SQL 写入语句会设置系统字段。对 <code>INSERT</code> 来说，最常用的是：</p>
+<ul>
+<li><code>sy-subrc = 0</code>：单行或全部指定行插入成功。</li>
+<li><code>sy-subrc = 4</code>：单行未插入，或使用 <code>ACCEPTING DUPLICATE KEYS</code> 时不是所有行插入成功。</li>
+<li><code>sy-dbcnt</code>：实际插入的行数。</li>
+</ul>
+<p>这些值应该在 <code>INSERT</code> 之后马上读取。不要隔几行又执行了别的 SQL 或语句后再看，因为系统字段可能已经被其他操作覆盖。更稳的写法是立即复制到业务变量：</p>
+<pre><code class="language-abap">INSERT zorder_note FROM TABLE @lt_new_notes ACCEPTING DUPLICATE KEYS.
+
+DATA(lv_insert_subrc) = sy-subrc.
+DATA(lv_inserted)     = sy-dbcnt.</code></pre>
+<h5 id="8-4-6-insert-6f44a089">8.4.6 <code>INSERT</code> 成功不等于已经提交</h5>
+<p><code>INSERT</code> 把变更登记到当前数据库事务里；真正永久生效要看 commit。官方文档也强调，插入的行会在下一个 database commit 后永久进入表，在此之前仍可被 database rollback 撤销。</p>
+<p>这不代表每个 <code>INSERT</code> 后都要写：</p>
+<pre><code class="language-abap">COMMIT WORK.</code></pre>
+<p>恰好相反，可复用方法、工具类、RAP handler、BAPI 内部、框架回调里随手提交，是常见事故来源。谁负责 <code>COMMIT WORK</code>，要由应用事务边界决定。批处理 report 可能在一批业务对象成功后提交；RAP 应用通常由 RAP save sequence 和 <code>COMMIT ENTITIES</code> / 框架事务模型处理；被其他程序调用的方法通常不应擅自结束调用方的 LUW。</p>
+<h5 id="8-4-7-insert-8c0bf866">8.4.7 <code>INSERT</code> 不会自动处理授权和业务校验</h5>
+<p>ABAP SQL 的 <code>INSERT</code> 不等于业务权限检查。能写表，不代表当前用户被业务允许创建这类对象。常见检查包括：</p>
+<ul>
+<li>当前用户是否能创建该业务对象。</li>
+<li>组织范围、公司代码、工厂、销售组织是否允许。</li>
+<li>字段组合是否符合业务规则。</li>
+<li>是否已经存在相同业务键，重试是否幂等。</li>
+<li>是否需要应用锁或号码段。</li>
+</ul>
+<p>在经典 ABAP 中可能需要 <code>AUTHORITY-CHECK</code>、enqueue lock、应用校验和日志；在 RAP 中要看 global authorization、instance authorization、validation、determination、lock 和 save sequence。</p>
+<h5 id="8-4-8-insert-update-modify-f63127a9">8.4.8 <code>INSERT</code>、<code>UPDATE</code>、<code>MODIFY</code> 的语义不要混用</h5>
+<p>三者最容易混：</p>
+<ul>
+<li><code>INSERT</code>：新增。已存在同 key 时是冲突。</li>
+<li><code>UPDATE</code>：修改已存在行。找不到目标行时通常不是新增。</li>
+<li><code>MODIFY</code>：在 ABAP SQL 语境中可以插入或覆盖，接近 upsert 语义。</li>
+</ul>
+<p>初学者喜欢用 <code>MODIFY</code> 省事，因为“有就改，没有就插”。但真实项目里这可能隐藏重要业务差异：重复请求、并发冲突、数据补偿、重跑批处理、接口幂等，都需要明确语义。只有当业务确实需要 upsert，并且审计、权限和字段覆盖规则都清楚时，才应该使用这种语义。</p>
+<h4 id="8-5-fdf0d549" class="semantic-heading semantic-japan">8.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>登録処理</code></li>
+<li><code>新規登録</code></li>
+<li><code>INSERT文</code></li>
+<li><code>DB更新</code></li>
+<li><code>一括登録</code></li>
+<li><code>重複キー</code></li>
+<li><code>主キー重複</code></li>
+<li><code>一意キー</code></li>
+<li><code>登録件数</code></li>
+<li><code>更新件数</code></li>
+<li><code>sy-subrc</code></li>
+<li><code>sy-dbcnt</code></li>
+<li><code>コミット</code></li>
+<li><code>ロールバック</code></li>
+<li><code>トランザクション境界</code></li>
+<li><code>排他制御</code></li>
+<li><code>権限チェック</code></li>
+<li><code>直テーブル更新</code></li>
+<li><code>標準テーブル更新</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li>この処理は新規登録なので、既存キーがある場合の扱いを明確にしてください。</li>
+<li><code>ACCEPTING DUPLICATE KEYS</code> を使う場合、重複行を無視してよい業務理由とログ出力方針が必要です。</li>
+<li><code>sy-dbcnt</code> は実際に登録できた件数なので、想定件数と一致するか確認します。</li>
+<li>このメソッド内で <code>COMMIT WORK</code> してよいか、呼び出し元のトランザクション境界を確認してください。</li>
+<li>SAP標準テーブルを直接更新せず、Released API / BAPI / RAP BO / 拡張ポイントの有無を確認します。</li>
+</ul>
+<p>日本项目里，<code>登録</code> 经常比直译的 <code>挿入</code> 更贴近业务语境。比如“新增订单备注”会说 <code>受注明細の備考を登録する</code>，技术 review 时才会说 <code>INSERT文で登録しています</code>。</p>
+<h4 id="8-6-english-terms-d286d85f" class="semantic-heading semantic-terms">8.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP SQL INSERT</code></li>
+<li>Related term: <code>INSERT writable database object</code></li>
+<li>Related term: <code>INSERT ... FROM</code></li>
+<li>Related term: <code>INSERT INTO ... VALUES</code></li>
+<li>Related term: <code>INSERT ... FROM TABLE</code></li>
+<li>Related term: <code>ACCEPTING DUPLICATE KEYS</code></li>
+<li>Related term: <code>primary key</code></li>
+<li>Related term: <code>unique secondary index</code></li>
+<li>Related term: <code>CX_SY_OPEN_SQL_DB</code></li>
+<li>Related term: <code>sy-subrc</code></li>
+<li>Related term: <code>sy-dbcnt</code></li>
+<li>Related term: <code>database commit</code></li>
+<li>Related term: <code>database rollback</code></li>
+<li>Related term: <code>SAP LUW</code></li>
+<li>Related term: <code>Database LUW</code></li>
+<li>Related term: <code>COMMIT WORK</code></li>
+<li>Related term: <code>RAP save sequence</code></li>
+<li>Related term: <code>writable CDS view entity</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL INSERT SAP Help</code></li>
+<li><code>ABAP INSERT FROM TABLE ACCEPTING DUPLICATE KEYS</code></li>
+<li><code>ABAP SQL INSERT sy-subrc sy-dbcnt</code></li>
+<li><code>ABAP SQL INSERT database commit rollback</code></li>
+<li><code>ABAP RAP COMMIT WORK restriction</code></li>
+</ul>
+<h4 id="8-7-example-42e58012" class="semantic-heading semantic-example">8.7 Example / 学习例子</h4>
+<h5 id="8-7-1-1-fc52b49a">8.7.1 例 1：单行新增</h5>
+<pre><code class="language-abap">DATA(ls_note) = VALUE zorder_note(
+  note_id        = lv_note_id
+  sales_order_id = lv_sales_order_id
+  note_text      = lv_note_text
+  created_by     = sy-uname ).
+
+INSERT zorder_note FROM @ls_note.
+
+DATA(lv_insert_subrc) = sy-subrc.
+DATA(lv_inserted)     = sy-dbcnt.</code></pre>
+<p>读这段代码时，要确认 <code>note_id</code> 如何生成、是否可能重复、当前用户是否允许给该订单新增备注、以及谁负责提交事务。<code>lv_inserted</code> 预期应为 1；如果不是 1，就要走错误路径。</p>
+<h5 id="8-7-2-2-fc911ef6">8.7.2 例 2：批量新增并明确重复键策略</h5>
+<pre><code class="language-abap">INSERT zorder_note FROM TABLE @lt_new_notes ACCEPTING DUPLICATE KEYS.
+
+DATA(lv_insert_subrc) = sy-subrc.
+DATA(lv_inserted)     = sy-dbcnt.
+
+IF lv_insert_subrc = 4.
+  &quot; Some rows were skipped due to duplicate keys.
+  &quot; Decide whether this is idempotent success or a business error.
+ENDIF.</code></pre>
+<p>这个例子不是推荐“任何重复都忽略”，而是展示：如果选择忽略重复键，就必须把实际插入件数和跳过件数纳入业务说明、日志和测试断言。</p>
+<h5 id="8-7-3-3-fd698303">8.7.3 例 3：不允许重复键时捕获数据库异常</h5>
+<pre><code class="language-abap">TRY.
+    INSERT zorder_note FROM TABLE @lt_new_notes.
+  CATCH cx_sy_open_sql_db INTO DATA(lx_sql).
+    &quot; Raise or log an application-specific error.
+ENDTRY.</code></pre>
+<p>在严格业务场景里，重复键可能说明上游幂等键设计错了、批处理重跑策略错了，或者并发控制不足。让错误暴露出来，比静默跳过更安全。</p>
+<h5 id="8-7-4-4-f7cfa928">8.7.4 例 4：不要在可复用方法里擅自提交</h5>
+<pre><code class="language-abap">METHOD save_notes.
+  INSERT zorder_note FROM TABLE @it_notes.
+
+  &quot; Do not commit here unless this method owns the full transaction boundary.
+  &quot; COMMIT WORK.
+ENDMETHOD.</code></pre>
+<p>这个例子故意把 <code>COMMIT WORK</code> 注释掉。判断能不能提交，不看“这里有没有 INSERT”，而看这个方法是否拥有完整业务事务边界。RAP handler / saver、BAPI 调用链、批处理框架、测试框架都有自己的提交规则。</p>
+<h4 id="8-8-counterexample-failure-mode-ce0fb899" class="semantic-heading semantic-example">8.8 Counterexample / Failure mode</h4>
+<p>失败模式一：把 <code>INSERT</code> 当成“有就覆盖”。如果业务是新增，重复 key 应该是冲突；如果业务是 upsert，应该明确使用 <code>MODIFY</code>、RAP action 或应用服务，并说明字段覆盖规则。</p>
+<p>失败模式二：循环逐行插入，没有统一错误处理。第一百条失败时，前九十九条是否已经进入当前 LUW？是否要回滚？是否要重试？这些都不清楚。</p>
+<p>失败模式三：加了 <code>ACCEPTING DUPLICATE KEYS</code> 但不看 <code>sy-subrc</code> 和 <code>sy-dbcnt</code>。这会把“部分插入成功”伪装成“全部成功”。</p>
+<p>失败模式四：在工具方法里随手 <code>COMMIT WORK</code>。这可能提前提交调用方还没校验完的数据，也可能破坏 RAP/BAPI/批处理框架的事务设计。</p>
+<p>失败模式五：直接写 SAP 标准表。即使技术上有权限，升级稳定性、数据一致性、业务校验、缓存、变更文档、派生逻辑都可能被绕过。先找 released API、BAPI、RAP BO 或正式扩展点。</p>
+<p>失败模式六：用 <code>SELECT MAX( id ) + 1</code> 生成主键再 <code>INSERT</code>。并发下两个会话可能得到同一个新 ID。应使用号码段、UUID、数据库唯一约束、锁或框架提供的编号机制。</p>
+<p>失败模式七：只做数据库写入，不做业务授权。<code>INSERT</code> 本身不是 <code>AUTHORITY-CHECK</code>，也不是 RAP authorization。</p>
+<p>失败模式八：测试后不清理数据。写入类单元测试或手动验证如果直接写共享表，容易污染后续测试和他人环境。要使用测试隔离、回滚、测试专用表或清理策略。</p>
+<h4 id="8-9-c542ca79" class="semantic-heading semantic-practice">8.9 思考问题</h4>
+<ul>
+<li>这个 <code>INSERT</code> 的目标对象是谁？它是否允许被当前程序直接写入？</li>
+<li>这是真正新增，还是 upsert、重试、补偿或导入？</li>
+<li>主键和唯一键从哪里来？是否有并发冲突风险？</li>
+<li>重复键是业务错误、幂等成功，还是应该跳过并记录？</li>
+<li>是否需要 <code>ACCEPTING DUPLICATE KEYS</code>？如果需要，如何处理 <code>sy-dbcnt</code> 少于预期？</li>
+<li><code>INSERT</code> 后是否立刻读取了 <code>sy-subrc</code> 和 <code>sy-dbcnt</code>？</li>
+<li>事务边界在哪里？谁负责 <code>COMMIT WORK</code> 或 rollback？</li>
+<li>是否需要 lock object、RAP lock、号码段或 UUID？</li>
+<li>权限和业务校验在哪里发生？</li>
+<li>ABAP Cloud / RAP / Clean Core 项目中，是否应该改用 released API、BAPI、RAP BO 或 EML？</li>
+</ul>
+<h4 id="8-10-66868bc4" class="semantic-heading semantic-reference">8.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPINSERT_SOURCE.html" target="_blank" rel="noopener noreferrer">INSERT writable_obj, source</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPINSERT_DBTAB.html" target="_blank" rel="noopener noreferrer">INSERT writable_obj</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenabap_sql_writing.html" target="_blank" rel="noopener noreferrer">ABAP SQL - Write Access with DML</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPIUMD_TARGET.html" target="_blank" rel="noopener noreferrer">INSERT, UPDATE, MODIFY, DELETE, target</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCOMMIT.html" target="_blank" rel="noopener noreferrer">COMMIT WORK</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENSAP_LUW.html" target="_blank" rel="noopener noreferrer">SAP LUW</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPINVALID_STMTS_IN_RAP_METHODS.html" target="_blank" rel="noopener noreferrer">Restrictions in RAP Handler and Saver Methods</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP_SQL_CLIENT_HANDLING.html" target="_blank" rel="noopener noreferrer">ABAP SQL - Client Handling</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/17_SAP_LUW.md" target="_blank" rel="noopener noreferrer">SAP LUW Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="8-11-connections-2ed7021b">8.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-02-007-aggregate-functions-c767e82c.html">Aggregate functions 聚合函数</a></li>
+<li>Related: <a class="wiki" href="section-02-003-host-variables-8a74508b.html">Host variables 宿主变量</a></li>
+<li>Related: <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></li>
+<li>Related: <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a></li>
+<li>Related: <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-01-040-lock-object-c9c0e29f.html">Lock object 锁对象</a></li>
+<li>Related: <a class="wiki" href="section-02-011-modify-statement-e9a9a916.html">MODIFY statement 修改语义</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Related: <a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Downstream: <a class="wiki" href="section-02-009-update-statement-ab212d9f.html">UPDATE statement 更新数据</a></li>
+<li>Downstream: <a class="wiki" href="section-02-010-delete-statement-dc415594.html">DELETE statement 删除数据</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 09 - ABAP SQL 写入、聚合与事务</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="8-12-77486236" class="semantic-heading semantic-practice">8.12 学习任务</h4>
+<ul>
+<li>写一个单行 <code>INSERT</code> 例子，并说明每个 key 字段从哪里来。</li>
+<li>写一个 <code>INSERT ... FROM TABLE</code> 例子，分别说明不用和使用 <code>ACCEPTING DUPLICATE KEYS</code> 时的错误处理差异。</li>
+<li>在示例代码里立即复制 <code>sy-subrc</code> 和 <code>sy-dbcnt</code>，并写出 <code>sy-dbcnt</code> 与预期件数不一致时的处理。</li>
+<li>写一句日语 review 说明：<code>このメソッド内で COMMIT WORK してよいか、呼び出し元のトランザクション境界を確認します。</code></li>
+<li>找一个直接写 SAP 标准表的想法，说明为什么应优先找 released API、BAPI、RAP BO 或扩展点。</li>
+<li>设计一个重复请求场景，判断它应该报错、跳过、还是作为幂等成功处理。</li>
+<li>对照 RAP 章节，说明普通 ABAP SQL <code>INSERT</code> 与 RAP save sequence 的关系。</li>
+</ul>
+<h4 id="8-13-confidence-next-action-0787668d" class="semantic-heading semantic-status">8.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 复核 <code>INSERT writable_obj</code>、<code>INSERT ... FROM</code>、<code>INSERT INTO ... VALUES</code>、<code>INSERT ... FROM TABLE</code>、<code>ACCEPTING DUPLICATE KEYS</code>、<code>sy-subrc</code>、<code>sy-dbcnt</code>、write access with DML、I/U/M/D target、<code>COMMIT WORK</code>、SAP LUW、RAP handler/saver restrictions、client handling，以及 SAP LUW / ABAP SQL cheat-sheet 证据；正文已覆盖重复键、异常、事务边界、锁、授权、Clean Core 和 RAP/ABAP Cloud 注意点。旧 Joule ultra-short prompt 返回通用错误，旧 Claude 输出为 session expired；2026-06-18 已创建新的 Claude follow-up prompt，但当前 Claude health check 在 180 秒内未返回，因此本轮按官方资料闭环并保留外部模型复核债务。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-009-update-statement-ab212d9f.html">UPDATE statement 更新数据</a>，继续检查“修改已存在数据”的语义、<code>sy-subrc</code> / <code>sy-dbcnt</code>、找不到目标行时的处理、并发和事务边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-008-insert-statement-0beac323.html">INSERT statement 新增数据</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-007-aggregate-functions-c767e82c.html">Previous section</a><a href="section-02-009-update-statement-ab212d9f.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

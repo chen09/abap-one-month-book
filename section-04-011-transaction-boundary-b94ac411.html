@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Transaction boundary 事务边界 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="11-transaction-boundary-bcb7f235" class="chapter-title">11. Transaction boundary 事务边界</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 11</li><li>self-contained study note</li></ul><h4 id="11-1-fda20dd2" class="semantic-heading semantic-concept">11.1 一句话结论</h4>
+<p>Transaction boundary 是一次业务动作从“开始收集变更”到“统一提交或回滚”的一致性边界。ABAP 项目里不能只把它理解成数据库事务；还要同时区分 <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a>、<a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a>、update task、enqueue lock、BAPI commit pattern、RAP transactional buffer 和 <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a>。</p>
+<p>一句话判断：谁拥有 transaction boundary，谁才有资格决定 <code>COMMIT WORK</code>、<code>ROLLBACK WORK</code>、<code>BAPI_TRANSACTION_COMMIT</code> 或 <code>COMMIT ENTITIES</code>。一个 helper method、BAdI、RAP handler、旧 function module wrapper 如果擅自提交，就可能破坏调用方的业务一致性。</p>
+<h4 id="11-2-aca8e8cd" class="semantic-heading semantic-concept">11.2 到底学什么</h4>
+<p>本节学习“事务边界是谁的”。</p>
+<p>第一，理解 business transaction 不等于单条 SQL。一次业务保存可能包含 header、item、status、log、number range、change document、workflow/event、外部接口和 application log。业务上必须一起成功或一起失败的范围，才是设计讨论的重点。</p>
+<p>第二，区分 SAP LUW 和 Database LUW。Database LUW 是数据库层 commit/rollback 边界；SAP LUW 是 SAP 应用层组织业务一致性的逻辑边界。<code>COMMIT WORK</code> 不只是 database commit，还可能触发 update task、结束 SAP LUW、释放当前边界相关的锁或推进后续处理；如果锁或释放动作与 update task / save processing 绑定，则要等对应更新或保存处理完成，不能把 commit 写成“立刻无条件释放一切锁”。</p>
+<p>第三，理解 RAP transaction owner。在 RAP 中，handler、validation、determination、saver 等生命周期不是随便 commit 的地方。RAP runtime 通过 transactional buffer 和 save sequence 管理保存，外部 consumer 使用 EML/OData 保存语义触发提交。</p>
+<p>第四，识别内部 commit 风险。旧 BAPI、function module、日志组件、外部接口 wrapper 或 helper class 如果内部 <code>COMMIT WORK</code>，会让调用方以为还能 rollback，但数据已经部分提交。</p>
+<p>第五，识别 point of no return。某些动作一旦发生就不能简单回滚，例如号码段消耗、邮件发送、外部系统过账、文件输出、business event 发布、远程系统确认。事务设计不是假设一切都能 rollback，而是把不可撤销动作放在明确位置，并为失败后的补偿、重试和人工处理留下证据。</p>
+<p>第六，识别不同入口的 transaction owner。前台 report、background job、RAP OData action、BAPI caller、RFC consumer、外部调度器，谁拥有提交点可能不同。服务类本身通常不应擅自 commit，而应把成功/失败和待保存内容交回拥有事务边界的调用方。</p>
+<h4 id="11-3-9442929f" class="semantic-heading semantic-why">11.3 为什么重要</h4>
+<p>事务边界错误比普通语法错误更危险，因为它常常只在异常、并发、重试或部分失败时暴露。单人测试里保存成功，看不出问题；上线后才出现“主数据保存失败但日志显示成功”“编号被消耗但单据不存在”“接口超时后重试生成两笔”“RAP action 报失败但 Z 表已经插入”的事故。</p>
+<p>项目交付里，事务边界是设计评审常问的问题：哪个程序拥有提交点？旧 API 是否内部 commit？锁何时释放？如果中途失败，哪些东西能 rollback，哪些东西已经不可撤销？外部系统调用放在 commit 前还是 commit 后？这些问题回答不清，系统就很难说是 production-ready。</p>
+<p>从 Java/Python 背景看，可以把 transaction boundary 类比成 service layer unit of work。但 SAP 的差异是：classic report、dialog step、update task、BAPI、RAP、OData、background job、RFC 都可能有不同的提交语义。不能简单套用“方法开始开事务、方法结束提交”的想象。</p>
+<p>对生产项目来说，事务边界还决定“失败后怎么解释”。同一个错误，如果发生在提交前，可能全部回滚；如果发生在外部接口成功之后，可能需要补偿；如果发生在日志写入之后但业务数据回滚，日志要能说明这是失败日志而不是成功证据。事务边界写清楚，障害调查才知道看数据库、application log、job log、外部系统还是业务状态。</p>
+<h4 id="11-4-key-mechanism-ab839579" class="semantic-heading semantic-mechanism">11.4 Key mechanism / 核心机制</h4>
+<p>可以用三层边界理解：</p>
+<pre><code class="language-text">Business consistency boundary
+  -&gt; one business action must succeed/fail as a whole
+
+SAP LUW
+  -&gt; ABAP/SAP application-level logical unit of work
+  -&gt; COMMIT WORK / ROLLBACK WORK / update task / enqueue relation
+
+Database LUW
+  -&gt; database transaction
+  -&gt; database commit / rollback / cursor and database locks</code></pre>
+<p>RAP 再叠加一层框架语义：</p>
+<pre><code class="language-text">Modify / Action / EML / OData request
+  -&gt; RAP transactional buffer
+  -&gt; authorization / validation / determination / lock
+  -&gt; COMMIT ENTITIES or OData save
+  -&gt; save sequence
+  -&gt; final persistence and cleanup</code></pre>
+<p>设计时要问五个问题：</p>
+<ol>
+<li>这次业务动作的 owner 是谁：report、job、BAPI caller、RAP runtime，还是外部 consumer？</li>
+<li>哪些变更必须一起成功或一起失败？</li>
+<li>哪些操作可能已经不可回滚：number range、外部接口、邮件、workflow、日志、远程系统？</li>
+<li>如果失败，错误消息和日志如何证明边界？</li>
+<li>是否存在内部 commit / rollback 抢走了调用方的控制权？</li>
+</ol>
+<p>在 code review 中，看到 <code>COMMIT WORK</code>、<code>ROLLBACK WORK</code>、<code>BAPI_TRANSACTION_COMMIT</code>、<code>CALL FUNCTION ... IN UPDATE TASK</code>、legacy API wrapper、RAP action handler、additional save、external call，都应该顺手问一句：它属于谁的事务边界？</p>
+<p>可以用下面的表做设计审查：</p>
+<div class="table-wrap"><table><thead><tr><th>入口</th><th>常见 transaction owner</th><th>主要风险</th></tr></thead><tbody><tr><td>Classic report</td><td>report 本身或外层调度</td><td>helper 内部 commit、前台/后台差异</td></tr><tr><td>Background job</td><td>job step 中的程序</td><td>部分成功、重跑、日志与状态不一致</td></tr><tr><td>BAPI caller</td><td>caller，随后调用 <code>BAPI_TRANSACTION_COMMIT</code></td><td>被调 BAPI 是否要求外部 commit</td></tr><tr><td>RAP OData action</td><td>RAP runtime / consumer save semantics</td><td>handler 内部 commit、save sequence 被破坏</td></tr><tr><td>EML batch</td><td>EML consumer / <code>COMMIT ENTITIES</code></td><td>多实体一致性、failed/reported 处理</td></tr><tr><td>External integration</td><td>SAP wrapper 与外部系统之间的契约</td><td>外部副作用不可回滚、重试重复</td></tr></tbody></table></div>
+<p>事务边界设计文档至少应回答：</p>
+<pre><code class="language-text">Transaction boundary record
+  - owner
+  - start condition
+  - objects changed
+  - side effects
+  - commit trigger
+  - rollback trigger
+  - point of no return
+  - retry / compensation rule
+  - evidence: application log, status, request id, job log, API response</code></pre>
+<p>对于 API，尤其要区分 validate、execute、status 三种语义。<code>validate</code> 应尽量 side-effect-free；<code>execute</code> 可能创建或改变业务状态，必须有明确提交边界；<code>status</code> 通常是只读查询，不应意外提交或改变状态。</p>
+<h4 id="11-5-a906f8a1" class="semantic-heading semantic-japan">11.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>トランザクション境界</code>、<code>コミット制御</code>、<code>ロールバック</code>、<code>内部コミット</code>、<code>保存シーケンス</code>、<code>更新タスク</code>、<code>整合性境界</code>。</li>
+<li>设计说明：本処理では RAP runtime がトランザクション境界を管理するため、handler 内では <code>COMMIT WORK</code> を実行しません。</li>
+<li>Review 说法：この汎用メソッドの内部で commit していないか、呼び出し元の rollback を妨げないか確認してください。</li>
+<li>障害调查：主処理は失敗していますが、外部連携とアプリケーションログが既にコミット済みかを切り分けます。</li>
+<li>测试说法：途中エラー時に header、item、status、log がどの状態で残るかを確認します。</li>
+<li>API 说明：validate は副作用なし、execute は保存境界あり、status は参照のみとしてトランザクション境界を分けます。</li>
+<li>BAPI 说明：BAPI 呼び出し後の commit 責任が呼び出し元にあるか、BAPI 側で内部 commit するかを確認します。</li>
+<li>恢复说明：外部連携後に障害が発生した場合の補償・再実行方針を明記します。</li>
+</ul>
+<h4 id="11-6-english-terms-5c654faa" class="semantic-heading semantic-terms">11.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>transaction boundary</code>, <code>SAP LUW</code>, <code>Database LUW</code>, <code>COMMIT WORK</code>, <code>ROLLBACK WORK</code>, <code>COMMIT ENTITIES</code>, <code>save sequence</code></li>
+<li>Related terms: <code>transaction owner</code>, <code>update task</code>, <code>BAPI_TRANSACTION_COMMIT</code>, <code>internal commit</code>, <code>rollback</code>, <code>point of no return</code></li>
+<li>Recommended search pattern: <code>SAP ABAP SAP LUW database LUW COMMIT WORK RAP save sequence</code></li>
+</ul>
+<h4 id="11-7-example-452ebc7f" class="semantic-heading semantic-example">11.7 Example / 学习例子</h4>
+<p>假设一个批量上传 API 执行 <code>execute</code>：</p>
+<ul>
+<li>先做 <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a>，不产生正式副作用。</li>
+<li>按 batch id 做 <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a>。</li>
+<li>将数据写入 RAP transactional buffer 或准备保存结构。</li>
+<li>做 authorization、validation、状态检查。</li>
+<li>由 RAP runtime / caller 触发保存语义。</li>
+<li>save sequence 中统一落库或失败返回。</li>
+<li>如果要发 business event、写外部系统或生成不可撤销输出，要明确 point-of-no-return。</li>
+</ul>
+<p>错误设计是：action handler 里直接 <code>INSERT ztable</code> 后 <code>COMMIT WORK</code>，然后后续 validation 失败。这样用户看到失败，但数据库已经有数据，事务边界被打破。</p>
+<p>更好的 AC0567C execute 设计可以这样描述：</p>
+<pre><code class="language-text">Validate phase:
+  Check input, authorization, duplicate request id, object state.
+  Do not create final business result.
+
+Execute phase:
+  Acquire lock for batch id.
+  Prepare changes in transactional context.
+  Write application log entries as failure/success evidence with request id.
+  Persist only through the owner-controlled save/commit path.
+
+After point of no return:
+  If external posting or irreversible output is triggered,
+  record external reference and define compensation / retry rule.
+
+Status phase:
+  Read current batch state and application log.
+  Do not commit or mutate state.</code></pre>
+<p>测试也要覆盖中途失败。比如 item 50/100 校验失败时，header 是否保留？成功 49 条是否回滚？application log 是记录整批失败，还是每条状态？如果外部系统已经成功 10 条，SAP 失败后如何避免重试重复？这些都是事务边界，不是简单语法。</p>
+<h4 id="11-8-counterexample-failure-mode-4940758f" class="semantic-heading semantic-example">11.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十类。</p>
+<p>第一，helper method 内部 commit。调用方想 rollback，但 helper 已经提交。</p>
+<p>第二，RAP handler 直接 <code>COMMIT WORK</code>。框架事务语义被破坏，save sequence 无法完整控制。</p>
+<p>第三，外部调用放错位置。数据库最终失败，但外部系统已经收到成功请求。</p>
+<p>第四，日志和业务数据边界不一致。业务 rollback 了，日志却写“成功”。</p>
+<p>第五，锁释放和事务结束不一致。锁过早释放导致并发修改，或异常后锁残留。</p>
+<p>第六，把 Database LUW 当作完整业务边界。数据库 commit 成功不代表整笔业务动作已经一致完成。</p>
+<p>第七，validate 阶段产生副作用。预检查或 validate 本应安全可重复，如果它已经写正式数据、发事件或调用外部系统，用户反复点击“检查”也可能改变系统。</p>
+<p>第八，status 查询修改状态。查询接口顺手更新“最后访问时间”或清理临时数据，会让只读调用变成隐式写入。</p>
+<p>第九，BAPI commit 责任不清。调用标准 BAPI 后忘记 commit，或在 wrapper 中偷偷 commit，都会造成调用方误判。</p>
+<p>第十，没有补偿策略。外部系统已成功、SAP 本地失败时，如果没有 external reference、request id 和补偿规则，只能人工猜。</p>
+<h4 id="11-9-d61818fa" class="semantic-heading semantic-practice">11.9 思考问题</h4>
+<ul>
+<li>这段代码是否拥有完整 transaction boundary？</li>
+<li>是否存在内部 <code>COMMIT WORK</code> / <code>ROLLBACK WORK</code>？</li>
+<li>哪些数据和副作用必须一起成功或一起失败？</li>
+<li>失败时 rollback 能撤回哪些内容？哪些已经不可撤回？</li>
+<li>RAP 场景中是否应由 <code>COMMIT ENTITIES</code> / OData save 触发保存？</li>
+<li>AC0567C POC 中 validate、execute、status 查询分别属于哪个事务边界？</li>
+<li>哪一步是 point of no return？它之后失败如何补偿？</li>
+<li>Background job 重跑时，哪些数据可能已经提交？</li>
+<li>标准 BAPI 的 commit 责任在调用方还是被调用方？</li>
+</ul>
+<h4 id="11-10-48a0e5c8" class="semantic-heading semantic-reference">11.10 参考资料入口</h4>
+<p><strong>官方依据补强：SAP LUW 不是普通数据库事务</strong></p>
+<p>ABAP Keyword Documentation 对 SAP LUW 的说明非常适合初学者建立正确心智模型：在经典 dialog-oriented application 里，一个应用程序可能跨多个 work process 执行，每一次 work process switch 都可能伴随 implicit database commit。因此，不能把“一个 ABAP 程序从头跑到尾”自动理解成“一个 database LUW”。SAP 为了让业务动作保持一致性，提供了 update task、background unit、<code>PERFORM ... ON COMMIT</code> 等 bundling techniques，把多个变更登记起来，再由一个受控的工作进程在一个 database LUW 中执行。</p>
+<p>这也解释了为什么授权、validation 和业务停止条件要尽量在进入 update task 之前完成。update task 更适合执行已经被主流程确认过的持久化变更，不适合承担“现在才判断用户能不能做、业务状态能不能做”的职责。否则失败点会被推迟到事务后段，错误证据也会变得更难解释。</p>
+<p>这也是为什么项目里总会追问“谁拥有 transaction boundary”。如果是 classic report 或 background job，通常是最外层程序或 job step 负责决定何时 <code>COMMIT WORK</code> / <code>ROLLBACK WORK</code>；如果是 BAPI 调用，常见模式是 BAPI 返回 <code>RETURN</code> 消息后，由调用方根据结果调用 <code>BAPI_TRANSACTION_COMMIT</code> 或回滚；如果是 RAP/OData，则 behavior implementation 不应在 handler 里直接 <code>COMMIT WORK</code>，而应让 RAP runtime、<code>COMMIT ENTITIES</code> 或 OData save 语义控制 save sequence。底层 helper、BAdI、utility class 如果擅自提交，就会让外层调用者失去 rollback 能力。</p>
+<p>可以用一个现场判断句来记忆：<strong>transaction boundary 不是“哪一行 SQL 改了数据库”，而是“哪一个业务入口有资格宣布这次业务动作整体成功或整体失败”。</strong> 例如批量导入订单时，header、item、status、application log、number range、external API callback 如果被拆在不同提交点，就可能出现“业务数据回滚了但日志说成功”“外部系统已收到请求但 SAP 本地失败”“重跑时重复创建”的事故。真正的设计文档必须写清楚 start condition、changed objects、side effects、commit trigger、rollback trigger、point of no return 和 retry / compensation rule。</p>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/abensap_luw.htm" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - SAP LUW</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCOMMIT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - COMMIT WORK</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPCOMMIT_ENTITIES.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - COMMIT ENTITIES</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/save-sequence-runtime" target="_blank" rel="noopener noreferrer">SAP Help - RAP Save Sequence Runtime</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/entity-manipulation-language-eml" target="_blank" rel="noopener noreferrer">SAP Help - Entity Manipulation Language EML</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SAP%20LUW%20COMMIT%20WORK" target="_blank" rel="noopener noreferrer">SAP Help search - SAP LUW COMMIT WORK</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Database%20LUW%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - Database LUW ABAP</a></li>
+<li><a href="https://help.sap.com/docs/search?q=RAP%20save%20sequence" target="_blank" rel="noopener noreferrer">SAP Help search - RAP save sequence</a></li>
+<li><a href="https://help.sap.com/docs/search?q=BAPI_TRANSACTION_COMMIT" target="_blank" rel="noopener noreferrer">SAP Help search - BAPI_TRANSACTION_COMMIT</a></li>
+<li><a href="https://help.sap.com/docs/search?q=COMMIT%20ENTITIES%20RAP" target="_blank" rel="noopener noreferrer">SAP Help search - COMMIT ENTITIES RAP</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="11-11-connections-2a93bf4a">11.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-010-enqueue-locking-d5a35a82.html">Enqueue locking 加锁设计</a></li>
+<li>Related: <a class="wiki" href="section-02-012-sap-luw-704da272.html">SAP LUW 逻辑事务单元</a></li>
+<li>Related: <a class="wiki" href="section-02-013-database-luw-f6a232eb.html">Database LUW 数据库事务</a></li>
+<li>Related: <a class="wiki" href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">COMMIT WORK restriction in RAP</a></li>
+<li>Related: <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a></li>
+<li>Downstream: <a class="wiki" href="section-04-012-select-for-update-vs-sap-enqueue-17d18ae8.html">SELECT FOR UPDATE vs SAP enqueue</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 23 - 事务边界、Commit 限制与锁</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="11-12-cee61cb4" class="semantic-heading semantic-practice">11.12 学习任务</h4>
+<ul>
+<li>用自己的中文解释 SAP LUW 和 Database LUW 的差异。</li>
+<li>找一段伪代码，标出谁是 transaction owner。</li>
+<li>写一句日语 review 评论，要求确认内部 commit 风险。</li>
+<li>为一个 execute API 设计中途失败测试，说明哪些数据应保留、哪些应回滚。</li>
+<li>在 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中标出 validate / execute / status 的事务边界。</li>
+</ul>
+<h4 id="11-13-confidence-next-action-768d6820" class="semantic-heading semantic-status">11.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for SAP LUW versus Database LUW framing, transaction-owner responsibility, internal <code>COMMIT WORK</code> risk, BAPI caller commit pattern, RAP runtime / <code>COMMIT ENTITIES</code> / save sequence boundary, and point-of-no-return / compensation design; Claude 2026-06-18 follow-up returned <code>Pass with fixes</code>, and the prior hard blocker (<code>六类</code> versus ten failure modes) plus heading-structure issue are already fixed in the current atomic/chapter text. Medium-High for exact implicit commit situations, update task behavior, lock-release timing, RAP lifecycle details, and individual BAPI commit responsibility because they depend on the target release and the called API documentation. Joule review remains deferred for this specific scoped section.</li>
+<li>Next action: 继续阅读 <a class="wiki" href="section-04-012-select-for-update-vs-sap-enqueue-17d18ae8.html">SELECT FOR UPDATE vs SAP enqueue</a>，把数据库锁和 SAP 应用层锁放到事务边界中比较；如果后续 Joule 工具恢复，可针对 SAP LUW / update task / RAP save sequence 再做一次 SAP-specialist confirmation。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-010-enqueue-locking-d5a35a82.html">Previous section</a><a href="section-04-012-select-for-update-vs-sap-enqueue-17d18ae8.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

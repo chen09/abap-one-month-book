@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>AUTHORITY-CHECK 经典授权检查 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="1-authority-check-71e2666f" class="chapter-title">1. AUTHORITY-CHECK 经典授权检查</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 01</li><li>self-contained study note</li></ul><h4 id="1-1-82ea6961" class="semantic-heading semantic-concept">1.1 一句话结论</h4>
+<p><code>AUTHORITY-CHECK</code> 是经典 ABAP 里最直接的应用层授权检查语句：程序拿当前用户、授权对象和字段值去问 SAP 授权系统“这个用户是否允许做这件事”，然后用 <code>sy-subrc</code> 决定继续、报错或拒绝请求。</p>
+<p>对初学者来说，本节先建立一个核心判断：授权不是“画面上有没有按钮”，而是“后端代码、数据访问和业务动作是否真的被保护”。如果一个用户不能修改某个公司代码的数据，ABAP 程序不能只依赖 Fiori / SAP GUI 的按钮隐藏，也不能只相信前端传来的参数；在进入敏感读取、创建、修改、删除、审批、提交等动作之前，后端必须有明确的授权判断。</p>
+<h4 id="1-2-fd5f4e62" class="semantic-heading semantic-concept">1.2 到底学什么</h4>
+<p>本节学习的是传统 ABAP 权限入口，不是整套 SAP 权限架构。需要掌握六件事。</p>
+<p>第一，知道 <code>AUTHORITY-CHECK</code> 检查的对象不是“用户是否登录”，而是用户角色中是否包含某个授权对象及其字段值。常见字段包括活动类型 <code>ACTVT</code>，例如显示、修改、创建、删除等；实际项目还会有组织维度字段，例如公司代码、销售组织、工厂、采购组织或自定义字段。</p>
+<p>第二，知道检查结果必须被处理。<code>AUTHORITY-CHECK</code> 执行后会设置 <code>sy-subrc</code>。一般理解为：<code>sy-subrc = 0</code> 表示通过；非 0 表示不通过或检查条件不满足。项目代码最危险的写法不是检查失败，而是检查完以后忽略 <code>sy-subrc</code>，继续执行后续更新。</p>
+<p>第三，知道它和 <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>、<a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a>、<a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a>、<a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a> 的边界。<code>AUTHORITY-CHECK</code> 是显式写在 ABAP 代码里的检查；DCL 偏向 CDS 数据读取层的访问控制；RAP authorization 偏向 RAP 行为模型中的操作授权；precheck 偏向在正式修改前尽早拒绝明显非法的请求。它们可以互补，但不能随便互相替代。</p>
+<p>第四，知道如何在项目里验证。授权相关需求不能只用“有权限用户 happy path”验收，还要准备无权限用户、边界组织数据、不同操作类型、API 直接调用、错误消息和日志证据。</p>
+<p>第五，知道它适合放在哪里。<code>AUTHORITY-CHECK</code> 常见于 classic report、function module、class method、BAdI、user exit、RFC/OData wrapper、后台 job 和旧业务 API 调用前后。它不应该散落在每个小 helper 里，也不应该只放在 UI 入口。更好的设计是把授权判断集中到 service/policy/checker 层，让调用路径清楚、测试可替换、错误处理一致。</p>
+<p>第六，知道它不是“写了就安全”。真正安全取决于三件事：检查的 authorization object / field / value 是否正确；<code>sy-subrc</code> 或异常结果是否被正确处理；失败后是否真的停止敏感动作且没有副作用。缺任何一个，代码表面上有授权，实际上仍可能越权。</p>
+<h4 id="1-3-4f8e3d65" class="semantic-heading semantic-why">1.3 为什么重要</h4>
+<p>授权检查是生产就绪的底线之一。一个 ABAP 程序即使功能完全跑通，只要授权边界错误，就可能造成越权查看、越权修改、审计不通过、接口绕过 UI 限制、上线后紧急回退等问题。特别是在 SAP 项目里，权限不是单独属于 Basis 或安全团队的事情；ABAP 开发者必须知道自己的代码在哪里消耗权限、在哪里暴露业务动作、在哪里需要向权限设计提出字段和角色需求。</p>
+<p>从 Java/Python 背景看，可以把 <code>AUTHORITY-CHECK</code> 类比成 service 层的 authorization guard，但 SAP 的差异更强：权限对象通常和业务组织维度绑定，角色由 PFCG 或业务角色维护，失败后还常常需要用 <code>SU53</code>、trace 或安全团队的角色配置来排查。也就是说，ABAP 代码里的一个检查语句，背后连接的是业务岗位、组织结构、授权对象、角色维护、测试用户和上线审计。</p>
+<p>这一点在接口场景尤其重要。UI 层隐藏按钮只能改善用户体验，不能保护接口。只要 OData / RFC / Web API / batch job 入口仍能被调用，真正的保护必须落到服务实现、行为实现、CDS/DCL 或底层业务 API 的授权路径上。</p>
+<p>在日本项目现场，<code>AUTHORITY-CHECK</code> 还常常是缺陷沟通的共同语言。开发者可以把“检查对象、字段和值”交给权限团队，权限团队可以通过 role/profile 配置和 SU53/trace 证据判断是否缺权限。没有这条共同语言，缺陷很容易变成“开发说不是代码问题，权限团队说 role 已给，测试说还是失败”。</p>
+<h4 id="1-4-key-mechanism-ae5db823" class="semantic-heading semantic-mechanism">1.4 Key mechanism / 核心机制</h4>
+<p>经典模式可以用一段伪代码理解：</p>
+<pre><code class="language-abap">AUTHORITY-CHECK OBJECT &#x27;Z_TRAVEL&#x27;
+  ID &#x27;ACTVT&#x27;    FIELD &#x27;03&#x27;
+  ID &#x27;ZCOMPANY&#x27; FIELD lv_company_code.
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; Stop the read operation and return a clear authorization error.
+ENDIF.</code></pre>
+<p>这段代码表达的不是“用户是否能进入系统”，而是“当前用户是否被授予 <code>Z_TRAVEL</code> 这个授权对象，并且其中 <code>ACTVT = 03</code>、<code>ZCOMPANY = lv_company_code</code> 的组合是允许的”。实际项目中对象名和字段名要来自系统里的授权对象设计，不能凭空写一个看起来合理的名字。</p>
+<p><code>ACTVT</code> 通常用于区分动作类型，例如显示、创建、修改、删除、执行等。组织字段用于限制数据范围，例如只允许访问某些公司代码或工厂。检查通过后程序才继续；检查失败时应返回清楚、可测试、不会泄露过多敏感信息的错误。错误处理可以是 message、exception、RAP reported/failed、HTTP 403 风格响应或项目框架规定的错误格式，但核心原则相同：不能继续执行敏感动作。</p>
+<p>还要记住 classic authorization object 的字段完整性。一个授权对象通常有多个 authorization field；代码要么用 <code>ID &#x27;...&#x27; FIELD ...</code> 检查该字段，要么用 <code>ID &#x27;...&#x27; DUMMY</code> 明确表示这个字段本次不参与检查，不能无意漏掉。实际处理时可以把任何非 0 <code>sy-subrc</code> 都当作 deny 安全失败；其中常见的 <code>sy-subrc = 4</code> 更像普通“用户没有匹配授权”，而 <code>8</code>、<code>12</code> 这类结果往往提示对象名、字段名或检查写法/配置有问题，需要开发和权限团队修正，不能只当成普通缺权限糊弄过去。</p>
+<p>还要注意三个边界。</p>
+<p>第一，<code>AUTHORITY-CHECK</code> 不会自动给 SQL 加 <code>WHERE</code> 条件。它只告诉程序某个授权组合是否通过；如果需求是“只能看到自己公司代码的数据”，代码仍要在选择数据、DCL、RAP instance authorization 或业务 API 中保证数据范围正确。</p>
+<p>第二，它不等于 <code>SU53</code>。<code>SU53</code> 是排查用户最近一次授权失败的常用入口，帮助定位缺了什么授权；<code>AUTHORITY-CHECK</code> 是程序中的检查动作。一个用于执行，一个用于诊断。</p>
+<p>第三，现代 RAP / ABAP Cloud 场景要优先尊重框架推荐的授权模型和 released API 约束。学习 <code>AUTHORITY-CHECK</code> 仍然必要，因为大量既有代码、BAdI、exit、classic report、function module、utility class 和迁移项目都能看到它；但在新建 RAP 服务中，不能因为熟悉经典语句就跳过 behavior authorization、DCL 或服务层的设计。</p>
+<p>可以用下面的表判断 classic check 的位置：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th><code>AUTHORITY-CHECK</code> 的典型作用</th><th>仍需配合</th></tr></thead><tbody><tr><td>Classic report 执行前</td><td>判断用户是否可执行功能或组织范围</td><td>selection-screen 检查、日志、错误消息</td></tr><tr><td>Function module / class service</td><td>在敏感业务动作前做后端授权</td><td>调用方事务边界、异常处理</td></tr><tr><td>RFC / OData wrapper</td><td>防止 API 绕过 UI 限制</td><td>authentication、service exposure、RAP/OData 错误格式</td></tr><tr><td>批量上传行处理</td><td>按 company code / plant / action 逐行或逐批检查</td><td>批量错误返回、application log</td></tr><tr><td>RAP 新实现</td><td>可作为被复用的底层授权逻辑</td><td>RAP global/instance authorization、failed/reported</td></tr><tr><td>CDS 列表读取</td><td>不自动过滤 SQL/CDS 结果</td><td>DCL、query condition、service projection</td></tr></tbody></table></div>
+<p><code>sy-subrc</code> 处理可以写成固定纪律：</p>
+<pre><code class="language-abap">AUTHORITY-CHECK OBJECT &#x27;Z_UPLOAD&#x27;
+  ID &#x27;ACTVT&#x27; FIELD &#x27;02&#x27;
+  ID &#x27;BUKRS&#x27; FIELD lv_bukrs.
+
+IF sy-subrc &lt;&gt; 0.
+  &quot; Convert the failed check into a controlled authorization error.
+  &quot; Do not update, enqueue, call external APIs, or write success logs.
+  RAISE EXCEPTION TYPE zcx_no_authority.
+ENDIF.</code></pre>
+<p>项目上不要把失败处理写成空分支，也不要只写注释。失败后应进入 message、exception、RAP failed/reported、HTTP 403 风格响应或项目统一错误结构。更重要的是：失败路径不能继续保存、不能拿锁长时间占用资源、不能写“成功”应用日志，也不能泄露其他组织的敏感数据。</p>
+<h5 id="1-4-1-authorization-evidence-matrix-cc69bb52">1.4.1 Authorization evidence matrix</h5>
+<p><code>AUTHORITY-CHECK</code> 的验收不能只靠“有权限用户能成功”。授权缺陷最常发生在边界路径：无权限用户、跨组织数据、API 直接调用、批量混合数据和错误处理继续执行。可以用下面的矩阵准备证据。</p>
+<div class="table-wrap"><table><thead><tr><th>Test pattern</th><th>要验证什么</th><th>关键证据</th></tr></thead><tbody><tr><td>Authorized happy path</td><td>正确角色、正确组织值、正确 <code>ACTVT</code> 能通过</td><td>用户、role、授权对象/字段值、成功结果</td></tr><tr><td>Unauthorized user</td><td>没有对应授权对象或组织值时被拒绝</td><td><code>sy-subrc</code> 处理、错误消息、无 DB 更新</td></tr><tr><td>Wrong activity</td><td>只有显示权限的用户不能执行修改/删除/提交</td><td><code>ACTVT</code> 值、操作类型、拒绝结果</td></tr><tr><td>Cross-organization</td><td>允许公司代码 A 的用户不能处理公司代码 B</td><td>请求数据、组织字段值、拒绝结果</td></tr><tr><td>API direct call</td><td>绕过 UI 直接调用 OData/RFC/job 也被后端拦截</td><td>HTTP/RFC response、后端日志、无副作用</td></tr><tr><td>Batch mixed data</td><td>同一批次含有允许和不允许组织值时处理策略明确</td><td>按行拒绝或整批拒绝的规则和证据</td></tr><tr><td>Failure path safety</td><td>授权失败后不 enqueue、不 update、不 call external API、不写成功日志</td><td>trace、application log、DB 后验</td></tr><tr><td>Troubleshooting</td><td>缺权限时能用 SU53/trace/日志定位对象和值</td><td>授权对象、字段、值、用户、时间</td></tr></tbody></table></div>
+<p>这张矩阵也能帮助和权限团队沟通。开发者不要只说“请给权限”，而要交付可维护的信息：检查哪个 authorization object、哪些 field、<code>ACTVT</code> 是什么、组织值来自哪里、失败后返回什么错误、哪些入口共用同一检查。权限团队才能把 PFCG role、测试用户和 SU53/trace 证据对上。</p>
+<h4 id="1-5-94f69d54" class="semantic-heading semantic-japan">1.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>権限チェック</code>、<code>権限オブジェクト</code>、<code>権限項目</code>、<code>ACTVT</code>、<code>PFCGロール</code>、<code>SU53</code>、<code>権限エラー</code>、<code>認可漏れ</code>。</li>
+<li>设计说明：この処理では、更新前に <code>AUTHORITY-CHECK</code> で会社コード単位の権限を確認します。</li>
+<li>Review 说法：<code>sy-subrc</code> の判定後に処理が継続していないか、権限エラー時のメッセージと戻り値を確認してください。</li>
+<li>测试说法：権限ありユーザと権限なしユーザの両方で、画面操作だけでなく API 直接呼び出しも確認します。</li>
+<li>障害调查说法：SU53 だけで結論を出さず、該当処理の <code>AUTHORITY-CHECK</code> 対象、項目値、ロール設定を突き合わせます。</li>
+<li>设计书条目：権限オブジェクト、権限項目、ACTVT、組織値、チェック箇所、エラー時の処理を明記します。</li>
+<li>Review 追加句：<code>AUTHORITY-CHECK</code> 後に外部連携、DB更新、成功ログ出力へ進んでいないか確認してください。</li>
+<li>API 说明：画面制御とは別に、API 直接呼び出し時にも同一のバックエンド権限チェックが実行されることを確認します。</li>
+</ul>
+<h4 id="1-6-english-terms-477f77c7" class="semantic-heading semantic-terms">1.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>AUTHORITY-CHECK</code></li>
+<li>Related terms: <code>authorization object</code>, <code>authorization field</code>, <code>authorization check</code>, <code>ACTVT</code>, <code>sy-subrc</code>, <code>PFCG role</code>, <code>SU53</code>, <code>authorization trace</code>, <code>RAP authorization</code>, <code>least privilege</code>, <code>authorization error</code></li>
+<li>Recommended search pattern: <code>AUTHORITY-CHECK ABAP Keyword Documentation</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。中文讲解可以说“经典授权检查”，但代码、搜索和设计文档里应保留 <code>AUTHORITY-CHECK</code>。</li>
+</ul>
+<h4 id="1-7-example-0ce406e7" class="semantic-heading semantic-example">1.7 Example / 学习例子</h4>
+<p>假设有一个批量上传 API，要把外部文件里的销售数据写入 SAP。需求说：“用户只能上传自己负责公司代码的数据。”这个需求不能只靠前端下拉框限制，因为 API 调用者可以直接构造请求。</p>
+<p>一个可交付的设计通常要回答：</p>
+<ul>
+<li>在哪里检查：进入写入逻辑前，按请求中的公司代码执行授权检查。</li>
+<li>检查什么：动作是创建/修改还是显示，组织字段是公司代码、销售组织还是工厂。</li>
+<li>失败怎么办：拒绝本条或整批请求，返回统一错误，不执行后续写入。</li>
+<li>怎么测试：准备有权限和无权限用户，分别验证 UI 操作、API 直接调用、批量多公司代码混合数据、错误消息和日志。</li>
+</ul>
+<p>最小学习动作：在一个示例报告或类方法里写出 <code>AUTHORITY-CHECK OBJECT ... ID ... FIELD ...</code> 的结构，然后在 <code>sy-subrc &lt;&gt; 0</code> 时停止处理。</p>
+<p>进阶学习动作：在 <span class="wiki unresolved">AC0567C POC Reading Map</span> 中找一个“上传、确认、更新、提交”类入口，标注它应该在哪里做 classic authorization、哪里适合 DCL、哪里适合 RAP authorization 或 precheck。</p>
+<p>一个 AC0567C 风格的上传 API 可以这样拆：</p>
+<div class="table-wrap"><table><thead><tr><th>入口</th><th>classic <code>AUTHORITY-CHECK</code> 可能负责</th><th>还要看</th></tr></thead><tbody><tr><td><code>validate</code></td><td>用户是否总体可使用上传检查功能、是否可检查某组织范围</td><td>precheck、错误清单、是否暴露敏感数据</td></tr><tr><td><code>execute</code></td><td>用户是否允许创建/修改业务数据，<code>ACTVT</code> 与组织值是否覆盖请求数据</td><td>RAP global/instance authorization、locking、save sequence</td></tr><tr><td><code>cancel</code></td><td>用户是否允许取消/删除上传批次</td><td>instance authorization、状态规则、owner 判断</td></tr><tr><td><code>status</code></td><td>用户是否可查看该批次状态或日志</td><td>DCL/read authorization、日志访问控制</td></tr></tbody></table></div>
+<p>如果这套 API 封装旧 BAPI 或 function module，还要确认旧 API 内部是否已经做授权检查、检查的是哪个 object、是否内部 commit、错误如何返回。重复检查不一定错，但职责要清楚；完全依赖未知旧 API 也不安全，因为测试人员无法证明具体对象和组织字段是否被保护。</p>
+<p>测试矩阵至少应包含：</p>
+<pre><code class="language-text">Authorized user + allowed company code -&gt; success
+Authorized user + disallowed company code -&gt; authorization error
+Display-only user + execute action -&gt; authorization error
+No-authority user + API direct call -&gt; authorization error before side effects
+Technical/communication user -&gt; only allowed scope succeeds</code></pre>
+<p>证据要包含 API response、业务数据未被修改、application log 没有误写成功、<code>SU53</code> 或 trace 可解释缺失对象/字段值，以及角色修复后有权限用户成功、无权限用户仍失败。</p>
+<h4 id="1-8-counterexample-failure-mode-6ea865e6" class="semantic-heading semantic-example">1.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十类。</p>
+<p>第一，只隐藏按钮。用户在画面上看不到“修改”按钮，但接口、批处理或调试入口仍可能触发后端更新。</p>
+<p>第二，只在程序入口检查一次。入口检查了“可以使用此功能”，但后续处理每一行数据时没有按公司代码、工厂或对象实例检查，导致用户能修改不属于自己的数据。</p>
+<p>第三，检查后不处理 <code>sy-subrc</code>。代码里有 <code>AUTHORITY-CHECK</code>，review 时看起来像做了权限，但失败后仍继续执行。这比没有检查更危险，因为它会制造“已经做过权限”的错觉。</p>
+<p>第四，把 DCL、RAP authorization、precheck 和 classic check 混为一谈。读取列表、显示详情、执行 action、保存变更、调用外部 API 是不同风险点，不能用一个泛泛的“授权已做”覆盖所有路径。</p>
+<p>第五，测试只覆盖有权限用户。授权测试必须有失败场景，否则无法证明越权路径被关住。</p>
+<p>第六，只检查功能权限，不检查组织值。用户有 <code>ACTVT = 02</code>，但不代表他能修改所有 company code / plant / sales org。</p>
+<p>第七，把 <code>AUTHORITY-CHECK</code> 放在副作用之后。先写表、发接口、消耗编号，最后才发现无权限，已经太晚。</p>
+<p>第八，错误消息过于技术或过度泄露。无权限要可测试、可支持，但不应把其他组织敏感字段、审批人、内部规则完整暴露给调用者。</p>
+<p>第九，接口用户被赋予过大权限。Communication user 或后台用户也要遵守最小权限和审计原则，不能因为“系统调用”就绕过授权。</p>
+<p>第十，迁移到 RAP 后旧检查失效。把 classic logic 包成 RAP service 时，如果只暴露 action 而没有把 classic check 接入 RAP authorization/failed/reported 路径，API 语义和错误处理可能变得不一致。</p>
+<p>修正动作：对每个敏感用例画出“入口、读取、实例选择、动作执行、保存、错误返回”的路径，并在路径上标注使用 <code>AUTHORITY-CHECK</code>、DCL、RAP authorization、precheck 或业务 API 内置授权的具体位置。</p>
+<h4 id="1-9-00290cac" class="semantic-heading semantic-practice">1.9 思考问题</h4>
+<ul>
+<li>这个检查是在“功能入口”层、数据行层、实例行为层，还是保存前校验层？</li>
+<li>当前需求里的授权维度是什么：功能、动作、公司代码、工厂、销售组织、用户归属，还是对象实例？</li>
+<li>如果只在 UI 隐藏按钮，不在后端检查，API 是否还能绕过？</li>
+<li><code>sy-subrc &lt;&gt; 0</code> 时，代码是否真的停止了敏感动作？</li>
+<li>检查失败时是否已经产生了 DB 更新、外部调用、编号消耗或成功日志？</li>
+<li>组织字段和 <code>ACTVT</code> 是否都被测试？</li>
+<li>API 直接调用和后台 job 是否走同一授权路径？</li>
+<li>这个需求更适合 classic <code>AUTHORITY-CHECK</code>、<a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a>、<a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a>、<a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a>，还是组合使用？</li>
+<li>在日本项目里向客户或权限团队说明时，应该说 <code>権限オブジェクト</code>、<code>権限項目</code>、<code>ACTVT</code> 还是 <code>ロール設定</code>？</li>
+</ul>
+<h4 id="1-10-d051adf9" class="semantic-heading semantic-reference">1.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPAUTHORITY-CHECK.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - AUTHORITY-CHECK OBJECT, latest</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPAUTHORITY-CHECK.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - AUTHORITY-CHECK OBJECT, ABAP Cloud</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-rap/authorization-control" target="_blank" rel="noopener noreferrer">SAP Help - RAP Authorization Control</a> (accessed 2026-06-18)</li>
+<li><a href="https://help.sap.com/docs/search?q=authorization%20object%20field%20ACTVT" target="_blank" rel="noopener noreferrer">SAP Help search - authorization object field ACTVT</a> (precise page pending)</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="1-11-connections-ef473a12">1.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-03-045-api-testing-workflow-0438366f.html">API testing workflow 接口测试流</a></li>
+<li>Downstream: <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a></li>
+<li>Related: <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li>Related: <a class="wiki" href="section-04-004-rap-global-authorization-16745110.html">RAP global authorization 全局授权</a></li>
+<li>Related: <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a></li>
+<li>Related: <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a></li>
+<li>Related: <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 22 - 授权检查与 Precheck</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="1-12-256edcd1" class="semantic-heading semantic-practice">1.12 学习任务</h4>
+<ul>
+<li>用自己的中文说明 <code>AUTHORITY-CHECK</code> 和“隐藏按钮”的差异。</li>
+<li>写一个 5-8 行的伪代码：先检查 <code>ACTVT</code> 和组织字段，再处理 <code>sy-subrc</code>。</li>
+<li>为一个 API 准备有权限用户和无权限用户两组测试数据，写出预期结果。</li>
+<li>用 English Terms 找到一个 SAP 官方页面，把最精确的链接补到本节参考资料。</li>
+<li>在 <span class="wiki unresolved">AC0567C POC Reading Map</span> 里选一个写入入口，说明应该用 classic check、DCL、RAP authorization 还是组合方案。</li>
+</ul>
+<h4 id="1-13-confidence-next-action-e6c33610" class="semantic-heading semantic-status">1.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High。<code>AUTHORITY-CHECK</code> 的语义、<code>sy-subrc</code> 处理、授权对象/字段和 UI 绕过风险属于稳定基础知识；具体授权对象、字段值、错误处理格式和 ABAP Cloud 可用性要以目标系统、项目规范和 SAP 官方文档为准。</li>
+<li>Review status: Claude 2026-06-18 review returned <code>Pass with fixes</code>; fixes integrated in this note. Joule review remains deferred in the current Codex session because no callable Chrome DevTools/Joule tools are exposed; the dependency is recorded rather than retried.</li>
+<li>Next action: 阅读 <a class="wiki" href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">SAP Authorization Architecture Overview</a>，把单个语句放回“用户、角色、授权对象、DCL、RAP authorization、测试证据”的完整授权架构中理解。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-001-authority-check-1ee5b7b8.html">AUTHORITY-CHECK 经典授权检查</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-03-049-rap-extensibility-a515afa6.html">Previous section</a><a href="section-04-002-sap-authorization-architecture-overview-e17826e1.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

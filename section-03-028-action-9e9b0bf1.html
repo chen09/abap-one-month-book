@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Action 业务动作 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="28-action-44aa9369" class="chapter-title">28. Action 业务动作</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 28</li><li>self-contained study note</li></ul><h4 id="28-1-8ee50817" class="semantic-heading semantic-concept">28.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a> 是 RAP business object 中用于表达非标准 CRUD 的业务操作，例如审批、拒绝、取消、复制、重新计算、提交、生成后续对象等；它把“用户点按钮后发生的业务动作”显式建模在 behavior definition 和 behavior pool 中，而不是塞进普通 update、CDS 计算字段或前端按钮脚本里。</p>
+<p>一句话记忆：CRUD 处理“增删改查”，Action 处理“业务动词”。如果需求说的是 accept、reject、cancel、submit、release、recalculate、copy，通常就要先想到 RAP action。</p>
+<h4 id="28-2-b21d1829">28.2 概念说明</h4>
+<p>SAP Developer Tutorial 对 RAP action 的入门解释很直接：action 是 non-standard operation，默认和 RAP BO entity instance 相关，并且会改变 instance 的状态；如果使用 <code>static</code>，则 action 不绑定某个实例，而是关联整个 entity。SAP-samples RAP100 练习也说明，action 在 behavior definition 中声明，在 ABAP behavior pool 中实现。</p>
+<p>这和普通 update 有明显区别。Update 通常是“把某些字段改成 consumer 提供的新值”；Action 则是“执行一个业务动作，并由后端决定状态如何变化、消息如何返回、是否产生 result”。比如审批 Travel 时，前端不应该直接把 <code>OverallStatus = &#x27;A&#x27;</code> 当成普通 update；更好的设计通常是 <code>acceptTravel</code> action：后端检查状态、授权、必填字段、锁和业务规则，再把状态改成 Accepted。</p>
+<p>Action 也不是单纯的 UI button。Fiori Elements 可以把 action 渲染成按钮，OData consumer 可以调用 action，ABAP 代码可以通过 <a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a> 执行 action。真正的契约在 BDEF 和 behavior implementation 中，而不是按钮本身。</p>
+<p>初学者先记住四种常见形态：</p>
+<ul>
+<li>Instance action：默认形态，作用在一个或多个具体 BO instance 上，例如 <code>acceptTravel</code>。</li>
+<li>Static action：不绑定具体 instance，作用于 entity 级别，例如“批量导入”“全局重新计算”。</li>
+<li>Action with parameter：调用时需要输入参数，例如取消原因、审批备注、模拟选项。</li>
+<li>Factory action：action 产生新的 BO instance，例如复制一个 Travel，或从模板生成一个新对象。</li>
+</ul>
+<h4 id="28-3-372c6d63" class="semantic-heading semantic-why">28.3 为什么重要</h4>
+<p>没有 action，很多项目会把业务动作硬塞进 update。比如把状态字段从 Open 改成 Approved，就假设审批完成。这会让业务语义变得模糊：谁检查了权限？谁判断当前状态能不能审批？谁写审批消息？谁决定审批后哪些字段只读？谁保证重复点击不会产生副作用？</p>
+<p>Action 把这些问题集中到 BO 行为里。设计文档可以明确写：<code>acceptTravel</code> 检查权限和状态，成功后把状态改为 Accepted，并返回更新后的 <code>$self</code>；<code>rejectTravel</code> 需要输入拒绝原因；<code>copyTravel</code> 创建一个新 Travel 并返回新实例。这样 UI、OData、EML、测试和 review 都围绕同一个业务能力讨论。</p>
+<p>对项目交付来说，action 直接影响接口可读性和缺陷定位。看到 OData metadata 中的 action，读者就知道这是业务动作而不是普通字段修改；看到 behavior pool 的 <code>FOR MODIFY</code> action method，reviewer 就知道要检查 interaction phase、failed/reported/result、authorization、feature control、幂等和 save sequence 边界。</p>
+<p>对 Java/Python 背景学习者，可以把 RAP action 类比成 domain command 或 application service command，例如 <code>approve(orderId)</code>。但 RAP 的差异是：action 是 BDEF 契约的一部分，会被 RAP runtime、EML、OData metadata、Fiori Elements、authorization、draft、feature control 和事务缓冲共同解释。</p>
+<h4 id="28-4-f30f2624">28.4 边界</h4>
+<p>第一条边界：action 不是普通 update 的漂亮名字。把状态字段改成 Approved 是 update；执行 <code>approve</code> 这个业务过程是 action。Action 可以内部修改字段，但它表达的是业务意图，而不是字段赋值请求。</p>
+<p>第二条边界：action 不等于 validation。Validation 负责检查数据是否有效；action 负责执行业务动作。Action 里可以调用或触发检查，但不要把“保存时字段是否合法”都包装成 action。</p>
+<p>第三条边界：action 不等于 determination。Determination 通常用于派生或自动补全，例如价格重算、默认值、总额更新；action 通常由 consumer 显式触发，例如用户点击 Accept。若某个逻辑应在字段变化时自动执行，更像 determination；若它代表业务按钮或命令，更像 action。</p>
+<p>第四条边界：action handler 不应随意直接持久化数据库或 <code>COMMIT WORK</code>。Action handler 属于 interaction phase。它可以改变 RAP transactional buffer、返回消息和 result；真正持久化通常由后续 <code>COMMIT ENTITIES</code> / OData save flow 触发 save sequence。上一节 <code>%control</code> 和前面 <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a> 都在强调：不要绕开 RAP 事务模型。</p>
+<p>第五条边界：action 不是权限本身。Action 能不能被调用，要结合 RAP authorization、instance authorization、feature control、PFCG/IAM、业务状态检查。只靠按钮 disabled 或前端隐藏，不是完整安全设计。</p>
+<h4 id="28-5-8879e063" class="semantic-heading semantic-mechanism">28.5 核心机制</h4>
+<p>第一层机制是 BDEF 声明。最简单的 instance action 可以这样写：</p>
+<pre><code class="language-abap">define behavior for ZI_Travel alias Travel
+{
+  action acceptTravel result [1] $self;
+  action rejectTravel parameter ZS_RejectReason result [1] $self;
+}</code></pre>
+<p><code>result [1] $self</code> 表示 action 返回一个当前实体类型的结果，通常用于把修改后的 instance 返回给 consumer。SAP Learning 说明，action 的 result 参数是 optional；但如果在 action definition 中声明了 result，就必须在 implementation 中填充它。这个点很容易漏，导致 UI 或 EML consumer 拿不到预期返回。</p>
+<p>第二层机制是 static action。Static action 不绑定某个具体实例：</p>
+<pre><code class="language-abap">static action recalculateAllOpenItems result [*] $self;</code></pre>
+<p>它适合全局或集合级业务动作。这里的 <code>result [*] $self</code> 只是示意；实际 static action 也可以没有 result，或返回更适合业务的参数/抽象结构。但初学者不要把 static action 当成“随便写一个后台 job 入口”。它仍然是 RAP BO 契约的一部分，仍然要考虑权限、事务、性能和可测试性。</p>
+<p>第三层机制是 factory action。Factory action 用 action 创建新实例，例如从已有 Travel 复制一个新 Travel。它通常会和 <code>%cid</code>、<code>mapped</code>、result、late/early numbering 相关。Factory action 不是普通 create 的替代品，而是表达“根据某个业务动作生成新对象”。</p>
+<p>第四层机制是 behavior pool 实现。Action 的实现通常在 handler class 中，方法签名由 BDEF 生成，常见形式类似：</p>
+<pre><code class="language-abap">METHOD acceptTravel.
+  READ ENTITIES OF zi_travel IN LOCAL MODE
+    ENTITY Travel
+    FIELDS ( OverallStatus )
+    WITH CORRESPONDING #( keys )
+    RESULT DATA(lt_travel)
+    FAILED failed.
+
+  &quot; Check state, authorization-related preconditions, and business rules.
+
+  MODIFY ENTITIES OF zi_travel IN LOCAL MODE
+    ENTITY Travel
+    UPDATE FIELDS ( OverallStatus )
+    WITH VALUE #(
+      FOR travel IN lt_travel
+      ( %tky = travel-%tky
+        OverallStatus = &#x27;A&#x27; ) )
+    FAILED failed
+    REPORTED reported.
+
+  result = VALUE #(
+    FOR travel IN lt_travel
+    ( %tky = travel-%tky
+      %param = CORRESPONDING #( travel ) ) ).
+ENDMETHOD.</code></pre>
+<p>这段是教学示意。真实 action method 的生成签名会带有 <code>FOR MODIFY ... FOR ACTION ... RESULT result</code> 这类 RAP action 语义，且 result 应在状态修改后重新读取或构造为最新实例数据。重点是：action handler 用 EML local mode 改变 BO transactional buffer，而不是直接 <code>UPDATE ztable</code>。</p>
+<p>第五层机制是 failed / reported / result。Action 失败时，不应只 raise 一个模糊 exception，而应把失败实例放进 <code>failed</code>，把可读消息放进 <code>reported</code>。如果 action 声明了 result，就要填充 <code>result</code>。SAP Learning 对 result 的要求很明确：声明了就必须填。</p>
+<p>第六层机制是 feature control。上一节 <a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a> 已经说明，按钮是否可用通常由 feature control 控制；action 内部仍要检查业务前提。比如 Accepted 状态下 <code>acceptTravel</code> 应该 disabled，但 action method 也要防止重复审批，因为非 UI consumer 可能直接调用 action。</p>
+<p>第七层机制是 projection behavior。底层 BDEF 有 action，不代表服务消费者一定能调用。Projection behavior 可能需要 <code>use action acceptTravel;</code> 才把它暴露给特定 service。这个边界在 <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a> 中已经出现：projection 是消费层闸门，不能默认开放所有底层能力。</p>
+<h4 id="28-6-003c424c" class="semantic-heading semantic-why">28.6 项目意义</h4>
+<p>设计评审时，action 要回答五个问题。第一，这个业务动作叫什么，是否比直接 update 字段更清楚。第二，它是 instance、static，还是 factory action。第三，它是否需要参数、result 和消息。第四，它在什么状态下可用，谁有权执行。第五，它是否只修改 transactional buffer，真正持久化是否交给 save sequence。</p>
+<p>代码 review 时，重点看 action handler 是否遵守 RAP 生命周期。不要在 action 里直接 <code>INSERT</code> / <code>UPDATE</code> 数据库并提交；不要吞掉 failed/reported；不要忘记 result；不要只靠 feature control 防非法调用；不要把复杂保存后副作用塞进 interaction phase。</p>
+<p>测试时，要覆盖 UI、OData、EML 三个视角。UI 上看按钮是否出现/置灰；OData 上看 action 是否暴露、参数是否正确、消息是否可读；EML 上看 action 能否通过 <code>MODIFY ENTITIES ... EXECUTE</code> 被调用，并且 <code>failed</code> / <code>reported</code> / result 是否符合预期。</p>
+<p>日本项目中，action 常出现在 Fiori 按钮、审批流程、状态转换和 API 设计里。现场会问：<code>この処理は更新ではなく action として定義すべきではないですか</code>、<code>action 実行時の権限チェックはどこですか</code>、<code>result と reported message は返していますか</code>。这些问题都在确认业务动作是否被显式、可测试、可交付地建模。</p>
+<h4 id="28-7-example-36b6e652" class="semantic-heading semantic-example">28.7 Example / 学习例子</h4>
+<p>以 Travel 审批为例。业务需求是：Open 状态的 Travel 可以被审批为 Accepted；Accepted 或 Rejected 状态不能再次审批；审批时要返回成功消息，并把更新后的 Travel 返回给前端。</p>
+<p>BDEF 可以声明：</p>
+<pre><code class="language-abap">action ( features : instance ) acceptTravel result [1] $self;</code></pre>
+<p>这里 <code>( features : instance )</code> 表示按钮可用性按每个 Travel instance 判断；<code>result [1] $self</code> 表示返回更新后的当前实例。</p>
+<p>Behavior pool 中，<code>acceptTravel</code> method 通常做几件事：</p>
+<ol>
+<li>用 <code>READ ENTITIES ... IN LOCAL MODE</code> 读取当前状态。</li>
+<li>对不是 Open 的实例填充 <code>failed</code> / <code>reported</code>。</li>
+<li>对可以审批的实例用 <code>MODIFY ENTITIES ... UPDATE FIELDS ( OverallStatus )</code> 把状态改成 Accepted。</li>
+<li>读取或构造 result，返回给 consumer。</li>
+<li>不执行 <code>COMMIT WORK</code>，不直接写持久化表。</li>
+</ol>
+<p>如果是 Fiori Elements UI，projection behavior 还要暴露这个 action，UI annotation / metadata 才能把它作为按钮呈现。若按钮不可用，还要检查 feature control 是否正确返回 disabled。</p>
+<p>这个例子把 Day 19/20 的几节串起来：action 是业务动词，feature control 控制按钮可用性，<code>%control</code> / <code>UPDATE FIELDS</code> 控制字段修改语义，validation/authorization 控制可执行前提，save sequence 负责最终保存。</p>
+<h4 id="28-8-counterexample-failure-mode-3d2e65ed" class="semantic-heading semantic-example">28.8 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 action 写成直接 SQL。开发者在 <code>acceptTravel</code> 中直接 <code>UPDATE ztravel SET status = &#x27;A&#x27;</code>，再 <code>COMMIT WORK</code>。这会绕过 RAP transactional buffer、draft、failed/reported、save sequence 和回滚语义，是 RAP 项目里非常危险的反模式。</p>
+<p>第二个失败模式是用 update 代替 action。前端直接 PATCH <code>OverallStatus = &#x27;A&#x27;</code>，没有审批动作、没有权限语义、没有状态检查、没有审批消息。短期能改字段，长期会让流程不可审计、不可测试。</p>
+<p>第三个失败模式是声明了 result 却不填 result。UI 或 EML consumer 期待 action 后返回更新后的 <code>$self</code>，结果拿到空 result 或旧数据。修正：如果 BDEF 声明 result，implementation 必须填充；如果不需要返回，就不要随便声明。</p>
+<p>第四个失败模式是只靠 feature control。按钮在 UI 上 disabled，但 action method 不检查状态。外部 consumer 直接调用 action 时仍能重复审批。修正：feature control 是体验层和契约提示，action handler 仍要做后端业务检查。</p>
+<p>第五个失败模式是 projection 忘记 <code>use action</code>。底层 BDEF 和 handler 都写好了，服务里却不能调用。排查时不要只看 behavior pool，还要看 projection behavior、service definition、service binding 和 metadata 刷新。</p>
+<p>第六个失败模式是把长期外部副作用塞进 action。比如 action 中直接调用外部 HTTP 服务、发送不可回滚通知、写审计日志并立即提交。若后续 save 失败，就会出现外部世界已经变化而 BO 未保存的裂缝。需要根据场景把副作用放到 additional save、outbox、event 或异步集成设计中。</p>
+<h4 id="28-9-8c23d103" class="semantic-heading semantic-japan">28.9 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>アクション</code>、<code>業務アクション</code>、<code>承認アクション</code>、<code>却下アクション</code>、<code>取消アクション</code>、<code>インスタンスアクション</code>、<code>スタティックアクション</code>、<code>ファクトリアクション</code>。</li>
+<li>说明句：Action は、RAP BO に対する標準 CRUD 以外の業務操作を明示的に定義する仕組みです。</li>
+<li>Review 句：このステータス変更は単なる update ではなく、承認 action として定義した方が業務意図が明確です。</li>
+<li>调查句：ボタンが表示されない場合、BDEF の action 定義、projection behavior の <code>use action</code>、feature control、metadata 更新を確認します。</li>
+<li>事务句：action handler 内で直接 DB 更新や <code>COMMIT WORK</code> を行わず、RAP の transactional buffer と save sequence に従ってください。</li>
+</ul>
+<h4 id="28-10-english-terms-454ed459" class="semantic-heading semantic-terms">28.10 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP action</code></li>
+<li>Official / search term: <code>action definition</code></li>
+<li>Official / search term: <code>instance action</code></li>
+<li>Official / search term: <code>static action</code></li>
+<li>Official / search term: <code>factory action</code></li>
+<li>Official / search term: <code>action with parameter</code></li>
+<li>Official / search term: <code>result [1] $self</code></li>
+<li>Official / search term: <code>FOR MODIFY</code></li>
+<li>Official / search term: <code>EXECUTE action</code></li>
+<li>Official / search term: <code>use action</code></li>
+<li>Related terms: <code>failed</code>, <code>reported</code>, <code>mapped</code>, <code>feature control</code>, <code>authorization</code>, <code>projection behavior</code>, <code>side effects</code>.</li>
+<li>Recommended search pattern: <code>RAP action behavior definition result $self SAP Learning</code></li>
+<li>Recommended search pattern: <code>ABAP RAP action FOR MODIFY EML EXECUTE action</code></li>
+</ul>
+<h4 id="28-11-013f2fc1" class="semantic-heading semantic-reference">28.11 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/action-definition" target="_blank" rel="noopener noreferrer">Action Definition</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-actions-and-messages" target="_blank" rel="noopener noreferrer">Defining Actions and Messages</a> (accessed 2026-06-18)</li>
+<li>SAP Developer Tutorial: <a href="https://developers.sap.com/tutorials/abap-environment-rap100-instance-action.html" target="_blank" rel="noopener noreferrer">Enhance the Business Object Behavior With Instance Action</a> (accessed 2026-06-18)</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-platform-rap100/blob/main/exercises/ex06/README.md" target="_blank" rel="noopener noreferrer">RAP100 Exercise 6 - Enhance the BO Behavior: Actions</a> (accessed 2026-06-18)</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/08_EML_ABAP_for_RAP.md" target="_blank" rel="noopener noreferrer">ABAP for RAP: Entity Manipulation Language</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="28-12-connections-25b5184e">28.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li><a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li><a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></li>
+<li><a class="wiki" href="section-03-024-eml-entity-manipulation-language-546d081f.html">EML Entity Manipulation Language</a></li>
+<li><a class="wiki" href="section-03-026-rap-feature-control-ec5d5296.html">RAP feature control</a></li>
+<li><a class="wiki" href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">RAP %control field-level change tracking</a></li>
+<li>Upstream: <a class="wiki" href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">RAP %control field-level change tracking</a></li>
+<li>Downstream: <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 20 - Action、Validation、Determination、Save Sequence</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="28-13-f0f7bf05" class="semantic-heading semantic-practice">28.13 学习任务</h4>
+<ul>
+<li>用自己的中文解释 action 和 update 的区别。</li>
+<li>写一个 <code>acceptTravel result [1] $self</code> 的 BDEF 示例，并说明 result 的意义。</li>
+<li>设计一个状态矩阵：Open / Accepted / Rejected 下 <code>acceptTravel</code> 和 <code>rejectTravel</code> 是否可用。</li>
+<li>用日语写一句 review comment：某个状态变更是否应建模为 action。</li>
+<li>解释为什么 action handler 中不应直接 <code>COMMIT WORK</code>。</li>
+</ul>
+<h4 id="28-14-confidence-next-action-9a3a0aaf" class="semantic-heading semantic-status">28.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-level RAP action concept, instance/static/factory/action-with-parameter distinctions, BDEF declaration, behavior pool implementation, result/failed/reported boundary, feature-control/projection exposure, and transaction boundary based on SAP Help, SAP Learning, SAP Developer Tutorial, and SAP-samples evidence. 2026-06-18 已重新访问官方资料入口，Claude 初审 <code>Pass with fixes</code>、follow-up <code>Pass</code>。Release-specific BDL syntax and advanced action variants still require target-system ADT syntax check because exact details depend on ABAP platform release, draft/projection, OData version, and strict mode; Joule 因前序 timeout 未重试，已记录为后续可补充依赖。</li>
+<li>Review state: 已同步到 Chapter 03 与离线书稿；Claude initial review 返回 <code>Pass with fixes</code>，follow-up 返回 <code>Pass</code>；Joule 因前序 timeout / slow 状态未重试，已记录依赖。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-03-029-validation-44a4b013.html">Validation 校验</a>，继续展开 action 后的业务校验边界、<code>failed</code> / <code>reported</code> 消息和 save sequence 前检查。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-028-action-9e9b0bf1.html">Action 业务动作</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-027-rap-control-field-level-change-tracking-bcc321a5.html">Previous section</a><a href="section-03-029-validation-44a4b013.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>SAP Note and OSS note workflow | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="35-sap-note-and-oss-note-workflow-81c6753d" class="chapter-title">35. SAP Note and OSS note workflow</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 35</li><li>self-contained study note</li></ul><h4 id="35-1-b52171ad" class="semantic-heading semantic-concept">35.1 一句话结论</h4>
+<p>SAP Note and OSS note workflow 是 SAP 项目中处理标准产品缺陷、已知问题、修正说明和官方支持沟通的工作流；在本教程里要学的是：如何检索 SAP Note，判断它是否适用于当前系统，如何安全实施或转交 Basis/负责团队，并把判断、测试、transport 和客户沟通留下证据。</p>
+<p>SAP Note 不是普通博客，也不是看到相似报错就可以直接套用的补丁。它通常由 SAP 官方发布，可能包含问题描述、适用组件、release/support package 条件、前提 Note、修正指令、手动步骤、实施工具、限制事项和后续支持建议。旧语境中常说 OSS Note，因为它来自 SAP 早期的 Online Service System/支持体系；现场仍会混用 <code>SAP Note</code>、<code>OSS Note</code>、<code>Note対応</code>、<code>SAP問い合わせ</code> 等说法。</p>
+<p>对 ABAP 初学者来说，本节的目标不是让你独立处理所有 Note，而是让你能参与调查：这个问题是否可能是标准缺陷？有没有相关 SAP Note？目标系统版本是否适用？实施会影响哪些对象？谁有权限实施？实施后如何测试？如果不能实施，如何向客户说明残留风险和替代方案？</p>
+<h4 id="35-2-d0fc479f" class="semantic-heading semantic-concept">35.2 到底学什么</h4>
+<p>第一，要学 SAP Note 的边界。SAP Note 可能是代码修正、配置说明、文档补充、限制说明、已知问题说明、support package 建议或 workaround。不是每个 Note 都要实施，也不是每个报错都有 Note。项目要先判断问题是自开发、配置、权限、数据、操作、系统设置，还是 SAP 标准缺陷。</p>
+<p>第二，要学适用性判断。一个 Note 是否适用，至少要看 product、component、release、support package level、software component、implementation status、前提 Note、语言/国家版本、业务场景和现象是否匹配。support package 可以先理解为 SAP 官方按组件累积打包发布的标准修正集；SAP incident 可以先理解为向 SAP 提交的官方支持请求。只看报错文字相似是不够的。</p>
+<p>第三，要学实施与验证路径。某些 Note 可以通过 SNOTE 或相关工具实施，某些需要手动步骤，某些只说明应升级到某个 support package，某些需要 SAP 支持确认。ABAP 开发者可能负责阅读影响对象、配合测试、确认自开发是否受影响；Basis 或系统管理员可能负责实施和传输。</p>
+<p>第四，要学项目沟通。Note 处理往往牵涉客户承认、测试窗口、transport、停机/冻结期、回退策略和 SAP incident。好的说明不是“找到一个 Note”，而是“这个 Note 是否适用、怎么实施、风险是什么、谁批准、验证结果是什么”。</p>
+<p>第五，要学 SAP Note 与 KBA 的区别。SAP 官方支持内容里，SAP Notes 常用于复杂技术问题和代码修正；SAP Knowledge Base Articles (KBA) 更常是 case-specific 文档、分析步骤、说明和解决建议。项目上看到 KBA 不能自动等同于“可实施补丁”，看到 SAP Note 也不能自动等同于“必须马上实施”。先判断它是 correction、workaround、explanation、known issue、legal/security action，还是需要继续开 incident。</p>
+<p>第六，要学优先级。不是所有 Note 的处理节奏一样。HotNews、Security Notes、Legal Change Notes 往往比普通说明性 Note 更敏感：HotNews 可能对应高优先级系统问题，Security Notes 可能影响安全补丁，Legal Change Notes 可能影响法定报表/税务/本地化期限。ABAP 开发者不一定是最终实施人，但必须知道这些 Note 可能进入紧急变更、停机窗口、回归测试和客户批准流程。</p>
+<p>第七，要学部署模型边界。<code>SNOTE</code>、manual correction、标准对象修正和 support package 实施主要是 on-premise、ECC 或 SAP S/4HANA Private Edition 语境中的客户侧系统维护流程。在 SAP S/4HANA Public Cloud 中，客户通常不能像自有系统那样直接实施标准对象修正；更常见的动作是查官方已知问题、开 SAP incident、确认 release update / hotfix / workaround、安排业务验证和客户沟通。这个边界不讲清楚，初学者容易把“能查 Note”误解为“自己可以在任何系统里套 Note”。</p>
+<h4 id="35-3-8d0cefb5" class="semantic-heading semantic-why">35.3 为什么重要</h4>
+<p>SAP 项目中很多问题不完全属于自开发代码。某个标准画面行为异常、标准 API 返回错误、Fiori app 有已知限制、特定 support package 下出现 dump、某个国家版本税务逻辑需要修正，这些都可能需要查 SAP Note 或向 SAP 提 incident。</p>
+<p>如果团队不会处理 Note，就容易出现两种极端：一种是所有问题都怀疑 SAP 标准，拖慢调查；另一种是明明有官方已知问题和修正，却在自开发里绕过标准，制造长期技术债。正确做法是把 Note 作为证据链的一部分，而不是替代分析。</p>
+<p>对 Java/Python 背景学习者来说，SAP Note 可以类比 vendor patch、known issue article、security advisory、release-specific workaround 和 support ticket response 的混合体。但 SAP 场景更强调系统 release/support package、transport、实施工具、客户审批和回归测试。</p>
+<h4 id="35-4-key-mechanism-add17db2" class="semantic-heading semantic-mechanism">35.4 Key mechanism / 核心机制</h4>
+<p>一个安全的 SAP Note workflow 可以按七步处理。</p>
+<p>第一，收集现象。记录系统、client、用户、时间、事务码/Fiori app/API、输入条件、错误消息、dump、application log、job log、HTTP payload、IDoc/RFC 状态、重现步骤和业务影响。没有现象证据，Note 检索会变成猜谜。</p>
+<p>第二，定位范围。先判断是自开发、配置、主数据、权限、接口、性能、transport、标准对象还是 SAP 产品问题。可以结合 <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a>、<a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a>、<a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a>、ST22/SM21/job log 等证据。</p>
+<p>第三，检索 Note。优先使用 SAP for Me（当前主要支持入口），并结合 SAP Support Portal，以及历史/过渡语境中的 SAP ONE Support Launchpad 等支持入口，根据 component、error text、message class/number、dump name、transaction、API name、software component、release 等关键词检索。必要时结合 SAP Help 和 SAP Community 作为线索，但最终以官方 Note/支持回复为准。</p>
+<p>第四，判断适用性。检查 Note 的 product/release/support package 条件、前提 Note、实施方式、validity、manual steps、side effects、support package inclusion、是否已实施、是否被后续 Note 替代。项目上最常见的错误就是“标题像就认为适用”。</p>
+<p>第五，决定处理方式。可能的结论包括：适用并实施；适用但已包含在当前 support package；不适用；只作为 workaround；需要升级 support package；需要开 SAP incident；需要客户接受限制；问题其实是自开发/配置导致。</p>
+<p>第六，实施与传输。实施通常需要权限、系统窗口、transport、前置/后置步骤和回退考虑。ABAP 开发者不应擅自修改 SAP 标准对象；应按项目权限由 Basis/负责团队执行，开发者配合影响分析和测试。若目标是 SAP S/4HANA Public Cloud，则不要默认存在客户侧 SNOTE/标准对象手工修正流程，而要确认 SAP 支持回复、cloud release 信息、可用 workaround 和业务验证责任。</p>
+<p>第七，测试与记录。实施后要做最小重现测试、回归测试、业务确认、transport 记录、Note 编号、实施状态、测试证据和客户说明。上线后还要知道如何确认问题没有复发。</p>
+<p>可以把适用性判断固定成一张表：</p>
+<div class="table-wrap"><table><thead><tr><th>判断项</th><th>要确认什么</th><th>证据</th></tr></thead><tbody><tr><td>Symptom</td><td>当前现象是否与 Note 描述一致</td><td>错误消息、dump、日志、API payload、再现步骤</td></tr><tr><td>Component</td><td>Note 的 application component 是否匹配</td><td>component、transaction/app/API、软件组件</td></tr><tr><td>Release</td><td>product release / support package 是否适用</td><td>系统版本、SP level、SNOTE/系统状态</td></tr><tr><td>Prerequisite</td><td>是否有前提 Note 或 support package 条件</td><td>prerequisite note、implemented status</td></tr><tr><td>Implementation</td><td>是 SNOTE、手动步骤、workaround，还是只说明限制</td><td>Note 文本、实施指示、项目流程</td></tr><tr><td>Side effect</td><td>是否有 side-effect 或后续 Note</td><td>side-effect list、回归测试范围</td></tr><tr><td>Transport</td><td>是否需要 transport、导入顺序和窗口</td><td>TR 编号、import plan、release approval</td></tr><tr><td>Test</td><td>修复是否真的解决问题且不破坏相关流程</td><td>再现测试、回归测试、业务确认</td></tr></tbody></table></div>
+<p>这张表的价值是把“查到 Note”变成“Note 决策”。项目里真正需要的是决策，而不是搜索结果截图。</p>
+<p>实施前还要分清责任边界。ABAP 开发者可以参与现象调查、对象影响分析、回归测试设计和业务说明；Basis/管理员通常负责系统级实施、SNOTE 权限、support package/maintenance planner、传输窗口和生产导入；业务方负责确认业务影响和测试结果；客户或变更委员会负责批准窗口和风险。谁负责什么，要写进 ticket。</p>
+<h4 id="35-5-46450a64" class="semantic-heading semantic-japan">35.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>SAP Note</code>、<code>OSS Note</code>、<code>ノート適用</code>、<code>ノート確認</code>、<code>SAP問い合わせ</code>、<code>インシデント起票</code>、<code>適用可否</code>、<code>前提ノート</code>、<code>サポートパッケージ</code>、<code>回帰テスト</code>、<code>影響範囲</code>、<code>暫定対応</code>。</p>
+<p>障害调查中可以这样说：</p>
+<ul>
+<li>現象とシステムバージョンを整理したうえで、該当するSAP Noteが存在するか確認します。</li>
+<li>このNoteは対象リリースとサポートパッケージに適用可能かを確認する必要があります。</li>
+<li>Note適用後は、再現手順での確認と関連業務の回帰テストを実施します。</li>
+</ul>
+<p>客户沟通中可以这样说：</p>
+<ul>
+<li>SAP標準の既知問題である可能性があるため、SAP NoteおよびSAP問い合わせの結果を確認します。</li>
+<li>Note適用には移送とテストが必要なため、適用時期と影響範囲を調整します。</li>
+<li>現時点では暫定対応として運用回避策を提示し、恒久対応はSAP回答後に判断します。</li>
+</ul>
+<p>风险说明中可以这样说：</p>
+<ul>
+<li>本Noteは対象リリースに該当しますが、前提Noteと副作用の確認が必要です。</li>
+<li>SNOTEでの適用可否、移送要否、回帰テスト範囲をBasisチームと確認します。</li>
+<li>Security Note / HotNews / Legal Change Note の場合は、通常の障害対応より優先度を上げて判断します。</li>
+<li>Note適用を見送る場合は、暫定回避策、残リスク、次回SP適用時の対応方針を記録します。</li>
+</ul>
+<h4 id="35-6-english-terms-41d74e6a" class="semantic-heading semantic-terms">35.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>SAP Note</code>, <code>OSS Note</code>, <code>SAP for Me</code>, <code>SAP Support Portal</code>, <code>SAP ONE Support Launchpad</code> (legacy/transitional context), <code>SAP incident</code>, <code>SNOTE</code>.</li>
+<li>Related terms: <code>component</code>, <code>support package</code>, <code>software component</code>, <code>manual correction</code>, <code>prerequisite note</code>, <code>implementation status</code>, <code>side effects</code>, <code>known issue</code>, <code>workaround</code>.</li>
+<li>Recommended search pattern: <code>SAP Note SNOTE implementation</code>, <code>SAP Support Portal SAP Note</code>, <code>SAP incident support package note</code>.</li>
+<li>注意：具体 Note 内容可能需要 SAP 支持账号访问；公开搜索结果不能替代登录后的官方 Note 适用性判断。</li>
+</ul>
+<h4 id="35-7-example-e2d79d2b" class="semantic-heading semantic-example">35.7 Example / 学习例子</h4>
+<p>假设测试环境中某个标准 OData API 在特定输入下返回 500，开发者怀疑是自开发调用错误。可以这样处理：</p>
+<pre><code class="language-text">1. Evidence:
+   - system/release/support package
+   - request payload
+   - response payload
+   - error timestamp
+   - application log / gateway log
+   - business scenario
+
+2. First diagnosis:
+   - 是否是权限不足？
+   - 是否是输入数据不合法？
+   - 是否是自开发 payload 结构错误？
+   - 是否是标准 API 已知问题？
+
+3. SAP Note search:
+   - API name
+   - error message
+   - component
+   - release/support package
+
+4. Applicability:
+   - Note 是否适用当前 release？
+   - 是否已有 support package 包含？
+   - 是否需要前提 Note？
+   - 是否有 side effect？
+
+5. Decision:
+   - 不适用：回到自开发/配置调查。
+   - 适用：提交项目审批，安排实施和测试。
+   - 不确定：准备证据开 SAP incident。</code></pre>
+<p>这个例子说明：SAP Note workflow 不是“查到 Note 就结束”，而是把标准问题调查纳入项目证据链。</p>
+<p>再看一个 ABAP 开发者更常遇到的场景：ATC 或运行时调查发现自开发调用了 SAP 标准对象，升级后行为变化。此时不要马上改自开发绕过去，而要先查：</p>
+<pre><code class="language-text">1. 该标准对象是否有相关 SAP Note / KBA / Support Package 修正说明？
+2. 当前 release / SP 是否落在已知问题范围内？
+3. 是否已有 Security Note、HotNews 或 side-effect note 要求优先处理？
+4. 如果 Note 建议 support package 才能修复，项目是否能等待 SP？
+5. 如果只能 workaround，自开发 workaround 是否违反 Clean Core 或 released API 原则？
+6. 是否需要向 SAP 开 incident，附上再现步骤、系统信息、日志和最小示例？</code></pre>
+<p>这个判断会把 <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a>、<a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a>、<a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a> 和 <a class="wiki" href="section-04-037-change-request-and-incident-workflow-00ea541f.html">Change request and incident workflow</a> 连接起来。Note 不是孤立知识点，而是生产支持证据链中的一个节点。</p>
+<h4 id="35-8-counterexample-failure-mode-4bdb2e5d" class="semantic-heading semantic-example">35.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十一类。</p>
+<p>第一，标题相似就套 Note。没有检查 release、support package、component 和前提条件，可能实施错误修正。</p>
+<p>第二，把 SAP Community 或博客当官方 Note。社区内容可以提供线索，但项目证据应回到官方 Note、Help 或 SAP incident 回复。</p>
+<p>第三，开发者擅自修改标准对象。标准修正应按 Note/SNOTE/项目流程处理，不应手工乱改 SAP 标准。</p>
+<p>第四，实施 Note 后不做回归测试。Note 可能修复当前问题，也可能影响相关流程。</p>
+<p>第五，没记录 Note 编号和实施状态。后续升级或审计时无法知道系统为什么被改过。</p>
+<p>第六，不区分 workaround 和 permanent fix。临时规避可以救急，但不能替代长期处理。</p>
+<p>第七，所有问题都推给 SAP。很多问题其实是自开发、配置、权限或数据导致，不能用 Note 检索逃避分析。</p>
+<p>第八，没有客户沟通。Note 实施可能需要窗口、transport、测试和业务承认，不能静默处理。</p>
+<p>第九，忽略 side effect。一个 Note 可能修复当前问题，但对其他流程产生副作用；SAP 官方支持页面也提醒在应用 support package 或 Note 时要关注 side-effect 条件。修正方式是把 side-effect 检查和回归测试写入实施前 checklist。</p>
+<p>第十，把 KBA 当成自动修正。KBA 可能只是说明、分析路径或 case-specific 文档，不一定有可实施 correction。修正方式是区分 Note/KBA/incident reply/workaround。</p>
+<p>第十一，安全/法定 Note 延迟处理。Security Notes 或 Legal Change Notes 可能有安全或法定期限风险，不能按普通小缺陷排队。修正方式是走紧急度评估、客户批准和风险记录。</p>
+<h4 id="35-9-678d9d89" class="semantic-heading semantic-practice">35.9 思考问题</h4>
+<ul>
+<li>什么情况下应该怀疑是 SAP 标准已知问题，而不是自开发 bug？</li>
+<li>判断一个 SAP Note 是否适用时，至少要检查哪些系统信息？</li>
+<li>Note 实施前后需要哪些测试和 transport 证据？</li>
+<li>SAP Note、workaround、support package、SAP incident 的关系是什么？</li>
+<li>在日本项目中如何向客户说明“暂定対応”和“恒久対応”的区别？</li>
+</ul>
+<h4 id="35-10-c4de88b5" class="semantic-heading semantic-reference">35.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://support.sap.com/en/my-support/knowledge-base.html" target="_blank" rel="noopener noreferrer">SAP Support - Knowledge Base</a></li>
+<li><a href="https://support.sap.com/en/my-support/knowledge-base/security-notes-news.html" target="_blank" rel="noopener noreferrer">SAP Support - Security Notes &amp; News</a></li>
+<li><a href="https://me.sap.com/" target="_blank" rel="noopener noreferrer">SAP for Me</a></li>
+<li><a href="https://support.sap.com/" target="_blank" rel="noopener noreferrer">SAP Support Portal</a></li>
+<li><a href="https://help.sap.com/docs/search?q=SNOTE%20SAP%20Note%20Assistant" target="_blank" rel="noopener noreferrer">SAP Help Portal</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li>SAP for Me（当前主入口）/ SAP Support Portal: search <code>SAP Note</code>, <code>incident</code>, <code>SNOTE</code>, <code>support package</code>.</li>
+<li>SAP Help Portal: search <code>SNOTE</code>, <code>transport</code>, <code>support package</code>, <code>application log</code> as supporting topics.</li>
+</ul>
+<h4 id="35-11-connections-e95447e3">35.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC SAP System Foundations</span></li>
+<li>Upstream: <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>Downstream: <a class="wiki" href="section-04-036-japanese-sap-deliverable-documents-b08681d5.html">Japanese SAP deliverable documents</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-007-su53-and-authorization-trace-workflow-ba8e9841.html">SU53 and authorization trace workflow</a></li>
+<li>Related: <a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Related: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Related: <a class="wiki" href="section-04-033-classic-integration-interfaces-awareness-a838d9eb.html">Classic integration interfaces awareness</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 27 - Clean Core 与上线前加固</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="35-12-25509aac" class="semantic-heading semantic-practice">35.12 学习任务</h4>
+<ul>
+<li>写一张 SAP Note 适用性判断表：Note 编号、现象、component、release、support package、前提 Note、实施方式、测试证据。</li>
+<li>用中文说明 SAP Note、SAP incident、support package、workaround 的区别。</li>
+<li>用日语写 2 句：一句说明正在确认 Note 适用性，一句说明 Note 实施需要测试窗口。</li>
+<li>从一个错误现象出发，列出检索 SAP Note 前必须收集的 5 个证据。</li>
+<li>在 AC0567C POC 中假设某个标准 API 返回异常，写出是否需要查 SAP Note 的判断路径。</li>
+</ul>
+<h4 id="35-13-confidence-next-action-f55c41f0" class="semantic-heading semantic-status">35.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High，SAP Note/OSS workflow 的项目流程和风险边界稳定，Claude review 已给出 <code>Pass with fixes</code> 且无 must-fix。当前文本已补足 SAP for Me 当前主入口定位、support package / SAP incident 初学者定义、SU53 / SQL Trace 连接，以及 Public Cloud 下不能默认客户侧 SNOTE/标准对象手工修正的部署边界。Joule review 仍为 deferred placeholder；如 Joule 恢复，应补一次 SAP Support 视角最终 verdict。具体 Note 内容、实施工具、权限和适用性必须以 SAP for Me / SAP Support Portal、目标系统 release/support package 和项目流程为准。</li>
+<li>Next action: 进入 <a class="wiki" href="section-04-036-japanese-sap-deliverable-documents-b08681d5.html">Japanese SAP deliverable documents</a>，把 Note、测试、transport、风险和上线证据转化为日本项目常见交付文档语言。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-035-sap-note-and-oss-note-workflow-0e2994f8.html">SAP Note and OSS note workflow</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-034-classic-reporting-forms-and-migration-awareness-8fcbd306.html">Previous section</a><a href="section-04-036-japanese-sap-deliverable-documents-b08681d5.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

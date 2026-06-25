@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP Unit for service logic | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="18-abap-unit-for-service-logic-0ff70491" class="chapter-title">18. ABAP Unit for service logic</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 18</li><li>self-contained study note</li></ul><h4 id="18-1-ce653676" class="semantic-heading semantic-concept">18.1 一句话结论</h4>
+<p>ABAP Unit for service logic 是把服务背后的业务规则、错误映射和边界条件写成可自动回归的单元测试；在本教程里要学的是：不要只证明 API 或画面“现在能跑”，而要证明核心逻辑“以后改了也不容易坏”。</p>
+<p>SAP 项目中很多缺陷并不是语法错，而是规则改动后旧场景被破坏。例如 precheck 原来能拦住重复请求，后来重构后漏掉；错误消息原来能区分权限错误和业务校验，后来都变成 <code>System error</code>；批量上传原来能逐行返回错误，后来只返回整体失败。这些问题靠手工点画面或临时调用 API 很难长期防住，ABAP Unit 的价值就是把关键服务逻辑固定成可重复运行的测试。</p>
+<p>这里的 service logic 指的是服务入口背后的可测试业务逻辑，不等同于 OData service preview，也不等同于端到端 API 测试。它可以是一个 global class、local helper、RAP handler 中抽出的纯逻辑、批处理的校验器、错误映射器、幂等判断器、授权前置判断器。越接近核心规则，越值得用 ABAP Unit 保护。</p>
+<h4 id="18-2-3dcfd1d7" class="semantic-heading semantic-concept">18.2 到底学什么</h4>
+<p>第一，要学测试对象的选择。不是所有东西都适合直接做 ABAP Unit。数据库真实提交、外部 HTTP 调用、邮件发送、真实锁等待、真实权限配置，通常更适合集成测试或受控测试环境。ABAP Unit 最适合测试可隔离的业务规则：输入检查、状态迁移、错误分类、金额计算、字段映射、幂等键判断、异常到消息的转换。</p>
+<p>第二，要学怎么让 service logic 可测试。可测试代码通常把“规则”和“基础设施”分开：规则层接收输入并返回结果；基础设施层负责数据库、BAPI、RFC、OData、日志、提交、锁、权限等。这样 ABAP Unit 可以直接测试规则层，不需要每次都准备复杂系统状态。</p>
+<p>第三，要学测试断言的粒度。一个好测试不只是检查“没有 dump”，而是明确断言输出：成功状态、失败 error code、message id、target field、retryable、application log id 是否存在、是否抛出预期 exception。它应该能在重构后告诉开发者：哪条业务约定被破坏了。</p>
+<p>第四，要学它和 <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a> 的关系。API evidence replay 偏向端到端证据：请求、响应、授权、幂等、日志。ABAP Unit 偏向内核逻辑保护：同样的输入规则在没有 UI/API 的情况下也能被快速验证。两者不是替代关系，而是测试金字塔的不同层。</p>
+<p>第五，要学“测试分层”。service logic 的单元测试应尽量快、稳定、可重复；集成/API 测试负责证明真实框架、真实权限、真实数据库和真实服务契约。初学者常犯的错误是把所有东西都塞进单元测试，结果测试慢且脆弱；或者完全不写单元测试，只靠 API happy path，结果规则回归没人发现。</p>
+<p>第六，要学测试用例的命名和可读性。一本书里的例子不应该只说“写测试”，而要让读者看到：测试名表达业务承诺，Given/When/Then 表达条件、动作和结果，断言表达系统必须保持的契约。</p>
+<h4 id="18-3-eb6da3d0" class="semantic-heading semantic-why">18.3 为什么重要</h4>
+<p>ABAP 项目里常见一个问题：开发者很依赖手工测试。今天改一行规则，就重新跑一遍画面或接口；项目越大，手工回归越慢，覆盖越不稳定。ABAP Unit 让关键规则在开发环境里快速运行，能尽早发现回归。</p>
+<p>对生产就绪来说，ABAP Unit 尤其适合保护“改了就危险”的逻辑：金额计算、状态机、权限前置判断、precheck、错误消息映射、幂等判断、批量行级校验、字段脱敏。它不一定覆盖所有 SAP 运行时行为，但能把最容易被重构破坏的业务约定固定下来。</p>
+<p>对 Java/Python 背景学习者来说，ABAP Unit 可以类比 JUnit / pytest，但 SAP 项目有特殊约束：代码运行在 ABAP runtime 中，repository object 需要激活，测试类常放在 production class 的 test include 或 local test class 中，数据库和系统状态要谨慎隔离，ATC/quality gate 可能把单元测试作为交付质量证据的一部分。</p>
+<p>服务逻辑测试还能改善设计。一个类很难单元测试，通常说明它混合了太多职责：既读数据库，又检查权限，又组装消息，又调用外部系统，又提交事务。为了测试而拆分，并不是“为了测试牺牲业务”，而是把业务规则从基础设施里解耦出来，让代码更容易 review、复用和排障。</p>
+<h4 id="18-4-key-mechanism-40f927f9" class="semantic-heading semantic-mechanism">18.4 Key mechanism / 核心机制</h4>
+<p>ABAP Unit 的基本思路是：写 test class，准备输入，调用被测方法，断言输出。服务逻辑测试的关键不是语法，而是设计可测试边界。被测方法越依赖真实数据库、当前用户、系统时间、外部服务、全局状态，就越难稳定测试；被测方法越接近纯规则，测试越可靠。</p>
+<p>一个典型服务逻辑测试可以覆盖以下内容：</p>
+<ul>
+<li>正常输入返回成功结果。</li>
+<li>必填字段为空时返回业务校验错误。</li>
+<li>用户无权限时返回 authorization error 或预期异常。</li>
+<li>对象被锁或状态不允许时返回可重试/不可重试判断。</li>
+<li>重复 request id 时走幂等路径，不重复创建业务对象。</li>
+<li>异常被转换成安全的用户消息，并保留内部日志线索。</li>
+</ul>
+<p>测试命名要表达业务意图，而不是只写 <code>test_01</code>。例如 <code>rejects_missing_company_code</code>、<code>maps_lock_conflict_to_retryable_error</code>、<code>keeps_duplicate_request_id_idempotent</code>。读测试名就能看出系统承诺什么行为。</p>
+<p>对依赖项，可以使用接口、test double、fixture 或明确的 seam。比如外部系统调用可以抽成接口，测试时替换成假的实现；系统时间可以封装成 clock provider；数据库读取可以在小范围内用测试数据或 repository 替身处理。针对数据库访问，也可以关注 ABAP SQL / CDS test double framework 或 <code>CL_OSQL_TEST_ENVIRONMENT</code> 这类测试支持，但要按目标系统版本和 ABAP Cloud 限制确认可用性。注意不要为了测试引入过度复杂抽象，只有当依赖真的阻碍测试时才抽离。</p>
+<p>一个服务逻辑测试矩阵可以这样写：</p>
+<div class="table-wrap"><table><thead><tr><th>规则类别</th><th>示例测试</th><th>断言重点</th></tr></thead><tbody><tr><td>输入校验</td><td>missing company code is rejected</td><td>error code、target field、retryable=false</td></tr><tr><td>状态机</td><td>completed batch cannot execute again</td><td>status、message、no save</td></tr><tr><td>幂等</td><td>duplicate request id returns existing status</td><td>no duplicate create、same response</td></tr><tr><td>授权前置</td><td>unauthorized company code is rejected</td><td>auth error、no side effect</td></tr><tr><td>锁冲突</td><td>locked object maps to retryable conflict</td><td>retryable、message category</td></tr><tr><td>错误映射</td><td>external timeout maps to technical error</td><td>safe message、internal log key</td></tr><tr><td>批量部分失败</td><td>line errors are returned per item</td><td>line index、message target、summary</td></tr></tbody></table></div>
+<p>断言也可以按层次组织：</p>
+<pre><code class="language-text">Business result
+  status, decision, error category, retryable flag
+
+Message contract
+  message id, message number, target field, safe text
+
+Side-effect contract
+  repository save not called, log writer called, external adapter not called
+
+Evidence contract
+  request id, business key, application log correlation id</code></pre>
+<p>不要把所有断言都写进一个巨大测试。一个测试最好验证一个清晰业务承诺；多个边界条件应拆成多个命名清楚的测试。这样失败时，测试名本身就是 defect clue。</p>
+<h4 id="18-5-341d3467" class="semantic-heading semantic-japan">18.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>ABAP Unit</code>、<code>単体テスト</code>、<code>サービスロジック</code>、<code>回帰テスト</code>、<code>テストクラス</code>、<code>テストダブル</code>、<code>期待結果</code>、<code>異常系</code>、<code>境界値</code>、<code>品質ゲート</code>。</p>
+<p>设计或开发说明中可以这样写：</p>
+<ul>
+<li>サービスロジックの主要な業務ルールは ABAP Unit で回帰確認できるようにします。</li>
+<li>正常系だけでなく、必須項目不足、権限エラー、ロック競合、重複リクエストの異常系もテスト対象とします。</li>
+<li>外部APIやDB更新に依存する部分は分離し、テスト可能なルール部分を明確にします。</li>
+</ul>
+<p>代码 review 时可以这样问：</p>
+<ul>
+<li>この業務ルールは ABAP Unit で確認できますか。</li>
+<li>エラーコードやメッセージ変換の期待結果はテストされていますか。</li>
+<li>手動APIテストだけに依存していませんか。</li>
+<li>テスト名から業務上の期待結果が分かるようにしてください。</li>
+<li>正常系だけでなく、異常系・境界値・重複リクエストを ABAP Unit で確認します。</li>
+<li>単体テストではサービスロジックを確認し、実API・権限・DB の確認は結合テストで補完します。</li>
+</ul>
+<h4 id="18-6-english-terms-70fa8600" class="semantic-heading semantic-terms">18.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP Unit</code>, <code>ABAP Unit test</code>, <code>ABAP test class</code>, <code>ABAP Unit assertion</code>.</li>
+<li>Related terms: <code>service logic</code>, <code>unit test</code>, <code>test double</code>, <code>fixture</code>, <code>assertion</code>, <code>regression test</code>, <code>negative test</code>, <code>boundary test</code>.</li>
+<li>SAP-specific search terms: <code>ABAP Unit CL_ABAP_UNIT_ASSERT</code>, <code>ABAP test double framework</code>, <code>local test class</code>, <code>test seam</code>.</li>
+<li>Recommended search pattern: <code>SAP ABAP Unit</code>, <code>SAP ABAP Unit test class</code>, <code>SAP ABAP test double framework</code>.</li>
+</ul>
+<h4 id="18-7-example-b1f9a2b2" class="semantic-heading semantic-example">18.7 Example / 学习例子</h4>
+<p>假设 AC0567C 有一个上传服务 <code>execute_batch</code>。直接测试整个 API 需要 HTTP、授权、数据库、日志、事务和外部输入，很重。可以先把核心规则抽成一个 service class，例如 <code>validate_items</code>、<code>decide_idempotency</code>、<code>map_error_response</code>。</p>
+<p>测试用例可以这样设计：</p>
+<pre><code class="language-text">Test: rejects missing company code
+Given: item[1].companyCode is initial
+When: validate_items is called
+Then: result contains BUSINESS_VALIDATION_FAILED
+And: target is items[1].companyCode
+And: retryable is false (input must be corrected, not retried as-is)</code></pre>
+<p>另一个测试：</p>
+<pre><code class="language-text">Test: duplicate request id returns existing status
+Given: request id AC0567C-001 was already processed
+When: execute decision is evaluated
+Then: service does not create a second batch
+And: response tells caller to check existing status</code></pre>
+<p>这些测试不能替代端到端 API 测试，但能保护核心规则。以后有人改错误消息、precheck 或幂等判断时，ABAP Unit 会先告诉团队哪个约定被破坏。</p>
+<p>再给 AC0567C 设计一个最小单元测试清单：</p>
+<pre><code class="language-text">rejects_missing_company_code
+  Missing BUKRS -&gt; BUSINESS_VALIDATION_FAILED, target=companyCode.
+
+rejects_quantity_above_allowed_max
+  Quantity max+1 -&gt; BUSINESS_VALIDATION_FAILED, target=quantity.
+
+rejects_unauthorized_company_code
+  Auth checker denies BUKRS=1000 -&gt; AUTHORIZATION_FAILED, no save.
+
+keeps_duplicate_request_id_idempotent
+  Existing request id -&gt; no new batch, existing status returned.
+
+maps_lock_conflict_to_retryable_error
+  Lock provider reports conflict -&gt; LOCK_CONFLICT, retryable=true.
+
+maps_external_timeout_to_safe_technical_error
+  External adapter timeout -&gt; TECHNICAL_ERROR, raw exception hidden, log key set.
+
+returns_line_level_errors_for_partial_invalid_items
+  Item 3 invalid -&gt; response points to item[3], batch not committed.</code></pre>
+<p>这里的 <code>rejects_quantity_above_allowed_max</code> 就是边界值测试的最小例子：不是只测“正常数量”，而是测 <code>max + 1</code>、<code>0</code>、负数、日期区间边界这类最容易在需求变更中被改坏的值。这样的测试用例读起来像需求说明。它们告诉后续维护者：这个服务承诺什么、哪些错误不能退化成 generic error、哪些副作用不能发生。</p>
+<p>如果服务逻辑现在无法测试，可以先做一个小重构：把“输入 -&gt; decision/result”的规则抽成方法或类，把数据库、权限、外部 API、系统时间放到接口依赖后面。不要一次性重构整个应用，先保护最容易出事故的规则。</p>
+<h4 id="18-8-counterexample-failure-mode-73e29dc5" class="semantic-heading semantic-example">18.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有以下十类。</p>
+<p>第一，只做手工测试。开发者每次改动都靠点画面或 Postman 调 API，短期能跑，长期不可维护。</p>
+<p>第二，只测 happy path。正常输入成功了，但必填缺失、权限不足、锁冲突、重复请求、外部错误、部分失败都没有测试，上线后最容易出问题。</p>
+<p>第三，被测逻辑太依赖系统状态。测试需要真实用户、真实数据库、真实外部系统、真实时间，结果不稳定也很慢。需要把规则层和基础设施层拆清楚。</p>
+<p>第四，断言太弱。测试只断言“没有异常”，没有检查 error code、message id、业务键、retryable 或状态变化，不能保护真实约定。</p>
+<p>第五，测试数据污染。单元测试不应随意提交生产式业务数据，也不应依赖不稳定的共享测试数据。测试应可重复、可清理、可解释。</p>
+<p>第六，一个测试覆盖太多分支。失败后不知道是输入校验、权限、锁、幂等还是错误映射坏了。</p>
+<p>第七，测试名没有业务含义。<code>test_001</code>、<code>test_error</code> 不能帮助 reviewer 理解规则。</p>
+<p>第八，把 ABAP Unit 当作端到端证明。单元测试通过不代表 OData metadata、authorization、DCL、transaction boundary 和性能都正确。</p>
+<p>第九，为了通过测试而修改生产逻辑。测试应该表达真实业务契约，不能为了方便断言而削弱生产行为。</p>
+<p>第十，异常系测试没有断言副作用。错误返回了，但 repository 已保存、外部系统已调用，这仍然是失败设计。</p>
+<h4 id="18-9-5e45eb3f" class="semantic-heading semantic-practice">18.9 思考问题</h4>
+<ul>
+<li>一个服务逻辑中哪些部分适合 ABAP Unit，哪些部分更适合集成/API 测试？</li>
+<li>如果方法直接读数据库、发 HTTP、写 Application Log、提交事务，它为什么难以单元测试？</li>
+<li>对 AC0567C 的上传 API，哪些错误路径最值得写单元测试？</li>
+<li>如何断言“错误消息设计”没有被改坏？</li>
+<li>在日本项目里，如何说明 ABAP Unit 不是额外负担，而是回归保护？</li>
+<li>一个服务逻辑测试是否只验证一个业务承诺？</li>
+<li>出错时是否断言“没有副作用”，例如没有保存、没有外部调用？</li>
+<li>哪些 ABAP Unit 场景需要配套 API evidence replay 才能证明真实服务也正确？</li>
+</ul>
+<p><strong>书稿补强：把“可测服务逻辑”切出来</strong></p>
+<p>ABAP Unit for service logic 的重点不是“会写一个 <code>FOR TESTING</code> 方法”，而是学会把业务判断从界面、OData、RAP handler、background job 和数据库副作用里切出来。一个可测的 service logic 通常只接收明确输入，返回明确 decision/result/message，不直接弹窗、不直接 commit、不依赖当前登录用户的隐式状态，也不把外部 API 调用藏在业务判断中。这样 ABAP Unit 才能快速验证规则，而不是每次都启动 Fiori、Postman、后台作业或真实接口。</p>
+<p>可以用三层来拆：第一层是 pure decision，例如“company code 是否为空”“状态是否允许执行”“重复 request id 应返回已有结果”；第二层是 dependency boundary，例如授权检查、锁检查、application log、数据库 repository、外部 adapter；第三层才是 entry point，例如 report、RAP action、OData endpoint 或 background job。ABAP Unit 最适合覆盖第一层和可替换的第二层，第三层则用集成测试、API evidence replay 或人工验收补充。这样章节就和 <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a>、<a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a>、<a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a> 形成一条线。</p>
+<p>对初学者最实用的判断标准是：如果一个规则只能通过“点画面、看弹窗、查数据库”才能验证，它还没有被整理成 service logic；如果一个规则可以用 3 到 5 行 Given / When / Then 讲清楚，并且测试名能表达业务含义，例如 <code>rejects_missing_company_code</code>、<code>keeps_duplicate_request_id_idempotent</code>、<code>maps_lock_conflict_to_retryable_error</code>，它就更接近可维护的 ABAP 单元测试对象。</p>
+<p>在日本项目 review 中，可以这样说：この判定ロジックは画面やジョブに依存せず、ABAP Unit で確認できるサービスロジックとして分離してください。意思是：不要把规则埋在 UI 或 job 里，先把可回归的业务判断切出来。这样做不是为了“测试覆盖率好看”，而是为了让需求变更、缺陷修复、权限异常、重跑策略和错误消息映射都有可重复验证的证据。</p>
+<h4 id="18-10-c76bb8d4" class="semantic-heading semantic-reference">18.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP_UNIT.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP Unit</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20Unit" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP Unit</a></li>
+<li><a href="https://help.sap.com/docs/search?q=CL_ABAP_UNIT_ASSERT" target="_blank" rel="noopener noreferrer">SAP Help search - CL_ABAP_UNIT_ASSERT</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20Unit%20test%20class" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP Unit test class</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20test%20double%20framework" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP test double framework</a></li>
+</ul>
+<h4 id="18-11-connections-0c254e53">18.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-017-exception-vs-message-414fed45.html">Exception vs message 异常与消息</a></li>
+<li>Downstream: <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-04-016-error-message-design-c05159c6.html">Error message design 错误消息设计</a></li>
+<li>Related: <a class="wiki" href="section-04-006-precheck-937e701e.html">Precheck 预检查</a></li>
+<li>Related: <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a></li>
+<li>Related: <a class="wiki" href="section-04-011-transaction-boundary-b94ac411.html">Transaction boundary 事务边界</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 25 - 测试替身与服务逻辑测试</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="18-12-a2deb854" class="semantic-heading semantic-practice">18.12 学习任务</h4>
+<ul>
+<li>为 AC0567C 上传服务写出 5 个 ABAP Unit 测试标题：正常、必填缺失、权限失败、重复请求、锁冲突。</li>
+<li>选择一个 service logic，列出它的输入、输出、依赖项，以及哪些依赖需要 test double。</li>
+<li>把一个手工 API 测试场景拆成“单元测试覆盖规则”和“API evidence replay 覆盖端到端证据”两部分。</li>
+<li>写 2 句日语 review 评论：一句要求补 ABAP Unit，一句要求增强异常系测试。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 ABAP Unit 或 test double framework 的官方说法。</li>
+</ul>
+<h4 id="18-13-confidence-next-action-3d757be2" class="semantic-heading semantic-status">18.13 Confidence &amp; Next Action</h4>
+<p>Confidence: Medium-High。ABAP Unit 的价值和服务逻辑测试原则稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已修正 retryable 语义、失败模式数量、测试命名一致性，并补充边界值测试说明。具体测试写法仍会受系统版本、ABAP Cloud 限制、依赖隔离方式和项目测试策略影响，需要结合本地 POC 与官方文档验证。</p>
+<p>Next action: 继续学习 <a class="wiki" href="section-04-019-oo-test-double-framework-15937e9d.html">OO Test Double Framework</a>，把外部依赖替换和服务逻辑测试连接起来。</p>
+<p>原子笔记入口：<a class="wiki" href="section-04-018-abap-unit-for-service-logic-23443f8e.html">ABAP Unit for service logic</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-017-exception-vs-message-414fed45.html">Previous section</a><a href="section-04-019-oo-test-double-framework-15937e9d.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

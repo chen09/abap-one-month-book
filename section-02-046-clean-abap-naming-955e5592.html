@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Clean ABAP naming 命名规则 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="46-clean-abap-naming-2b7172ff" class="chapter-title">46. Clean ABAP naming 命名规则</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 46</li><li>self-contained study note</li></ul><h4 id="46-1-0a4ba17a" class="semantic-heading semantic-concept">46.1 一句话结论</h4>
+<p>Clean ABAP naming 命名规则，是在 ABAP 代码内部使用能表达意图、可搜索、可沟通、可维护的名字，让读代码的人不必靠猜。它不是“把名字写短一点”，也不是“看到旧代码里的 <code>lv_</code>、<code>lt_</code> 就马上全部改掉”。本节要学的是：新写代码时尽量让名字说明业务或技术含义；维护遗留对象时尊重项目既有规范，避免在同一个 development object 里混用两套风格。</p>
+<p>这里要先分清两类命名。第一类是 repository object 命名，例如 <code>ZCL_SD_ORDER_VALIDATOR</code>、<code>ZIF_SD_ORDER_CHECK</code>、<code>Z...</code> package、CDS view entity、message class 等，它关系到 <a class="wiki" href="section-01-010-repository-object-239ee7d6.html">Repository object 仓库对象</a>、<a class="wiki" href="section-01-011-abap-package-f43e032c.html">ABAP package 包与子包</a>、<a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a> 和项目命名規約，已经在 <a class="wiki" href="section-01-019-japanese-sap-naming-convention-sap-2bdcfbd7.html">Japanese SAP naming convention</a> 里展开。客户开发对象使用 <code>Z</code> / <code>Y</code> 或注册 namespace <code>/ABC/...</code> 这类规则，往往是系统约束和项目约束，不是单纯风格偏好。第二类是代码内部命名，例如变量、method、parameter、local class、helper method、test method 的名字。本节主要讲第二类，同时提醒你不要把 Clean ABAP 对局部代码的建议误用到客户 namespace 或项目对象命名规则上。</p>
+<h4 id="46-2-a6409f3d" class="semantic-heading semantic-concept">46.2 到底学什么</h4>
+<p>Clean ABAP naming 的核心问题不是“哪个名字更漂亮”，而是“读者能不能从名字直接看出它负责什么”。在 SAP 项目里，读者可能是开发者、reviewer、测试者、运维、离岸团队、客户侧 IT 或未来接手的人。一个名字如果只能靠上下文猜，短期看只是风格问题，长期看会影响 code review、debug、障害調査、where-used 分析和交接。</p>
+<p>本节需要掌握八个判断点。</p>
+<ul>
+<li>Descriptive name：名字要表达内容和含义，例如 <code>sales_orders</code>、<code>blocked_order_ids</code>、<code>read_user_preferences</code>，不要只写 <code>data</code>、<code>list</code>、<code>flag</code>、<code>get_data</code>。</li>
+<li>Problem domain / solution domain：业务层优先用业务词，例如 <code>sales_order</code>、<code>business_partner</code>、<code>ledger</code>；技术层可以用技术词，例如 <code>queue</code>、<code>mapper</code>、<code>factory</code>，但前提是它真的承担这个职责。</li>
+<li><code>snake_case</code>：ABAP program-internal identifier 不区分大小写；underscore 能保留词边界，即使 formatter 改变大小写，<code>sales_order</code> 也比 <code>salesOrder</code> 更稳定。这个建议主要针对局部变量、parameter、method 等代码内部名字，不覆盖 <code>ZCL_...</code>、<code>ZIF_...</code> 这类 repository object 命名。</li>
+<li>Abbreviation：能写全就写全；必须缩写时，缩写要统一，例如同一项目里不要同时用 <code>bp</code>、<code>bupa</code>、<code>partner</code> 指同一个概念。</li>
+<li>Noun / verb：class、interface、object 通常用名词或名词短语；method 和 function 通常用动词或动词短语。boolean method 用 <code>is_</code>、<code>has_</code> 这类开头会更自然，但要知道旧 SAP 前缀规则里 <code>is_</code> 也可能表示 importing structure parameter，含义要靠上下文区分。</li>
+<li>Noise word：<code>data</code>、<code>info</code>、<code>object</code>、<code>manager</code>、<code>helper</code> 这些词如果没有增加含义，就只是噪音。</li>
+<li>One word per concept：<code>read</code>、<code>get</code>、<code>fetch</code>、<code>select</code> 不要随意混用；如果项目里规定它们有不同含义，就写进规范并坚持使用。</li>
+<li>Legacy boundary：Clean ABAP 倾向避免 Hungarian notation 和类型前缀，例如 <code>lv_</code>、<code>lt_</code>、<code>rv_</code>；但很多 SAP 项目仍有既有前缀规则。维护旧对象时，统一性比“局部改成新风格”更重要。</li>
+</ul>
+<h4 id="46-3-42837b68" class="semantic-heading semantic-why">46.3 为什么重要</h4>
+<p>命名是最便宜也最容易被低估的设计。ABAP 项目里很多对象不是一次性脚本，而是会被长期 transport、修正、扩展、审计和交接的 repository object。一个 method 叫 <code>process_data</code>，reviewer 需要继续读几十行才知道它是检查销售订单状态、转换单位、写应用日志，还是调用 BAPI。一个 internal table 叫 <code>lt_data</code>，debug 时 watch 里只会出现“数据”，不会告诉你它是 open items、blocked orders 还是 customizing entries。</p>
+<p>对初学者来说，命名最大的价值是降低认知负担。刚开始学 ABAP 时，你已经要同时理解 <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a>、<a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a>、<a class="wiki" href="section-02-037-inline-declaration-d2da10ac.html">Inline declaration 内联声明</a>、<a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a>、Open SQL、DDIC、transport 和调试。如果变量名和 method 名还不表达意图，就会把简单代码变成猜谜。好的名字等于把一部分注释写进代码本身。</p>
+<p>对项目交付来说，命名影响可搜索性和影响分析。<code>read_open_sales_orders</code> 比 <code>get_data</code> 更容易被 where-used、全文搜索和障害调查人员找到。<code>has_missing_authorization</code> 比 <code>lv_flag</code> 更容易在 review 中讨论。<code>zcl_sd_order_validator</code> 这种对象名不一定完美，但至少能让人从 namespace、模块和用途上初步定位；而代码内部如果全是 <code>lt_data</code>、<code>ls_wa</code>、<code>lv_result</code>，对象名再规范也救不了实现的可读性。</p>
+<p>对 Java/Python 背景学习者来说，ABAP 命名还有一个特殊点：大量真实项目长期使用 Hungarian notation 或项目 prefix。Clean ABAP 的明确立场是，类型前缀会增加噪音，类型变化后还可能变成误导；现代 ABAP 的 inline declaration 和 IDE 支持也降低了靠前缀读类型的必要性。项目现实则是，许多客户代码库和開発標準仍要求 <code>lv_</code>、<code>lt_</code>、<code>iv_</code>、<code>rv_</code>。不要把这理解成“谁对谁错”，而要学会区分三层：SAP/styleguides 的 Clean ABAP 建议、客户项目的命名規約、当前对象的历史风格。新建练习对象时可以写得更 clean；改旧对象时不要制造同一文件内的风格断层。</p>
+<h4 id="46-4-key-mechanism-da2b1846" class="semantic-heading semantic-mechanism">46.4 Key mechanism / 核心机制</h4>
+<h5 id="46-4-1-4-1-descriptive-names-b4de3a18">46.4.1 4.1 Descriptive names：让名字说出意图</h5>
+<p>一个好名字要回答“这是什么”或“它做什么”。变量名要能说明内容，method 名要能说明动作。</p>
+<pre><code class="language-abap">&quot; Hard to review
+DATA lt_data TYPE STANDARD TABLE OF zsales_order.
+DATA lv_flag TYPE abap_bool.
+METHOD get_data.
+
+&quot; Easier to review
+DATA sales_orders TYPE STANDARD TABLE OF zsales_order.
+DATA has_blocked_items TYPE abap_bool.
+METHOD read_open_sales_orders.</code></pre>
+<p>这里的差异不在长度，而在信息密度。<code>sales_orders</code> 告诉读者这张 internal table 装的是销售订单；<code>has_blocked_items</code> 告诉读者它是一个正向 boolean；<code>read_open_sales_orders</code> 让人期待 method 内部主要负责读取 open 状态订单，而不是混入校验、保存和 UI 输出。</p>
+<h5 id="46-4-2-4-2-domain-terms-bb789a83">46.4.2 4.2 Domain terms：业务词和技术词不要乱混</h5>
+<p>业务层的名字应该靠近业务语言。订单、客户、供应商、会计凭证、库存、价格、税、交货、请购、审批，这些是 problem domain terms。技术层的名字可以使用 solution domain terms，例如 <code>cache</code>、<code>queue</code>、<code>factory</code>、<code>mapper</code>、<code>adapter</code>、<code>repository</code>。但不要为了显得“架构化”随便给 class 加 <code>factory</code>、<code>manager</code> 或 <code>service</code>。如果一个 class 并不创建对象，就不要叫 <code>factory</code>；如果只是校验订单状态，就不要叫 <code>manager</code>。</p>
+<p>在 SAP 项目里，业务词还要和 glossary、数据模型、CDS view、接口字段、设计书保持一致。比如项目已经统一使用 <code>business_partner</code>，就不要在代码里一会儿写 <code>bp</code>，一会儿写 <code>bupa</code>，一会儿写 <code>partner</code>。如果这些词确实有差异，要用名字表达差异，而不是让读者猜。</p>
+<h5 id="46-4-3-4-3-snake-case-underscore-7371ef24">46.4.3 4.3 <code>snake_case</code>：用 underscore 保留词边界</h5>
+<p>ABAP program-internal object name 不区分大小写。也就是说，不能靠 <code>salesOrder</code>、<code>SalesOrder</code>、<code>SALESORDER</code> 来表达不同含义。更精确地说，<code>snake_case</code> 的价值不是“看起来小写”，而是 underscore 提供了不会被大小写格式化破坏的词边界。即使 ABAP Pretty Printer 或 ADT formatter 把大小写改掉，<code>sales_order</code> 仍然能读出两个词，而 <code>salesOrder</code> 可能变成 <code>salesorder</code> 或 <code>SALESORDER</code>。</p>
+<p>Clean ABAP 因此推荐在代码内部稳定使用 <code>snake_case</code>：</p>
+<pre><code class="language-abap">DATA max_wait_time_in_seconds TYPE i.
+DATA user_preferences TYPE ztt_user_preference.</code></pre>
+<p>repository object 名称在 ADT、SE80、transport 和项目规范里常会以大写出现，例如 <code>ZCL_SD_ORDER_VALIDATOR</code>。这不和本节矛盾：对象名遵守客户 namespace、系统命名限制和项目命名規約；代码内部的变量、method、attribute、parameter 才是 Clean ABAP naming 更直接发挥作用的地方。初学者不要把 <code>snake_case</code> 建议套到 <code>ZCL_...</code> / <code>ZIF_...</code> 这类全局对象名上。</p>
+<h5 id="46-4-4-4-4-abbreviation-8cf6b3ff">46.4.4 4.4 Abbreviation：缩写必须可读、统一、可搜索</h5>
+<p>ABAP 有些名字长度限制，SAP 领域也有大量固定缩写，例如 <code>CDS</code>、<code>RAP</code>、<code>API</code>、<code>UUID</code>、<code>LUW</code>、<code>BAPI</code>、<code>BP</code>。缩写不是禁止项，但不能随手发明。一个典型坏例子是 <code>cust</code>，它可能表示 <code>customer</code>、<code>customizing</code> 或 <code>custom</code>。如果项目里确实需要缩写，就把它写进 glossary 或命名規約，并在所有对象里使用同一个缩写。</p>
+<p>Clean ABAP 还提醒：遇到名字长度限制时，不要退回到难读的 <code>flatcase</code>、全大写缩写串或临时暗号。正确做法是保留最能表达意图的 domain term，必要时拆小 method、抽 helper，或让上下文承担一部分说明，而不是把名字压缩到只有作者自己看得懂。</p>
+<p>初学者可以用一个简单检查：这个缩写是否能被团队里另一个模块的人看懂？是否能被搜索？是否和 SAP 标准术语冲突？如果答案不确定，先写全。</p>
+<h5 id="46-4-5-4-5-noun-verb-80aed52a">46.4.5 4.5 Noun / verb：对象是名词，动作是动词</h5>
+<p>Clean ABAP 建议 class、interface、object 用名词或名词短语，method 和 function 用动词或动词短语。</p>
+<pre><code class="language-abap">CLASS zcl_sd_order_validator DEFINITION.
+  PUBLIC SECTION.
+    METHODS validate_order
+      IMPORTING order_id TYPE zorder_id
+      RETURNING VALUE(result) TYPE abap_bool.
+
+    METHODS has_blocked_items
+      IMPORTING order_id TYPE zorder_id
+      RETURNING VALUE(result) TYPE abap_bool.
+ENDCLASS.</code></pre>
+<p><code>zcl_sd_order_validator</code> 表示一个校验者；<code>validate_order</code> 表示执行校验动作；<code>has_blocked_items</code> 读起来像一个 predicate。相比之下，<code>check</code>、<code>execute</code>、<code>do_it</code>、<code>handle</code> 这类名字太宽，除非上下文非常小，否则会让读者继续追源码。</p>
+<p>注意 <code>is_</code> / <code>has_</code> 的语境。<code>is_valid( )</code> 作为 boolean method 名，表示“是否有效”；但在许多旧 SAP 命名规范里，<code>is_order</code> 可能表示 importing structure parameter。两者前缀一样，含义完全不同。读旧代码时先判断它是 method、parameter 还是变量；写新代码时不要让这两套约定在同一对象里互相打架。</p>
+<h5 id="46-4-6-4-6-avoid-noise-words-fe9cbc20">46.4.6 4.6 Avoid noise words：不要用空泛词掩盖职责</h5>
+<p><code>data</code>、<code>info</code>、<code>object</code>、<code>manager</code>、<code>helper</code>、<code>processor</code> 这些词经常出现在 AI 生成或赶工代码里。它们的问题不是绝对不能用，而是太容易什么都不说明。</p>
+<pre><code class="language-abap">&quot; Weak
+DATA customer_info TYPE zcustomer.
+DATA response_time_variable TYPE i.
+CLASS zcl_sd_order_manager DEFINITION.
+
+&quot; Better
+DATA customer TYPE zcustomer.
+DATA response_time_in_seconds TYPE i.
+CLASS zcl_sd_order_validator DEFINITION.</code></pre>
+<p>如果 <code>manager</code> 真的是协调多个 collaborator 的对象，可以保留；如果它只是因为想不出名字而写上的后缀，就应该拆成更准确的职责名。</p>
+<h5 id="46-4-7-4-7-avoid-encodings-clean-abap-sap-89f90119">46.4.7 4.7 Avoid encodings：Clean ABAP 理想与 SAP 现场遗留</h5>
+<p>Clean ABAP 倾向避免 Hungarian notation 和类型前缀。它背后的理由很直接：前缀通常只告诉你技术类型，不告诉你业务含义；类型一旦变化，前缀还可能变成假信息。下面两组名字表达的是同一个数据，但阅读体验不同：</p>
+<pre><code class="language-abap">&quot; Legacy-style prefix
+DATA lv_order_id TYPE zorder_id.
+DATA lt_orders TYPE STANDARD TABLE OF zsales_order.
+
+&quot; Clean ABAP-style intent
+DATA order_id TYPE zorder_id.
+DATA sales_orders TYPE STANDARD TABLE OF zsales_order.</code></pre>
+<p>但很多 SAP 项目，尤其是历史较长的日本项目，会在開発標準里要求 <code>lv_</code>、<code>ls_</code>、<code>lt_</code>、<code>iv_</code>、<code>ev_</code>、<code>rv_</code>。初学者要学会“双语阅读”：看到旧代码前缀时能理解它们；新写 ABAP Cloud / RAP 练习对象时，如果项目没有相反规定，可以从一开始使用更接近 Clean ABAP 的意图命名；维护旧对象时不要在同一 method 或同一 class 里一半 <code>lt_orders</code>、一半 <code>sales_orders</code>，造成更大的不一致。</p>
+<p>还有一个容易混淆的点：<code>is_</code> 在旧式 parameter 命名里可能表示 importing structure，在 Clean ABAP boolean method 里可能表示 predicate，例如 <code>is_empty</code>。这就是为什么项目规则和上下文必须清楚。</p>
+<h5 id="46-4-8-4-8-built-in-functions-abap-2b5a7a26">46.4.8 4.8 Built-in functions：不要遮蔽 ABAP 内置函数</h5>
+<p>Clean ABAP 特别提醒，不要在 class 里定义和 ABAP built-in function 同名的 method，例如 <code>lines</code>、<code>line_exists</code>、<code>strlen</code>、<code>condense</code>。这样会让读者分不清你是在调用内置函数还是类自己的 method，也可能让语义变得混乱。</p>
+<pre><code class="language-abap">&quot; Avoid
+METHODS lines RETURNING VALUE(result) TYPE i.
+METHODS strlen RETURNING VALUE(result) TYPE i.</code></pre>
+<p>如果确实需要表达“计算行数”，可以用更具体的业务名字，例如 <code>count_open_items</code>、<code>count_failed_messages</code>。</p>
+<h5 id="46-4-9-4-9-naming-review-checklist-e6b1dfd8">46.4.9 4.9 Naming review checklist：把风格争论变成可执行标准</h5>
+<p>命名 review 不应该停留在“我觉得这个名字不好”。可以用下面的表把意见落到可执行标准上：</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Good sign</th><th>Risk signal</th></tr></thead><tbody><tr><td>Does the name reveal intent?</td><td><code>blocked_sales_orders</code>、<code>calculate_net_amount</code>。</td><td><code>data</code>、<code>result</code>、<code>flag</code>、<code>process</code>、<code>handle</code>。</td></tr><tr><td>Is the concept consistent?</td><td>同一概念始终用 <code>business_partner</code> 或项目规定缩写。</td><td>同一对象在不同 method 里叫 <code>bp</code>、<code>partner</code>、<code>customer</code>。</td></tr><tr><td>Is it searchable?</td><td>关键词能被 where-used / text search 找到。</td><td>太短、太泛，或者只靠注释解释。</td></tr><tr><td>Is it at the right domain level?</td><td>业务类用业务词，技术 helper 用技术词。</td><td>业务规则 method 叫 <code>convert_data</code>，技术类却混入客户业务词。</td></tr><tr><td>Is boolean meaning clear?</td><td><code>is_released</code>、<code>has_errors</code>、<code>can_post</code>。</td><td><code>flag</code>、<code>ok</code>、<code>check</code>，读者不知道 true 代表什么。</td></tr><tr><td>Does it respect project context?</td><td>新对象遵守当前 naming convention，旧对象保持内部一致。</td><td>在同一 class 中混用 Clean ABAP 风格和旧前缀风格。</td></tr><tr><td>Does it avoid misleading type encodings?</td><td>名字表达含义，类型由 declaration / ADT / signature 看。</td><td><code>lt_</code> 变量后来变成 hashed table 或 structure，前缀误导。</td></tr><tr><td>Does it avoid built-in shadowing?</td><td>method 名避开 <code>lines</code>、<code>strlen</code>、<code>line_exists</code>。</td><td>自定义 method 和 ABAP built-in function 同名。</td></tr></tbody></table></div>
+<p>一个实用原则是：重命名前先判断范围。局部变量可以小步改；public method、interface、repository object、API 字段名和外部 contract 改名会影响 where-used、测试、文档、接口和 transport，应当作为设计变更处理，而不是普通清理。</p>
+<h4 id="46-5-d64c4b4f" class="semantic-heading semantic-japan">46.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>命名規約</code>、<code>命名ルール</code>、<code>可読性</code>、<code>検索性</code>、<code>保守性</code>、<code>意図が分かる名前</code>、<code>ドメイン用語</code>、<code>略語</code>、<code>接頭辞</code>、<code>ハンガリアン記法</code>、<code>既存規約</code>、<code>チーム規約</code>、<code>命名揺れ</code>、<code>表記ゆれ</code>。</li>
+<li>review 说法：<code>この名前では処理意図が読み取りにくいです。</code>、<code>命名規約に合わせてください。</code>、<code>この略語はプロジェクト標準ですか。</code>、<code>read / get / fetch の使い分けを統一してください。</code></li>
+<li>说明句：<code>既存オブジェクトでは接頭辞付きの命名に合わせますが、新規クラスでは Clean ABAP の方針に沿って意図が分かる名前を優先します。</code></li>
+<li>交接句：<code>このメソッド名は業務意図を表しているため、障害調査時に where-used と全文検索で追いやすくなります。</code></li>
+</ul>
+<p>日本 SAP 项目里，命名讨论经常不是纯代码风格讨论，而是 <code>開発標準</code>、<code>レビュー指摘</code>、<code>保守性</code>、<code>影響調査</code> 的一部分。表达时不要说“这个名字不好看”，而要说“意図が分かりにくい”“検索性が低い”“命名規約と揺れています”。</p>
+<h4 id="46-6-english-terms-b233d39d" class="semantic-heading semantic-terms">46.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>Clean ABAP naming</code>, <code>Use descriptive names</code>, <code>Use snake_case</code>, <code>Avoid abbreviations</code>, <code>Avoid Hungarian notation</code>, <code>ABAP built-in functions obscuring</code>.</li>
+<li>Related terms: <code>problem domain terms</code>, <code>solution domain terms</code>, <code>noise words</code>, <code>one word per concept</code>, <code>nouns for classes</code>, <code>verbs for methods</code>, <code>boolean methods</code>, <code>repository object naming</code>.</li>
+<li>Recommended search pattern: <code>Clean ABAP Names Use descriptive names snake_case Hungarian notation SAP</code>.</li>
+<li>读官方或一手资料时，保留 <code>Clean ABAP</code>、<code>snake_case</code>、<code>Hungarian notation</code>、<code>built-in functions</code>、<code>development object</code>、<code>namespace</code> 等英文术语。</li>
+</ul>
+<h4 id="46-7-example-01c47634" class="semantic-heading semantic-example">46.7 Example / 学习例子</h4>
+<p>先看一个常见初学者版本：</p>
+<pre><code class="language-abap">METHOD get_data.
+  DATA lt_data TYPE STANDARD TABLE OF zsales_order.
+  DATA lv_flag TYPE abap_bool.
+
+  SELECT * FROM zsales_order
+    INTO TABLE @lt_data.
+
+  LOOP AT lt_data INTO DATA(ls_data).
+    IF ls_data-status = &#x27;B&#x27;.
+      lv_flag = abap_true.
+    ENDIF.
+  ENDLOOP.
+ENDMETHOD.</code></pre>
+<p>这段代码不是语法错误，但读者要不断猜：<code>data</code> 是什么数据？<code>flag</code> 表示什么？<code>B</code> 是什么状态？<code>get_data</code> 是读取、过滤、检查，还是准备输出？</p>
+<p>更适合教程的写法是：</p>
+<pre><code class="language-abap">METHOD has_blocked_sales_orders.
+  DATA blocked_status TYPE zorder_status VALUE &#x27;B&#x27;.
+  DATA sales_orders TYPE STANDARD TABLE OF zsales_order.
+
+  SELECT FROM zsales_order
+    FIELDS order_id, status
+    WHERE status = @blocked_status
+    INTO TABLE @sales_orders.
+
+  result = xsdbool( sales_orders IS NOT INITIAL ).
+ENDMETHOD.</code></pre>
+<p>这里仍然只是简化示例，但名字已经提供了阅读路径：method 回答“是否存在 blocked sales orders”；<code>blocked_status</code> 表示业务状态；<code>sales_orders</code> 表示 internal table 内容。后续如果进入 <a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a> 和 <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a>，这个 method 也更容易被测试。</p>
+<h4 id="46-8-counterexample-failure-mode-02f55c35" class="semantic-heading semantic-example">46.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把所有变量都叫 <code>lt_data</code>、<code>ls_data</code>、<code>lv_value</code>。修正：用名字表达集合内容和业务含义，例如 <code>open_items</code>、<code>failed_messages</code>、<code>customer_numbers</code>。</li>
+<li>误区 2：method 全叫 <code>get_data</code>、<code>process</code>、<code>execute</code>。修正：写出动作和对象，例如 <code>read_open_sales_orders</code>、<code>validate_posting_period</code>、<code>map_bapi_messages</code>。</li>
+<li>误区 3：为了显得面向对象，随便使用 <code>manager</code>、<code>factory</code>、<code>service</code>、<code>helper</code>。修正：只有真的符合职责或设计模式时再用。</li>
+<li>误区 4：在一个旧对象里局部改成 Clean ABAP 风格，导致前半段 <code>lt_orders</code>，后半段 <code>sales_orders</code>。修正：维护旧对象时优先保持对象内一致；重构要有范围和 review。</li>
+<li>误区 5：混淆 Clean ABAP naming 和项目 repository 命名。修正：<code>ZCL_</code>、<code>ZIF_</code>、<code>/ABC/...</code> 是客户 namespace / object naming 规则；本节的 <code>sales_orders</code>、<code>read_entries</code> 是代码内部可读性规则。</li>
+<li>误区 6：在 class 里定义 <code>lines</code>、<code>strlen</code> 这类 method 名。修正：避免遮蔽 built-in functions，改成具体业务动作。</li>
+</ul>
+<h4 id="46-9-7ce12ac0" class="semantic-heading semantic-practice">46.9 思考问题</h4>
+<ul>
+<li>你现在看到 <code>lt_data</code>、<code>lv_flag</code>、<code>get_data</code> 时，能不能说出它们缺少什么信息？</li>
+<li>什么时候应该遵守旧项目的 <code>lv_</code> / <code>lt_</code> 前缀，什么时候可以在新对象里使用 Clean ABAP 风格？</li>
+<li><code>read</code>、<code>get</code>、<code>fetch</code>、<code>select</code> 在你的项目里是否有约定？如果没有，应该如何统一？</li>
+<li>一个 class 叫 <code>ZCL_SD_ORDER_MANAGER</code> 时，你能不能从名字判断它到底负责什么？如果不能，应该如何改名？</li>
+<li>为什么命名会影响 <a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a>、review 和障害調査？</li>
+</ul>
+<h4 id="46-10-5efacea5" class="semantic-heading semantic-reference">46.10 参考资料入口</h4>
+<ul>
+<li><a href="https://github.com/SAP/styleguides/blob/main/clean-abap/CleanABAP.md#names" target="_blank" rel="noopener noreferrer">SAP/styleguides - Clean ABAP, Names</a> (accessed 2026-06-13)</li>
+<li><a href="https://raw.githubusercontent.com/SAP/styleguides/main/clean-abap/CleanABAP.md" target="_blank" rel="noopener noreferrer">SAP/styleguides - Clean ABAP raw Markdown</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENNAMING_CONVENTIONS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Naming Conventions and Namespaces</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENTELLING_NAMES_GUIDL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Descriptive Names</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENNAMING_GDL.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Naming</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-us/abenbuilt_in_functions_syntax.htm" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Built-In Functions, Obscuring with Methods</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-01-019-japanese-sap-naming-convention-sap-2bdcfbd7.html">Japanese SAP naming convention</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="46-11-connections-71aad9c3">46.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li><a class="wiki" href="section-01-019-japanese-sap-naming-convention-sap-2bdcfbd7.html">Japanese SAP naming convention</a></li>
+<li><a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a></li>
+<li><a class="wiki" href="section-02-030-interface-95651eea.html">Interface 接口定义</a></li>
+<li><a class="wiki" href="section-02-026-method-signature-78cdcab2.html">Method signature 方法签名</a></li>
+<li>Upstream: <a class="wiki" href="section-02-042-reduce-expression-f12baa21.html">REDUCE expression 归约表达式</a></li>
+<li>Downstream: <a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 14 - Clean ABAP 与 Week 2 复盘</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="46-12-ad7df46c" class="semantic-heading semantic-practice">46.12 学习任务</h4>
+<ul>
+<li>找一段练习代码，把 <code>lt_data</code>、<code>lv_flag</code>、<code>get_data</code> 改成能表达业务含义的名字。</li>
+<li>写 3 个 boolean method 名称，要求能自然放进 <code>IF ... .</code> 里阅读，例如 <code>has_missing_items( )</code>。</li>
+<li>对照项目或练习命名規約，说明 <code>ZCL_...</code> / <code>ZIF_...</code> 这类 repository object 命名和 method / variable 命名有什么不同。</li>
+<li>选一个已有 atomic note 的示例代码，检查是否存在 <code>data</code>、<code>info</code>、<code>object</code>、<code>manager</code> 这类噪音词。</li>
+<li>用日语写一句 review comment：指出某个名字“意図が分かりにくい”，并提出更清楚的候选名。</li>
+</ul>
+<h4 id="46-13-confidence-next-action-c093409a" class="semantic-heading semantic-status">46.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for Clean ABAP naming principles, based on SAP/styleguides Clean ABAP and ABAP Keyword Documentation. Medium for project-specific naming conventions, because 真实项目最终以客户 <code>命名規約 / 開発標準 / チーム規約</code> 为准。</li>
+<li>Joule review: <code>Pass with fixes</code> evidence from 2026-06-13 has been integrated: <code>snake_case</code> scope, repository object boundary, <code>is_</code> collision, legacy prefix reality, namespace framing, and official references. Claude review remains external debt because prior retry failed with credentials and current Claude health check timed out.</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-047-small-methods-35874e0f.html">Small methods 小方法原则</a>，把“名字表达意图”推进到“method 只做一件事、容易测试、容易 review”。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-046-clean-abap-naming-955e5592.html">Clean ABAP naming 命名规则</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Previous section</a><a href="section-02-047-small-methods-35874e0f.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

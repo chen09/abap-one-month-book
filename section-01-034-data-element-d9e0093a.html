@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Data element 数据元素 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="34-data-element-856720be" class="chapter-title">34. Data element 数据元素</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 34</li><li>self-contained study note</li></ul><h4 id="34-1-4129e632" class="semantic-heading semantic-concept">34.1 一句话结论</h4>
+<p>Data element 数据元素，是 ABAP Dictionary 中“给字段和程序变量复用的语义类型入口”。它不只是字段的中文名，也不只是 domain 的外壳；它把技术类型、字段标签、说明、翻译、可能的 search help / 参数语义，以及背后的 <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a> 连接起来，让 table field、structure component、ABAP 变量、CDS/RAP/OData 元数据和项目文档能说同一种业务语言。</p>
+<h4 id="34-2-d169796c" class="semantic-heading semantic-concept">34.2 到底学什么</h4>
+<p>上一节已经看到 <a class="wiki" href="section-01-033-table-field-953fa24a.html">Table field 字段定义</a> 可以直接使用 built-in dictionary type，也可以引用 data element。本节要回答的是：为什么真实项目里很多业务字段更推荐引用 data element，而不是每个字段都写 <code>abap.char(10)</code>、<code>abap.numc(6)</code> 或 <code>abap.curr(15,2)</code>。</p>
+<p>先看一个简单例子：</p>
+<pre><code class="language-abap">define table zxx_invoice_i {
+  key client     : abap.clnt not null;
+  key invoice_id : zxx_invoice_id not null;
+  item_no        : abap.numc(6);
+  payment_status : zxx_payment_status;
+}</code></pre>
+<p><code>item_no</code> 直接使用 built-in dictionary type，读者只能看到它是 6 位 numeric text。<code>payment_status</code> 使用 <code>zxx_payment_status</code> 这个 data element，读者就可以继续追踪：它的技术类型是什么、字段标签怎么显示、说明文档写了什么、背后是否有 domain、domain 是否限制固定值、是否有搜索帮助、是否已经被其他表字段或程序复用。一个字段从“技术列”变成“业务概念”，主要靠这层元数据。</p>
+<p>SAP Learning 对 data element 的定位很清楚：data element specifies the technical and semantic properties of a table field。这里要特别注意“technical and semantic”这两个词。初学者常说 data element 只管语义、domain 只管技术，这句话有帮助但不完整。更精确的说法是：data element 是可被字段和程序引用的类型对象；它可以直接基于 built-in dictionary type，也可以基于 domain。若它基于 domain，data type、length、decimals、fixed values 等底层技术和值域信息主要由 domain 提供；data element 自己则承担字段语义、label、说明、翻译和复用入口。对 database table field 来说，SAP Learning 更推荐通过 domain 定义技术类型；直接基于 predefined / built-in dictionary type 的 data element 技术上可以存在，但不应成为业务表字段设计的首选。</p>
+<p>Data element 最容易被读者看见的是 field labels。ADT / Dictionary editor 通常会维护 short、medium、long、heading/title 等不同长度的字段标签。它们主要在 dynpro、Web Dynpro、ALV 等经典 UI 和部分 metadata 消费场景中发挥作用；SAP Samples 也提醒，Medium Text 这类 label 可能被暴露到 OData metadata。比如 <code>zxx_payment_status</code> 的短标签可以是 <code>Pay.stat</code>，中标签可以是 <code>Payment status</code>，长标签和 heading 可以是 <code>Invoice payment status</code>；<code>Paid</code>、<code>Open</code>、<code>Cancelled</code> 则应留给 domain fixed values 或值文本，而不是作为字段标签。字段标签不是为了好看，而是为了让同一个业务字段在不同宽度、不同语言、不同界面里有稳定表达。</p>
+<p>Data element 还有 description / documentation 的作用。SAP Learning 特别提醒：data element 的 description 主要不是给终端用户看的，而是给分析既存代码、判断是否复用该 data element 的开发者看的。字段标签和文本还涉及 original language 与 translation。日本项目里如果对象原语是日语，就要确认日语 field label 是否能用于设计书、画面项目名、ALV 列标题和障害调查；如果对象原语是英语，则要看是否已有日语翻译，而不是在每个报表里随手写一套不同文言。</p>
+<p>Data element 也能作为 ABAP 程序里的类型使用：</p>
+<pre><code class="language-abap">DATA lv_payment_status TYPE zxx_payment_status.
+TYPES ty_invoice_id TYPE zxx_invoice_id.</code></pre>
+<p>这和 <code>DATA lv_payment_status TYPE c LENGTH 1.</code> 的含义不同。后者只说明变量是一位字符；前者告诉读者“这是发票支付状态”，并让变量继承 data element 背后的技术属性。这里也要补一条安全线：ABAP data object 用 data element 声明时，运行时主要继承类型，不会自动把 field label、documentation、search help 带进普通变量输出。也就是说，<code>DATA lv_payment_status TYPE zxx_payment_status</code> 不会让 <code>WRITE lv_payment_status</code> 自动显示“Invoice payment status”列标题；label 和 documentation 是 DDIC metadata，需要 UI、ALV、screen、CDS/OData metadata 或工具消费。后面写 method signature、internal table line type、structure component、test data helper 时，如果有合适的 data element，就能把业务语义带进 ABAP 代码，而不是把含义藏在变量名和注释里。</p>
+<p>创建流程也要能读懂。SAP Developers tutorial 展示了一个典型 ADT 工作流：把结构字段改成一个尚不存在的 data element 名后，系统会出现 syntax error；用 <code>Ctrl+1</code> Quick Fix 创建 data element；输入 description、type name 和 field labels；保存并 activation；再回到引用它的 structure 或 table 检查并激活。这个流程说明 data element 是 repository object，不是本地变量别名。它要命名、描述、保存、激活、传输，也会被 where-used list 找到。</p>
+<p>还要分清 classic DDIC 语义和现代 ABAP Cloud / RAP 语义。Data element 的 field labels、search help、parameter ID 等语义在经典 ABAP UI 中非常重要；但不能把它们直接搬到 ABAP Cloud / RAP。<code>parameter ID</code> 在 ABAP Cloud 中不受支持，会成为 cloud readiness / ATC 类检查问题。Classic data element search help 适合 on-premise dynpro 等场景；新 RAP/Fiori UI 的 value help 通常应通过 CDS view entity field 上的 <code>@Consumption.valueHelpDefinition</code>、metadata extension 或相关 value help 定义表达。Field labels 和 documentation 仍然是有用的元数据，不是被废弃。SAP Samples 的 ABAP Dictionary Cheat Sheet 还提醒：一些 semantic properties 主要属于 classic ABAP，不能在 ABAP for Cloud Development 中指定；同时 CDS simple types 可以作为 DDIC data elements 的后继概念之一。但这只是在 CDS 层的后继/相关概念，不能理解成 DDIC data element 已经过时，也不能把 CDS simple type 当成 <code>define table</code> 的 table field type；DDIC database table field 仍要使用 built-in dictionary type 或 data element。</p>
+<p>本节的最小心智模型是：data element 是“字段可复用语义类型”。读一个 table field 时，如果看到 data element，就顺手追踪四层：field 使用哪个 data element；data element 的 labels / documentation 是否表达业务含义；data element 的技术类型是直接 built-in dictionary type 还是通过 domain；它被哪些表、结构、程序、CDS/RAP 对象复用。能按这个顺序读，下一节 <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a> 才会自然：domain 负责更底层的技术形状和值域，data element 负责把这些形状变成可被项目复用的业务字段语言。</p>
+<h4 id="34-3-d3da9ea6" class="semantic-heading semantic-why">34.3 为什么重要</h4>
+<ul>
+<li>Data element 让多个 table field、structure component、ABAP 变量和接口字段共享同一个业务类型入口，减少“同义字段各自定义”的混乱。</li>
+<li>Field label、description、translation 会影响 UI、ALV、OData metadata、设计书、测试证据和日本项目沟通。</li>
+<li>Data element 到 domain 的关系决定字段的底层 type、length、decimals、fixed values 或 value range，改动时必须做 where-used 和影响分析。</li>
+<li>新代码里优先使用已有合适 data element，通常比随手写 <code>abap.char(...)</code> 更可维护；但纯技术字段仍可直接用 built-in dictionary type。</li>
+<li>Java/Python 背景学习者容易把它看成 type alias；SAP 项目里它更像“全局类型 + 字段标签 + 文档 + 翻译 + 元数据复用点”的组合。</li>
+<li>日本项目里，data element 经常出现在テーブル定義書、項目定義、画面項目名、レビュー指摘、翻訳確認、使用箇所調査和移送影响分析中。</li>
+</ul>
+<h4 id="34-4-key-mechanism-20b39ba1" class="semantic-heading semantic-mechanism">34.4 Key mechanism / 核心机制</h4>
+<ul>
+<li>Repository object：data element 是 ABAP Dictionary repository object，需要 package、activation、transport 和 where-used 管理。</li>
+<li>Global type：data element 可以作为全局类型，被 database table field、DDIC structure component、ABAP <code>DATA</code> / <code>TYPES</code>、方法签名等引用。</li>
+<li>Technical properties：data element 可以直接基于 built-in dictionary type，也可以引用 domain 来继承 data type、length、decimals 等属性；database table field 的业务 data element 通常优先采用 domain 作为技术基础。</li>
+<li>Semantic properties：data element 承载 field labels、description / documentation、translation、可能的 search help 或 classic UI 相关语义；ABAP <code>DATA ... TYPE data_element</code> 继承的是类型，不会自动继承 label 到普通变量输出。</li>
+<li>Field labels：常见 label 有 short、medium、long、heading/title 等长度变体，经典最大长度通常是 10 / 15 / 40 / 55，用于不同 UI 或 metadata 场景。</li>
+<li>Original language / translation：field labels 和文本可翻译；创建时的 logon language 会影响 original language，需要在日本项目里特别确认。</li>
+<li>Domain link：推荐的可复用路径通常是 table field -&gt; data element -&gt; domain；domain 不能直接作为 table field type 或 ABAP <code>TYPE</code> 目标，这不是风格偏好，而是语法/激活边界。</li>
+<li>Direct built-in type path：对于 client、纯技术字段、教学例子或语义非常局部的字段，可以直接使用 built-in dictionary type，但要知道失去了 data element 复用语义。</li>
+<li>Where-used impact：改 data element 的 label、type、domain 或 documentation 可能影响所有引用它的 table field、structure、program、CDS/RAP/service 消费。</li>
+<li>Classic vs modern metadata：classic search help / parameter ID / field label 等语义在传统 UI 很重要；ABAP Cloud 不支持 parameter ID，新 RAP/Fiori value help 通常看 CDS <code>@Consumption.valueHelpDefinition</code>、metadata extension 和 value help 定义。</li>
+<li>CDS simple type awareness：在现代 ABAP 中，CDS simple type 可作为 DDIC data element / domain 的后继概念之一，但它不能替代 DDIC database table field 的 data element 用法，Day 05 先学稳 DDIC 基础。</li>
+</ul>
+<h4 id="34-5-738288fd" class="semantic-heading semantic-japan">34.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>データエレメント</code>、<code>項目定義</code>、<code>項目ラベル</code>、<code>短テキスト</code>、<code>中テキスト</code>、<code>長テキスト</code>、<code>見出し</code>。</li>
+<li>技术/语义：<code>技術属性</code>、<code>意味属性</code>、<code>ドメイン参照</code>、<code>値域</code>、<code>固定値</code>、<code>検索ヘルプ</code>、<code>パラメータID</code>。</li>
+<li>交付/审查：<code>原語</code>、<code>翻訳</code>、<code>使用箇所</code>、<code>影響調査</code>、<code>影響範囲</code>、<code>有効化</code>、<code>移送対象</code>、<code>テーブル定義書</code>。</li>
+<li>说明句：この項目はデータエレメントを参照しているため、項目ラベルと説明文を共通で利用できます。</li>
+<li>Review 句：既存の標準データエレメントを利用できる場合は、新規作成せず再利用可否を確認してください。</li>
+<li>Review 句：データエレメントの型やドメインを変更する場合は、使用箇所と画面表示、インタフェース影響を確認してください。</li>
+<li>Cloud 句：ABAP Cloud ではパラメータIDはサポート対象外のため、ATCチェック対象になります。</li>
+<li>RAP 句：RAPベースのUIでは、検索ヘルプではなく <code>@Consumption.valueHelpDefinition</code> などの value help 定義を確認してください。</li>
+</ul>
+<h4 id="34-6-english-terms-4216ee5c" class="semantic-heading semantic-terms">34.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>data element</code></li>
+<li>Official / search term: <code>DDIC data element</code></li>
+<li>Official / search term: <code>field label</code></li>
+<li>Official / search term: <code>short field label</code></li>
+<li>Official / search term: <code>medium field label</code></li>
+<li>Official / search term: <code>long field label</code></li>
+<li>Official / search term: <code>heading</code></li>
+<li>Official / search term: <code>description</code></li>
+<li>Official / search term: <code>semantic properties</code></li>
+<li>Official / search term: <code>technical properties</code></li>
+<li>Official / search term: <code>domain</code></li>
+<li>Official / search term: <code>search help</code></li>
+<li>Official / search term: <code>parameter ID</code></li>
+<li>Official / search term: <code>original language</code></li>
+<li>Official / search term: <code>translation</code></li>
+<li>Official / search term: <code>CDS simple type</code></li>
+<li>Recommended search pattern: <code>ABAP Dictionary data element semantic properties field labels SAP Learning</code></li>
+<li>读官方资料时优先保留英文对象名、DDIC type 名称、annotation 名称和 ADT 操作名。</li>
+</ul>
+<h4 id="34-7-example-f5d58eb3" class="semantic-heading semantic-example">34.7 Example / 学习例子</h4>
+<p>观察一个 data element 时，可以按这个表记录：</p>
+<pre><code class="language-text">Data element:
+Purpose:
+Used by fields / structures:
+Based on built-in dictionary type or domain:
+Domain:
+Data type / length / decimals:
+Short label:
+Medium label:
+Long label:
+Heading / title:
+Description / documentation:
+Search help / classic semantic property:
+Translation needed:
+Project risk if changed:</code></pre>
+<p>以 <code>zxx_payment_status</code> 为例，可以这样读：</p>
+<pre><code class="language-text">Data element: zxx_payment_status
+Purpose: invoice payment status
+Based on: domain zxx_d_payment_status
+Technical shape: CHAR 1, inherited from domain
+Possible values: P = Paid, O = Open, C = Cancelled
+Short label: Pay.stat
+Medium label: Payment status
+Long label: Invoice payment status
+Heading: Invoice payment status
+Used by: zxx_invoice_i-payment_status, report output, RAP projection later
+Risk if changed: UI label, fixed values, existing data, tests, interface mapping</code></pre>
+<p>再把它放回 table field：</p>
+<pre><code class="language-abap">payment_status : zxx_payment_status;</code></pre>
+<p>这行不是只把字段长度设成 1，而是把“发票支付状态”这个业务概念挂到字段上。读者看到 <code>zxx_payment_status</code>，应继续追踪 data element 和 domain，而不是停在字段名。</p>
+<h4 id="34-8-counterexample-failure-mode-0522a543" class="semantic-heading semantic-example">34.8 Counterexample / Failure mode</h4>
+<ul>
+<li>每个字段都直接写 <code>abap.char(...)</code>：短期能激活，长期会丢失 label、translation、documentation、domain value range 和复用语义。</li>
+<li>把 data element 当成 domain：会误以为 fixed values、length、decimals 都一定写在 data element 自己身上；实际常由 domain 提供。</li>
+<li>把 domain 当成 data element：domain 不能直接作为 table field type 或 ABAP <code>TYPE</code> 目标；这会导致语法错误或 activation error，应通过 data element 间接使用。</li>
+<li>看到标准 data element 不复用，直接新建 <code>Z</code> 对象：会制造重复语义，增加翻译、测试和接口 mapping 成本。</li>
+<li>随意改 data element length / domain：可能影响所有引用字段、结构、程序、CDS/RAP 对象和外部接口。</li>
+<li>只改中文/日文 label，不看 original language 和翻译：会导致不同登录语言下 UI 或 metadata 显示不一致。</li>
+<li>把 field label 当成唯一业务说明：label 只是短文本，复杂规则应写在设计书、documentation、domain/value help、validation 或业务代码里。</li>
+<li>在 ABAP Cloud / RAP 场景中只依赖 classic search help：现代服务还要检查 CDS value help、annotation 和 metadata extension。</li>
+<li>以为 <code>DATA lv_x TYPE zxx_data_element</code> 会自动带出 field label：ABAP 变量继承类型，不会自动继承 UI label 到普通输出。</li>
+<li>把 CDS simple type 当成 DDIC table field type：CDS simple type 属于 CDS 层后继/相关概念，不等于可以替代 data element 来定义 DDIC database table field。</li>
+<li>以为 where-used 为空就一定可删：动态引用、接口约定、文档约定、外部 consumer 仍需项目证据确认。</li>
+</ul>
+<h4 id="34-9-aee75a90" class="semantic-heading semantic-practice">34.9 思考问题</h4>
+<ul>
+<li>Data element 和 table field 的职责边界是什么？</li>
+<li>Data element 和 domain 的职责边界是什么？</li>
+<li>为什么 <code>payment_status TYPE zxx_payment_status</code> 比 <code>TYPE c LENGTH 1</code> 更容易维护？</li>
+<li>什么情况下可以直接使用 built-in dictionary type，而不创建 data element？</li>
+<li>Field labels 的 short / medium / long / heading 为什么要分开维护？</li>
+<li>为什么创建 data element 时要关心 original language 和 translation？</li>
+<li>修改一个 data element 的 domain 前，应该做哪些 where-used 和测试确认？</li>
+<li>在 ABAP Cloud / RAP 场景中，data element 的作用和 CDS annotation / value help 的关系是什么？</li>
+<li>为什么 ABAP <code>DATA ... TYPE data_element</code> 不等于“变量自动带 UI label”？</li>
+<li>为什么 CDS simple type 不是 DDIC database table field type 的直接替代？</li>
+<li>在日本项目里如何说明 <code>データエレメント再利用</code>、<code>項目ラベル</code>、<code>翻訳確認</code> 和 <code>使用箇所調査</code>？</li>
+</ul>
+<h4 id="34-10-5da95939" class="semantic-heading semantic-reference">34.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/defining-domains-and-data-elements_b65b511a-4ad1-4437-80f5-5ad689cab833" target="_blank" rel="noopener noreferrer">SAP Learning - Defining Domains and Data Elements</a> (accessed 2026-06-13)</li>
+<li><a href="https://developers.sap.com/tutorials/abap-dev-adt-create-data-element..html" target="_blank" rel="noopener noreferrer">SAP Developers - Create a Data Element</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenddic_data_elements.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Data Elements</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENDDIC_DATA_ELEMENTS_SEMA.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Semantic Properties of Data Elements</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/26_ABAP_Dictionary.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP Dictionary Cheat Sheet</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="34-11-connections-c7c293e0">34.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-01-033-table-field-953fa24a.html">Table field 字段定义</a></li>
+<li>Downstream: <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a></li>
+<li>Related: <a class="wiki" href="section-01-032-ddic-database-table-e05a6263.html">DDIC database table 字典表</a></li>
+<li>Related: <a class="wiki" href="section-01-022-type-vs-like-5da66ea5.html">TYPE vs LIKE 类型声明方式</a></li>
+<li>Related: <a class="wiki" href="section-01-015-where-used-list-1b8d2818.html">Where-used list 影响分析</a></li>
+<li>Related: <a class="wiki" href="section-01-039-search-help-5766da52.html">Search help 搜索帮助</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 05 - ABAP Dictionary 核心对象</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="34-12-89c56990" class="semantic-heading semantic-practice">34.12 学习任务</h4>
+<ul>
+<li>在练习系统或教程截图中找 1 个 table field，追踪 field -&gt; data element -&gt; domain。</li>
+<li>为一个业务字段写出 short / medium / long / heading 四种 label，注意日语或英语显示宽度。</li>
+<li>判断 3 个字段是否应该复用已有 data element，还是可以直接使用 built-in dictionary type。</li>
+<li>用 <code>TYPE</code> 写 2 行 ABAP 声明：一个指向 data element，一个直接使用 built-in ABAP type，并说明差异。</li>
+<li>对一个 data element 做 where-used list，记录它被哪些 table、structure、program 或 CDS/RAP 对象使用。</li>
+<li>写 1 个日本项目 review 句子，必须包含 <code>データエレメント</code>、<code>項目ラベル</code>、<code>翻訳</code> 或 <code>使用箇所</code>。</li>
+<li>找 1 个 SAP 官方页面，说明 data element、field label、semantic properties 或 domain inheritance 中任意一个边界。</li>
+</ul>
+<h4 id="34-13-confidence-next-action-a7305949" class="semantic-heading semantic-status">34.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-high，当前内容基于 SAP Learning / SAP Developers / ABAP Keyword Documentation / SAP Samples 建立 beginner-level 框架；data element technical/semantic boundary、field label / translation、classic semantic properties、ABAP Cloud / CDS simple type nuance 仍需 Joule / Claude 复核。</li>
+<li>Next action: 让 Joule 检查 data element、domain inheritance、field labels、search help / parameter ID、ABAP Cloud nuance 和日本项目术语；通过后同步到 Chapter 01 和离线书稿，再跑 Claude file-based review。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-034-data-element-d9e0093a.html">Data element 数据元素</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-033-table-field-953fa24a.html">Previous section</a><a href="section-01-035-domain-c11d9bf1.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

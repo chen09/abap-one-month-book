@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ORDER BY 排序确定性 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="5-order-by-ca401532" class="chapter-title">5. ORDER BY 排序确定性</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 05</li><li>self-contained study note</li></ul><h4 id="5-1-a411fcaa" class="semantic-heading semantic-concept">5.1 一句话结论</h4>
+<p><code>ORDER BY</code> 是 ABAP SQL 里把“数据库返回顺序”变成“业务可解释顺序”的关键子句。不写 <code>ORDER BY</code>，多行结果的顺序就是未定义的；写了 <code>ORDER BY</code> 但排序字段不唯一，也只能保证这些字段的排序，不能保证 tie 之间谁先谁后。只要业务语义里出现“第一条、最后一条、最新一条、前 10 条、分页、优先级最高”，就必须把排序字段和 tie-breaker 写清楚。</p>
+<h4 id="5-2-cc66acf4" class="semantic-heading semantic-concept">5.2 到底学什么</h4>
+<p>前面 <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a> 讲了如何读取，<a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a> 讲了结果接收到哪里。本节专门讲结果的顺序。</p>
+<p>先看一个容易误导初学者的例子：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这段代码能读到订单，但没有说明订单顺序。今天开发机里看起来像按创建时间排列，不代表明天 QAS、PRD、不同数据量、不同索引或不同执行计划下仍然这样。关系数据库不会因为“上次看起来是这个顺序”就承诺业务顺序。</p>
+<p>如果业务需要“最新订单优先”，就要写出排序：</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       ORDER BY created_at DESCENDING,
+                sales_order_id DESCENDING
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这里 <code>created_at DESCENDING</code> 表达“新到旧”；<code>sales_order_id DESCENDING</code> 是 tie-breaker，避免两个订单创建时间相同的时候顺序仍然不稳定。<code>ORDER BY</code> 的本质不是让列表“看起来整齐”，而是把业务规则写进数据库结果集。</p>
+<h4 id="5-3-19e59331" class="semantic-heading semantic-why">5.3 为什么重要</h4>
+<p><code>ORDER BY</code> 重要，是因为没有排序的 bug 往往不在开发当天出现。开发环境数据少、插入顺序稳定、索引碰巧合适，代码看起来一直正确；到生产环境，执行计划变化或数据量变大，第一条记录就可能变成另一条。</p>
+<p>第一类风险是“取第一条”。很多代码先 <code>SELECT ... INTO TABLE</code>，再 <code>READ TABLE lt_orders INDEX 1</code>。如果前面的 SQL 没有 <code>ORDER BY</code>，这个“第一条”没有业务含义。它只是当前数据库执行结果里的某一条。</p>
+<p>第二类风险是“取最新一条”。<code>SELECT SINGLE</code> 加非唯一条件并不等于最新。数据库不知道你的“最新”是按创建日、更新时间、凭证号、版本号、状态优先级，还是组合规则判断。最新必须由 <code>ORDER BY</code> 说明。</p>
+<p>第三类风险是“取前 n 条”。SAP Help 对 <code>UP TO n ROWS</code> 的说明非常关键：如果没有 <code>ORDER BY</code>，传入结果集的是任意符合条件的 n 行；如果 <code>ORDER BY</code> 不能唯一排序，也不能定义 tie 中哪些行进入结果。换句话说，先随便取 10 行再在 ABAP 里 <code>SORT</code>，并不能变成“真正最新 10 行”。</p>
+<p>第四类风险是交付解释。日本 SAP 项目 review 经常会问：<code>並び順は保証されていますか</code>、<code>最新1件の根拠は何ですか</code>、<code>同一日時の場合のタイブレークはありますか</code>。如果只能回答“测试时就是这个顺序”，代码很难通过严肃 review。</p>
+<h4 id="5-4-key-mechanism-45f57026" class="semantic-heading semantic-mechanism">5.4 Key mechanism / 核心机制</h4>
+<p><code>ORDER BY</code> 对一个 multirow result set 排序。常见写法有三类。</p>
+<p>第一，按业务字段排序：</p>
+<pre><code class="language-abap">ORDER BY created_at DESCENDING,
+         sales_order_id DESCENDING</code></pre>
+<p>这是最常见的业务排序。<code>ASCENDING</code> 表示升序，<code>DESCENDING</code> 表示降序；不写方向时通常按升序理解。业务上说“最新、金额最高、优先级最高”时，应该能在这里看到对应字段。</p>
+<p>第二，按 primary key 排序：</p>
+<pre><code class="language-abap">ORDER BY PRIMARY KEY</code></pre>
+<p>这表示按单一数据源的主键升序排序，适合需要稳定主键顺序的读取。它不是万能语义排序：主键顺序未必等于业务最新、显示顺序或优先级顺序。对 join、union、某些 view/CDS 场景和 <code>FOR ALL ENTRIES</code> 还存在限制，遇到复杂查询要回到 ABAP Keyword Documentation 确认。</p>
+<p>第三，按多个字段组成稳定顺序：</p>
+<pre><code class="language-abap">ORDER BY priority ASCENDING,
+         created_at DESCENDING,
+         sales_order_id ASCENDING</code></pre>
+<p>这类排序先按优先级，再按创建时间，再按唯一键 tie-break。判断一个排序是否足够稳定，可以问一句：如果前面的排序字段相同，下一步靠什么决定顺序？如果一直问到最后都没有唯一字段，结果中 tie 的相对顺序就仍然可能变化。</p>
+<p><code>ORDER BY</code> 和 <code>UP TO n ROWS</code> 的关系尤其重要。数据库先根据 <code>WHERE</code> 等条件形成 hit list，再排序，再截取 n 行。没有 <code>ORDER BY</code> 时，n 行是任意行；排序不唯一时，tie 中进入 n 行的具体记录也可能不确定。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       ORDER BY created_at DESCENDING,
+                sales_order_id DESCENDING
+       INTO TABLE @DATA(lt_latest_orders)
+       UP TO 10 ROWS.</code></pre>
+<p>这段代码表达的是“该客户最新 10 张订单”。如果去掉 <code>ORDER BY</code>，它就只剩“任意 10 张订单”。如果只按 <code>created_at DESCENDING</code> 排序，而很多订单同一秒创建，那么第 10 条附近的 tie 仍然可能不稳定。</p>
+<p>还要区分数据库排序和 ABAP 内表排序。<code>ORDER BY</code> 是数据库结果集进入 ABAP 之前的排序；<code>SORT lt_orders BY ...</code> 是结果已经进入 ABAP 内表之后的排序。两者都可能有用，但不能互相替代。尤其是 <code>UP TO n ROWS</code>、分页、offset 或“只取第一条”场景，必须先在数据库侧把顺序定义好，再截取结果。</p>
+<h4 id="5-5-a88dbd55" class="semantic-heading semantic-japan">5.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>ORDER BY句</code></li>
+<li><code>並び順</code></li>
+<li><code>ソート順</code></li>
+<li><code>昇順</code></li>
+<li><code>降順</code></li>
+<li><code>主キー順</code></li>
+<li><code>最新順</code></li>
+<li><code>優先順位順</code></li>
+<li><code>タイブレーク</code></li>
+<li><code>先頭1件</code></li>
+<li><code>最新1件</code></li>
+<li><code>上位10件</code></li>
+<li><code>順序保証</code></li>
+<li><code>順序未定</code></li>
+<li><code>任意の1件</code></li>
+</ul>
+<p>现场说明句：</p>
+<ul>
+<li><code>ORDER BY</code> がないため、取得結果の並び順は保証されません。</li>
+<li>最新1件を取得する場合は、更新日時の降順だけでなく、一意になるタイブレーク項目も指定してください。</li>
+<li><code>UP TO 1 ROWS</code> だけでは最新1件にはなりません。業務上のソート順を明示する必要があります。</li>
+<li>同一日時のデータが存在する場合、主キーなどで順序を確定させます。</li>
+<li>表示順だけであれば ABAP 側の <code>SORT</code> でもよい場合がありますが、上位N件を取得する場合はDB側の <code>ORDER BY</code> が必要です。</li>
+</ul>
+<p>日本项目里，“順序保証” 是非常好用的 review 词。不要只说 <code>ORDER BY を付けます</code>，要能说 <code>業務上必要な順序を保証するために、作成日時降順と伝票番号降順でソートします</code>。</p>
+<h4 id="5-6-english-terms-ec357e3b" class="semantic-heading semantic-terms">5.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ORDER BY</code></li>
+<li>Related term: <code>ORDER BY PRIMARY KEY</code></li>
+<li>Related term: <code>ASCENDING</code></li>
+<li>Related term: <code>DESCENDING</code></li>
+<li>Related term: <code>UP TO n ROWS</code></li>
+<li>Related term: <code>OFFSET</code></li>
+<li>Related term: <code>deterministic order</code></li>
+<li>Related term: <code>undefined order</code></li>
+<li>Related term: <code>tie-breaker</code></li>
+<li>Related term: <code>primary key</code></li>
+<li>Related term: <code>GROUP BY</code></li>
+<li>Related term: <code>FOR ALL ENTRIES</code></li>
+</ul>
+<p>推荐检索方式：</p>
+<ul>
+<li><code>ABAP SQL ORDER BY SAP Help</code></li>
+<li><code>ABAP SQL ORDER BY PRIMARY KEY</code></li>
+<li><code>ABAP SQL UP TO n ROWS ORDER BY</code></li>
+<li><code>ABAP SQL order undefined without ORDER BY</code></li>
+<li><code>ABAP SQL FOR ALL ENTRIES ORDER BY PRIMARY KEY</code></li>
+</ul>
+<h4 id="5-7-example-43d2078e" class="semantic-heading semantic-example">5.7 Example / 学习例子</h4>
+<h5 id="5-7-1-1-1b59b6c3">5.7.1 例 1：列表显示的稳定顺序</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       ORDER BY created_at DESCENDING,
+                sales_order_id DESCENDING
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这段代码适合 Fiori 列表、报表输出或 API response。它不仅让结果“按时间倒序”，还在创建时间相同的情况下用 <code>sales_order_id</code> 固定 tie。</p>
+<h5 id="5-7-2-2-07afee24">5.7.2 例 2：取最新一条</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              status,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       ORDER BY created_at DESCENDING,
+                sales_order_id DESCENDING
+       INTO TABLE @DATA(lt_latest_order)
+       UP TO 1 ROWS.
+
+IF lt_latest_order IS NOT INITIAL.
+  DATA(ls_latest_order) = lt_latest_order[ 1 ].
+ENDIF.</code></pre>
+<p>这里不用非唯一条件下的 <code>SELECT SINGLE</code>。业务语义是“最新一条”，所以代码要显式说明“按什么算最新”。注意：如果 <code>INTO</code> 放在最后，SAP Samples 的现代语法示例中 <code>UP TO n ROWS</code> 位于 <code>INTO TABLE ...</code> 后面。</p>
+<h5 id="5-7-3-3-0a40098f">5.7.3 例 3：只按时间排序还不够</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       ORDER BY created_at DESCENDING
+       INTO TABLE @DATA(lt_orders)
+       UP TO 10 ROWS.</code></pre>
+<p>如果很多记录有相同 <code>created_at</code>，第 10 条附近的 tie 仍然不稳定。更稳的写法是加上能唯一化的字段：</p>
+<pre><code class="language-abap">ORDER BY created_at DESCENDING,
+         sales_order_id DESCENDING</code></pre>
+<h5 id="5-7-4-4-81c65d67">5.7.4 例 4：主键顺序不是业务顺序</h5>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              customer_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       ORDER BY PRIMARY KEY
+       INTO TABLE @DATA(lt_orders).</code></pre>
+<p>这能给出稳定的主键顺序，但不一定是最新顺、金额顺或状态优先级顺。项目 review 时要问：业务真的需要主键顺，还是开发者只是想让顺序稳定？</p>
+<h4 id="5-8-counterexample-failure-mode-a4abd7b9" class="semantic-heading semantic-example">5.8 Counterexample / Failure mode</h4>
+<p>失败模式一：没有 <code>ORDER BY</code> 却读第一条。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_orders).
+
+DATA(ls_first_order) = lt_orders[ 1 ].</code></pre>
+<p><code>lt_orders[ 1 ]</code> 是第一行，但不是业务第一条。没有 <code>ORDER BY</code>，这里的第一行没有可解释含义。</p>
+<p>失败模式二：<code>UP TO 1 ROWS</code> 假装最新。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_order)
+       UP TO 1 ROWS.</code></pre>
+<p>这只表示“取任意一行”。如果业务是最新一行，必须补 <code>ORDER BY created_at DESCENDING, sales_order_id DESCENDING</code>。</p>
+<p>失败模式三：排序字段不唯一。</p>
+<pre><code class="language-abap">ORDER BY created_at DESCENDING</code></pre>
+<p>如果 <code>created_at</code> 粒度只有秒，或者数据迁移时大量记录同一时间戳，tie 之间顺序仍然不确定。业务要稳定，就补 tie-breaker。</p>
+<p>失败模式四：先截取再排序。</p>
+<pre><code class="language-abap">SELECT FROM zsales_order
+       FIELDS sales_order_id,
+              created_at
+       WHERE customer_id = @lv_customer_id
+       INTO TABLE @DATA(lt_orders)
+       UP TO 10 ROWS.
+
+SORT lt_orders BY created_at DESCENDING.</code></pre>
+<p>这段代码只是把任意 10 行在 ABAP 里排序，不是“最新 10 行”。要取最新 10 行，<code>ORDER BY</code> 必须在 SQL 里。</p>
+<p>失败模式五：把 <code>ORDER BY</code> 当性能优化万能药。排序可以让业务结果稳定，但也可能增加数据库排序成本。大数据量、非索引字段、多字段排序和表达式排序都要结合索引、WHERE 条件和数据量评估。性能 review 不能只说“加 ORDER BY”，还要问排序字段是否合理。</p>
+<h4 id="5-9-34c56216" class="semantic-heading semantic-practice">5.9 思考问题</h4>
+<ul>
+<li>这条查询后续是否依赖第一条、最后一条、前 n 条或分页？</li>
+<li>如果依赖，<code>ORDER BY</code> 是否写出了业务排序字段？</li>
+<li>排序字段是否能唯一决定顺序？如果不能，tie-breaker 是什么？</li>
+<li><code>ORDER BY PRIMARY KEY</code> 表达的是业务顺序，还是只是技术稳定顺序？</li>
+<li><code>UP TO n ROWS</code> 是否在排序之后才截取？没有排序时是否只是任意 n 行？</li>
+<li>如果已经用 ABAP <code>SORT</code>，它是在截取前还是截取后？能否替代数据库排序？</li>
+<li>是否存在 <code>GROUP BY</code>、aggregate function、<code>FOR ALL ENTRIES</code>、join、union 等会影响 <code>ORDER BY</code> 可用性的语法限制？</li>
+<li>排序字段是否在生产数据量上有性能风险？是否有合适索引或更小的 WHERE 范围？</li>
+<li>日本项目 review 中，能否用一句话说明 <code>並び順を保証する根拠</code>？</li>
+</ul>
+<h4 id="5-10-d6b4b160" class="semantic-heading semantic-reference">5.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPORDERBY_CLAUSE.html" target="_blank" rel="noopener noreferrer">SELECT, ORDER BY</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapselect_up_to_offset.html" target="_blank" rel="noopener noreferrer">SELECT, UP TO, OFFSET</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPSELECT_SINGLE.html" target="_blank" rel="noopener noreferrer">SELECT, SINGLE</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENWHERE_ALL_ENTRIES.html" target="_blank" rel="noopener noreferrer">SELECT, FOR ALL ENTRIES</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABAPSELECT.html" target="_blank" rel="noopener noreferrer">SELECT</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/03_ABAP_SQL.md" target="_blank" rel="noopener noreferrer">ABAP SQL Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="5-11-connections-39430092">5.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-02-002-select-statement-70a372d3.html">SELECT statement 查询语句</a></li>
+<li>Upstream: <a class="wiki" href="section-02-004-into-vs-into-table-78b8c171.html">INTO vs INTO TABLE 结果接收</a></li>
+<li>Downstream: <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a></li>
+<li>Downstream: <a class="wiki" href="section-02-007-aggregate-functions-c767e82c.html">Aggregate functions 聚合函数</a></li>
+<li>Related: <a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li>Related: <a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li>Related: <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 08 - ABAP SQL 读取基础</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="5-12-fc203173" class="semantic-heading semantic-practice">5.12 学习任务</h4>
+<ul>
+<li>找一个没有 <code>ORDER BY</code> 但后续读取第一行的 <code>SELECT</code>，说明它为什么不稳定。</li>
+<li>把一个“取最新一条”的例子改成 <code>ORDER BY ... DESCENDING ... UP TO 1 ROWS</code>。</li>
+<li>写一句日语 review 说明：<code>最新1件を取得するため、更新日時降順と主キー降順でソート順を保証します。</code></li>
+<li>找一个只按日期/时间排序的例子，补一个 tie-breaker。</li>
+<li>区分一次数据库侧 <code>ORDER BY</code> 和一次 ABAP 内表 <code>SORT</code>：它们分别发生在什么时间点，能不能互相替代？</li>
+</ul>
+<h4 id="5-13-confidence-next-action-aa80b2e8" class="semantic-heading semantic-status">5.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节已用 SAP Help / ABAP Keyword Documentation / SAP Samples 复核 <code>ORDER BY</code>、<code>ORDER BY PRIMARY KEY</code>、<code>UP TO n ROWS</code>、<code>OFFSET</code>、<code>SELECT SINGLE</code>、<code>FOR ALL ENTRIES</code> 限制意识，以及数据库侧排序与 ABAP 内表 <code>SORT</code> 的边界。旧 Joule ultra-short prompt 返回通用错误，旧 Claude 输出为 session expired；2026-06-18 已创建新的 Claude follow-up prompt，但当前 Claude health check 在 180 秒内未返回，因此本轮按官方资料闭环并保留外部模型复核债务。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-006-join-in-abap-sql-a7516ffc.html">JOIN in ABAP SQL</a>，继续从单表读取推进到多表读取，并重点检查 join 条件、结果行数、字段别名和性能/可读性边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-005-order-by-bff6433a.html">ORDER BY 排序确定性</a></p>
+<h2 id="day-09-abap-sql-f6c722ef">Day 09 - ABAP SQL 写入、聚合与事务</h2>
+<p>每日课程入口：<span class="wiki unresolved">Day 09 - ABAP SQL 写入、聚合与事务</span></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-004-into-vs-into-table-78b8c171.html">Previous section</a><a href="section-02-006-join-in-abap-sql-a7516ffc.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

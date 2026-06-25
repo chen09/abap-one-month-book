@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>LOOP AT ASSIGNING vs LOOP AT INTO | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="23-loop-at-assigning-vs-loop-at-into-585cf4be" class="chapter-title">23. LOOP AT ASSIGNING vs LOOP AT INTO</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 23</li><li>self-contained study note</li></ul><h4 id="23-1-d933524b" class="semantic-heading semantic-concept">23.1 一句话结论</h4>
+<p><code>LOOP AT ... INTO</code> 和 <code>LOOP AT ... ASSIGNING</code> 的差别，是 internal table 循环里“复制当前行到 work area”与“用 field symbol 直接指向当前行”的差别：<code>INTO</code> 更像拿一份副本来读写，修改后需要明确写回；<code>ASSIGNING</code> 直接操作原 table row，修改会立即反映到 internal table。选择哪一个，不是语法偏好，而是要看本次循环是只读、临时计算，还是要原地更新大量行。</p>
+<h4 id="23-2-33eaf01e" class="semantic-heading semantic-concept">23.2 到底学什么</h4>
+<p>前三节已经铺好了背景：</p>
+<ul>
+<li><a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a> 讲单行读取。</li>
+<li><a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a> 讲表达式式单行访问。</li>
+<li><a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a> 和 <a class="wiki" href="section-02-022-field-symbol-vs-data-reference-b4fb9e9a.html">FIELD-SYMBOL vs DATA reference</a> 讲 alias / reference 语义。</li>
+</ul>
+<p>本节把这些概念落到最常见的 ABAP 循环：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  ...
+ENDLOOP.</code></pre>
+<p>和：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  ...
+ENDLOOP.</code></pre>
+<p>二者看起来只是 <code>INTO</code> 与 <code>ASSIGNING</code> 的差别，实际影响很大：</p>
+<ul>
+<li><code>INTO</code>：当前行内容复制到 work area <code>ls_item</code>。</li>
+<li><code>ASSIGNING</code>：field symbol <code>&lt;ls_item&gt;</code> 指向当前 internal table 行。</li>
+<li><code>INTO</code> 中修改 <code>ls_item</code> 不会自动改回表。</li>
+<li><code>ASSIGNING</code> 中修改 <code>&lt;ls_item&gt;</code> 会直接改原 table row。</li>
+<li><code>INTO</code> 更适合只读、临时计算、避免副作用。</li>
+<li><code>ASSIGNING</code> 更适合大量行更新、大结构处理、明确需要原地修改。</li>
+</ul>
+<h4 id="23-3-b1d8906e" class="semantic-heading semantic-why">23.3 为什么重要</h4>
+<p>ABAP 初学者最常见的 internal table bug 之一，就是在 <code>LOOP AT ... INTO</code> 里改了 work area，以为表已经变了：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  ls_item-status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p>这段代码循环结束后，<code>lt_items</code> 里的 <code>status</code> 没有因此改变。因为 <code>ls_item</code> 是副本。除非再 <code>MODIFY</code> 回表，否则改动只停留在 work area。</p>
+<p>另一类 bug 刚好相反：代码用了 <code>ASSIGNING</code>，作者以为只是临时处理，实际上直接改了原表：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p>这段代码会直接修改 <code>lt_items</code> 当前行。它通常更直接；在大表更新时也可能更快，但也更有副作用。项目 review 要看清楚：这是有意更新，还是误改原数据？</p>
+<p>对 Java/Python 背景学习者，可以这样理解：<code>INTO</code> 像把当前元素拷贝到一个局部变量，<code>ASSIGNING</code> 像拿到当前元素的可写别名。但 ABAP 的 internal table 有 standard/sorted/hashed、primary/secondary key、<code>MODIFY</code>、<code>sy-tabix</code>、key 字段限制等规则，不能只用 Python list 或 Java collection 的直觉判断。</p>
+<h4 id="23-4-key-mechanism-3ba4d95b" class="semantic-heading semantic-mechanism">23.4 Key mechanism / 核心机制</h4>
+<h5 id="23-4-1-loop-at-into-work-area-81a98fb8">23.4.1 <code>LOOP AT ... INTO</code>：复制到 work area</h5>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  IF ls_item-status = &#x27;O&#x27;.
+    ls_item-status = &#x27;C&#x27;.
+  ENDIF.
+ENDLOOP.</code></pre>
+<p>这段代码只改了 <code>ls_item</code>。如果要把修改写回 internal table，必须明确写回：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  IF ls_item-status = &#x27;O&#x27;.
+    ls_item-status = &#x27;C&#x27;.
+
+    MODIFY lt_items FROM ls_item INDEX sy-tabix
+      TRANSPORTING status.
+  ENDIF.
+ENDLOOP.</code></pre>
+<p>上面示例假定 <code>lt_items</code> 是可以按 index 修改的 index table，例如 standard table。对 sorted/hashed table，不能机械套用 <code>INDEX sy-tabix</code>，要结合 table category、key 和 <code>MODIFY TABLE</code> 等语义设计。</p>
+<h5 id="23-4-2-loop-at-assigning-08d656fd">23.4.2 <code>LOOP AT ... ASSIGNING</code>：直接指向当前行</h5>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  IF &lt;ls_item&gt;-status = &#x27;O&#x27;.
+    &lt;ls_item&gt;-status = &#x27;C&#x27;.
+  ENDIF.
+ENDLOOP.</code></pre>
+<p>这里不需要 <code>MODIFY lt_items FROM ...</code>。<code>&lt;ls_item&gt;</code> 指向当前 internal table 行，赋值就是直接修改该行。SAP Learning 对 field symbol 处理 internal table 的解释也强调：使用 <code>ASSIGNING</code> 时，程序直接处理 table line，而不是先复制到 work area 再写回。</p>
+<h5 id="23-4-3-read-only-loop-fbac978b">23.4.3 read-only loop 选择</h5>
+<p>如果只是读数据并做统计，<code>INTO</code> 往往更容易理解：</p>
+<pre><code class="language-abap">DATA lv_total TYPE p LENGTH 16 DECIMALS 2.
+
+LOOP AT lt_items INTO DATA(ls_item)
+     WHERE status = &#x27;C&#x27;.
+  lv_total += ls_item-amount.
+ENDLOOP.</code></pre>
+<p>这段代码没有修改表。对小表或简单结构，<code>INTO</code> 的清晰性可能比少量 copy 成本更重要。对大结构、大表、性能敏感场景，可以评估 <code>ASSIGNING</code>，但不要把所有 loop 自动改成 field symbol。</p>
+<h5 id="23-4-4-update-heavy-loop-d623149d">23.4.4 update-heavy loop 选择</h5>
+<p>如果本来就是要批量更新 table rows，<code>ASSIGNING</code> 通常更直接：</p>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)
+     WHERE status = &#x27;O&#x27;.
+  &lt;ls_item&gt;-status = &#x27;C&#x27;.
+  &lt;ls_item&gt;-changed_by = sy-uname.
+ENDLOOP.</code></pre>
+<p>它避免了每行 copy out 和 <code>MODIFY</code> back。SAP Learning 的练习里展示了 work area + <code>MODIFY</code> 与 field symbol 更新 internal table 的 runtime 对比，并说明更新场景通常能减少复制成本；但实际项目仍应结合数据量、结构大小和 ABAP Profiler/SAT 结果判断。</p>
+<h5 id="23-4-5-reference-into-2309bf0c">23.4.5 <code>REFERENCE INTO</code></h5>
+<p>本节主要对比 <code>INTO</code> 和 <code>ASSIGNING</code>，但上一节提过第三种：</p>
+<pre><code class="language-abap">LOOP AT lt_items REFERENCE INTO DATA(lr_item).
+  ASSIGN lr_item-&gt;* TO FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p><code>REFERENCE INTO</code> 给的是 data reference。只有当后续 API 或设计确实需要 reference variable 时才使用；局部直接更新当前行时，<code>ASSIGNING</code> 往往更清楚。</p>
+<h5 id="23-4-6-key-table-category-c35ff21a">23.4.6 key 字段和 table category</h5>
+<p><code>ASSIGNING</code> 不是绕过 key 规则的后门。对 sorted table、hashed table 的 key 字段，通过 field symbol 赋值会触发运行时错误；不要试图用 <code>&lt;ls_item&gt;-key_field = ...</code> 直接改变 internal table 的排序/哈希一致性。需要改变 key 时，通常要删除旧行并插入新行，或重新构造目标表。</p>
+<h5 id="23-4-7-caution-656c3565">23.4.7 删除、插入、排序中的 caution</h5>
+<p>在 <code>LOOP AT</code> 中边循环边 <code>DELETE</code>、<code>INSERT</code>、<code>SORT</code>、<code>CLEAR</code> 同一张 internal table，会让当前行、<code>sy-tabix</code>、field symbol/reference 的有效性变复杂。初学阶段先采用清楚的两阶段写法：先收集要变更的 key 或结果，再统一处理；确实需要边循环边改表时，查 <code>LOOP AT</code>、<code>DELETE itab</code>、<code>MODIFY itab</code> 的官方语义并写出测试。</p>
+<h4 id="23-5-60bf9c32" class="semantic-heading semantic-japan">23.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>ワークエリア</code>、<code>コピー</code>、<code>ASSIGNING</code>、<code>フィールドシンボル</code>、<code>直接更新</code>、<code>MODIFY不要</code>、<code>副作用</code>、<code>性能改善</code>。</li>
+<li>说明句：<code>INTO</code> は内部テーブル行をワークエリアへコピーするため、変更を反映するには <code>MODIFY</code> が必要です。</li>
+<li>说明句：<code>ASSIGNING</code> は現在行をフィールドシンボルで直接参照するため、<code>&lt;ls_item&gt;</code> の変更は内部テーブルへ即時反映されます。</li>
+<li>Review 句：このループは <code>ASSIGNING</code> で元データを直接更新しているため、副作用が意図通りか確認してください。</li>
+<li>性能说明：大量データ更新ではコピー削減により性能改善が期待できますが、読み取りだけの小さなループでは可読性も考慮します。</li>
+</ul>
+<h4 id="23-6-english-terms-bea8f07c" class="semantic-heading semantic-terms">23.6 English Terms</h4>
+<ul>
+<li>ABAP statement: <code>LOOP AT itab</code></li>
+<li>Result target: <code>INTO DATA(wa)</code></li>
+<li>Result target: <code>ASSIGNING FIELD-SYMBOL(&lt;fs&gt;)</code></li>
+<li>Result target: <code>REFERENCE INTO DATA(dref)</code></li>
+<li>Related statement: <code>MODIFY itab</code></li>
+<li>Related system field: <code>sy-tabix</code></li>
+<li>Related concept: <code>work area</code></li>
+<li>Related concept: <code>field symbol</code></li>
+<li>Related concept: <code>copy semantics</code></li>
+<li>Related concept: <code>in-place update</code></li>
+<li>Related concept: <code>internal table category</code></li>
+</ul>
+<h4 id="23-7-example-997e3698" class="semantic-heading semantic-example">23.7 Example / 学习例子</h4>
+<h5 id="23-7-1-1-into-6566d117">23.7.1 例 1：只读统计，<code>INTO</code> 很自然</h5>
+<pre><code class="language-abap">DATA lv_total TYPE p LENGTH 16 DECIMALS 2.
+
+LOOP AT lt_items INTO DATA(ls_item)
+     WHERE status = &#x27;C&#x27;.
+  lv_total += ls_item-amount.
+ENDLOOP.</code></pre>
+<p>这里只读，不改表。<code>INTO</code> 的副本语义反而让意图清楚：本循环不会改变 <code>lt_items</code>。</p>
+<h5 id="23-7-2-2-into-modify-9b4caa19">23.7.2 例 2：用 <code>INTO</code> 更新，需要 <code>MODIFY</code></h5>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item)
+     WHERE status = &#x27;O&#x27;.
+  ls_item-status = &#x27;C&#x27;.
+
+  MODIFY lt_items FROM ls_item INDEX sy-tabix
+    TRANSPORTING status.
+ENDLOOP.</code></pre>
+<p>如果忘记 <code>MODIFY</code>，<code>lt_items</code> 不会被更新。<code>TRANSPORTING status</code> 可以减少无关字段覆盖风险。</p>
+<h5 id="23-7-3-3-assigning-modify-08409939">23.7.3 例 3：用 <code>ASSIGNING</code> 更新，不需要 <code>MODIFY</code></h5>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)
+     WHERE status = &#x27;O&#x27;.
+  &lt;ls_item&gt;-status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p>这段是原地更新。代码短，但必须确认直接修改原表符合业务意图。</p>
+<h5 id="23-7-4-4-1126da72">23.7.4 例 4：大结构更新</h5>
+<pre><code class="language-abap">LOOP AT lt_sales ASSIGNING FIELD-SYMBOL(&lt;ls_sale&gt;)
+     WHERE recalculation_required = abap_true.
+  &lt;ls_sale&gt;-net_amount = &lt;ls_sale&gt;-quantity * &lt;ls_sale&gt;-unit_price.
+  &lt;ls_sale&gt;-changed_on = cl_abap_context_info=&gt;get_system_date( ).
+ENDLOOP.</code></pre>
+<p>如果 <code>lt_sales</code> 行结构很宽、数据量大、循环本来就是更新行，<code>ASSIGNING</code> 能减少每行复制和写回成本。</p>
+<h5 id="23-7-5-5-assigning-ba0704b1">23.7.5 例 5：需要保留原表不变时，不要用 <code>ASSIGNING</code></h5>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  ls_item-status = &#x27;SIMULATED&#x27;.
+  APPEND ls_item TO lt_preview.
+ENDLOOP.</code></pre>
+<p>这里业务意图是生成预览表，不改变原表。<code>INTO</code> 更安全。</p>
+<h4 id="23-8-counterexample-failure-mode-6d19a7e2" class="semantic-heading semantic-example">23.8 Counterexample / Failure mode</h4>
+<h5 id="23-8-1-1-into-work-area-28e60a11" class="semantic-heading semantic-failure">23.8.1 误区 1：<code>INTO</code> 中改了 work area，以为原表已变</h5>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  ls_item-status = &#x27;C&#x27;.
+ENDLOOP.</code></pre>
+<p>这是初学者高频 bug。修正：要么 <code>MODIFY</code> 回表，要么改用 <code>ASSIGNING</code>。</p>
+<h5 id="23-8-2-2-assigning-24345fd7" class="semantic-heading semantic-failure">23.8.2 误区 2：<code>ASSIGNING</code> 中做临时计算，误改原表</h5>
+<pre><code class="language-abap">LOOP AT lt_items ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;).
+  &lt;ls_item&gt;-amount = &lt;ls_item&gt;-amount * &#x27;1.10&#x27;.
+  APPEND &lt;ls_item&gt; TO lt_preview.
+ENDLOOP.</code></pre>
+<p>这会改原表金额。若只是生成预览，应该用 <code>INTO</code> 或显式复制到另一个结构。</p>
+<h5 id="23-8-3-3-index-sy-tabix-6ec68380" class="semantic-heading semantic-failure">23.8.3 误区 3：盲目用 <code>INDEX sy-tabix</code></h5>
+<p><code>sy-tabix</code> 和 index-based modification 依赖 table category 和访问方式。对 hashed table 没有业务位置概念；对 sorted table 也不能随便改 key。不要把 <code>MODIFY ... INDEX sy-tabix</code> 当成所有 internal table 的通用答案。</p>
+<h5 id="23-8-4-4-09294fbc" class="semantic-heading semantic-failure">23.8.4 误区 4：为了性能牺牲可读性</h5>
+<p><code>ASSIGNING</code> 对大表更新很有意义，但小表只读循环不一定值得。性能优化要看数据量、结构大小和 SAT/Profiler 证据。</p>
+<h5 id="23-8-5-5-75c310e4" class="semantic-heading semantic-failure">23.8.5 误区 5：循环中边改结构边改集合</h5>
+<p>在同一个 loop 中同时使用 <code>ASSIGNING</code> 修改当前行、再 <code>DELETE</code> / <code>INSERT</code> / <code>SORT</code> 同一张表，容易制造难查的缺陷。先写清楚 intent，再考虑是否拆成两阶段处理。</p>
+<h4 id="23-9-13555774" class="semantic-heading semantic-practice">23.9 思考问题</h4>
+<ul>
+<li>这段 loop 是只读、生成副本，还是更新原 internal table？</li>
+<li>如果使用 <code>INTO</code>，修改 work area 后是否需要 <code>MODIFY</code>？</li>
+<li>如果使用 <code>ASSIGNING</code>，直接修改原 table row 是否符合业务意图？</li>
+<li>当前 internal table 是 standard、sorted，还是 hashed？是否依赖 <code>sy-tabix</code>？</li>
+<li>是否修改了 key 字段？这对 sorted/hashed table 是否安全？</li>
+<li>这段 loop 的数据量和 line width 是否真的需要 performance optimization？</li>
+<li>在日本项目 review 中，应该强调 <code>コピー</code>、<code>直接更新</code>、<code>MODIFY不要</code>，还是 <code>副作用</code>？</li>
+</ul>
+<h4 id="23-10-1a4aea3c" class="semantic-heading semantic-reference">23.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPLOOP_AT_ITAB_RESULT.html" target="_blank" rel="noopener noreferrer">LOOP AT itab, result</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPLOOP_AT_ITAB.html" target="_blank" rel="noopener noreferrer">LOOP AT itab, Basic Form</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abaploop_at_itab_cond.html" target="_blank" rel="noopener noreferrer">LOOP AT itab, cond</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPMODIFY_ITAB.html" target="_blank" rel="noopener noreferrer">MODIFY itab</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPMODIFY_ITAB_RESULT.html" target="_blank" rel="noopener noreferrer">MODIFY itab, result</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapdelete_itab.html" target="_blank" rel="noopener noreferrer">DELETE itab</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPREAD_TABLE_OUTDESC.html" target="_blank" rel="noopener noreferrer">READ TABLE, result</a></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/using-field-symbols-to-process-internal-tables_f1855f41-00d3-4f8d-9a2c-663a321c6637" target="_blank" rel="noopener noreferrer">Using Field Symbols to Process Internal Tables</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="23-11-connections-928a321b">23.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li><a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li><a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></li>
+<li><a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li><a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li><a class="wiki" href="section-02-021-field-symbol-201aafdf.html">Field symbol 字段符号</a></li>
+<li><a class="wiki" href="section-02-022-field-symbol-vs-data-reference-b4fb9e9a.html">FIELD-SYMBOL vs DATA reference</a></li>
+<li>Upstream: <a class="wiki" href="section-02-022-field-symbol-vs-data-reference-b4fb9e9a.html">FIELD-SYMBOL vs DATA reference</a></li>
+<li>Downstream: <a class="wiki" href="section-02-024-global-class-66824a36.html">Global class 全局类</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 10 - 内部表类型与读取方式</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="23-12-28b7682a" class="semantic-heading semantic-practice">23.12 学习任务</h4>
+<ul>
+<li>写一段 <code>LOOP AT ... INTO DATA(ls_item)</code>，在循环里修改 <code>ls_item</code>，然后解释为什么原表不会自动改变。</li>
+<li>把上面的代码改成 <code>MODIFY ... TRANSPORTING ...</code> 写回。</li>
+<li>再把同一个场景改成 <code>LOOP AT ... ASSIGNING FIELD-SYMBOL(&lt;ls_item&gt;)</code>。</li>
+<li>写一个只读统计 loop，并说明为什么 <code>INTO</code> 也可以是合理选择。</li>
+<li>写一句日语 review 说明：<code>ASSIGNING</code> 会直接更新内部表行，需确认副作用是否符合意图。</li>
+<li>找 SAP Learning 的 field symbol runtime comparison，说明为什么性能收益主要出现在大量更新场景。</li>
+</ul>
+<h4 id="23-13-confidence-next-action-1e9a4431" class="semantic-heading semantic-status">23.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，核心语义来自 SAP Help / ABAP Keyword Documentation 与 SAP Learning；性能表述按“更新场景常有收益，但需结合实际测量”处理。</li>
+<li>Next action: 已完成 Claude 初审与 follow-up 复核，并同步到 Chapter 02 与离线书稿；后续学习时可用本节对照 <code>Field symbol 字段符号</code>、<code>FIELD-SYMBOL vs DATA reference</code> 和 table key 相关章节做循环更新练习。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-022-field-symbol-vs-data-reference-b4fb9e9a.html">Previous section</a><a href="section-02-024-global-class-66824a36.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

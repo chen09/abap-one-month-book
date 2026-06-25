@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Sorted table 排序表 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="16-sorted-table-9d1c7da3" class="chapter-title">16. Sorted table 排序表</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 16</li><li>self-contained study note</li></ul><h4 id="16-1-4d9afc7d" class="semantic-heading semantic-concept">16.1 一句话结论</h4>
+<p>Sorted table 排序表，是 ABAP internal table 内部表的一种表类别：它按 primary table key 自动保持升序，支持 unique 或 non-unique key，适合按 key 有序读取、范围读取、前缀 key 读取和需要稳定 key 顺序的场景；它不是“手动 <code>SORT</code> 过的 <a class="wiki" href="section-02-015-standard-table-1214200e.html">standard table</a>”，而是表类型本身就带有排序和查找语义。</p>
+<h4 id="16-2-14c10665" class="semantic-heading semantic-concept">16.2 到底学什么</h4>
+<p>上一节学的 standard table 像一个顺序容器：适合追加、遍历、小规模临时结果。如果要按 key 反复查找，standard table 可能要线性搜索。sorted table 的定位正好在这里：</p>
+<pre><code class="language-text">standard table
+  -&gt; 顺序容器，key 查找可能线性搜索
+
+sorted table
+  -&gt; 按 primary key 自动有序，key 查找可利用排序结构
+
+hashed table
+  -&gt; 按 unique key 进行 hash 查找，适合完整 key 精确查找</code></pre>
+<p>sorted table 的关键不是“它看起来排过序”，而是：<strong>表的内部管理方式保证它始终按 primary table key 排序</strong>。插入新行时，ABAP 会把它放到合适位置，而不是简单放到末尾。读取时，如果搜索条件符合 sorted key 的使用规则，就可以避免 standard table 那种从头到尾的线性搜索。</p>
+<p>最基本声明如下：</p>
+<pre><code class="language-abap">TYPES ty_t_flight TYPE SORTED TABLE OF ty_flight
+  WITH NON-UNIQUE KEY carrier_id connection_id flight_date.</code></pre>
+<p>也可以声明 unique key：</p>
+<pre><code class="language-abap">TYPES ty_t_country TYPE SORTED TABLE OF ty_country
+  WITH UNIQUE KEY country_id.</code></pre>
+<p>因此本节要学的是四件事：</p>
+<ul>
+<li>sorted table 如何通过 key 保持顺序。</li>
+<li><code>UNIQUE KEY</code> 和 <code>NON-UNIQUE KEY</code> 如何决定是否允许重复 key。</li>
+<li>什么样的 <code>READ TABLE</code> / table expression / <code>LOOP AT ... WHERE</code> 能从排序结构受益。</li>
+<li>什么时候 sorted table 比 standard table 或 <a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a> 更合适。</li>
+</ul>
+<h4 id="16-3-ee6d964d" class="semantic-heading semantic-why">16.3 为什么重要</h4>
+<p>ABAP 性能问题经常出现在 internal table，不一定出现在数据库。典型模式是：</p>
+<pre><code class="language-abap">LOOP AT lt_headers INTO DATA(ls_header).
+  READ TABLE lt_items INTO DATA(ls_item)
+    WITH KEY header_id = ls_header-header_id.
+ENDLOOP.</code></pre>
+<p>如果 <code>lt_items</code> 是 standard table，大量重复 key lookup 可能会慢。把它改成 sorted table 后，只要 key 设计符合访问方式，就能让查找利用排序结构。</p>
+<p>sorted table 也很适合“一对多分组”场景。例如订单 header 对应多个 item，或航班 carrier / connection 下有多个 date。你可能不是只找一行，而是找某个 key 前缀下的一组行：</p>
+<pre><code class="language-text">carrier_id = &#x27;LH&#x27;
+connection_id = &#x27;0400&#x27;
+  -&gt; 多个 flight_date</code></pre>
+<p>这种场景 hashed table 只能按完整 unique key 很快找到单行；如果需要按 key 前缀取得一段有序数据，sorted table 往往更自然。</p>
+<p>对 Java/Python 背景学习者，可以把 sorted table 类比成按 key 维护顺序的集合或有序索引结构，而不是普通 list。它牺牲一部分插入/维护成本，换来更好的 key 访问和有序处理能力。项目上选择 table category 时，不要问“哪一种最快”，而要问“我的主要访问方式是什么”。</p>
+<h4 id="16-4-key-mechanism-f37a64d3" class="semantic-heading semantic-mechanism">16.4 Key mechanism / 核心机制</h4>
+<h5 id="16-4-1-sorted-table-primary-key-6fb794ce">16.4.1 sorted table 按 primary key 自动排序</h5>
+<p>sorted table 是 index table，也有 primary table index；但它的行顺序由 primary table key 决定。官方 glossary 对 sorted table 的核心定义就是：由 primary table index 管理，并始终按 primary table key 排序。</p>
+<p>示例：</p>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_item,
+         order_id TYPE i,
+         item_no  TYPE i,
+         text     TYPE string,
+       END OF ty_item.
+
+DATA lt_items TYPE SORTED TABLE OF ty_item
+  WITH NON-UNIQUE KEY order_id item_no.
+
+INSERT VALUE #( order_id = 100 item_no = 20 text = `B` ) INTO TABLE lt_items.
+INSERT VALUE #( order_id = 100 item_no = 10 text = `A` ) INTO TABLE lt_items.</code></pre>
+<p>虽然第二行插入较晚，但 internal table 会按 <code>order_id item_no</code> 的 key 顺序维护。遍历时会看到 <code>item_no = 10</code> 在 <code>item_no = 20</code> 前面。</p>
+<h5 id="16-4-2-unique-key-non-unique-key-9f02b72a">16.4.2 <code>UNIQUE KEY</code> 与 <code>NON-UNIQUE KEY</code></h5>
+<p>sorted table 可以定义 unique primary key：</p>
+<pre><code class="language-abap">DATA lt_country TYPE SORTED TABLE OF ty_country
+  WITH UNIQUE KEY country_id.</code></pre>
+<p>这表示同一个 <code>country_id</code> 不能重复。如果插入重复 key，程序会得到相应错误或失败语义，具体取决于语句和上下文。</p>
+<p>也可以定义 non-unique primary key：</p>
+<pre><code class="language-abap">DATA lt_flights TYPE SORTED TABLE OF ty_flight
+  WITH NON-UNIQUE KEY carrier_id connection_id.</code></pre>
+<p>这表示相同 <code>carrier_id connection_id</code> 可以有多行。non-unique sorted table 很适合按分组读取：一组 key 下有多条明细，而且希望它们在表中相邻。</p>
+<h5 id="16-4-3-key-46aa2491">16.4.3 key 顺序很重要</h5>
+<p>sorted table 的 key 字段顺序不是装饰，它决定排序结构，也决定哪些读取能高效。</p>
+<pre><code class="language-abap">WITH NON-UNIQUE KEY carrier_id connection_id flight_date</code></pre>
+<p>这个 key 适合：</p>
+<pre><code class="language-text">carrier_id
+carrier_id + connection_id
+carrier_id + connection_id + flight_date</code></pre>
+<p>因为这些是 key 的 left-justified / leading part。它不适合直接把 <code>flight_date</code> 单独作为主要搜索条件，因为 <code>flight_date</code> 不是 key 的前导字段。</p>
+<p>如果项目里主要按 <code>flight_date</code> 查，就应该重新设计 key，或在 standard/sorted table 上增加 secondary sorted/hash key。</p>
+<h5 id="16-4-4-where-3b1f4f37">16.4.4 读取：不是所有 WHERE 都自动快</h5>
+<p>常见读取方式：</p>
+<pre><code class="language-abap">READ TABLE lt_flights INTO DATA(ls_flight)
+  WITH TABLE KEY carrier_id    = lv_carrid
+                 connection_id = lv_connid.</code></pre>
+<p>如果这两个字段是 sorted table primary key 的前导部分，读取可以利用排序结构。table expression 也遵循类似的 key 访问思想：</p>
+<pre><code class="language-abap">DATA(ls_flight) = lt_flights[
+  carrier_id    = lv_carrid
+  connection_id = lv_connid
+].</code></pre>
+<p>但如果你写的是非 key 字段，或 key 顺序不匹配，ABAP 可能无法使用 sorted key 的优势。初学者要避免把“这张表是 sorted table”理解成“任何搜索都快”。</p>
+<h5 id="16-4-5-insert-into-table-90c2a726">16.4.5 填充：优先 <code>INSERT ... INTO TABLE</code></h5>
+<p>standard table 常用 <code>APPEND</code>，但 sorted table 的安全写法是：</p>
+<pre><code class="language-abap">INSERT ls_flight INTO TABLE lt_flights.</code></pre>
+<p><code>INSERT ... INTO TABLE</code> 会按 sorted key 语义把行放到正确位置。技术上，在某些情况下对 sorted table <code>APPEND</code> 可能通过语法检查，但如果追加的行不符合排序位置，就有运行时错误风险。项目代码里不要把 sorted table 当成“末尾追加容器”。</p>
+<h5 id="16-4-6-key-4237aee5">16.4.6 修改 key 字段要小心</h5>
+<p>sorted table 的 key 是排序结构的一部分。修改 key 字段相当于要把行移到另一个位置。通过 field symbol 或引用原地修改 key 字段，可能被禁止或导致错误。安全思路是：</p>
+<pre><code class="language-text">要改非 key 字段
+  -&gt; 可以按规则修改
+
+要改 key 字段
+  -&gt; 通常删除旧行，再按新 key 插入新行</code></pre>
+<p>这和 hashed table 类似：key 是内部管理结构的一部分，不是普通字段。</p>
+<h5 id="16-4-7-sorted-table-standard-table-hashed-table-a81b473b">16.4.7 sorted table、standard table、hashed table 如何选择</h5>
+<p>可以用这张判断表：</p>
+<pre><code class="language-text">主要是 append + 顺序遍历 + 小表
+  -&gt; standard table
+
+主要按 key 有序读取、范围读取、前缀 key 读取、允许 non-unique group
+  -&gt; sorted table
+
+主要按完整 unique key 做精确读取
+  -&gt; hashed table
+
+已有一张表，同时需要多个访问路径
+  -&gt; secondary table key</code></pre>
+<p>sorted table 的插入和删除会维护排序结构，有管理成本。不要为了“看起来高级”把所有 internal table 都改成 sorted table。只有访问模式能利用排序结构时，才值得使用。</p>
+<h4 id="16-5-9e73c7fa" class="semantic-heading semantic-japan">16.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>ソート済みテーブル</code></li>
+<li><code>整列済みテーブル</code></li>
+<li><code>内部テーブル</code></li>
+<li><code>テーブル種別</code></li>
+<li><code>主キー</code></li>
+<li><code>一意キー</code></li>
+<li><code>非一意キー</code></li>
+<li><code>キー順</code></li>
+<li><code>先頭キー項目</code></li>
+<li><code>範囲検索</code></li>
+<li><code>キー検索</code></li>
+<li><code>二分探索</code></li>
+<li><code>性能改善</code></li>
+<li><code>挿入コスト</code></li>
+<li><code>重複キー</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li>この内部テーブルはキー順で処理するため、標準テーブルではなくソート済みテーブルを使用します。</li>
+<li>主キーの先頭項目で検索するため、ソート済みテーブルのメリットを活かせます。</li>
+<li>このキーは重複を許容する仕様なので、<code>NON-UNIQUE KEY</code> として定義します。</li>
+<li>キー項目を更新する場合は、既存行を削除して新しいキーで再挿入する方針にします。</li>
+<li>単純な全件ループだけであれば、ソート済みテーブル化しても性能改善にはつながりません。</li>
+</ul>
+<p>review 里常见问法：</p>
+<ul>
+<li><code>この検索条件は主キーの先頭項目に合っていますか。</code></li>
+<li><code>一意性が必要なら UNIQUE KEY にすべきではありませんか。</code></li>
+<li><code>このテーブルは範囲検索があるので、ハッシュテーブルよりソート済みテーブルが適切ですか。</code></li>
+<li><code>APPEND ではなく INSERT を使う意図は明確ですか。</code></li>
+</ul>
+<h4 id="16-6-english-terms-8f9aa7eb" class="semantic-heading semantic-terms">16.6 English Terms</h4>
+<ul>
+<li><code>sorted table</code></li>
+<li><code>internal table</code></li>
+<li><code>table category</code></li>
+<li><code>primary table index</code></li>
+<li><code>primary table key</code></li>
+<li><code>sorted key</code></li>
+<li><code>UNIQUE KEY</code></li>
+<li><code>NON-UNIQUE KEY</code></li>
+<li><code>left-justified key</code></li>
+<li><code>leading key fields</code></li>
+<li><code>binary search</code></li>
+<li><code>logarithmic access</code></li>
+<li><code>index access</code></li>
+<li><code>key access</code></li>
+<li><code>range access</code></li>
+<li><code>READ TABLE</code></li>
+<li><code>table expression</code></li>
+<li><code>LOOP AT ... WHERE</code></li>
+<li><code>INSERT ... INTO TABLE</code></li>
+<li><code>secondary sorted key</code></li>
+<li><code>standard table</code></li>
+<li><code>hashed table</code></li>
+<li><code>sy-tabix</code></li>
+<li><code>sy-subrc</code></li>
+</ul>
+<p>Recommended search patterns:</p>
+<ul>
+<li><code>ABAP sorted table primary table key binary search</code></li>
+<li><code>ABAP sorted table unique non-unique key</code></li>
+<li><code>ABAP sorted table leading key fields READ TABLE</code></li>
+<li><code>SAP Learning working with sorted and hashed tables</code></li>
+<li><code>ABAP selecting table category sorted table</code></li>
+</ul>
+<h4 id="16-7-example-f3afd43c" class="semantic-heading semantic-example">16.7 Example / 学习例子</h4>
+<h5 id="16-7-1-1-non-unique-sorted-table-9d748ad7">16.7.1 例 1：non-unique sorted table 处理一对多</h5>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_flight,
+         carrier_id    TYPE c LENGTH 3,
+         connection_id TYPE c LENGTH 4,
+         flight_date   TYPE d,
+         price         TYPE p LENGTH 8 DECIMALS 2,
+       END OF ty_flight.
+
+DATA lt_flights TYPE SORTED TABLE OF ty_flight
+  WITH NON-UNIQUE KEY carrier_id connection_id flight_date.
+
+INSERT VALUE #( carrier_id = &#x27;LH&#x27; connection_id = &#x27;0400&#x27; flight_date = &#x27;20260614&#x27; price = &#x27;100.00&#x27; )
+  INTO TABLE lt_flights.
+INSERT VALUE #( carrier_id = &#x27;LH&#x27; connection_id = &#x27;0400&#x27; flight_date = &#x27;20260613&#x27; price = &#x27;90.00&#x27; )
+  INTO TABLE lt_flights.</code></pre>
+<p>遍历 <code>lt_flights</code> 时，同一个 carrier/connection 的航班日期会按 key 顺序排列。因为 key 是 non-unique，也允许同一 key 前缀下有多条记录。</p>
+<h5 id="16-7-2-2-unique-sorted-table-key-3031a218">16.7.2 例 2：unique sorted table 防止重复 key</h5>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_country,
+         country_id TYPE c LENGTH 3,
+         name       TYPE string,
+       END OF ty_country.
+
+DATA lt_country TYPE SORTED TABLE OF ty_country
+  WITH UNIQUE KEY country_id.
+
+INSERT VALUE #( country_id = &#x27;JPN&#x27; name = `Japan` ) INTO TABLE lt_country.</code></pre>
+<p>如果业务语义要求 <code>country_id</code> 唯一，<code>UNIQUE KEY</code> 能把这个约束写进 table type。相比 standard table 的 non-unique primary key，这种代码更容易 review。</p>
+<h5 id="16-7-3-3-leading-key-54d90392">16.7.3 例 3：按 leading key 读取</h5>
+<pre><code class="language-abap">READ TABLE lt_flights INTO DATA(ls_flight)
+  WITH TABLE KEY carrier_id    = &#x27;LH&#x27;
+                 connection_id = &#x27;0400&#x27;.
+
+IF sy-subrc = 0.
+  &quot; 找到第一条匹配记录
+ENDIF.</code></pre>
+<p>如果 table key 是 <code>carrier_id connection_id flight_date</code>，这里使用的是 key 的前导部分。sorted table 可以利用排序结构。如果只按 <code>flight_date</code> 查，优势就不成立，因为它不是 leading key。</p>
+<h5 id="16-7-4-4-acef6d72">16.7.4 例 4：范围/分组处理</h5>
+<pre><code class="language-abap">LOOP AT lt_flights INTO DATA(ls_flight)
+  WHERE carrier_id = &#x27;LH&#x27;
+    AND connection_id = &#x27;0400&#x27;.
+  &quot; process all matching flights
+ENDLOOP.</code></pre>
+<p>当 <code>carrier_id connection_id</code> 是 sorted key 的前导部分时，匹配行在内部表里是连续的一段。这是 sorted table 很适合一对多明细处理的原因。</p>
+<h5 id="16-7-5-5-standard-table-sorted-table-sort-2cd0126a">16.7.5 例 5：从 standard table 改为 sorted table 后删除冗余 SORT</h5>
+<pre><code class="language-abap">&quot; Before
+DATA lt_flights TYPE STANDARD TABLE OF ty_flight WITH EMPTY KEY.
+SORT lt_flights BY carrier_id connection_id flight_date.
+
+&quot; After
+DATA lt_flights TYPE SORTED TABLE OF ty_flight
+  WITH NON-UNIQUE KEY carrier_id connection_id flight_date.</code></pre>
+<p>改成 sorted table 后，表本身会按 key 维护顺序。再写一条按同样 key 的 <code>SORT</code> 通常没有意义；如果代码依赖不同排序顺序，就说明这个 table category 可能不是唯一需要考虑的访问路径。</p>
+<h4 id="16-8-counterexample-failure-mode-358abb34" class="semantic-heading semantic-example">16.8 Counterexample / Failure mode</h4>
+<h5 id="16-8-1-1-sorted-table-sort-standard-table-986ed446" class="semantic-heading semantic-failure">16.8.1 误区 1：把 sorted table 等同于 <code>SORT standard table</code></h5>
+<pre><code class="language-abap">SORT lt_standard BY carrier_id connection_id.</code></pre>
+<p>这只是把当前 standard table 排了一次序。之后如果又 <code>APPEND</code> 新行，排序可能被破坏。sorted table 则是在插入/删除过程中持续维护 key 顺序。</p>
+<h5 id="16-8-2-2-key-6e2c733f" class="semantic-heading semantic-failure">16.8.2 误区 2：key 顺序设计错</h5>
+<pre><code class="language-abap">DATA lt_flights TYPE SORTED TABLE OF ty_flight
+  WITH NON-UNIQUE KEY carrier_id connection_id flight_date.
+
+READ TABLE lt_flights INTO DATA(ls_flight)
+  WITH KEY flight_date = lv_date.</code></pre>
+<p>这张表按 <code>carrier_id connection_id flight_date</code> 排序，但读取只按 <code>flight_date</code>。这种访问不能很好利用 primary sorted key。应该考虑调整 key 顺序、增加 secondary key，或选择另一种 table category。</p>
+<h5 id="16-8-3-3-append-90072fe2" class="semantic-heading semantic-failure">16.8.3 误区 3：用 <code>APPEND</code> 当作通用填充方式</h5>
+<p>standard table 常见 <code>APPEND</code>，但 sorted table 推荐 <code>INSERT ... INTO TABLE</code>。如果一定要 append，就必须保证新行属于当前排序末尾，否则有运行时风险。项目代码里为了可读性和稳定性，优先写 <code>INSERT</code>。</p>
+<h5 id="16-8-4-4-sorted-table-hashed-table-bcd47127" class="semantic-heading semantic-failure">16.8.4 误区 4：以为 sorted table 一定比 hashed table 慢或快</h5>
+<p>hashed table 适合完整 unique key 精确读取；sorted table 适合有序、前缀、范围、non-unique group 的读取。两者不是简单的“谁更快”，而是适用访问模式不同。</p>
+<h5 id="16-8-5-5-d54b94d1" class="semantic-heading semantic-failure">16.8.5 误区 5：为了“性能”盲目改表类型</h5>
+<p>如果代码只是全表 <code>LOOP AT</code>，没有 key filter，sorted/hashed 的性能优化意义不大，还可能增加插入和维护成本。先用 where-used list、runtime trace 或代码阅读确认访问方式，再改 table category。</p>
+<h4 id="16-9-44bdd7d5" class="semantic-heading semantic-practice">16.9 思考问题</h4>
+<ul>
+<li>这张 internal table 的主要访问方式是全表遍历、完整 key 查找，还是 key 前缀/范围读取？</li>
+<li>key 字段顺序是否和 <code>READ TABLE</code> / <code>LOOP AT ... WHERE</code> 的条件一致？</li>
+<li>这张表允许重复 key 吗？应该用 <code>UNIQUE KEY</code> 还是 <code>NON-UNIQUE KEY</code>？</li>
+<li>代码里是否还有对 sorted table 的冗余 <code>SORT</code>？</li>
+<li>是否有人用 <code>APPEND</code> 填充 sorted table？这是否安全？</li>
+<li>如果需要按两个不同 key 快速读取，是否应该用 <a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a>？</li>
+<li>这个场景和 <a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a> 的差异是什么？</li>
+<li>用日语 review 时，能否说明 <code>先頭キー項目</code> 和 <code>範囲検索</code>？</li>
+</ul>
+<h4 id="16-10-c67f3c19" class="semantic-heading semantic-reference">16.10 参考资料入口</h4>
+<ul>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/working-with-sorted-and-hashed-tables_de84be91-c7db-4166-95cf-2b036c8d5558" target="_blank" rel="noopener noreferrer">Working with Sorted and Hashed Tables</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet</a></li>
+<li>SAP Samples Raw: <a href="https://raw.githubusercontent.com/SAP-samples/abap-cheat-sheets/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet Raw Markdown</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSORTED_TABLE_GLOSRY.html" target="_blank" rel="noopener noreferrer">sorted table - Glossary</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-concepts/internal-table-setup" target="_blank" rel="noopener noreferrer">Technical Properties of Internal Tables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-concepts/how-to-specify-table-keys-in-table-types-and-internal-tables" target="_blank" rel="noopener noreferrer">Specifying Table Keys</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPDATA_PRIMARY_KEY.html" target="_blank" rel="noopener noreferrer">DATA, key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPREAD_TABLE_KEY.html" target="_blank" rel="noopener noreferrer">READ TABLE, table_key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPREAD_TABLE_FREE.html" target="_blank" rel="noopener noreferrer">READ TABLE, free_key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENITAB_KEY_PRIMARY.html" target="_blank" rel="noopener noreferrer">itab - Primary Table Key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENITAB_ACCESS.html" target="_blank" rel="noopener noreferrer">itab - Accessing Internal Tables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENITAB_KEY_SECONDARY.html" target="_blank" rel="noopener noreferrer">itab - Secondary Table Key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENSELECT_TABLE_TYPE_GUIDL.html" target="_blank" rel="noopener noreferrer">Selecting the Table Category</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="16-11-connections-4a612a5c">16.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li><a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></li>
+<li><a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a></li>
+<li><a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li><a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li><a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Upstream: <a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li>Downstream: <a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 10 - 内部表类型与读取方式</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="16-12-807e9ba2" class="semantic-heading semantic-practice">16.12 学习任务</h4>
+<ul>
+<li>写出一个 <code>SORTED TABLE WITH UNIQUE KEY</code> 和一个 <code>SORTED TABLE WITH NON-UNIQUE KEY</code> 的声明。</li>
+<li>用中文解释 sorted table 和 “standard table + SORT” 的区别。</li>
+<li>找一段 <code>READ TABLE</code> 条件，判断它是否匹配 sorted table primary key 的 leading fields。</li>
+<li>用日语写一句 review comment：当前 key 顺序是否适合查询条件。</li>
+<li>对比 <a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a>、本节和 <a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a>，写出三种 table category 的选型规则。</li>
+</ul>
+<h4 id="16-13-confidence-next-action-ba54ded2" class="semantic-heading semantic-status">16.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。当前内容已用 SAP Help / ABAP Keyword Documentation、SAP Learning 与 SAP Samples 的 sorted/hashed table、internal table key、table category、table access 与 fill behavior 资料复核；旧 Claude 与 Joule 记录均为工具不可用，本轮已创建 follow-up prompt，等待外部工具恢复后可补审。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a>，比较 sorted table 的 ordered / range / leading-key 访问和 hashed table 的 full unique-key exact lookup。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-015-standard-table-1214200e.html">Previous section</a><a href="section-02-017-hashed-table-2689ed7d.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

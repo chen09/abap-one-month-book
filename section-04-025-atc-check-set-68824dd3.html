@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ATC check set 质量门禁 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="25-atc-check-set-e0d9d045" class="chapter-title">25. ATC check set 质量门禁</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 25</li><li>self-contained study note</li></ul><h4 id="25-1-a5ea08c8" class="semantic-heading semantic-concept">25.1 一句话结论</h4>
+<p>ATC check set 质量门禁 是把 ABAP Test Cockpit 的检查结果纳入开发、review、移送和上线判断的质量机制；在本教程里要学的是：ATC 不是“跑一下工具”，而是用一组项目认可的检查项持续发现语法、性能、安全、Clean Core、released API 和可维护性风险。</p>
+<p>Week 2 的 <a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC quality check 代码质量检查</a> 更偏初学者认识 ATC；本节更偏项目交付：什么检查必须跑，什么 finding 阻塞移送，什么 finding 可以申请豁免，谁审批，证据放在哪里，什么时候重跑。一个成熟项目不会等上线前一天才第一次跑 ATC，而是把它作为日常开发和 transport 前的质量门禁。</p>
+<p>ATC 不能替代 ABAP Unit，也不能替代性能 trace、代码 review 或业务测试。它的价值是静态、批量、可重复地发现已知风险：不安全语法、性能反模式、未释放 API、过时对象、Cloud readiness 问题、可能的 SQL 问题、命名和可维护性问题。它让团队从“靠 reviewer 记性”变成“靠统一规则和证据”。</p>
+<h4 id="25-2-e84e750d" class="semantic-heading semantic-concept">25.2 到底学什么</h4>
+<p>第一，要学 check set / check variant 的概念。SAP 文档和工具界面里更常见的正式对象名是 <code>check variant</code>；本书使用 <code>check set</code> 时，是站在项目交付角度，把检查变式、严重度规则、豁免规则和执行时点合在一起说。项目通常会定义一组 ATC 检查项，可能按普通 on-premise、S/4HANA conversion、ABAP Cloud readiness、Clean Core、performance/security 等不同目标区分。开发者要知道自己提交前应该跑哪一组，而不是随便点一个默认检查。</p>
+<p>第二，要学 finding 的处理方式。ATC finding 不是一律“马上改”，也不是一律“忽略”。要看严重度、类别、上下文和项目规则。阻塞项必须修复；非阻塞项可排期；误报或有业务理由的例外需要 exemption 和审批记录。这里的 <code>exemption</code> 是 ATC 中更正式的说法；<code>waiver</code> 在项目口语里可能出现，但不要把它误认为一个独立的 SAP ATC 对象。没有记录的“暂时不管”会在上线前变成风险。</p>
+<p>第三，要学 ATC 和 transport 的关系。ATC 可以作为传输前检查、质量门禁或中央检查的一部分。项目中常要求 transport release 前 ATC 通过，或至少所有 high priority findings 已处理/批准。这样能避免低质量对象进入 QAS/PRD。</p>
+<p>第四，要学 ATC 和 Clean Core 的关系。在 S/4HANA 和 ABAP Cloud 语境下，ATC 不只是 lint，还可用于检查未释放 API、过时对象、云不兼容语法、升级风险。它和 <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a>、<a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a> 是上线治理的一组工具。</p>
+<p>第五，要学“门禁”不是“建议”。如果项目定义 high priority finding 必须处理，那么 transport release 前就不能靠口头承诺跳过。门禁的意义在于让团队在固定节点做固定判断：提交前、code review 前、transport release 前、QAS 测试前、上线判定前。每个节点要知道谁检查、谁修复、谁审批例外、证据放在哪里。</p>
+<p>第六，要学 exemption 的生命周期。豁免不是永久免死金牌，而是带理由、范围、责任人、有效期和复核条件的项目记录。一个 finding 如果今天因为标准对象限制、兼容性窗口或项目时间约束被允许保留，也要写清楚后续何时处理、风险如何控制、谁负责关闭。</p>
+<h4 id="25-3-1b057436" class="semantic-heading semantic-why">25.3 为什么重要</h4>
+<p>ATC 重要，是因为人工 review 很难稳定覆盖所有规则。一个 reviewer 可能注意命名和结构，另一个 reviewer 注意 SQL 性能，第三个 reviewer 注意 Cloud API；但项目需要统一标准。ATC 把许多检查自动化，让每个对象都至少经过同一套底线规则。</p>
+<p>对项目交付而言，ATC 是“能移送”的证据之一。它不能证明业务需求正确，但可以证明代码没有明显违反项目质量规则。上线前如果还有大量 high priority findings，说明质量风险没有被管理。客户或上级问“为什么可以上线”时，ATC 结果可以成为质量证据的一部分。</p>
+<p>对 Java/Python 背景学习者来说，ATC 类似静态分析、lint、安全扫描、兼容性扫描和质量 gate 的组合，但它运行在 SAP repository object 语境中，和 transport、package、released API、ABAP Cloud、系统版本强相关。</p>
+<p>ATC 的另一个价值是让“项目标准”变得可执行。很多团队文档里会写“避免 SELECT in loop”“不要使用未释放 API”“遵守 Clean Core”“注意安全风险”，但如果这些只停留在文字里，执行效果取决于 reviewer 当天是否看见。ATC 让一部分规则变成可重复扫描的事实。它不能覆盖所有设计判断，但能把低级、重复、已知的风险从人工 review 中释放出来。</p>
+<h4 id="25-4-key-mechanism-599c5b75" class="semantic-heading semantic-mechanism">25.4 Key mechanism / 核心机制</h4>
+<p>ATC 的核心机制可以分为四步：选择检查集、运行检查、处理 findings、保存证据。</p>
+<p>选择检查集时，要根据项目阶段和目标系统决定。例如普通开发可能跑基础语法/质量/性能检查；上云或 Clean Core 项目要加 released API / Cloud readiness；性能敏感对象要结合性能相关检查；老代码整改可能使用专门检查集。检查集必须被项目认可，不能每个开发者各跑各的。</p>
+<p>运行检查时，可以在 ADT 或系统工具中对单个对象、package、transport request 或更大范围执行。中央 ATC 能统一规则和结果。具体入口随系统版本和部署模式不同，项目应在开发规范中写明。</p>
+<p>处理 findings 时，要看严重度和类别。High/priority 1 类 finding 通常不能带着移送；medium/low 类 finding 可能允许排期，但要有判断；误报要申请 exemption 并记录理由。一个好团队会把 finding 处理结果写进 review 或 transport checklist，而不是口头说“没事”。</p>
+<p>保存证据时，要记录检查日期、对象范围、检查集、结果摘要、未修复 finding、豁免编号或审批人。这样后续缺陷、审计、上线判定时可以回溯。</p>
+<p>可以把 ATC 门禁流程写成下面的项目化步骤：</p>
+<pre><code class="language-text">1. Define gate
+   Scope, check variant, severity policy, owner, timing.
+
+2. Run check
+   Object, package, transport request, or central ATC run.
+
+3. Classify findings
+   Must fix, can defer, false positive, accepted risk.
+
+4. Fix or request exemption
+   Code change, design change, released API replacement, or documented waiver.
+
+5. Rerun
+   Confirm new findings were not introduced and fixed findings disappeared.
+
+6. Archive evidence
+   Result summary, open findings, exemption ids, approver, date.</code></pre>
+<p>Finding 处理可以用一个小表统一口径：</p>
+<div class="table-wrap"><table><thead><tr><th>Finding 类型</th><th>默认处理</th><th>需要的证据</th></tr></thead><tbody><tr><td>Syntax / activation / consistency risk</td><td>必须修复</td><td>修复后 ATC 结果</td></tr><tr><td>Security high priority</td><td>通常阻塞</td><td>修复说明或安全审批</td></tr><tr><td>Performance high priority</td><td>通常修复或补性能证据</td><td>SQL Trace/SQL Monitor/设计说明</td></tr><tr><td>Unreleased API / Cloud readiness</td><td>Clean Core 项目中高风险</td><td>released API 替代或豁免</td></tr><tr><td>Obsolete statement / migration risk</td><td>按项目目标判断</td><td>影响范围和迁移计划</td></tr><tr><td>Style / naming / maintainability low</td><td>可排期</td><td>ticket、owner、期限</td></tr></tbody></table></div>
+<p>对 Clean Core / ABAP Cloud 项目，还要额外问三件事：</p>
+<pre><code class="language-text">Is the used API released for the target development model?
+Is the object allowed in the target system type?
+Can the extension survive upgrade without modifying SAP standard internals?</code></pre>
+<p>如果 ATC finding 指出未释放 API，不要只看“现在能激活”。这类 finding 关心的是未来升级、云兼容和标准边界。修复方向可能是替换为 released API、改用 RAP/OData 扩展点、调整架构，或在项目治理里记录受控例外。</p>
+<h4 id="25-5-049aa97b" class="semantic-heading semantic-japan">25.5 日本项目现场说法</h4>
+<p>常见日语包括：<code>ATCチェック</code>、<code>チェックバリアント</code>、<code>品質ゲート</code>、<code>指摘事項</code>、<code>優先度</code>、<code>除外申請</code>、<code>移送前チェック</code>、<code>リリース判定</code>、<code>クリーンコア</code>、<code>リリース済みAPI</code>。</p>
+<p>设计或开发规范中可以这样写：</p>
+<ul>
+<li>移送前にプロジェクト標準の ATC チェックバリアントを実行し、重大指摘がないことを確認します。</li>
+<li>ATC 指摘を修正しない場合は、理由と影響を記録し、承認を取得します。</li>
+<li>Clean Core 対象の開発では、リリース済み API と Cloud readiness のチェック結果を確認します。</li>
+</ul>
+<p>review 或上线判定时可以这样问：</p>
+<ul>
+<li>この移送依頼に対する ATC 結果は確認済みですか。</li>
+<li>High priority の指摘はすべて修正または承認済みですか。</li>
+<li>除外申請の理由と期限は明確ですか。</li>
+<li>ATC の実行範囲、チェックバリアント、実行日時、未解消指摘を証跡として残してください。</li>
+<li>除外申請は対象オブジェクト、理由、影響、期限、承認者を明記してください。</li>
+<li>リリース済み API の指摘は Clean Core 方針に関わるため、代替 API または例外承認を確認します。</li>
+</ul>
+<h4 id="25-6-english-terms-43a1c8d5" class="semantic-heading semantic-terms">25.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>ABAP Test Cockpit</code>, <code>ATC</code>, <code>ATC check variant</code>, <code>ATC findings</code>.</li>
+<li>Related terms: <code>quality gate</code>, <code>check variant</code>, <code>exemption</code>, <code>waiver</code>, <code>central ATC</code>, <code>Cloud readiness</code>, <code>released APIs</code>, <code>Clean Core</code>.</li>
+<li>Recommended search pattern: <code>SAP ABAP Test Cockpit ATC</code>, <code>SAP ATC check variant</code>, <code>SAP ATC exemptions</code>, <code>SAP ATC Cloud readiness</code>.</li>
+<li>读官方资料时注意区分 ATC、Code Inspector、ABAP Unit、SCI/ATC compatibility、central ATC、ABAP Cloud readiness 等上下文。</li>
+</ul>
+<h4 id="25-7-example-0f9aa698" class="semantic-heading semantic-example">25.7 Example / 学习例子</h4>
+<p>假设 AC0567C 要移送一个上传服务包。一个可执行的 ATC 门禁可以这样定义：</p>
+<pre><code class="language-text">Scope: package ZAC0567C_UPLOAD or transport request
+Check set: project standard ATC variant
+Must fix: syntax error, priority 1 security/performance finding, unreleased API usage
+May defer: low priority naming/style finding with ticket
+Exemption: requires reason, owner, expiry date, approver
+Evidence: ATC result screenshot/export + finding handling list</code></pre>
+<p>如果 ATC 发现上传服务调用了未释放 API，不能只说“现在能跑”。需要判断目标系统是否允许、是否违反 Clean Core、是否有 released API 替代、是否需要架构调整或申请豁免。这个过程就是质量门禁，而不是单纯工具执行。</p>
+<p>再看一个小例子：代码里循环中 SELECT，ATC 可能提示性能风险。开发者应检查是否可以批量读取、是否有合理 WHERE 条件、是否确有业务理由。若保留原写法，也要说明数据量边界和性能证据。</p>
+<p>把 AC0567C 的 transport 门禁写成缺陷/审查记录，可以这样：</p>
+<pre><code class="language-text">Transport: DEVK900123
+Scope: package ZAC0567C_UPLOAD
+ATC variant: Z_PROJECT_CLEAN_CORE_STANDARD
+Run date: 2026-06-16
+
+Result summary after rerun:
+  Priority 1: 0 open
+  Priority 2: 0 open
+  Priority 3: 5 deferred with tickets
+
+Must-fix before release:
+  None.
+
+Findings handled this cycle:
+  P2-001: SQL in loop in status aggregation.
+          Decision: fixed by bulk read, rerun passed.
+  P2-002: Unreleased API in file adapter helper.
+          Decision: replaced with released API / wrapper approved.
+
+Evidence:
+  ATC result export attached.
+  Exemption IDs: none.
+  Reviewer: ABAP lead.</code></pre>
+<p>这份记录比“ATC OK”更有用，因为它说明了检查范围、规则、未解决项和处理结论。项目越大，越需要这种可追溯记录。</p>
+<p>注意：工具里的 priority 和项目门禁策略不是同一件事。某个 finding 即使在工具结果里不是 Priority 1，项目也可以把它定义为 release 前 must-fix。例如 Clean Core 项目可能规定“未释放 API 使用”必须在移送前修复或取得正式例外审批。</p>
+<p>如果确实需要 exemption，记录应至少包含：</p>
+<pre><code class="language-text">Finding id / check id
+Object name and package
+Reason why it cannot be fixed now
+Business or technical impact
+Risk mitigation
+Owner
+Expiry date or review date
+Approver</code></pre>
+<p>没有期限和 owner 的豁免，实际上就是把质量债藏起来。</p>
+<h4 id="25-8-counterexample-failure-mode-94f67b51" class="semantic-heading semantic-example">25.8 Counterexample / Failure mode</h4>
+<p>常见失败模式有十类。</p>
+<p>第一，上线前才第一次跑 ATC。到那时 finding 太多，只能临时压掉或延期，质量门禁失去意义。</p>
+<p>第二，只看是否有红色图标，不看 finding 内容。不同 finding 的风险不同，必须逐条判断。</p>
+<p>第三，把 ATC 当成 ABAP Unit。ATC 是静态检查，不能证明业务逻辑正确；ABAP Unit 和业务测试仍然需要。</p>
+<p>第四，把 ATC 当成性能证明。ATC 能提示潜在性能风险，但真正性能瓶颈还要结合 SQL Trace、Profiler、SQL Monitor 和实际数据量。</p>
+<p>第五，豁免没有理由。没有 owner、期限、影响说明的 exemption 会变成长期技术债。</p>
+<p>第六，不区分项目目标。普通 on-premise 开发和 ABAP Cloud/Clean Core 项目的检查要求不同，不能用同一套过宽规则糊弄所有场景。</p>
+<p>第七，只在本地对象上跑，不在 transport/package 范围上跑。局部通过不代表整次移送对象都通过。</p>
+<p>第八，修复 finding 后不 rerun。代码改了但没有重新检查，不能证明门禁恢复为绿色。</p>
+<p>第九，把 ATC finding 当成纯开发问题。未释放 API、Cloud readiness、安全 finding、性能 finding 可能涉及架构、Basis、安全、业务和项目治理。</p>
+<p>第十，忽略中央 ATC 与本地规则差异。开发者本地规则过松，中央检查或 QAS/PRD 前检查才发现问题，会造成移送延迟。</p>
+<h4 id="25-9-458fbc7d" class="semantic-heading semantic-practice">25.9 思考问题</h4>
+<ul>
+<li>ATC 能证明什么？不能证明什么？</li>
+<li>为什么 ATC 和 ABAP Unit 都需要，而不是二选一？</li>
+<li>一个 high priority finding 如果不修复，豁免记录至少应该包含哪些信息？</li>
+<li>Clean Core 项目中，为什么 released API 检查会变成质量门禁？</li>
+<li>AC0567C POC 中哪些对象应该纳入 transport 前 ATC 检查？</li>
+<li>如果 ATC finding 被豁免，谁负责到期复核？</li>
+<li>本地 ATC 和 central ATC 规则不一致时，哪个结果作为上线判定依据？</li>
+<li>一个 ATC finding 是安全、性能、兼容性还是可维护性风险？不同类型应由谁审批？</li>
+</ul>
+<h4 id="25-10-69664571" class="semantic-heading semantic-reference">25.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20Test%20Cockpit%20ATC" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP Test Cockpit ATC</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ATC%20check%20variant" target="_blank" rel="noopener noreferrer">SAP Help search - ATC check variant</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ATC%20exemption" target="_blank" rel="noopener noreferrer">SAP Help search - ATC exemption</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ATC%20Cloud%20readiness%20released%20API" target="_blank" rel="noopener noreferrer">SAP Help search - ATC Cloud readiness released API</a></li>
+</ul>
+<h4 id="25-11-connections-7ed2941c">25.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li>Upstream: <a class="wiki" href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">BAPI usage pattern and BAPI_TRANSACTION_COMMIT</a></li>
+<li>Downstream: <a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a></li>
+<li>Related: <a class="wiki" href="section-02-036-atc-quality-check-5c4e095a.html">ATC quality check 代码质量检查</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Related: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Related: <a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 26 - ATC、Trace、Profiler、SQL Monitor</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="25-12-2700ae0c" class="semantic-heading semantic-practice">25.12 学习任务</h4>
+<ul>
+<li>为一个 transport request 设计 ATC 门禁记录：检查集、范围、结果、未处理 finding、豁免理由。</li>
+<li>列出 ATC、ABAP Unit、SQL Trace 分别能证明什么、不能证明什么。</li>
+<li>写 2 句日语 review 评论：一句要求执行 ATC，一句要求说明 exemption 理由。</li>
+<li>检查 AC0567C POC 中是否有未释放 API、循环 SELECT 或明显质量 finding 的风险。</li>
+<li>用 English Terms 找 1 个 SAP 官方页面，确认 ATC check variant 或 ATC exemption 的官方说法。</li>
+</ul>
+<h4 id="25-13-confidence-next-action-800bd799" class="semantic-heading semantic-status">25.13 Confidence &amp; Next Action</h4>
+<p>Confidence: Medium-High。ATC 作为质量门禁的原则稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已消除章节装配中的乱码断链风险，统一 <code>check variant</code> / <code>check set</code> 边界，说明 <code>exemption</code> 是 ATC 中更正式的说法，并把示例改为 <code>0 open</code> 与 <code>Findings handled this cycle</code> 的自洽记录。具体 check variant、central ATC、exemption 流程和 Cloud readiness 检查会随系统版本和项目治理规则变化，需要以项目标准和 SAP 官方文档为准，Joule scoped review 仍保留为 deferred 证据。</p>
+<p>Next action: 继续学习 <a class="wiki" href="section-04-026-sql-trace-performance-analysis-42456acb.html">SQL Trace performance analysis</a>，把静态质量门禁和运行时性能证据区分开。</p>
+<p>原子笔记入口：<a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-024-bapi-usage-pattern-and-bapi-transaction-commit-f86f44ce.html">Previous section</a><a href="section-04-026-sql-trace-performance-analysis-42456acb.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

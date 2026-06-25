@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Additional Save 附加保存 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="21-additional-save-be68db06" class="chapter-title">21. Additional Save 附加保存</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 21</li><li>self-contained study note</li></ul><h4 id="21-1-b71dc55f" class="semantic-heading semantic-concept">21.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a> 是 managed RAP BO 中用于增强标准保存流程的受控扩展点：RAP runtime 仍负责主业务数据的 managed save，项目只在同一个 save sequence 中追加必要的保存逻辑，例如写审计日志、change document、业务事件、扩展表或附属记录。</p>
+<p>它的核心不是“保存时可以顺便做任何事”，而是“在 runtime 已经收集并准备保存 BO 修改之后，用 <code>save_modified</code> 补充标准持久化之外的、必须与本次事务一致的逻辑”。如果说 <a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a> 是“替代主保存”，Additional Save 就是“保留主保存，再追加副保存”。</p>
+<h4 id="21-2-61d1aaca">21.2 概念说明</h4>
+<p>Additional Save 只适用于 managed RAP BO。ABAP Keyword Documentation 对它的定义很直接：with additional save 可以向 managed save sequence 添加步骤，用来增强默认保存，而不是阻止默认保存。SAP Learning 也用一句话区分它和 unmanaged save：additional save 中的 <code>save_modified</code> 逻辑是在 managed write access 之外额外执行，不是代替 managed write access。</p>
+<p>在 BDEF 中，Additional Save 通常通过 <code>with additional save</code> 声明。它可以放在 BDEF header 中作用于整个 BO，也可以作为 entity behavior property 作用于特定 entity。实现上，开发者在 behavior pool 的 local saver class 中重定义 <code>save_modified</code>，读取本次事务中 create/update/delete 的变化，再执行附加逻辑。</p>
+<p>理解这一点时要抓住一个顺序：managed runtime 先处理标准 operation、managed transactional buffer、validation、determination、lock、authorization 和主保存；Additional Save 让项目在保存阶段追加一段受控逻辑。它不改变“谁负责主数据落库”的责任。</p>
+<p>所以 Additional Save 的读法不是“额外提交一次”，也不是“在 handler 里插入一段 INSERT”。它是 save sequence 内部的 saver 扩展点。该做的 validation 要尽量前移到 validation / precheck；该由 runtime 保存的主数据仍由 runtime 保存；只有那些不能自然放入主 persistent table、但必须随事务一起发生的附加动作，才适合放到 additional save。</p>
+<h4 id="21-3-9eedf10c" class="semantic-heading semantic-why">21.3 为什么重要</h4>
+<p>真实项目里，“主数据保存”和“跟随主数据保存发生的附属动作”经常混在一起。比如创建 Travel 后要写 application log；审批通过后要写审计表；保存 sales item 后要补写一个扩展字段到扩展表；BO 状态变化后要 raise business event；保存成功时要生成 change document。这些动作不是 BO 的主持久化，但又不能完全脱离事务，否则会出现主数据保存成功、日志丢失，或者日志写了、主数据回滚的矛盾。</p>
+<p>Additional Save 给团队一个清晰边界：主数据由 managed save 保存，附加动作由 <code>save_modified</code> 在同一个 RAP save lifecycle 中完成。这样设计文档可以说清楚哪些数据属于 BO 主模型，哪些属于附属记录；测试也可以针对附加逻辑设计失败、重复保存、回滚和事件消费场景。</p>
+<p>对初学者，Additional Save 也能帮助建立“RAP 不是 Controller 里随便写 SQL”的意识。传统 ABAP 里常见的写法是：在某个按钮处理逻辑中 <code>UPDATE ztable</code>，再 <code>COMMIT WORK</code>。RAP 的做法不同：interaction phase 不直接提交副作用；保存相关副作用要放进 save sequence 的正确扩展点，并接受 RAP 事务边界约束。</p>
+<h4 id="21-4-7b810c2b">21.4 边界</h4>
+<p>Additional Save 不是 unmanaged save。使用 additional save 时，RAP managed runtime 仍然执行默认 managed persistence；项目只追加逻辑。如果附加逻辑没有执行，主 BO 数据仍应能由框架保存。如果主数据必须依赖你的代码才能落库，那不是 additional save，而是 <a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a>。</p>
+<p>Additional Save 也不是 fully unmanaged。开发者不需要自己实现 standard operation、application buffer 或完整 saver sequence。它只要求你在 managed BO 的 saver 中实现 <code>save_modified</code> 这类附加保存逻辑。</p>
+<p>Additional Save 不适合放入可提前拒绝的业务校验。比如“金额不能为负”“状态不允许从 Approved 改回 Draft”“用户无权审批”，这些应该放在 validation、authorization 或 precheck，而不是等到 <code>save_modified</code> 才发现。Additional Save 更适合处理保存后需要跟随写出的附属内容。</p>
+<p>Additional Save 不等于外部集成万能入口。如果附加逻辑调用远程 HTTP、发送邮件、调用外部系统，必须评估事务一致性、重试、幂等和失败反馈。很多外部副作用更适合通过 RAP business event、outbox、application log 或异步 consumer 处理，而不是在 <code>save_modified</code> 中做不可回滚的远程调用。</p>
+<p>最后，Additional Save 仍受 RAP 禁止语句和事务规则约束。<code>COMMIT WORK</code>、<code>ROLLBACK WORK</code>、随意 update task、不可控异常和直接绕过 RAP 事务边界的旧逻辑，都可能破坏 SAP LUW。Additional Save 是“受控扩展点”，不是“特权后门”。</p>
+<h4 id="21-5-5d151bf0" class="semantic-heading semantic-mechanism">21.5 核心机制</h4>
+<p>第一层机制是 BDEF 声明。一个 managed BO 可以在 behavior definition 中写 <code>with additional save</code>。该声明可以是 BO-wide，也可以按 entity 指定。行为扩展场景中，若标准 BO 的 behavior definition 开放了 additional save 扩展，扩展实现也可以为特定 entity 添加 additional save。</p>
+<p>第二层机制是 saver class。Behavior pool 中的 local saver class 继承 <code>CL_ABAP_BEHAVIOR_SAVER</code>，并重定义 <code>save_modified</code>。这和上一节 <code>with unmanaged save</code> 的方法名相同，但含义不同：unmanaged save 的 <code>save_modified</code> 负责主保存；additional save 的 <code>save_modified</code> 负责附加保存。</p>
+<p>第三层机制是 modified data。<code>save_modified</code> 可以接收本次事务中 create、update、delete 相关数据。ABAP Keyword Documentation 的 additional-save 示例展示了 <code>TYPE REQUEST FOR CHANGE</code> 和 <code>TYPE REQUEST FOR DELETE</code> 这类 BDEF-derived types，用于在保存逻辑中理解哪些字段被改变、哪些实例被删除。具体签名会随 BO、entity 和 release 文档示例而变化；读者要重点掌握思想：additional save 处理的是“本次 save 中发生的变化”，不是重新查询全量数据库再猜。</p>
+<p>第四层机制是 managed write access 与 additional logic 的顺序。SAP Learning 强调，additional save 的主要区别在于 <code>save_modified</code> 逻辑是 in addition to managed write access，而不是 instead of it。也就是说，runtime 对主 BO 的标准保存仍然存在，附加保存只增强这个流程。</p>
+<p>第五层机制是 business event。SAP Learning 的 business event 课程明确建议：在 managed RAP BO 中，业务事件通常通过 additional save raising，并在 saver class 的 <code>save_modified</code> 中触发。使用 <code>RAISE ENTITY EVENT</code> 时，事件必须在 behavior definition 中声明，并使用对应的 <code>TABLE FOR EVENT &lt;entity&gt;~&lt;event&gt;</code> 派生类型准备数据。不要把 OO ABAP 的 <code>RAISE EVENT</code> 和 RAP EML 的 <code>RAISE ENTITY EVENT</code> 混为一谈。</p>
+<p>第六层机制是扩展字段和扩展表。SAP Learning 的 behavior extension 课程给出一个典型场景：标准 BO 或练习 BO 的主保存流程不能直接处理某个扩展字段，或者旧保存接口结构不可扩展，于是通过 behavior extension 中的 additional save 把扩展字段写入对应持久化位置。这正是日本项目里常说的 “拡張項目の保存処理”。</p>
+<p>第七层机制是幂等和可重复调用。用户可能重复点击保存，OData consumer 可能重试，业务事件 consumer 可能异步处理。Additional Save 写日志、事件或附属表时，应设计唯一键、重复检测或业务幂等策略。否则，同一次业务保存可能产生多条重复日志、重复事件或重复附属记录。</p>
+<p>第八层机制是错误边界。Additional Save 如果失败，可能影响整个保存事务；但把所有外部副作用都做成同步失败也会让业务主流程变脆。项目要区分：哪些附加内容必须与主数据强一致，失败就整体回滚；哪些只是通知、监控或后续处理，可以通过事件/outbox/重试机制解耦。</p>
+<h4 id="21-6-f8fa4b35" class="semantic-heading semantic-why">21.6 项目意义</h4>
+<p>Additional Save 最常见的价值是让 managed BO 保持干净。主 BO 模型只表达业务实体和标准保存，附加保存把日志、事件、扩展字段和集成痕迹放在边界清晰的位置。这样设计既能保留 managed RAP 的简洁性，又能满足项目交付中的审计、追踪和扩展需求。</p>
+<p>在 Clean Core 语境下，它也很重要。客户项目常常不能直接修改标准对象的核心保存逻辑，但可以通过被允许的 extension point 增强行为。如果标准 BO 明确开放 behavior extension 和 additional save，项目就可以把扩展字段保存、审计写入或事件触发放在扩展实现里，而不是复制标准代码或修改核心实现。</p>
+<p>在日本项目交付中，Additional Save 还影响设计说明和测试说明。设计书里应明确：附加保存対象、触发条件、保存タイミング、失败时主事务是否 rollback、是否允许重复、日志/事件的 key 设计、是否涉及外部系统。测试证据里要能看到主 BO 数据、附加表/日志/事件之间的一致性。</p>
+<p>对 Java/Python 背景学习者，可以把 Additional Save 类比成 unit-of-work commit 中的受控 hook：主 repository flush 仍由框架做，项目只在同一提交生命周期里补充 audit/outbox/event 逻辑。但 RAP 的约束更强，因为它和 BDEF、EML、OData、draft、authorization、transport 和 SAP LUW 绑定在一起。</p>
+<h4 id="21-7-example-e58a813c" class="semantic-heading semantic-example">21.7 Example / 学习例子</h4>
+<p>假设一个 Travel BO 使用 managed save。创建 Travel 时，主表 <code>ztravel</code> 由 RAP runtime 根据 BDEF 和 persistent table 自动保存。现在项目要求：每次创建 Travel 后，都要记录一条审计记录，并 raise 一个 <code>TravelCreated</code> business event 给后续流程消费。</p>
+<p>如果把审计记录写在 create handler 中，会发生两个问题。第一，interaction phase 还没有真正提交，后面 validation 或 save 失败时审计记录可能已经写出。第二，handler 中直接 DB write 破坏 RAP 的事务分层。更合理的方式是在 BDEF 中声明 event 和 <code>with additional save</code>，然后在 <code>save_modified</code> 中根据 create 请求准备审计记录和 event payload。</p>
+<p>BDEF 层面可以理解为：</p>
+<pre><code class="language-abap">managed implementation in class zbp_i_travel unique;
+strict ( 2 );
+
+define behavior for ZI_Travel alias Travel
+  persistent table ztravel
+  lock master
+  authorization master ( instance )
+  with additional save
+{
+  create;
+  update;
+  delete;
+  event TravelCreated;
+}</code></pre>
+<p>Saver 侧伪代码可以这样理解：</p>
+<pre><code class="language-abap">METHOD save_modified.
+  LOOP AT create-travel INTO DATA(created_travel).
+    &quot; create-&lt;entity&gt; contains instances created in this RAP LUW.
+    &quot; Prepare audit log row for the created Travel.
+    &quot; Prepare event row based on TABLE FOR EVENT Travel~TravelCreated.
+  ENDLOOP.
+
+  &quot; Insert audit rows or call a no-commit logging API.
+  &quot; RAISE ENTITY EVENT zi_travel~TravelCreated FROM event_rows.
+ENDMETHOD.</code></pre>
+<p>这个例子的重点不是代码语法，而是责任边界：Travel 主数据仍由 managed save 保存；additional save 只负责审计和事件。若审计表是合规必须项，失败时可以让整体保存失败；若事件只是后续通知，可以考虑事件/outbox 和异步消费，避免外部系统短暂不可用拖垮主保存。</p>
+<p>最小练习：画一张三栏表，分别写 managed save、managed with unmanaged save、additional save 的“主数据谁保存”“<code>save_modified</code> 做什么”“适合什么场景”。进阶练习：查 SAP Learning business event 示例，标出为什么事件建议在 additional save 中 raise，而不是在 create handler 中 raise。</p>
+<h4 id="21-8-counterexample-failure-mode-aedecfe1" class="semantic-heading semantic-example">21.8 Counterexample / Failure mode</h4>
+<p>第一个失败模式是把 additional save 当作主保存。项目声明 <code>with additional save</code>，但以为 <code>save_modified</code> 里要自己写主表，结果重复写表或与 runtime 的 managed write 冲突。判断方法很简单：如果你写的是主业务数据本身，多半要重新确认是否其实需要 unmanaged save。</p>
+<p>第二个失败模式是在 additional save 中调用外部系统并等待成功。远程 HTTP、邮件、第三方 API 很难与 SAP LUW 同步回滚。如果外部系统成功、RAP 保存失败，或者 RAP 保存成功、外部系统超时，都会出现一致性问题。更稳的设计通常是写 outbox、raise event、记录 application log，再由异步流程处理。</p>
+<p>第三个失败模式是没有幂等设计。创建一次 Travel 却产生两条 <code>TravelCreated</code> 事件，或者保存重试后审计表重复插入。Additional Save 常常写的是“副作用数据”，因此唯一键、业务 key、事件 ID、处理状态和重复检测非常重要。</p>
+<p>第四个失败模式是把业务校验拖到 additional save。比如发现字段为空才在 <code>save_modified</code> 中报错，会导致 UI 行级消息、draft prepare、precheck 和测试说明都变复杂。能在 validation / precheck 做的校验，不应拖到 late save。</p>
+<p>第五个失败模式是忽略扩展开放条件。标准 BO 并不一定允许 behavior extension 中定义 additional save。若 BDEF 没有以 extensible 方式开放对应能力，项目不能假设可以随便扩展保存逻辑。设计前要确认标准对象或自建 BO 是否允许该 extension point。</p>
+<p>第六个失败模式是滥用日志。把所有字段变化、所有请求上下文、甚至敏感数据都写入附加日志，会带来性能、隐私和审计风险。Additional Save 写日志时要明确目的、保留期限、敏感字段遮蔽和性能影响。</p>
+<h4 id="21-9-07f12d96" class="semantic-heading semantic-japan">21.9 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>アディショナルセーブ</code>、<code>追加保存</code>、<code>追加保存処理</code>、<code>save_modified メソッド</code>、<code>保存シーケンス</code>、<code>監査ログ</code>、<code>変更履歴</code>、<code>ビジネスイベント</code>、<code>拡張項目の保存</code>。</li>
+<li>说明句：Additional Save は managed BO の標準保存を置き換えるものではなく、標準保存に追加して監査ログやイベント通知などの保存処理を実行する仕組みです。</li>
+<li>设计评审句：追加保存対象、失敗時に主トランザクションをロールバックするか、重複実行時の制御、外部連携の有無を設計書に明記してください。</li>
+<li>对比句：unmanaged save は主保存を差し替える方式ですが、additional save は主保存を維持したまま追加処理を実行する方式です。</li>
+<li>扩展句：標準 BO を拡張する場合、behavior extension で additional save が許可されているかを先に確認します。</li>
+<li>风险句：外部 API 呼び出しを <code>save_modified</code> で同期実行すると、SAP LUW と外部システムの整合性リスクが発生します。</li>
+</ul>
+<h4 id="21-10-english-terms-24bba2ea" class="semantic-heading semantic-terms">21.10 English Terms</h4>
+<ul>
+<li>Official / search term: <code>Additional Save</code></li>
+<li>Official / search term: <code>with additional save</code></li>
+<li>Official / search term: <code>save_modified</code></li>
+<li>Official / search term: <code>managed RAP BO with additional save</code></li>
+<li>Official / search term: <code>RAP additional save</code></li>
+<li>Official / search term: <code>behavior extension additional save</code></li>
+<li>Official / search term: <code>RAISE ENTITY EVENT</code></li>
+<li>Official / search term: <code>TABLE FOR EVENT</code></li>
+<li>Official / search term: <code>TYPE REQUEST FOR CHANGE</code></li>
+<li>Official / search term: <code>TYPE REQUEST FOR DELETE</code></li>
+<li>Related terms: <code>managed save</code>, <code>unmanaged save</code>, <code>save sequence</code>, <code>business event</code>, <code>application log</code>, <code>audit log</code>, <code>outbox</code>, <code>idempotency</code>, <code>CL_ABAP_BEHAVIOR_SAVER</code>.</li>
+</ul>
+<h4 id="21-11-81f644ef" class="semantic-heading semantic-reference">21.11 参考资料入口</h4>
+<ul>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_SAVING.html" target="_blank" rel="noopener noreferrer">RAP - Saving Options</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRAP_ADD_SAVE_GLOSRY.html" target="_blank" rel="noopener noreferrer">RAP additional save glossary</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSAVE_MODIFIED_ADD_SAVE_ABEXA.html" target="_blank" rel="noopener noreferrer">Example for save_modified in a Managed RAP BO with Additional Save</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRAP_SAVER_METHODS_ABEXAS.html" target="_blank" rel="noopener noreferrer">Examples for RAP Saver Methods</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/additional-save" target="_blank" rel="noopener noreferrer">Additional Save</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/save-options" target="_blank" rel="noopener noreferrer">Save Options</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/implementing-additional-save" target="_blank" rel="noopener noreferrer">Implementing Additional Save</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/defining-additional-save-in-behavior-definition" target="_blank" rel="noopener noreferrer">Defining Additional Save in the Behavior Definition</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring Behavior Implementation Options</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/raising-and-handling-business-events" target="_blank" rel="noopener noreferrer">Raising and Handling Business Events</a> (accessed 2026-06-18)</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/enabling-and-developing-behavior-extensions" target="_blank" rel="noopener noreferrer">Enabling and Developing Behavior Extensions</a> (accessed 2026-06-18)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a></li>
+<li><a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></li>
+<li><a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></li>
+</ul>
+<h4 id="21-12-connections-a020a25c">21.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a></li>
+<li>Downstream: <a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a></li>
+<li>Related: <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></li>
+<li>Related: <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></li>
+<li>Related: <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li>Related: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Related: <a class="wiki" href="section-03-048-rap-business-events-fd3eab08.html">RAP business events</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 19 - Managed、Unmanaged、Handler、Saver</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="21-13-96923f0a" class="semantic-heading semantic-practice">21.13 学习任务</h4>
+<ul>
+<li>用三句话区分 managed save、managed with unmanaged save、additional save。</li>
+<li>在示例中标出：Travel 主数据由谁保存，审计日志由谁保存，business event 在哪里 raise。</li>
+<li>用日语写一句设计评审说明：additional save 失败时是否 rollback 主事务。</li>
+<li>找一页 SAP 官方资料，确认 <code>with additional save</code> 和 <code>save_modified</code> 的关系。</li>
+<li>设计一个幂等测试：同一个保存请求重复触发时，附加日志或事件不会重复产生不可接受的副作用。</li>
+</ul>
+<h4 id="21-14-confidence-next-action-74c6f899" class="semantic-heading semantic-status">21.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。正文基于 SAP Learning、SAP Help 和 ABAP Keyword Documentation 整理，并结合前一节 Managed BO with Unmanaged Save 的 review 结论；2026-06-18 已重新访问官方资料入口，Claude 初审与 follow-up 均返回 <code>Pass</code>。Joule prompt 已发送但保存证据仍停在 <code>Analyzing query</code>，已记录为 pending 依赖；若后续返回相反意见，再做定点修正。</li>
+<li>Next action: 进入下一节 <a class="wiki" href="section-03-022-handler-class-36e88880.html">Handler class 处理器类</a>，继续展开 RAP behavior implementation 中 handler 与 saver 的职责分工。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Previous section</a><a href="section-03-022-handler-class-36e88880.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>CDS table function vs CDS view entity | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="46-cds-table-function-vs-cds-view-entity-d66839ee" class="chapter-title">46. CDS table function vs CDS view entity</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 46</li><li>self-contained study note</li></ul><h4 id="46-1-0a4ba17a" class="semantic-heading semantic-concept">46.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-046-cds-table-function-vs-cds-view-entity-048e0553.html">CDS table function vs CDS view entity</a> 的核心判断是：大多数 ABAP CDS 建模应优先使用 CDS view entity；只有当逻辑无法用普通 CDS view entity、association、path expression、built-in function、ABAP SQL 或 RAP 层清楚表达，并且确实需要数据库端复杂计算时，才考虑 CDS table function。Table function 通常绑定 AMDP 实现，能力强，但代价也高：可读性、可测试性、授权语义、云限制、性能分析和迁移风险都更重。</p>
+<p>一句话记忆：view entity 是 CDS 建模的主路，table function 是少数复杂数据库逻辑的旁路。</p>
+<h4 id="46-2-a6409f3d" class="semantic-heading semantic-concept">46.2 到底学什么</h4>
+<p>本节要学的不是“table function 语法怎么背”，而是项目中什么时候不该用它。初学者看到 table function 可以写更灵活的数据库逻辑，容易把它当成“CDS 写不出来就开挂”。但在 SAP 项目里，越是靠近数据库端自定义逻辑，越要谨慎。</p>
+<p>CDS view entity 是现代 ABAP CDS 的主要建模对象。它适合表达业务数据模型：选择字段、计算字段、association、path expression、annotation、DCL access control、projection、service exposure。它和 RAP、OData、Fiori metadata、authorization、where-used、ADT tooling 的配合更自然。</p>
+<p>CDS table function 则更像“CDS 声明一个表状结果，实际由数据库函数/AMDP class method 实现”。它适合少数复杂场景：普通 CDS 无法表达的递归/复杂聚合/窗口逻辑/数据库特定计算，或已有 HANA SQLScript 逻辑需要包装成 ABAP CDS 可消费对象。它不是普通 join 的替代品，也不是让 ABAP 开发者绕过 CDS 建模规范的捷径。</p>
+<p>本节的目标是建立评审问题：这个需求能不能用 view entity 表达？能不能拆成多层 CDS？能不能在 ABAP/RAP 层处理？必须下推到数据库吗？table function 的授权、测试、性能和云合规怎么证明？</p>
+<p>更具体地说，本节要训练一种“先排除”的习惯。遇到复杂读需求时，不是先问“能不能写 table function”，而是按顺序问：普通 view entity 能不能表达？association/path expression 能不能表达？CDS built-in functions 或多层 view 能不能表达？ABAP SQL / RAP read handler / service class 能不能更清楚地表达？只有这些路都不合适，并且数据库端复杂计算确实是核心理由时，table function 才进入候选。</p>
+<p>这个顺序很重要，因为 table function 一旦进入项目，它通常会把一部分逻辑转移到 AMDP/SQLScript 世界。ABAP reviewer、RAP 设计者、权限负责人、测试负责人都必须能理解它的输入、输出、授权、性能和维护责任。否则它就会从“高级技术方案”变成“没人敢改的黑盒”。</p>
+<h4 id="46-3-42837b68" class="semantic-heading semantic-why">46.3 为什么重要</h4>
+<p>这个区别重要，是因为它会影响整个服务模型的可维护性。View entity 写法声明式，容易被 ABAP/CDS 工具理解；DCL、annotation、association、projection、service definition 都能围绕它组织。Table function 把关键逻辑藏进 AMDP/SQLScript，功能可能更强，但也更难被普通 ABAP reviewer、Fiori/OData 设计者、授权设计者一眼看懂。</p>
+<p>项目里常见事故是：为了一个复杂计算，开发者写了 table function，结果后续发现 DCL 不像预期那样工作、测试只能测结果不能解释过程、性能问题只能到 HANA SQLScript 层分析、S/4HANA Cloud 或 Clean Core 审查不通过、外包团队没人敢改。短期“能跑”，长期“没人敢碰”。</p>
+<p>对交付来说，table function 不是禁止使用，而是要有理由。设计书应该说明：为什么 view entity 不够；AMDP 实现在哪里；输入参数是什么；结果字段语义是什么；权限在哪一层做；性能如何验证；是否符合 ABAP Cloud / released API / Clean Core 约束；有没有替代方案。</p>
+<p>对 Java/Python 背景学习者，可以类比成“普通 ORM/query view”和“数据库 stored function / native SQL”。Native SQL 能解决难题，但一旦进入生产，它就是更重的技术债，需要更强的测试和运维证据。</p>
+<h4 id="46-4-key-mechanism-da2b1846" class="semantic-heading semantic-mechanism">46.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是实现位置。CDS view entity 的逻辑主要写在 CDS DDL 中；CDS table function 的结果结构写在 CDS 中，但实现通常在 AMDP class method / SQLScript 中。也就是说，table function 的业务逻辑不完全在 CDS 文件里。</p>
+<p>第二层机制是可组合性。View entity 更适合作为 interface view、root view、projection view、service exposure 的组成部分。它可以通过 association、path expression、annotation 和 DCL 形成语义模型。Table function 虽然也能被消费，但它的内部逻辑更黑盒，组合和排查成本更高。</p>
+<p>第三层机制是授权边界。View entity 可以更自然地配合 <a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a> 做 read access control。Table function 的授权要特别确认：是在调用它的上层 CDS/RAP 服务处理，还是在 table function 输入/实现中处理，还是完全缺失。不能假设“包装成 CDS 就自动安全”。</p>
+<p>第四层机制是性能和下推。Table function 常用于需要数据库端复杂计算的场景，但“下推到数据库”不等于一定更快。SQLScript 写法、输入参数、结果集大小、索引、join 顺序、过滤是否提前，都影响性能。View entity 也能被数据库优化，不要为了“看起来高级”就写 table function。</p>
+<p>第五层机制是云和 Clean Core。ABAP Cloud / S/4HANA Cloud 场景下，table function、AMDP、数据库特定逻辑、未 released 对象访问都要仔细确认允许性。Clean Core 项目倾向于优先使用 released API、标准扩展点和声明式模型，减少数据库特定实现。</p>
+<p>第六层机制是测试。View entity 可以通过 CDS data preview、ABAP SQL、OData metadata、DCL 测试逐层验证。Table function 除了结果测试，还要测试参数边界、空数据、大数据量、异常输入、权限路径和性能基线。</p>
+<p>第七层机制是 AMDP 责任边界。CDS table function 通常在 CDS 中声明参数和返回结构，并通过 <code>implemented by method</code> 指向 ABAP class 中的 AMDP method。这个 method 的实现语言通常是数据库侧语言，例如 SAP HANA SQLScript。也就是说，语法上它属于 ABAP repository 管理的一部分，但运行和调优思维更接近数据库函数。项目上必须明确：谁能维护 SQLScript？谁能分析执行计划？谁负责数据库版本或云语言版本限制？</p>
+<p>第八层机制是数据来源合规。Table function 的 AMDP 实现里可能访问表、view、CDS entity 或数据库对象。不要因为外层是 CDS object，就以为内部访问都符合 Clean Core。尤其在 S/4HANA Cloud、ABAP Cloud 或 Clean Core 项目里，要确认内部访问对象是否 released、是否允许直接读、是否绕过了标准 API 或 DCL。</p>
+<p>第九层机制是调试和运维。View entity 的问题通常可以沿着 CDS stack、SQL trace、DCL、service metadata 排查；table function 的问题还要看 AMDP implementation、SQLScript、数据库执行计划、参数选择性、临时结果集和数据库错误。设计时就应写清排查入口，而不是等生产性能问题出现后才发现没人熟悉这层。</p>
+<p>可以用下面的决策漏斗：</p>
+<pre><code class="language-text">1. Can a normal CDS view entity express the model clearly?
+   -&gt; yes: use view entity.
+
+2. Can associations, path expressions, CASE, built-in functions, or layered views solve it?
+   -&gt; yes: keep it in CDS modeling.
+
+3. Is the logic actually application behavior, validation, authorization, or save sequence?
+   -&gt; yes: put it in ABAP/RAP behavior/service layer.
+
+4. Is the logic complex database-side calculation that must run close to data?
+   -&gt; maybe: evaluate CDS table function + AMDP.
+
+5. Can authorization, released-object dependency, performance, tests, and maintainability be proven?
+   -&gt; only then: approve table function.</code></pre>
+<p>这不是反对 table function，而是要求它带着证据进入设计。</p>
+<h5 id="table-function-approval-gate-485c64cf">Table function approval gate</h5>
+<p>如果项目决定使用 CDS table function，建议不要只在代码 review 时口头确认，而是在设计书中设置一个 approval gate。只有下面几类证据都能说清楚，table function 才算有充分理由进入实现。</p>
+<div class="table-wrap"><table><thead><tr><th>Gate</th><th>必须回答的问题</th><th>不充分的回答</th><th>合格证据</th></tr></thead><tbody><tr><td>Necessity</td><td>为什么 view entity、association、多层 CDS、ABAP SQL 或 RAP 层不能解决？</td><td>“这样写更灵活”</td><td>替代方案比较、复杂计算说明</td></tr><tr><td>Execution location</td><td>为什么必须在数据库端执行？</td><td>“数据库快”</td><td>数据量、过滤条件、聚合/窗口/递归理由</td></tr><tr><td>Authorization</td><td>读权限在哪里控制？DCL、上层 service、RAP auth 还是 AMDP 内部？</td><td>“外层有 CDS 所以安全”</td><td>权限路径图、允许/拒绝测试</td></tr><tr><td>Clean Core</td><td>AMDP 内部访问的对象是否 released / 允许直接读？</td><td>“只是查询标准表”</td><td>released object 检查、例外审批</td></tr><tr><td>Performance</td><td>参数选择性、结果集大小、执行计划、大数据量是否测过？</td><td>“小样本很快”</td><td>trace、测试数据量、响应时间基线</td></tr><tr><td>Maintainability</td><td>谁维护 SQLScript？谁能分析数据库执行计划？</td><td>“ABAP 团队都能看”</td><td>owner、reviewer、排查手册</td></tr><tr><td>API boundary</td><td>table function 是否被 projection/service 层包住，而不是直接泄漏实现形态？</td><td>“消费者直接用这个结果”</td><td>稳定 service contract、字段语义说明</td></tr><tr><td>Testability</td><td>空数据、边界参数、权限、性能、异常输入是否覆盖？</td><td>“data preview 有结果”</td><td>测试矩阵和 evidence packet</td></tr></tbody></table></div>
+<p>这个 approval gate 的价值，是把 table function 从“高级写法”还原成“有成本的架构选择”。在日本项目的 review 里，可以直接问：<code>table function を採用する根拠、代替案、権限、性能、Clean Core の確認結果を設計書に記載してください。</code> 也就是：请把采用 table function 的依据、替代方案、权限、性能和 Clean Core 确认结果写入设计书。</p>
+<h4 id="46-5-d64c4b4f" class="semantic-heading semantic-japan">46.5 日本项目现场说法</h4>
+<ul>
+<li><code>CDSビューエンティティ</code>：CDS view entity。</li>
+<li><code>CDSテーブル関数</code>：CDS table function。</li>
+<li><code>AMDP実装</code>：AMDP implementation。</li>
+<li><code>SQLScript</code>：SQLScript。</li>
+<li><code>DB依存ロジック</code>：database-dependent logic。</li>
+<li><code>性能検証</code>：performance verification。</li>
+<li><code>権限制御</code>：authorization control。</li>
+</ul>
+<p>通常のデータモデルは CDS view entity で表現し、table function は CDS で表現できない複雑な DB ロジックがある場合に限定して検討します。</p>
+<p>意思是：普通数据模型用 CDS view entity 表达；只有存在 CDS 难以表达的复杂 DB 逻辑时，才限定性地考虑 table function。</p>
+<p>この table function の AMDP 実装、権限制御、性能検証の証跡を設計書に残してください。</p>
+<p>意思是：请在设计书中留下这个 table function 的 AMDP 实现、权限控制和性能验证证据。</p>
+<p>Clean Core の観点で、DB 依存ロジックを入れる必要性を再確認してください。</p>
+<p>意思是：请从 Clean Core 角度重新确认是否必须加入数据库依赖逻辑。</p>
+<h4 id="46-6-english-terms-b233d39d" class="semantic-heading semantic-terms">46.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>CDS table function vs CDS view entity</code></li>
+<li>Related terms: <code>CDS view entity</code>, <code>CDS table function</code>, <code>AMDP</code>, <code>SQLScript</code>, <code>database function</code>, <code>table function implementation</code>, <code>ABAP CDS</code>, <code>DCL</code>, <code>authorization</code>, <code>performance trace</code>, <code>Clean Core</code></li>
+<li>Recommended search pattern: <code>ABAP CDS table function AMDP view entity SAP Help</code></li>
+<li>Technical terms to keep in English: <code>define view entity</code>, <code>define table function</code>, <code>implemented by method</code>, <code>AMDP</code>, <code>SQLScript</code></li>
+</ul>
+<h4 id="46-7-example-01c47634" class="semantic-heading semantic-example">46.7 Example / 学习例子</h4>
+<p>普通需求优先用 view entity：</p>
+<pre><code class="language-abap">define view entity ZI_SalesOrder
+  as select from vbak
+  association [0..*] to ZI_SalesOrderItem as _Item
+    on $projection.SalesOrder = _Item.SalesOrder
+{
+  key vbeln as SalesOrder,
+      auart as SalesOrderType,
+      erdat as CreatedOn,
+      _Item
+}</code></pre>
+<p>这个模型清楚、可组合，后续可以做 root/projection/service definition，也容易加 annotation 和 DCL。</p>
+<p>只有当需求像下面这样时，才开始讨论 table function：需要复杂层级递归、无法用 CDS 表达的数据库函数、复杂窗口计算、已有 SQLScript 逻辑复用，且必须在数据库端执行。此时 CDS 里会声明 table function 的结果结构，实际逻辑在 AMDP 中：</p>
+<pre><code class="language-text">CDS table function
+  -&gt; declares input parameters and result columns
+  -&gt; implemented by AMDP method
+  -&gt; SQLScript does the calculation
+  -&gt; upper CDS/RAP/OData layer consumes the result</code></pre>
+<p>评审时不要只看它能否返回数据，还要问：是否有替代的 view entity 方案？是否能加 DCL？输入参数是否能提前过滤？结果是否稳定？性能是否有 trace？AMDP 里是否访问了不该访问的表？</p>
+<p>可以把评审问题写成一张表：</p>
+<div class="table-wrap"><table><thead><tr><th>检查项</th><th>View entity 方案</th><th>Table function 方案</th></tr></thead><tbody><tr><td>模型可读性</td><td>DDL 中可直接阅读</td><td>关键逻辑在 AMDP/SQLScript 中</td></tr><tr><td>授权</td><td>更自然配合 DCL / RAP / service</td><td>必须明确上层或内部授权策略</td></tr><tr><td>性能</td><td>数据库可优化，但表达式仍需测量</td><td>可能更强，也可能更难调优</td></tr><tr><td>云合规</td><td>更接近现代 CDS 主路</td><td>需检查 AMDP/table function 可用性和访问对象</td></tr><tr><td>测试</td><td>Data Preview / ABAP SQL / service 测试较直接</td><td>还要测参数、SQLScript、数据库边界</td></tr><tr><td>维护</td><td>多数 ABAP/CDS 开发者能读</td><td>需要 AMDP/SQLScript 能力</td></tr></tbody></table></div>
+<p>以 AC0567C 为例，如果只是要查询 batch header、item、status 和错误汇总，优先考虑 view entity、association、projection 和 ABAP/RAP service logic。如果需求变成“对百万行上传明细做复杂窗口计算、分组排名、跨层递归展开，并且必须在数据库端一次计算”，才开始讨论 table function。即使如此，也要问：这个复杂计算是否真的属于 API read model？是否可以离线预聚合？是否可以用 job 生成结果表？是否会让 OData 响应变慢？</p>
+<h4 id="46-8-counterexample-failure-mode-02f55c35" class="semantic-heading semantic-example">46.8 Counterexample / Failure mode</h4>
+<p>反例一：普通 join 需求写成 table function。结果简单逻辑被藏进 SQLScript，新人看不懂，DCL/annotation 也不好分析。修正方式是改回 view entity + association。</p>
+<p>反例二：为了性能猜测使用 table function。没有 trace、没有数据量证据，只凭感觉写 SQLScript。修正方式是先用 view entity 实现并测量，再决定是否需要下推。</p>
+<p>反例三：table function 内部绕过授权。上层 service 看起来有权限设计，实际 table function 直接读取底表返回敏感数据。修正方式是明确授权层，必要时上层过滤或避免暴露。</p>
+<p>反例四：AMDP 写了数据库特定逻辑，云项目审查不通过。修正方式是提前确认 ABAP Cloud / Clean Core 约束。</p>
+<p>反例五：把 table function 当作 service API。外部消费者直接依赖技术计算结果，后续无法重构。修正方式是通过 projection/service 层稳定对外 contract。</p>
+<p>反例六：没有测试空数据和大数据。小样本正常，大数据运行超时。修正方式是补参数边界、性能基线和异常场景测试。</p>
+<p>反例七：table function 内部直接读未释放 SAP 标准表。外层对象看起来像 CDS，内部却违反 Clean Core/released API 约束。修正方式是做 dependency check，优先使用 released CDS/API 或记录例外审批。</p>
+<p>反例八：把 AMDP 当成普通 ABAP class method。结果 reviewer 不看 SQLScript 执行计划、不测数据库边界、不知道异常如何返回。修正方式是把 AMDP 作为数据库逻辑审查，补 SQLScript 维护责任和性能证据。</p>
+<p>反例九：把 table function 暴露成稳定外部 API。消费者直接依赖技术计算结果，后续无法把它重构成普通 view 或预聚合表。修正方式是用 projection/service 层稳定 contract，不把内部实现形态泄漏给外部。</p>
+<h4 id="46-9-7ce12ac0" class="semantic-heading semantic-practice">46.9 思考问题</h4>
+<ul>
+<li>这个需求能否用 CDS view entity、association、path expression、built-in function 表达？</li>
+<li>使用 table function 的不可替代理由是什么？</li>
+<li>AMDP 实现在哪里？谁负责维护？</li>
+<li>权限是在 DCL、RAP authorization、上层 service，还是 table function 内部处理？</li>
+<li>是否符合 ABAP Cloud / Clean Core / released object 约束？</li>
+<li>是否有性能 trace 和大数据量测试？</li>
+<li>对外暴露时是否通过 projection/service 层稳定 contract？</li>
+</ul>
+<h4 id="46-10-5efacea5" class="semantic-heading semantic-reference">46.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_TABLE_FUNCTIONS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - CDS Table Functions</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENAMDP.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - AMDP</a></li>
+<li><a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCDS_VIEW_ENTITY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - CDS Entities</a></li>
+<li>SAP Help / ABAP Keyword Documentation: <code>define view entity</code>, <code>define table function</code>, AMDP</li>
+<li>SAP Learning: ABAP CDS modeling, table functions and AMDP usage</li>
+<li><a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a></li>
+<li><a class="wiki" href="section-04-003-cds-access-control-dcl-e736fc1e.html">CDS Access Control DCL 行级访问控制</a></li>
+<li><a class="wiki" href="section-03-004-cds-built-in-functions-86791175.html">CDS built-in functions 内置函数</a></li>
+<li><a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></li>
+<li><a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="46-11-connections-71aad9c3">46.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC CDS</span></li>
+<li>Upstream: <a class="wiki" href="section-02-045-message-class-and-t100-messages-b8bfbd5f.html">Message class and T100 messages</a></li>
+<li>Downstream: <a class="wiki" href="section-03-025-rap-draft-handling-1cd663ca.html">RAP draft handling</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 21 - Service Definition、Binding 与 OData API</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="46-12-ad7df46c" class="semantic-heading semantic-practice">46.12 学习任务</h4>
+<ul>
+<li>写出 view entity 和 table function 的 5 个区别。</li>
+<li>找一个本来想写 table function 的需求，尝试改成 view entity/association 方案。</li>
+<li>补 2 个日语 review 句子：一条要求说明 table function 必要性，一条要求性能/权限证据。</li>
+<li>设计 table function 的测试清单：参数边界、空数据、大数据量、权限、性能。</li>
+<li>如果进入 Week 4，把 AC0567C POC 中任何复杂计算点判断为 view entity、ABAP class，还是 table function。</li>
+</ul>
+<h4 id="46-13-confidence-next-action-c093409a" class="semantic-heading semantic-status">46.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for beginner-facing view entity / table function / AMDP decision boundary after official-source closure。2026-06-18 已复核 ABAP Keyword Documentation <code>CDS Table Functions</code>、<code>AMDP</code>、<code>CDS Entities</code> 精确入口，可支撑 view entity / table function / AMDP 的基础边界。正文已覆盖“view entity 优先、table function 例外审批”的项目判断、AMDP 实现责任、authorization / DCL / service 层边界、Clean Core / released API 风险、性能 trace、大数据测试、projection/service contract 隔离和 approval gate。具体 ABAP Cloud 可用性、数据库依赖、SQLScript 限制和系统 release 差异仍需按目标系统 SAP Help / ABAP Keyword Documentation 版本确认。</li>
+<li>Review status: prior Joule / Claude review artifacts for this section are deferred or timed out and explicitly state that no usable verdict was obtained；2026-06-18 Claude CLI 当前 session expired，外部 review debt 保留。由于本节已完成官方资料闭环和 table function approval gate 说明，不再停留在提纲草稿状态。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；下一节继续 <a class="wiki" href="section-03-047-odata-v4-expand-and-navigation-properties-28c33331.html">OData V4 expand and navigation properties</a>，重点验证 association / navigation exposure 和 <code>$expand</code> contract。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-046-cds-table-function-vs-cds-view-entity-048e0553.html">CDS table function vs CDS view entity</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-045-api-testing-workflow-0438366f.html">Previous section</a><a href="section-03-047-odata-v4-expand-and-navigation-properties-28c33331.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

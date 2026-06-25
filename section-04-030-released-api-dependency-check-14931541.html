@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Released API dependency check | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a class="active" href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Chapter 04 - Project Delivery And Production Readiness</a></p><h1 id="30-released-api-dependency-check-82e3d2b6" class="chapter-title">30. Released API dependency check</h1><ul class="reading-meta"><li>Chapter 04</li><li>Section 30</li><li>self-contained study note</li></ul><h4 id="30-1-212bd62d" class="semantic-heading semantic-concept">30.1 一句话结论</h4>
+<p>Released API dependency check 是在设计、编码、review 和上线前确认自开发对象是否依赖 SAP 官方允许使用的 API、对象或扩展点的检查动作。它不是为了阻止开发，而是为了把 SAP 标准依赖从“看起来能用”推进到“有官方证据、可升级、可审计、可交付”。</p>
+<p>在 Clean Core 语境下，最危险的依赖往往不是明显的错误代码，而是那些短期能跑、长期不稳的调用：直接读写 SAP 标准表、调用未释放的 class/function module、使用内部 CDS view、复制标准程序逻辑、绕过正式 extension point。Released API dependency check 的目标，就是把这些隐藏风险提前暴露出来。</p>
+<h4 id="30-2-56d70644" class="semantic-heading semantic-concept">30.2 到底学什么</h4>
+<p>第一，要学什么叫 dependency。依赖不只是 HTTP API。ABAP 代码里使用的 class、interface、function module、BAPI、CDS view、database table、structure、domain、authorization object、BAdI、service definition、communication scenario，都可能是依赖。只要一个自开发对象的正确运行需要某个 SAP 标准对象保持稳定，它就已经形成了依赖。</p>
+<p>依赖还要分清直接和间接。直接依赖是代码里明面调用或引用了某个对象，例如 <code>SELECT</code> 某张 SAP 标准表、调用某个 function module、把某个 SAP CDS view 放进自开发 CDS。间接依赖是通过封装层、复制逻辑、配置、通信安排或增强点形成的依赖，例如 wrapper class 内部调用了未释放对象，外层 service 看起来干净，但真正风险被藏到了 wrapper 里面。dependency check 要看最终依赖链，而不是只看最外层接口名字。</p>
+<p>依赖还要分清读、写、回调和集成。读依赖通常影响语义、权限、字段兼容性、性能和升级；写依赖可能直接影响数据一致性、业务流程和审计；回调依赖常见于 BAdI / event / enhancement；集成依赖常见于 OData API、SOAP API、communication scenario 和外部系统通信。不同类型的依赖，风险等级和证据要求不一样。</p>
+<p>第二，要学什么叫 released。<code>Released</code> 不是“我在系统里能看到这个对象”，也不是“测试环境能跑”。它通常需要目标系统中的 API state、release contract、ADT/ATC 检查结果、SAP Help / SAP Learning / SAP Business Accelerator Hub 或项目 API catalog 作为证据。ABAP Keyword Documentation 适合确认 ABAP 语法和语言行为，不适合作为某个业务 API 或 repository object 是否 released 的唯一证据。</p>
+<p>这里最容易误解的是 BAPI、function module 和 CDS view。名字里有 <code>API</code>、<code>BAPI</code> 或看起来像业务对象，并不自动等于在当前目标系统、当前 release、当前 edition 和当前 ABAP language version 下可用。对 Clean Core 或 ABAP Cloud 语境来说，关键不是对象“存在不存在”，而是它是否被官方释放给当前开发模型使用。</p>
+<p>也要理解 <code>API state</code> 和 <code>release contract</code> 的关系：API state 是系统或工具里看到的可用性状态，背后反映的是该对象对外承诺的 release contract。学习时可以把它们一起看，但不要误以为是两个互不相关的检查。</p>
+<p>第三，要学什么时候检查。不要等上线前才查。需求分析阶段要确认是否有官方 API；设计阶段要列 dependency inventory；编码阶段要避免直接引入未释放对象；review 阶段要查证据；上线前要用 ATC 或 checklist 固化结果。</p>
+<p>第四，要学例外怎么处理。真实项目可能因为 legacy 约束、客户强制需求、目标 release 缺少 API 而暂时使用未释放对象。此时不能装作没问题，而要写清楚原因、替代方案、影响范围、审批人、测试策略和未来替换路径。</p>
+<p>这一节最终要训练的不是“背一个检查表”，而是形成设计习惯：任何 SAP 标准依赖进入代码之前，都先问三件事：目标环境允许吗？证据在哪里？未来替换责任谁承担？</p>
+<h4 id="30-3-4dda8394" class="semantic-heading semantic-why">30.3 为什么重要</h4>
+<p>SAP 系统里的对象很多，初学者很容易以为“能查、能调用、能激活”就代表稳定可用。真实项目中，未释放对象可能在升级、补丁、迁移、云化或范围变更时发生行为变化、字段变化、权限变化或直接不可用。</p>
+<p>Released API dependency check 能帮助团队回答几个关键问题：这个扩展依赖的是 SAP 官方能力吗？未来谁负责验证兼容性？如果 SAP 改版本，这段代码会不会坏？如果没有 released API，是否有记录过例外和替代路线？</p>
+<p>对 Java/Python 背景读者来说，可以类比“不依赖 private/internal API，不直接读写第三方库内部表，不绕过公开 SDK”。区别是 SAP 场景下这些依赖可能影响核心业务流程、财务数据、升级项目和 Clean Core 审查。</p>
+<h4 id="30-4-key-mechanism-18b87816" class="semantic-heading semantic-mechanism">30.4 Key mechanism / 核心机制</h4>
+<p>Released API dependency check 可以按五步走。</p>
+<p>第一步，列出依赖。扫描自开发 package、class、CDS、RAP behavior、service definition、BAdI implementation、function module、report、job 和接口对象，找出它们直接或间接使用的 SAP 标准对象。不要只查“接口层”。很多 Clean Core 风险藏在内部 helper class、utility function、selection logic、旧 report 复制逻辑和临时 SQL 中。</p>
+<p>第二步，确认 release 状态。根据目标系统和开发模型检查 API state、release contract、ABAP language version、ATC cloud readiness / released object checks、SAP Business Accelerator Hub、SAP Help、SAP Learning 和项目 API catalog。关键原则是：要有证据，而不是口头说“应该可以”。</p>
+<p>第三步，替换高风险依赖。优先寻找 released API、released CDS view、released class/interface、official BAdI、communication scenario、business API 或 RAP BO。直接 <code>UPDATE</code> / <code>INSERT</code> / <code>DELETE</code> SAP 标准表通常是最高风险信号；直接 <code>SELECT</code> 标准表也要谨慎评估，因为它可能绕过业务语义、authorization / DCL、buffering、兼容性和性能边界。在 legacy on-premise 报表中，某些直接读可能被项目暂时接受；但它仍然应该被登记、解释和复测，而不是被当作默认安全。</p>
+<p>第四步，记录例外。如果无法替换，必须建立 exception register，说明未释放对象、使用原因、官方替代方案检查结果、影响范围、审批人、测试策略、升级复测计划和未来替换路径。</p>
+<p>第五步，固化为交付证据。设计文档、代码 review、ATC 结果、上线 checklist、production hardening evidence 都应能回答“这个依赖是否 released，如果不是，例外是否被正式接受”。</p>
+<p>可以把常见依赖类型整理成下面的 review 矩阵：</p>
+<div class="table-wrap"><table><thead><tr><th>依赖类型</th><th>主要证据来源</th><th>高风险信号</th><th>更稳妥方向</th></tr></thead><tbody><tr><td>OData / SOAP / business API</td><td>SAP Business Accelerator Hub、SAP Help、communication scenario、项目 API catalog</td><td>只凭 URL 或测试成功就认定可长期使用</td><td>确认 API 文档、scope、authentication、target edition 和 release</td></tr><tr><td>CDS view</td><td>ADT API state、SAP Help、ATC、数据模型文档</td><td>使用内部 view、interface view、UI view 只因为字段方便</td><td>使用 released CDS view 或通过正式 API 暴露</td></tr><tr><td>ABAP class / interface</td><td>ADT API state、ABAP Cloud released object check、ATC</td><td>调用 <code>CL_*</code> / <code>IF_*</code> 标准对象但没有 release 证据</td><td>使用 released class/interface，或通过项目 wrapper 隔离并登记例外</td></tr><tr><td>BAPI / function module</td><td>SAP Help、function module release/documentation、ATC、项目架构决策</td><td>“名字像 BAPI”就当作官方 API</td><td>确认可用于目标系统和开发模型；优先 business API / RAP / released API</td></tr><tr><td>SAP 标准表</td><td>SAP Help、数据模型说明、ATC、项目例外登记</td><td>直接写标准表；复制标准更新逻辑</td><td>用 released API / BAPI / RAP action / official extension point</td></tr><tr><td>BAdI / enhancement point</td><td>SAP Help、enhancement spot 文档、implementation guide</td><td>用隐式 enhancement 或修改标准行为兜底</td><td>使用官方 BAdI、released extension point，并记录触发时机</td></tr><tr><td>Communication scenario / arrangement</td><td>SAP Help、SAP Business Accelerator Hub、系统通信配置</td><td>只在 DEV 建了连接，没有 QAS/PRD 迁移证据</td><td>记录 scenario、arrangement、auth、endpoint、transport / setup 步骤</td></tr></tbody></table></div>
+<p>还要把 deployment model 作为判断前提：</p>
+<div class="table-wrap"><table><thead><tr><th>目标环境</th><th>判断重点</th></tr></thead><tbody><tr><td>SAP S/4HANA Cloud Public Edition</td><td>只能使用允许的 key user extensibility、developer extensibility、released APIs、communication scenarios 和正式扩展点；在 ABAP Cloud 语言版本中，非 released 对象会在语法检查或激活阶段被禁止，经典内部对象依赖不是软性建议问题。</td></tr><tr><td>SAP S/4HANA Cloud Private Edition / on-premise</td><td>技术上可能能调用更多 legacy 对象，但 Clean Core、升级稳定性和未来云化仍要求治理未释放依赖。</td></tr><tr><td>ABAP Cloud / ABAP for Cloud Development</td><td>ABAP language version、released object、ATC cloud readiness 是硬边界；“系统里能看到”不代表可用。</td></tr><tr><td>Classic ABAP</td><td>可见对象更多，但仍要区分公开契约和内部实现；对长期维护项目，应逐步把高风险依赖收敛到 released API 或集中封装。</td></tr></tbody></table></div>
+<p>上面的五步是 review 视角；实际执行时可以把它操作化为下面六个动作：</p>
+<pre><code class="language-text">1. Identify
+   找出自开发对象直接/间接依赖的 SAP 标准对象。
+
+2. Classify
+   标记对象类型、读写性质、业务目的、调用路径和目标 deployment model。
+
+3. Verify
+   在 ADT / system API state / ATC / SAP Help / SAP Business Accelerator Hub / 项目 API catalog 中确认 release evidence。
+
+4. Decide
+   使用 released API、替换为正式扩展点、集中封装并登记例外，或禁止该依赖进入交付范围。
+
+5. Record
+   把证据写入设计说明、code review、ATC 结果、例外登记和上线 checklist。
+
+6. Recheck
+   在升级、FPS/SPS、云化评估、API 版本变化或 scope 变化前重新确认。</code></pre>
+<p>可以使用下面的检查模板：</p>
+<pre><code class="language-text">Released API Dependency Evidence
+
+Dependency:
+  Object name:
+  Object type: API / CDS view / class / BAdI / table / function module
+
+Usage:
+  Read / write / callback / integration / extension:
+  Business purpose:
+
+Release evidence:
+  SAP official doc:
+  API state / release contract:
+  ATC result:
+  Target system/release:
+
+Risk:
+  Low / medium / high:
+  Upgrade impact:
+  Cloud/Clean Core impact:
+
+Decision:
+  Use released API:
+  Replace with:
+  Exception required:
+
+Owner:
+  Developer:
+  Architect:
+  Customer approver:
+  Review date:</code></pre>
+<p>例外登记不是“允许乱用未释放对象”的通行证，而是风险管理工具。它至少要说明为什么没有 released alternative、为什么当前项目仍要接受、未来何时复审、由谁承担替换责任。例外登记可以这样写：</p>
+<pre><code class="language-text">Exception ID: CC-EX-001
+Unreleased dependency: &lt;object name&gt;
+Reason: no released API covers required field/process in current release
+Alternatives checked: &lt;API/CDS/BAdI candidates&gt;
+Impact: upgrade retest required; possible semantic/field change
+Mitigation: wrapper class, automated regression test, ATC exemption comment
+Owner: application lead / architect / customer approver
+Review date: before upgrade, FPS/SPS, or cloud migration assessment</code></pre>
+<h4 id="30-5-4e0291ea" class="semantic-heading semantic-japan">30.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>リリース済みAPI</code></li>
+<li><code>未リリースオブジェクト</code></li>
+<li><code>依存関係</code></li>
+<li><code>依存先棚卸し</code></li>
+<li><code>依存先一覧</code></li>
+<li><code>リリース状態</code></li>
+<li><code>利用可否確認</code></li>
+<li><code>利用可否</code></li>
+<li><code>クラウド対応</code></li>
+<li><code>ATCチェック</code></li>
+<li><code>例外申請</code></li>
+<li><code>例外管理</code></li>
+<li><code>代替案</code></li>
+<li><code>置換方針</code></li>
+<li><code>将来対応</code></li>
+<li><code>アップグレード時の再確認</code></li>
+<li><code>アップグレード影響</code></li>
+</ul>
+<p>设计 review 时可以这样说：</p>
+<pre><code class="language-text">本拡張で利用するSAP標準オブジェクトを依存先一覧として整理し、
+リリース済みかどうかを確認します。</code></pre>
+<p>发现未释放对象时可以这样说：</p>
+<pre><code class="language-text">未リリースオブジェクトを直接参照しているため、
+リリース済みAPIまたは公式拡張ポイントへの置き換えを検討します。</code></pre>
+<p>必须例外使用时可以这样说：</p>
+<pre><code class="language-text">置き換えが困難な依存関係は、例外としてアップグレード影響と代替案を明記します。</code></pre>
+<p>上线前确认时可以这样说：</p>
+<pre><code class="language-text">本番移送前に、未リリース依存が残っていないか、また例外管理表の承認状況を再確認します。</code></pre>
+<h4 id="30-6-english-terms-3dcdbcf7" class="semantic-heading semantic-terms">30.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>released APIs</code>, <code>released objects</code>, <code>API state</code>, <code>release contract</code>, <code>ABAP Cloud</code>, <code>Cloud readiness</code>, <code>Clean Core</code>.</li>
+<li>Related terms: <code>dependency check</code>, <code>unreleased object</code>, <code>released CDS view</code>, <code>released class</code>, <code>BAdI</code>, <code>communication scenario</code>, <code>SAP Business Accelerator Hub</code>, <code>ATC</code>, <code>ABAP language version</code>.</li>
+<li>Recommended search pattern: <code>SAP released APIs ABAP Cloud</code>, <code>SAP S/4HANA released APIs</code>, <code>SAP API state released object</code>, <code>ATC check unreleased object</code>.</li>
+<li>读官方资料时必须确认目标系统、release、edition、scope item 和开发模型；同一个对象在不同环境中可用性可能不同。</li>
+</ul>
+<h4 id="30-7-example-17e6f6a2" class="semantic-heading semantic-example">30.7 Example / 学习例子</h4>
+<p>假设 AC0567C batch upload POC 未来要接入 S/4HANA 标准业务对象。开发者可能先找到一个标准表，直接 <code>SELECT</code> 或 <code>UPDATE</code> 看起来最简单；也可能找到一个 function module，测试环境里可以调用。但这都不等于 Clean Core 友好。</p>
+<p>更好的检查方式是先列候选：</p>
+<pre><code class="language-text">Business need:
+  Create/update/read standard business data after batch upload.
+
+Dependency candidates:
+  - Standard OData/API from SAP Business Accelerator Hub
+  - Released CDS view for read scenario
+  - Released BAPI or class, if officially supported in target system
+  - BAdI / extension point for process integration
+  - Communication scenario / arrangement for external access
+
+Rejected candidates:
+  - Direct UPDATE to SAP standard table
+  - Internal function module without release evidence
+  - Unreleased CDS view used only because fields look convenient
+  - Copying standard report logic into Z program</code></pre>
+<p>设计证据可以这样写。下面的 <code>API_BUSINESS_PARTNER</code> 只是学习例；真实项目必须在目标系统、release、edition、scope 和 API catalog 中重新确认。</p>
+<pre><code class="language-text">Object: API_BUSINESS_PARTNER
+Type: standard API
+Purpose: read/update business partner data
+Release evidence: SAP official API catalog / system API state checked
+Usage boundary: integration API, not direct table update
+Fallback: if API lacks required field, evaluate extension field exposure or BAdI
+ATC: no unreleased object finding for this dependency</code></pre>
+<p>如果同一个需求需要补充字段，而官方 API 暂时不包含该字段，不应马上退回到标准表直读或标准表直写。更合理的讨论顺序是：字段是否可以通过 extensibility 暴露？是否存在 released CDS view？是否存在官方 BAdI / enhancement point？是否能调整业务流程？如果仍无法满足，才进入例外登记和架构审批。</p>
+<p>这个例子的重点不是背具体 API 名称，而是养成检查习惯：每次碰到 SAP 标准对象，都问“它是否 released？证据在哪里？如果不是，风险是否被记录和接受？”</p>
+<h4 id="30-8-counterexample-failure-mode-d7fed788" class="semantic-heading semantic-example">30.8 Counterexample / Failure mode</h4>
+<p>常见失败模式如下。</p>
+<p>第一，直接读写 SAP 标准表。直接读也可能有语义、权限、性能和升级风险；直接写通常更危险。</p>
+<p>第二，把 BAPI 或 function module 的名字当成 release 证据。名字像 API 不代表在当前系统和开发模型下受支持。</p>
+<p>第三，使用未释放 CDS view。字段方便不代表稳定；很多 view 是内部消费或 UI 场景使用。</p>
+<p>第四，只检查 HTTP API，不检查 ABAP 内部依赖。class、interface、CDS、BAdI、table、structure 都可能影响 Clean Core。</p>
+<p>第五，ATC 警告出现后没有处理说明。警告可以被接受，但必须有理由、影响分析和审批记录。</p>
+<p>第六，忽略 deployment model。同一对象在 on-premise 可用，不代表在 public cloud 或 ABAP Cloud 模型中可用。</p>
+<p>第七，只写“已确认”，没有证据。缺少官方链接、API state、ATC 结果或项目 catalog，会让 review 失去可信度。</p>
+<p>第八，没有替代路线。未释放依赖如果散落在多个 class、CDS、report 中，未来替换成本会很高；应通过 wrapper、清晰命名和集中封装降低风险。</p>
+<p>第九，用 wrapper 掩盖风险。wrapper 可以降低扩散范围，但不能把未释放依赖变成 released dependency；wrapper 内部仍要有例外记录、owner 和替换计划。</p>
+<p>第十，只在 DEV 查过一次。released 状态、API scope、系统版本和 ATC 规则都可能随目标环境变化；QAS、PRD、升级前和云化评估前都要重新确认。</p>
+<h4 id="30-9-55494f8f" class="semantic-heading semantic-practice">30.9 思考问题</h4>
+<ul>
+<li>为什么“能调用”不等于 “released”？</li>
+<li>一个自开发 API 直接 <code>SELECT</code> SAP 标准表，会带来哪些升级和一致性风险？</li>
+<li>ATC 报出未释放对象时，项目应该留下哪些处理证据？</li>
+<li>AC0567C 如果接入 S/4HANA 标准对象，应该优先查哪些 released API 或 extension point？</li>
+<li>如果必须使用未释放对象，例外记录至少要包含哪些字段？</li>
+<li>为什么 direct table read 也需要审查，而不只是 direct table update？</li>
+<li>如何判断某个 API 是否适合当前 deployment model？</li>
+</ul>
+<h4 id="30-10-f8eca0e1" class="semantic-heading semantic-reference">30.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+<li><a href="https://api.sap.com/" target="_blank" rel="noopener noreferrer">SAP Business Accelerator Hub</a></li>
+<li><a href="https://api.sap.com/api/API_BUSINESS_PARTNER/overview" target="_blank" rel="noopener noreferrer">SAP Business Accelerator Hub - API_BUSINESS_PARTNER</a></li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/released-apis" target="_blank" rel="noopener noreferrer">SAP Help - Released APIs</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ABAP%20Cloud%20released%20APIs" target="_blank" rel="noopener noreferrer">SAP Help search - ABAP Cloud released APIs</a></li>
+<li><a href="https://help.sap.com/docs/search?q=API%20state%20ABAP%20development" target="_blank" rel="noopener noreferrer">SAP Help search - API state ABAP development</a></li>
+<li><a href="https://help.sap.com/docs/search?q=Clean%20Core%20released%20APIs" target="_blank" rel="noopener noreferrer">SAP Help search - Clean Core released APIs</a></li>
+<li><a href="https://help.sap.com/docs/search?q=ATC%20unreleased%20objects%20ABAP" target="_blank" rel="noopener noreferrer">SAP Help search - ATC unreleased objects ABAP</a></li>
+<li><a href="https://learning.sap.com/search?query=Clean%20Core%20released%20APIs" target="_blank" rel="noopener noreferrer">SAP Learning search - Clean Core released APIs</a></li>
+</ul>
+<h4 id="30-11-connections-88b2192c">30.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Project Readiness</span></li>
+<li><span class="wiki unresolved">MOC OData And API</span></li>
+<li>Upstream: <a class="wiki" href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Clean Core extensibility</a></li>
+<li>Downstream: <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a></li>
+<li>Related: <a class="wiki" href="section-04-025-atc-check-set-68824dd3.html">ATC check set 质量门禁</a></li>
+<li>Related: <a class="wiki" href="section-03-049-rap-extensibility-a515afa6.html">RAP extensibility</a></li>
+<li>Related: <a class="wiki" href="section-03-039-service-definition-0138b5dc.html">Service definition 服务定义</a></li>
+<li>Related: <a class="wiki" href="section-03-040-service-binding-c23e7cdd.html">Service binding 服务绑定</a></li>
+<li>Related: <a class="wiki" href="section-01-012-transport-request-a1933e45.html">Transport request 传输请求</a></li>
+<li>Related: <a class="wiki" href="section-04-013-application-log-17b32fe8.html">Application Log 应用日志</a></li>
+<li>Related: <a class="wiki" href="section-04-005-rap-instance-authorization-6183d5b9.html">RAP instance authorization 实例授权</a></li>
+<li>Related: <a class="wiki" href="section-04-014-security-audit-log-d91a6c87.html">Security Audit Log 安全审计日志</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 27 - Clean Core 与上线前加固</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="30-12-e068361e" class="semantic-heading semantic-practice">30.12 学习任务</h4>
+<ul>
+<li>为一个自开发 service 列出 5 类可能依赖的 SAP 标准对象。</li>
+<li>写一张 dependency evidence 表，包含对象名、类型、用途、release 证据、风险、替代方案。</li>
+<li>找一个 SAP 官方 API 页面，说明为什么它比直接读写标准表更适合作为扩展依赖。</li>
+<li>用日语写 2 句 review 问法：一句询问 released API 证据，一句询问未释放对象例外处理。</li>
+<li>在 AC0567C POC 中假设要接入 S/4HANA 标准对象，写出 dependency check 步骤。</li>
+<li>写一条未释放对象例外记录，包含原因、替代方案、影响、缓解措施、owner 和复审时间。</li>
+</ul>
+<h4 id="30-13-confidence-next-action-2d9d88e0" class="semantic-heading semantic-status">30.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: Medium-High。Released API 检查的原则、Clean Core 边界和项目交付证据较稳定，Claude review 已确认本节达到 <code>Pass with fixes</code> 后的可用状态；当前文本已补足 Public Cloud / ABAP Cloud 对非 released 对象的语法与激活期阻断、ABAP Keyword Documentation 不等于对象 release evidence、<code>API state</code> 与 <code>release contract</code> 的关系、direct table read/write 的风险边界、wrapper 不能把未释放依赖变成 released dependency，以及例外登记模板。具体对象 release 状态必须以目标 SAP 系统、release、edition、ABAP language version 和官方 API catalog 为准，Joule scoped review 仍保留为 deferred 证据。</li>
+<li>Next action: 继续强化 <a class="wiki" href="section-04-031-production-hardening-checklist-6ba1110a.html">Production hardening checklist</a> 与 <a class="wiki" href="section-04-043-ac0567c-api-evidence-replay-8901680e.html">AC0567C API evidence replay</a>，把 Clean Core、released API、ATC、测试、性能、权限和运维证据连接到上线前检查。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-04-030-released-api-dependency-check-14931541.html">Released API dependency check</a></p><div class="chapter-nav"><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Back to chapter</a><a href="section-04-029-clean-core-extensibility-e0cf8c9c.html">Previous section</a><a href="section-04-031-production-hardening-checklist-6ba1110a.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

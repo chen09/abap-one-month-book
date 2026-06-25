@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Runtime error and short dump 运行时错误 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="31-runtime-error-and-short-dump-dc5a558d" class="chapter-title">31. Runtime error and short dump 运行时错误</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 31</li><li>self-contained study note</li></ul><p>原子笔记入口：<a class="wiki" href="section-01-031-runtime-error-and-short-dump-b6d3f032.html">Runtime error and short dump 运行时错误</a></p>
+<p><strong>本节结论</strong></p>
+<p>Runtime error and short dump 运行时错误 是 ABAP 程序在运行中“已经无法继续执行”时留下的技术诊断入口。Day 04 要掌握的不是背 ST22 画面，而是理解：未处理异常、失败的 <code>ASSERT</code>、<code>RAISE SHORTDUMP</code>、<code>MESSAGE TYPE &#x27;X&#x27;</code> 等情况会终止程序、回滚当前仍打开的 LUW，并生成 short dump；开发者要能从 short dump 找到发生时间、用户、程序、出错语句、exception class、调用栈和变量线索。</p>
+<p><strong>正文</strong></p>
+<p>前面几节已经讲了控制流、字符串、日期和时间。它们都是“程序按预期往前走”的基础；本节讲的是程序走不下去时，ABAP runtime 会怎样留下证据。对初学者来说，runtime error 最像 Java/Python 里没有被捕获的 exception，但 SAP 项目里的结果更项目化：用户可能看到技术错误，后台会留下 short dump，运维或开发会用 ST22 / ABAP Runtime Error Viewer 做障害調査，当前尚未提交的 LUW 会被回滚，事故票里要说明影响范围、再现手順和修正方針。</p>
+<p>先区分三个层次。Syntax error 是编译/激活前的问题，例如语法写错导致 activation 过不了；business error 是业务校验不通过，例如金额为空、订单状态不允许保存，通常应该用 message、exception、RAP reported/failed 等方式让调用方理解；runtime error 是程序运行到某个点时 ABAP runtime 判断不能继续，例如除以零、非法类型转换、访问不存在的对象、未处理的 class-based exception、断言失败或显式 <code>RAISE SHORTDUMP</code>。Short dump 不是“优雅的业务提示”，而是程序终止后的技术错误日志。</p>
+<p>SAP Help 对 runtime error 的边界很清楚：当 ABAP 程序遇到 uncaught exception、exit message 或 failed assertion 等运行时错误时，系统会写入 short dump。ABAP Keyword Documentation 还说明，每个 runtime error 有一个名称，并对应某个错误情况；程序终止后会显示/保存 short dump，里面包含 runtime error name、相关 exception class、data object 内容、active calls、control structures 等信息，并可进入 ABAP Debugger。也就是说，short dump 的价值不是“看到红字就害怕”，而是它把事故发生瞬间的一组证据封存下来。</p>
+<p>最小例子是整数除以零。下面沿用前面 ADT console application 的写法，<code>out</code> 可以理解为 <code>if_oo_adt_classrun~main</code> 方法里的输出参数；如果在其他程序类型里练习，可以换成团队标准输出或直接用 debugger 观察变量。下面的代码如果没有 <code>TRY ... CATCH</code>，通常会触发 <code>CX_SY_ZERODIVIDE</code> 相关异常，并可能形成 runtime error，例如 <code>COMPUTE_INT_ZERODIVIDE</code>。具体 runtime error name 会随运算和上下文变化，本例只用来说明“可预见异常如何被处理”。有了合适的 <code>CATCH</code>，程序就可以把“不可计算”变成可解释的处理路径。</p>
+<pre><code class="language-abap">DATA denominator TYPE i VALUE 0.
+DATA result      TYPE i.
+
+TRY.
+    result = 100 / denominator.
+    out-&gt;write( |Result: { result }| ).
+  CATCH cx_sy_zerodivide INTO DATA(divide_error).
+    out-&gt;write( |Cannot divide by zero: { divide_error-&gt;get_text( ) }| ).
+ENDTRY.</code></pre>
+<p>这不是说所有异常都要吞掉。项目里更重要的是判断“这个问题是可恢复的业务/输入问题，还是程序继续执行会造成更大损害的技术问题”。如果用户输入不合法，应该在靠近输入处检查并返回明确消息；如果外部服务暂时失败，可能要记录 application log、返回可诊断错误、允许重试；如果程序发现内部状态已经不可能成立，例如核心前提被破坏，才可能需要故意让它以 short dump 方式终止。新代码里如果确实要程序驱动地生成 runtime error，应优先认识 <code>RAISE SHORTDUMP</code> / <code>THROW SHORTDUMP</code> / <code>ASSERT</code> 这类显式机制，而不是用模糊的 exit message 制造不可读错误。其中 <code>RAISE SHORTDUMP</code> 是 statement form，<code>THROW SHORTDUMP</code> 是 expression form，常见于 conditional expression 等表达式位置；本节只要求先认识二者都会导致 runtime error，不需要马上掌握所有语法变体。</p>
+<p>在系统里看 short dump，经典入口是 transaction <code>ST22</code>，也叫 ABAP Dump Analysis。它可以按日期、时间、用户、客户端、程序等条件列出 runtime errors，并打开对应 short dump。现代 ADT 里还会遇到 ABAP Runtime Error Viewer，它可以从错误通知、Feed Reader 或 dump 链接打开，并提供 header information、error analysis、where the program terminated、source code extract、active calls/events、Long Text、Unformatted Display 等视图。初学者不需要第一天记住所有按钮，但要知道看 dump 的顺序：先看 runtime error 名称和 short text，再看 error analysis，再看 termination point / source extract，再看 call stack / active calls，最后才是变量内容和系统环境。</p>
+<p>Short dump 里的信息很有用，也可能很敏感。它可能包含用户、client、程序名、类名、SQL/表名、业务字段值、调用链和系统信息。写障害票、给客户说明或问外部 AI 时，不应该整段复制 dump；要先摘出可分享的 runtime error name、程序/类、发生时间、用户影响、再现步骤和已脱敏的关键变量。这个习惯在日本项目里很重要，因为 <code>ダンプ解析</code> 往往同时涉及开发、Basis、运维、业务用户和客户报告。</p>
+<p>还要理解 rollback 边界。ABAP Keyword Documentation 的 glossary 说明，runtime error 会终止程序并引发 database rollback；在项目说明里要把这句话说完整：被回滚的是当前仍打开的 LUW，已经在之前 <code>COMMIT WORK</code>、更新任务、RFC 调用、后台 job step 或其他 LUW 边界中完成的工作，不会因为后续 short dump 自动回到事故前状态。换句话说，“当前 LUW rollback”不是“所有业务影响自动消失”。已经发送出去的外部消息、已经提交的事务、异步队列、外部系统副作用、application log、spool、邮件、HTTP 调用等，都可能需要单独调查。Week 3/4 学 RAP、OData、事务控制和生产排查时，会继续回到这个边界。</p>
+<p>最后，把 <code>CATCH cx_root</code> 当成例外处理银弹也很危险。<code>CX_ROOT</code> 是 class-based exception 的根类，确实可以作为兜底入口使用，但生产代码里如果只是 <code>CATCH cx_root</code> 后什么也不记录、不重抛、不转成结构化错误，就会形成日本项目 review 中常说的 <code>例外握りつぶし</code>。初学者的安全规则是：优先捕获最具体的 exception class；兜底捕获时必须记录足够上下文，或者重抛、转换为业务可理解的错误，不能让程序“看起来没事”。</p>
+<p>本节最小心智模型是：runtime error 是程序无法继续时的终止事件，short dump 是系统留下的诊断记录，ST22 / ADT Runtime Error Viewer 是查看入口，<code>TRY ... CATCH</code> 是把可预见错误变成可处理路径的基本工具。一个成熟的 ABAP 开发者不是“永远不见 dump”，而是能避免可预见 dump、读懂不可避免 dump、把 dump 变成可复现、可修正、可说明的项目证据。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li>本知识点直接关系到开发调试、单体测试、结合测试、生产障害调查和上线后稳定性。</li>
+<li>Short dump 通常不是业务用户能理解的提示；生产环境出现 dump 会影响信任、运维压力和客户报告。</li>
+<li>ST22 / ABAP Runtime Error Viewer 是 ABAP 开发者必须会用的基础诊断入口。</li>
+<li>未处理异常会终止程序并触发 rollback；这会影响事务一致性、接口重试、后台 job 和异步处理。</li>
+<li>Java/Python 背景学习者熟悉 exception stack trace，但 SAP 项目还要结合 client、user、program/class、transaction、background job、transport version、ST22 权限和业务影响范围来分析。</li>
+</ul>
+<p><strong>核心机制</strong></p>
+<ul>
+<li>Runtime error：ABAP runtime 判断程序不能继续执行的终止事件。</li>
+<li>Short dump：runtime error 或 runtime warning 后显示/保存的错误日志，可通过 ABAP Dump Analysis 查看。</li>
+<li>ST22 / ABAP Dump Analysis：经典 SAP GUI 入口，用于列出、筛选、打开和分析 short dumps。</li>
+<li>ABAP Runtime Error Viewer：ADT 中查看 runtime error / short dump 的现代入口，支持导航到源代码和查看 Long Text。</li>
+<li>Uncaught exception：class-based exception 没有被合适的 <code>CATCH</code> 处理时，可能变成 runtime error。</li>
+<li>Exception classes：常见根类是 <code>CX_ROOT</code>，分类包括 <code>CX_STATIC_CHECK</code>、<code>CX_DYNAMIC_CHECK</code>、<code>CX_NO_CHECK</code>。</li>
+<li><code>TRY ... CATCH ... ENDTRY</code>：把可预见异常转成可处理逻辑的基本控制结构。</li>
+<li><code>ASSERT</code> / <code>RAISE SHORTDUMP</code> / <code>THROW SHORTDUMP</code>：用于断言失败或程序驱动 runtime error 的机制；<code>RAISE SHORTDUMP</code> 是 statement form，<code>THROW SHORTDUMP</code> 是 expression form。</li>
+<li><code>MESSAGE TYPE &#x27;X&#x27;</code> / exit message：会导致程序终止和 short dump，现代写法中不应作为常规错误处理手段。</li>
+<li>Database rollback：runtime error 会终止程序并引发 rollback，但外部副作用和已提交事务仍需单独调查。</li>
+<li>Dump triage：先看 error name、error analysis、termination point、source extract、call stack，再看变量和系统环境。</li>
+<li>Exception handling hygiene：优先捕获具体 exception class；兜底 <code>CATCH cx_root</code> 必须记录、重抛或转换，避免 <code>例外握りつぶし</code>。</li>
+</ul>
+<p><strong>日本项目现场说法</strong></p>
+<ul>
+<li>常见日语：<code>実行時エラー</code>、<code>ショートダンプ</code>、<code>ダンプ解析</code>、<code>ST22</code>、<code>例外</code>、<code>未処理例外</code>、<code>例外握りつぶし</code>。</li>
+<li>调查相关：<code>発生時刻</code>、<code>発生ユーザ</code>、<code>プログラム名</code>、<code>クラス名</code>、<code>エラー分析</code>、<code>コールスタック</code>、<code>再現手順</code>。</li>
+<li>影响相关：<code>障害調査</code>、<code>影響範囲</code>、<code>暫定対応</code>、<code>恒久対応</code>、<code>原因分析</code>、<code>修正方針</code>、<code>再発防止</code>。</li>
+<li>说明句：ショートダンプは、ABAP 実行時エラー発生時にシステムが保存する技術的な診断情報です。</li>
+<li>Review 句：未処理例外が本番でショートダンプになっているため、入力チェックまたは例外処理を追加してください。</li>
+<li>Review 句：<code>CATCH cx_root</code> で例外を握りつぶしているため、具体的な例外クラスで捕捉し、ログ出力または再送出を行ってください。</li>
+<li>调查句：ST22 で発生時刻、発生ユーザ、プログラム名、エラー分析、コールスタックを確認してください。</li>
+<li>障害票句：ダンプの発生条件、再現手順、影響範囲、暫定対応と恒久対応を障害票に記載してください。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>runtime error</code></li>
+<li>Official / search term: <code>short dump</code></li>
+<li>Official / search term: <code>ABAP dump analysis</code></li>
+<li>Official / search term: <code>ST22</code></li>
+<li>Official / search term: <code>ABAP Runtime Error Viewer</code></li>
+<li>Official / search term: <code>uncaught exception</code></li>
+<li>Official / search term: <code>class-based exception</code></li>
+<li>Official / search term: <code>TRY CATCH ENDTRY</code></li>
+<li>Official / search term: <code>CX_ROOT</code></li>
+<li>Official / search term: <code>CX_STATIC_CHECK</code></li>
+<li>Official / search term: <code>CX_DYNAMIC_CHECK</code></li>
+<li>Official / search term: <code>CX_NO_CHECK</code></li>
+<li>Official / search term: <code>CX_SY_ZERODIVIDE</code></li>
+<li>Official / search term: <code>COMPUTE_INT_ZERODIVIDE</code></li>
+<li>Official / search term: <code>ASSERT</code></li>
+<li>Official / search term: <code>RAISE SHORTDUMP</code></li>
+<li>Official / search term: <code>THROW SHORTDUMP</code></li>
+<li>Official / search term: <code>MESSAGE_TYPE_X</code> (runtime error name for <code>MESSAGE TYPE &#x27;X&#x27;</code>)</li>
+<li>Official / search term: <code>database rollback</code></li>
+<li>Recommended search pattern: <code>ABAP runtime error short dump ST22 SAP Help</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、transaction code 和 error name。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>先读一个会被处理的整数除零错误。这里的 <code>out-&gt;write( )</code> 沿用 ADT console application / <code>if_oo_adt_classrun</code> 风格：</p>
+<pre><code class="language-abap">DATA denominator TYPE i VALUE 0.
+DATA result      TYPE i.
+
+TRY.
+    result = 100 / denominator.
+    out-&gt;write( |Result: { result }| ).
+  CATCH cx_sy_zerodivide INTO DATA(divide_error).
+    out-&gt;write( |Cannot divide by zero: { divide_error-&gt;get_text( ) }| ).
+ENDTRY.</code></pre>
+<p>再思考如果没有 <code>CATCH</code> 会发生什么：程序可能终止，系统记录 runtime error 和 short dump。不要为了练习在共享开发机随意制造 dump；如果项目提供 sandbox，可以按老师或团队标准操作，然后在 ST22 / ADT Runtime Error Viewer 中观察这些字段：</p>
+<ul>
+<li>runtime error name</li>
+<li>exception class</li>
+<li>program / class / method</li>
+<li>source code extract</li>
+<li>active calls / call stack</li>
+<li>user, client, date and time</li>
+<li>error analysis / long text</li>
+</ul>
+<p>最后写一段中文障害调查摘要：</p>
+<pre><code class="language-text">发生时间：
+发生用户：
+程序/类：
+Runtime error：
+直接原因：
+再现步骤：
+影响范围：
+临时处理：
+永久修正：</code></pre>
+<p><strong>常见误区</strong></p>
+<ul>
+<li>把 short dump 当成普通业务消息：用户看到的是技术错误，不是可理解的业务提示。</li>
+<li>只看 dump 第一行，不看 termination point、call stack 和 source extract：容易修错位置。</li>
+<li>用 <code>CATCH cx_root</code> 把所有异常吞掉：表面不 dump，实际形成 <code>例外握りつぶし</code>，原因、上下文和业务影响都被隐藏。</li>
+<li>在生产障害票里整段复制 dump：可能泄露用户、业务字段、系统和程序信息。</li>
+<li>看到 <code>MESSAGE_TYPE_X</code> 就只怪 message：真正原因可能是上游状态已经不一致。</li>
+<li>以为 rollback 代表“所有外部影响都没发生”：rollback 只针对当前 open LUW，已提交事务、外部接口、异步处理和邮件/spool 可能仍需调查。</li>
+<li>把 <code>RAISE SHORTDUMP</code> 和 <code>THROW SHORTDUMP</code> 当成同一个语法：前者是 statement form，后者是 expression form，使用位置不同。</li>
+<li>把 runtime error 和 activation syntax error 混在一起：一个是运行时终止，一个是开发时不能激活。</li>
+</ul>
+<p><strong>思考问题</strong></p>
+<ul>
+<li>Runtime error、business error、syntax error 的边界分别是什么？</li>
+<li>为什么 short dump 对开发者有用，但对最终用户不友好？</li>
+<li><code>TRY ... CATCH</code> 应该包住哪些可预见风险？为什么不应滥用 <code>CATCH cx_root</code> 或形成 <code>例外握りつぶし</code>？</li>
+<li>在 ST22 中排查一个 dump 时，最先看哪五类信息？</li>
+<li>Runtime error 引发 rollback，但为什么要限定为当前 open LUW？为什么仍然要调查外部副作用？</li>
+<li>在日本项目障害票里，如何用日语说明 <code>未処理例外</code> 和 <code>再現手順</code>？</li>
+<li>如果 HTTP/OData 调用方只看到 500 或技术错误，后端 ABAP 应该去哪里找证据？</li>
+</ul>
+<p><strong>参考资料入口</strong></p>
+<ul>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/c238d694b825421f940829321ffa326a/4ec140f26e391014adc9fffe4e204223.html" target="_blank" rel="noopener noreferrer">SAP Help Portal - ABAP Runtime Errors and Short Dumps</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/abap-cloud/abap-development-tools-user-guide/abap-runtime-errors-and-short-dumps" target="_blank" rel="noopener noreferrer">SAP Help Portal - ABAP Runtime Errors and Short Dumps for ADT</a> (accessed 2026-06-13)</li>
+<li><a href="https://learning.sap.com/courses/learn-the-basics-of-abap-programming-on-sap-btp/analyzing-runtime-errors" target="_blank" rel="noopener noreferrer">SAP Learning - Analyzing Runtime Errors</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENNONCAT_EXCEPTIONS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Runtime Errors</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSHORT_DUMP_GLOSRY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - short dump glossary</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/SAP_NETWEAVER_AS_ABAP_752/ba879a6e2ea04d9bb94c7ccd7cdac446/b134ab1cd8e44562b0fee9524c638cca.html" target="_blank" rel="noopener noreferrer">SAP Help Portal - ABAP Dump Analysis ST22</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENEXCEPTION_CATEGORIES.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Exception Categories</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPCATCH_TRY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - CATCH</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPRAISE_SHORTDUMP.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - RAISE SHORTDUMP</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/27_Exceptions.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP Cheat Sheet: Exceptions</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-01-030-time-and-timestamp-43cc512e.html">Time and timestamp 时间戳</a></li>
+<li>Related: <a class="wiki" href="section-01-016-abap-debugger-05add8e6.html">ABAP debugger 调试器入口</a></li>
+<li>Related: <a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy fields</a></li>
+<li>Related: <a class="wiki" href="section-01-026-conditional-logic-51e0f0a0.html">Conditional logic 条件分支</a></li>
+<li>Downstream: <a class="wiki" href="section-01-032-ddic-database-table-e05a6263.html">DDIC database table 字典表</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 04 - 控制流、字符串、日期时间与 Runtime Error</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<p><strong>学习任务</strong></p>
+<ul>
+<li>用中文解释 runtime error、short dump、ST22 三者关系。</li>
+<li>写一个 <code>TRY ... CATCH cx_sy_zerodivide</code> 的小例子，说明有无 <code>CATCH</code> 的差异。</li>
+<li>列出看 short dump 时最先确认的 5 个字段。</li>
+<li>写 1 个日本项目障害票句子，必须包含 <code>ショートダンプ</code>、<code>発生時刻</code>、<code>再現手順</code> 或 <code>影響範囲</code>。</li>
+<li>找 1 个 SAP 官方页面，说明 runtime error、short dump、ST22、exception category 或 <code>RAISE SHORTDUMP</code> 中任意一个边界。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-032-ddic-database-table-e05a6263.html">DDIC database table 字典表</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-030-time-and-timestamp-43cc512e.html">Previous section</a><a href="section-01-032-ddic-database-table-e05a6263.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

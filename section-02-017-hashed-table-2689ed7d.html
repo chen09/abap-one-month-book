@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>Hashed table 哈希表 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="17-hashed-table-50401fae" class="chapter-title">17. Hashed table 哈希表</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 17</li><li>self-contained study note</li></ul><h4 id="17-1-86d0aa84" class="semantic-heading semantic-concept">17.1 一句话结论</h4>
+<p>Hashed table 哈希表，是 ABAP internal table 内部表中面向 unique full-key lookup 的表类别：它用 hash algorithm 通过唯一 key 管理行，适合大表中反复按完整 key 精确读取；但它不适合重复 key、顺序输出、范围读取、前缀 key 查询或依赖行号的处理。</p>
+<h4 id="17-2-20d9e6aa" class="semantic-heading semantic-concept">17.2 到底学什么</h4>
+<p>如果 <a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a> 像 <code>ArrayList</code> / <code>list</code>，<a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a> 像“按 key 保持顺序的索引结构”，那么 hashed table 更像 Java <code>HashMap</code> / Python <code>dict</code>：你给它一个完整 key，它直接找对应那一行。</p>
+<p>但这个类比只能帮助入门，不能替代 ABAP 语义。ABAP hashed table 有几个硬规则：</p>
+<ul>
+<li>primary key 必须是 unique key。</li>
+<li>主要访问方式是 key access，而不是 index access。</li>
+<li>hash 优势通常要求使用完整 key。</li>
+<li>行没有业务排序保证，不能当成按顺序输出的表。</li>
+<li>不能存放同一个 primary key 的多行。</li>
+</ul>
+<p>最基本声明：</p>
+<pre><code class="language-abap">TYPES ty_t_material TYPE HASHED TABLE OF ty_material
+  WITH UNIQUE KEY matnr.</code></pre>
+<p>或者多字段 key：</p>
+<pre><code class="language-abap">TYPES ty_t_price TYPE HASHED TABLE OF ty_price
+  WITH UNIQUE KEY sales_org material valid_from.</code></pre>
+<p>本节要学的是：hashed table 不是“永远最快的内部表”，而是非常适合“完整唯一 key -&gt; 一行”的查找模型。如果访问模式不是这个，就要考虑 standard table、sorted table 或 secondary key。</p>
+<h4 id="17-3-7af0d0e0" class="semantic-heading semantic-why">17.3 为什么重要</h4>
+<p>很多 ABAP 性能问题来自在 standard table 上反复线性查找。例如：</p>
+<pre><code class="language-abap">LOOP AT lt_items INTO DATA(ls_item).
+  READ TABLE lt_materials INTO DATA(ls_material)
+    WITH KEY matnr = ls_item-matnr.
+ENDLOOP.</code></pre>
+<p>如果 <code>lt_materials</code> 是几万行 standard table，这段代码可能很慢。若 <code>matnr</code> 唯一，并且循环中总是按完整 <code>matnr</code> 查材料信息，hashed table 就非常合适：</p>
+<pre><code class="language-abap">DATA lt_materials TYPE HASHED TABLE OF ty_material
+  WITH UNIQUE KEY matnr.</code></pre>
+<p>项目上常见使用场景：</p>
+<ul>
+<li>把配置表读入内存后，按配置 key 高频查找。</li>
+<li>把物料、客户、供应商等主数据做成 lookup table。</li>
+<li>去重：用 unique key 防止重复行进入表。</li>
+<li>接口处理中按外部 ID / SAP ID 快速定位一行。</li>
+<li>测试或转换逻辑中，用 hash table 模拟字典结构。</li>
+</ul>
+<p>但 hashed table 也很容易被误用。如果需求是“同一个 header 下有多条 item”，hashed primary key 就不合适，因为 key 不能重复。如果需求是“按日期范围取一段数据”，hashed table 也不合适，因为 hash key 不支持自然范围顺序。此时 sorted table 的 non-unique key 往往更自然。</p>
+<h4 id="17-4-key-mechanism-4e1ab2dd" class="semantic-heading semantic-mechanism">17.4 Key mechanism / 核心机制</h4>
+<h5 id="17-4-1-hash-key-746c7eaf">17.4.1 hash key 必须唯一</h5>
+<p>hashed table 的 primary table key 是 hash key，而 hash key 必须 unique。因此声明时必须写 <code>WITH UNIQUE KEY ...</code>：</p>
+<pre><code class="language-abap">DATA lt_customer TYPE HASHED TABLE OF ty_customer
+  WITH UNIQUE KEY customer_id.</code></pre>
+<p>下面这种“non-unique hashed table”不是合法设计方向：</p>
+<pre><code class="language-abap">&quot; 错误方向：hashed primary key 不能 non-unique
+&quot; DATA lt_x TYPE HASHED TABLE OF ty_x WITH NON-UNIQUE KEY id.</code></pre>
+<p>如果业务上同一个 key 下可能有多行，应该考虑：</p>
+<pre><code class="language-text">需要按 key 分组且保留多行
+  -&gt; sorted table WITH NON-UNIQUE KEY ...
+
+只是顺序处理或小表
+  -&gt; standard table
+
+需要一张表同时支持多种访问路径
+  -&gt; secondary table key</code></pre>
+<h5 id="17-4-2-full-key-access-hashed-table-fbf0a76b">17.4.2 full key access 才是 hashed table 的主场</h5>
+<p>hashed table 的优势来自完整 unique key。示例：</p>
+<pre><code class="language-abap">READ TABLE lt_customer INTO DATA(ls_customer)
+  WITH TABLE KEY customer_id = lv_customer_id.</code></pre>
+<p>或者 table expression：</p>
+<pre><code class="language-abap">DATA(ls_customer) = lt_customer[ customer_id = lv_customer_id ].</code></pre>
+<p>这里的 <code>customer_id</code> 是 hashed table 的完整 key，查找可以利用 hash algorithm。若 key 是多字段：</p>
+<pre><code class="language-abap">WITH UNIQUE KEY sales_org material valid_from</code></pre>
+<p>就应该用完整组合查找：</p>
+<pre><code class="language-abap">READ TABLE lt_price INTO DATA(ls_price)
+  WITH TABLE KEY sales_org  = lv_sales_org
+                 material   = lv_matnr
+                 valid_from = lv_date.</code></pre>
+<p>如果只提供 <code>sales_org</code> 或 <code>material</code>，就不再是 hashed table 的理想访问方式。初学者要记住：hashed table 不擅长前缀 key、范围 key、模糊条件或排序输出。</p>
+<h5 id="17-4-3-primary-table-index-7b9a572a">17.4.3 没有 primary table index</h5>
+<p>standard table 和 sorted table 是 index table；hashed table 不是按 primary index 管理的表。不要用下面这种思路：</p>
+<pre><code class="language-abap">&quot; 不要把 hashed table 当成第 N 行容器
+&quot; READ TABLE lt_customer INDEX 1 INTO DATA(ls_customer).</code></pre>
+<p>使用 hash key 读取时，<code>sy-tabix</code> 也不是可依赖的业务位置。在 ABAP 文档中，hash key 相关读取场景下 <code>sy-tabix</code> 可以是 0。项目代码里不要把 hashed table 的读取结果和行号绑定在一起。</p>
+<p>如果确实需要有序遍历或 index-like 访问，就说明 hashed table 可能不是正确主表类别，或者需要 secondary sorted key。</p>
+<h5 id="17-4-4-insert-into-table-a61dfc7d">17.4.4 填充：使用 <code>INSERT ... INTO TABLE</code></h5>
+<p>hashed table 不适合 <code>APPEND</code>。常见写法是：</p>
+<pre><code class="language-abap">INSERT ls_customer INTO TABLE lt_customer.</code></pre>
+<p>如果插入重复 key，要立刻处理返回状态或异常语义。不要把重复 key 当成“自动覆盖”。如果业务需要覆盖旧值，要明确写出策略，例如先删除再插入，或使用适合的构造/赋值模式，并在 review 中说明。</p>
+<h5 id="17-4-5-table-expression-af5ce55e">17.4.5 table expression 的成功与失败</h5>
+<p>table expression 很适合 hashed table：</p>
+<pre><code class="language-abap">IF line_exists( lt_customer[ customer_id = lv_customer_id ] ).
+  DATA(ls_customer) = lt_customer[ customer_id = lv_customer_id ].
+ENDIF.</code></pre>
+<p>也可以使用 <code>OPTIONAL</code> 避免未找到时报异常：</p>
+<pre><code class="language-abap">DATA(ls_customer) = VALUE ty_customer(
+  lt_customer[ customer_id = lv_customer_id ] OPTIONAL ).</code></pre>
+<p>下一节会继续讲 table expression；在本节先记住：hashed table 很适合这种“按 key 取一行”的写法，但要处理 not found。</p>
+<h5 id="17-4-6-ea9b9f53">17.4.6 管理成本与使用边界</h5>
+<p>hash algorithm 需要内部管理结构。SAP Help / SAP Samples 都提醒：hashed table 查找很强，但管理成本也高。小表、只遍历一次的表、频繁插入删除但很少 key lookup 的表，不一定适合 hash。</p>
+<p>选择 hashed table 时，至少问三件事：</p>
+<pre><code class="language-text">key 是否唯一？
+是否总是按完整 key 精确读取？
+这张表是否足够大、读取次数是否足够多，值得付出 hash 管理成本？</code></pre>
+<p>如果答案不是三次“是”，就不要因为“hash 听起来快”而盲目使用。</p>
+<h4 id="17-5-7985ed4b" class="semantic-heading semantic-japan">17.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>ハッシュテーブル</code></li>
+<li><code>内部テーブル</code></li>
+<li><code>一意キー</code></li>
+<li><code>完全キー</code></li>
+<li><code>キーアクセス</code></li>
+<li><code>ハッシュアルゴリズム</code></li>
+<li><code>重複不可</code></li>
+<li><code>インデックスアクセス不可</code></li>
+<li><code>範囲検索不可</code></li>
+<li><code>検索性能</code></li>
+<li><code>管理コスト</code></li>
+<li><code>ルックアップテーブル</code></li>
+<li><code>キー項目</code></li>
+<li><code>重複キー</code></li>
+</ul>
+<p>自然说明句：</p>
+<ul>
+<li>この内部テーブルは完全キーでの検索が中心なので、ハッシュテーブルを使用します。</li>
+<li>ハッシュテーブルは一意キーが前提のため、同一キーで複数明細を保持する用途には適しません。</li>
+<li>範囲検索やキー順の処理が必要な場合は、ソート済みテーブルを検討します。</li>
+<li>重複キーが発生する可能性があるため、登録時のエラーハンドリングを明確にします。</li>
+<li>小規模で全件ループのみのテーブルであれば、ハッシュテーブル化しても効果は限定的です。</li>
+</ul>
+<p>review 里常见问法：</p>
+<ul>
+<li><code>このキーは本当に一意ですか。</code></li>
+<li><code>検索条件は完全キーになっていますか。</code></li>
+<li><code>範囲検索があるならソート済みテーブルの方が適切ではありませんか。</code></li>
+<li><code>重複キー発生時の処理方針はありますか。</code></li>
+</ul>
+<h4 id="17-6-english-terms-7dff68fc" class="semantic-heading semantic-terms">17.6 English Terms</h4>
+<ul>
+<li><code>hashed table</code></li>
+<li><code>internal table</code></li>
+<li><code>table category</code></li>
+<li><code>hash key</code></li>
+<li><code>hash algorithm</code></li>
+<li><code>unique primary key</code></li>
+<li><code>full key access</code></li>
+<li><code>key access</code></li>
+<li><code>secondary hash key</code></li>
+<li><code>secondary sorted key</code></li>
+<li><code>READ TABLE</code></li>
+<li><code>table expression</code></li>
+<li><code>line_exists</code></li>
+<li><code>OPTIONAL</code></li>
+<li><code>INSERT ... INTO TABLE</code></li>
+<li><code>duplicate key</code></li>
+<li><code>sy-subrc</code></li>
+<li><code>sy-tabix</code></li>
+<li><code>standard table</code></li>
+<li><code>sorted table</code></li>
+<li><code>range access</code></li>
+<li><code>index access</code></li>
+<li><code>lookup table</code></li>
+<li><code>administration costs</code></li>
+</ul>
+<p>Recommended search patterns:</p>
+<ul>
+<li><code>ABAP hashed table unique key hash algorithm</code></li>
+<li><code>ABAP hashed table full key access READ TABLE</code></li>
+<li><code>SAP Learning sorted hashed tables full key</code></li>
+<li><code>ABAP internal table hashed table no index access</code></li>
+<li><code>ABAP hashed table duplicate key INSERT</code></li>
+</ul>
+<h4 id="17-7-example-401af9cb" class="semantic-heading semantic-example">17.7 Example / 学习例子</h4>
+<h5 id="17-7-1-1-lookup-table-8dbb9c9a">17.7.1 例 1：主数据 lookup table</h5>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_material,
+         matnr TYPE c LENGTH 18,
+         mtart TYPE c LENGTH 4,
+         text  TYPE string,
+       END OF ty_material.
+
+DATA lt_material TYPE HASHED TABLE OF ty_material
+  WITH UNIQUE KEY matnr.
+
+INSERT VALUE #( matnr = &#x27;MAT001&#x27; mtart = &#x27;FERT&#x27; text = `Finished product` )
+  INTO TABLE lt_material.
+
+READ TABLE lt_material INTO DATA(ls_material)
+  WITH TABLE KEY matnr = &#x27;MAT001&#x27;.
+
+IF sy-subrc = 0.
+  &quot; found
+ENDIF.</code></pre>
+<p>这就是 hashed table 的主场：<code>matnr</code> 唯一，而且代码按完整 <code>matnr</code> 高频查找。</p>
+<h5 id="17-7-2-2-table-expression-01d5ab7b">17.7.2 例 2：table expression</h5>
+<pre><code class="language-abap">IF line_exists( lt_material[ matnr = lv_matnr ] ).
+  DATA(ls_material) = lt_material[ matnr = lv_matnr ].
+ENDIF.</code></pre>
+<p>这种写法简洁，但要注意 not found。没有 <code>line_exists</code>、<code>OPTIONAL</code> 或异常处理时，table expression 找不到行会抛出异常。</p>
+<h5 id="17-7-3-3-key-29b2b734">17.7.3 例 3：多字段完整 key</h5>
+<pre><code class="language-abap">TYPES: BEGIN OF ty_price,
+         sales_org  TYPE c LENGTH 4,
+         material   TYPE c LENGTH 18,
+         valid_from TYPE d,
+         price      TYPE p LENGTH 8 DECIMALS 2,
+       END OF ty_price.
+
+DATA lt_price TYPE HASHED TABLE OF ty_price
+  WITH UNIQUE KEY sales_org material valid_from.
+
+READ TABLE lt_price INTO DATA(ls_price)
+  WITH TABLE KEY sales_org  = lv_sales_org
+                 material   = lv_matnr
+                 valid_from = lv_date.</code></pre>
+<p>这里要用完整 key。如果你经常只按 <code>sales_org material</code> 找“所有价格日期”，hashed table 就不合适；sorted table 的 non-unique / range 访问会更自然。</p>
+<h5 id="17-7-4-4-08c79382">17.7.4 例 4：不适合一对多明细</h5>
+<pre><code class="language-abap">&quot; 一个订单有多条 item
+&quot; order_id 单独不是 unique key</code></pre>
+<p>如果需求是：</p>
+<pre><code class="language-text">order_id = 100
+  -&gt; item 10
+  -&gt; item 20
+  -&gt; item 30</code></pre>
+<p>那么 <code>HASHED TABLE WITH UNIQUE KEY order_id</code> 不成立。可以考虑：</p>
+<pre><code class="language-abap">DATA lt_items TYPE SORTED TABLE OF ty_item
+  WITH NON-UNIQUE KEY order_id item_no.</code></pre>
+<h5 id="17-7-5-5-1e1ca75c">17.7.5 例 5：去重集合</h5>
+<pre><code class="language-abap">DATA lt_seen TYPE HASHED TABLE OF ty_key
+  WITH UNIQUE KEY id.
+
+LOOP AT lt_input INTO DATA(ls_input).
+  INSERT VALUE #( id = ls_input-id ) INTO TABLE lt_seen.
+  IF sy-subrc &lt;&gt; 0.
+    &quot; duplicate key
+  ENDIF.
+ENDLOOP.</code></pre>
+<p>hashed table 可以用于“已经见过哪些 key”的集合语义。实际项目中要根据插入语句和表类型确认重复 key 的返回/异常处理方式。</p>
+<h4 id="17-8-counterexample-failure-mode-cf82cca1" class="semantic-heading semantic-example">17.8 Counterexample / Failure mode</h4>
+<h5 id="17-8-1-1-hashed-table-1ff500b6" class="semantic-heading semantic-failure">17.8.1 误区 1：把 hashed table 当成万能最快</h5>
+<p>如果只是全表 <code>LOOP AT</code>，没有 key filter，hashed table 的 hash 查找优势没有发挥，还可能增加管理成本。小表或顺序处理优先考虑 standard table。</p>
+<h5 id="17-8-2-2-key-0be7c0dd" class="semantic-heading semantic-failure">17.8.2 误区 2：只给部分 key</h5>
+<pre><code class="language-abap">DATA lt_price TYPE HASHED TABLE OF ty_price
+  WITH UNIQUE KEY sales_org material valid_from.
+
+READ TABLE lt_price INTO DATA(ls_price)
+  WITH KEY sales_org = lv_sales_org.</code></pre>
+<p>这不是 full-key lookup。hashed table 的优势不能按这个方式发挥。要么提供完整 key，要么重新设计 table category / secondary key。</p>
+<h5 id="17-8-3-3-key-hashed-table-a6bc980f" class="semantic-heading semantic-failure">17.8.3 误区 3：需要重复 key 却选 hashed table</h5>
+<p>hashed primary key 必须 unique。如果业务是一对多，使用 hashed table 会把模型写错。不要为了速度牺牲业务语义。</p>
+<h5 id="17-8-4-4-f3ae1d33" class="semantic-heading semantic-failure">17.8.4 误区 4：依赖输出顺序</h5>
+<p>hashed table 不提供按业务 key 的自然输出顺序。要稳定输出，先转换到 standard table 后 <code>SORT</code>，或直接选择 sorted table。</p>
+<h5 id="17-8-5-5-duplicate-key-b8492434" class="semantic-heading semantic-failure">17.8.5 误区 5：忽略 duplicate key 处理</h5>
+<p>插入 hashed table 时，重复 key 是业务信号，不是小问题。它可能表示输入重复、主数据不一致、接口幂等键重复或程序逻辑错误。应明确处理，而不是让程序在生产中随机失败。</p>
+<h4 id="17-9-d21dafe1" class="semantic-heading semantic-practice">17.9 思考问题</h4>
+<ul>
+<li>这张表的 key 是否真的唯一？</li>
+<li>读取时是否总是提供完整 key？</li>
+<li>是否需要按 key 前缀或范围读取？如果需要，为什么不用 sorted table？</li>
+<li>是否需要输出有序结果？如果需要，排序在哪里保证？</li>
+<li>这张表大小和读取次数是否足以抵消 hash 管理成本？</li>
+<li>重复 key 发生时，是忽略、报错、覆盖，还是记录审计日志？</li>
+<li>是否有 secondary key 可以更好支持另一个访问路径？</li>
+<li>用日语 review 时，能否说明 <code>完全キー</code>、<code>一意キー</code>、<code>範囲検索不可</code>？</li>
+</ul>
+<h4 id="17-10-7b6e3a0b" class="semantic-heading semantic-reference">17.10 参考资料入口</h4>
+<ul>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/deepening-your-abap-programming-knowledge/working-with-sorted-and-hashed-tables_de84be91-c7db-4166-95cf-2b036c8d5558" target="_blank" rel="noopener noreferrer">Working with Sorted and Hashed Tables</a></li>
+<li>SAP Samples: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet</a></li>
+<li>SAP Samples Raw: <a href="https://raw.githubusercontent.com/SAP-samples/abap-cheat-sheets/main/01_Internal_Tables.md" target="_blank" rel="noopener noreferrer">Internal Tables Cheat Sheet Raw Markdown</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENHASHED_TABLE_GLOSRY.html" target="_blank" rel="noopener noreferrer">hashed table - Glossary</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENHASH_KEY_GLOSRY.html" target="_blank" rel="noopener noreferrer">hash key - Glossary</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-concepts/internal-table-setup" target="_blank" rel="noopener noreferrer">Technical Properties of Internal Tables</a></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-concepts/how-to-specify-table-keys-in-table-types-and-internal-tables" target="_blank" rel="noopener noreferrer">Specifying Table Keys</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPDATA_PRIMARY_KEY.html" target="_blank" rel="noopener noreferrer">DATA, key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABAPREAD_TABLE_KEY.html" target="_blank" rel="noopener noreferrer">READ TABLE, table_key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPREAD_TABLE_FREE.html" target="_blank" rel="noopener noreferrer">READ TABLE, free_key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENITAB_DATA_TYPE.html" target="_blank" rel="noopener noreferrer">itab - Table Type</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENITAB_KEY_SECONDARY.html" target="_blank" rel="noopener noreferrer">itab - Secondary Table Key</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_816_index_htm/8.16/en-US/ABENSELECT_TABLE_TYPE_GUIDL.html" target="_blank" rel="noopener noreferrer">Selecting the Table Category</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="17-11-connections-dfb777e0">17.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a></li>
+<li><a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li><a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a></li>
+<li><a class="wiki" href="section-02-019-read-table-c16660cd.html">READ TABLE 读取内部表</a></li>
+<li><a class="wiki" href="section-02-020-table-expression-15adfaac.html">Table expression 表表达式</a></li>
+<li><a class="wiki" href="section-02-023-loop-at-assigning-vs-loop-at-into-2b43e554.html">LOOP AT ASSIGNING vs LOOP AT INTO</a></li>
+<li>Upstream: <a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a></li>
+<li>Downstream: <a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 10 - 内部表类型与读取方式</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="17-12-0bcd26bc" class="semantic-heading semantic-practice">17.12 学习任务</h4>
+<ul>
+<li>写一个 <code>HASHED TABLE WITH UNIQUE KEY</code> 的声明，并解释为什么 key 必须 unique。</li>
+<li>把一个 standard table lookup 改写为 hashed table full-key lookup。</li>
+<li>找一个一对多场景，说明为什么不适合 hashed primary key。</li>
+<li>用日语写一句 review comment：当前 hashed table 是否真的使用完整 key。</li>
+<li>对比 <a class="wiki" href="section-02-015-standard-table-1214200e.html">Standard table 标准表</a>、<a class="wiki" href="section-02-016-sorted-table-2b234b33.html">Sorted table 排序表</a>、本节，写出三种 table category 的选型规则。</li>
+</ul>
+<h4 id="17-13-confidence-next-action-dbbe5c30" class="semantic-heading semantic-status">17.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High，当前内容已用 SAP Learning <code>Working with Sorted and Hashed Tables</code>、SAP Samples <code>01_Internal_Tables.md</code>、SAP Help / ABAP Keyword Documentation 的 hashed table、hash key、internal table setup、table key、<code>READ TABLE</code>、secondary table key 与 table-category selection 资料校准；旧 Joule 尝试返回通用 UI error，旧 Claude / 当前 Claude health check 超时，因此已创建 2026-06-18 Claude follow-up prompt 作为外部 review debt。</li>
+<li>Next action: 进入 <a class="wiki" href="section-02-018-secondary-table-key-63fc7651.html">Secondary table key 二级键</a>，把“主表类别”和“二级键”之间的取舍讲清楚，特别是标准表补 secondary key、hashed table 补 sorted secondary key 的项目判断。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-017-hashed-table-2689ed7d.html">Hashed table 哈希表</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-016-sorted-table-2b234b33.html">Previous section</a><a href="section-02-018-secondary-table-key-63fc7651.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

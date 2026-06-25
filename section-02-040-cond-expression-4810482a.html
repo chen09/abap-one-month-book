@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>COND expression 条件表达式 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a class="active" href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-02---Core-ABAP-Programming.html">Chapter 02 - Core ABAP Programming</a></p><h1 id="40-cond-expression-68874803" class="chapter-title">40. COND expression 条件表达式</h1><ul class="reading-meta"><li>Chapter 02</li><li>Section 40</li><li>self-contained study note</li></ul><h4 id="40-1-72bfa2e3" class="semantic-heading semantic-concept">40.1 一句话结论</h4>
+<p>COND expression 条件表达式 是 ABAP conditional expression / conditional operator 中用于“根据条件产生一个值”的写法。它常和 <code>VALUE</code>、<code>CORRESPONDING</code>、<code>SWITCH</code> 等现代表达式写法一起学习，但在 ABAP Keyword Documentation 的分类里，<code>COND</code> 属于 conditional expressions，而不是 <code>VALUE</code> 那类 constructor expression。它把简单的 <code>IF ... ELSEIF ... ELSE ... ENDIF</code> 赋值逻辑压缩成一个表达式，形式类似：</p>
+<pre><code class="language-abap">DATA(result) = COND string(
+  WHEN lv_status = &#x27;A&#x27; THEN `Active`
+  WHEN lv_status = &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).</code></pre>
+<p>这段代码的核心不是“少写几行”，而是表达清楚：<code>result</code> 是一个值，这个值由一组条件决定。<code>COND</code> 适合小而清楚的 value selection，例如状态显示文本、布尔标志、简单分类、默认值选择、ABAP Unit expected value。它不适合承载多步业务流程、数据库更新、消息组装、权限判断链或复杂副作用逻辑。</p>
+<p>初学者要先抓住四件事：第一，<code>COND</code> 返回一个结果值；第二，<code>WHEN</code> 后面是 logical expression，按顺序判断；第三，所有 <code>THEN</code> / <code>ELSE</code> 的结果必须能转换到同一个 result type；第四，如果没有任何 <code>WHEN</code> 成立且没有写 <code>ELSE</code>，结果会是 result type 的 initial value。</p>
+<h4 id="40-2-ac8317df" class="semantic-heading semantic-concept">40.2 到底学什么</h4>
+<p>本节要掌握十个点：</p>
+<ul>
+<li><code>COND</code> 是 conditional operator / conditional expression，用来构造“条件决定的结果值”。</li>
+<li>基本语法是 <code>COND type( WHEN condition THEN result ... ELSE result )</code>，也可以在有明确上下文时写 <code>COND #( ... )</code>。</li>
+<li><code>WHEN</code> 后面写 ABAP logical expression，例如 <code>=</code>, <code>&lt;&gt;</code>, <code>BETWEEN</code>, <code>IS INITIAL</code>, <code>AND</code>, <code>OR</code>。</li>
+<li>多个 <code>WHEN</code> 按顺序检查；第一个为 true 的分支决定结果。</li>
+<li><code>ELSE</code> 不是必须写，但没有 <code>ELSE</code> 时，所有条件都不成立会得到 result type 的 initial value。</li>
+<li><code>THEN</code> / <code>ELSE</code> 后面的结果必须能转换为 <code>COND</code> 的 result type。</li>
+<li><code>THROW</code> 可以作为条件表达式结果，用于在非法输入时直接抛出 class-based exception；它不返回值，因此不参与 result type conversion。</li>
+<li><code>THROW SHORTDUMP</code> 是更强烈的 runtime error 语境，初学阶段只要知道它存在，并且业务代码不要轻易使用。</li>
+<li><code>LET</code> 可在 <code>COND</code> 内定义局部 helper value；它可以出现在外层，也可以出现在 <code>THEN</code> / <code>ELSE</code> 的 result 位置前，作用域只在对应表达式内。</li>
+<li><code>COND</code> 和 <code>IF</code> 的差异是：<code>COND</code> 产生一个值，<code>IF</code> 执行一组语句；不要为了“现代写法”把多步骤流程硬塞进表达式。</li>
+<li>日本项目 review 重点是 <code>COND式</code>、<code>条件分岐</code>、<code>初期値</code>、<code>型推論</code>、<code>可読性</code>、<code>THROW指定</code>、<code>IF文に戻すべきか</code>。</li>
+</ul>
+<p>最小判断标准：看到 <code>COND #( ... )</code> 时，能回答“最终 result type 是什么、每个 <code>WHEN</code> 条件是否互斥/有顺序依赖、没有 <code>ELSE</code> 时会得到什么、是否应该改回 <code>IF</code> 或抽 helper method”。</p>
+<h4 id="40-3-3376d29a" class="semantic-heading semantic-why">40.3 为什么重要</h4>
+<p>SAP 项目里常见大量“根据状态给一个值”的小逻辑：</p>
+<pre><code class="language-abap">IF lv_status = &#x27;A&#x27;.
+  lv_text = `Active`.
+ELSEIF lv_status = &#x27;B&#x27;.
+  lv_text = `Blocked`.
+ELSE.
+  lv_text = `Unknown`.
+ENDIF.</code></pre>
+<p>如果这段逻辑只是为了产生 <code>lv_text</code>，<code>COND</code> 会更贴近意图：</p>
+<pre><code class="language-abap">DATA(lv_text) = COND string(
+  WHEN lv_status = &#x27;A&#x27; THEN `Active`
+  WHEN lv_status = &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).</code></pre>
+<p>这在 ABAP Unit、RAP helper method、OData DTO 组装、ALV output 字段、message severity 分类、简单 release flag 判断中都很实用。读者一眼能看出“这里不是一个业务流程，只是在选一个值”。</p>
+<p>但 <code>COND</code> 也容易被滥用。过深嵌套、过长条件、带副作用 method call、混合多种业务规则的 <code>COND</code>，会比 <code>IF</code> 更难 debug。项目里发生障害调查时，reviewer 需要逐个看 <code>WHEN</code> 条件、result type、initial value、异常路径。如果表达式变成一屏还看不完，就已经失去价值。</p>
+<h4 id="40-4-key-mechanism-3dae6943" class="semantic-heading semantic-mechanism">40.4 Key mechanism / 核心机制</h4>
+<h5 id="40-4-1-basic-form-returns-one-value-69cb3c80">40.4.1 Basic form returns one value</h5>
+<p>最基础形式：</p>
+<pre><code class="language-abap">DATA(priority_text) = COND string(
+  WHEN lv_priority = &#x27;1&#x27; THEN `High`
+  WHEN lv_priority = &#x27;2&#x27; THEN `Middle`
+  ELSE `Normal`
+).</code></pre>
+<p><code>COND string( ... )</code> 明确说明结果是 <code>string</code>。ABAP 会按顺序检查每个 <code>WHEN</code>，第一个成立的分支返回 <code>THEN</code> 后的值。如果没有任何 <code>WHEN</code> 成立，就返回 <code>ELSE</code> 后面的值。</p>
+<p>可以把它读成：“构造一个 string，这个 string 的值由条件决定。”</p>
+<h5 id="40-4-2-needs-result-type-context-50b056c0">40.4.2 # needs result type context</h5>
+<p>和 <code>VALUE #( ... )</code>、<code>CORRESPONDING #( ... )</code> 一样，<code>COND #( ... )</code> 的 <code>#</code> 依赖静态可推断的 operand type：</p>
+<pre><code class="language-abap">DATA lv_text TYPE string.
+
+lv_text = COND #(
+  WHEN lv_status = &#x27;A&#x27; THEN `Active`
+  ELSE `Unknown`
+).</code></pre>
+<p>这里左侧 <code>lv_text TYPE string</code> 提供了 result type。如果用 inline declaration：</p>
+<pre><code class="language-abap">DATA(lv_text) = COND #(
+  WHEN lv_status = &#x27;A&#x27; THEN `Active`
+  ELSE `Unknown`
+).</code></pre>
+<p>reviewer 就要确认 ABAP 能否按预期推断类型，以及推断出来的类型是否足够稳定。把 <code>COND #( ... )</code> 直接传给 generic formal parameter（例如 <code>ANY</code>）或上下文不够明确的位置时，可能出现语法错误或推断结果不符合意图。初学阶段建议在业务字段、金额、数量、日期、状态代码、message text 这类场景中优先写显式类型，例如 <code>COND string( ... )</code>、<code>COND abap_bool( ... )</code>、<code>COND decfloat34( ... )</code>，不要把业务类型交给 <code>#</code> 猜。</p>
+<h5 id="40-4-3-when-is-a-logical-expression-0c734ede">40.4.3 WHEN is a logical expression</h5>
+<p><code>WHEN</code> 后面不是一个固定值，而是完整 ABAP logical expression：</p>
+<pre><code class="language-abap">DATA(can_release) = COND abap_bool(
+  WHEN lv_status = &#x27;OPEN&#x27;
+   AND lv_amount &lt;= lv_limit
+   AND lv_blocked = abap_false
+  THEN abap_true
+  ELSE abap_false
+).</code></pre>
+<p>这和下一节 <code>SWITCH</code> 的差异很重要。<code>COND</code> 适合“每个分支都有自己的判断条件”；<code>SWITCH</code> 更像 <code>CASE</code>，适合“对一个 operand 的不同取值做映射”。如果只是把一个状态码映射成文本，<code>SWITCH</code> 可能更清楚；如果判断条件包含金额、日期、权限、状态组合，<code>COND</code> 更合适。</p>
+<p>多个 <code>WHEN</code> 分支按从上到下的顺序检查，第一条 true 的分支决定结果。因此条件顺序有业务含义。更具体的条件应该放在更泛化的条件之前，否则后面的具体条件可能永远到不了。</p>
+<h5 id="40-4-4-else-omission-means-initial-value-c6151038">40.4.4 ELSE omission means initial value</h5>
+<p>官方资料明确提醒：如果没有写 <code>ELSE</code>，并且没有任何 <code>WHEN</code> 条件成立，结果是指定或推断出的 data type 的 initial value。</p>
+<pre><code class="language-abap">DATA(lv_flag) = COND abap_bool(
+  WHEN lv_status = &#x27;OPEN&#x27; THEN abap_true
+).</code></pre>
+<p>如果 <code>lv_status</code> 不是 <code>OPEN</code>，<code>lv_flag</code> 会是 <code>abap_bool</code> 的 initial value，通常等价于 <code>abap_false</code>。这可能正是你要的，也可能是隐藏 bug。比如金额、日期、状态文本、message severity 没写 <code>ELSE</code>，就可能静默得到 <code>0</code>、空日期、空字符串或空状态。</p>
+<p>初学阶段的纪律：业务结果建议写 <code>ELSE</code>，除非 initial value 本来就是明确的业务语义，并且用变量名或注释让 reviewer 看得出来。</p>
+<p>对业务关键字段，<code>ELSE THROW cx_...( )</code> 往往比静默返回 initial value 更安全。空字符串、0、<code>00000000</code> 这类 initial value 不会自动报错，却可能一路传到接口输出、会计金额、状态判断或 message 组装中。</p>
+<h5 id="40-4-5-result-type-conversion-8196f827">40.4.5 Result type conversion</h5>
+<p><code>COND</code> 的所有分支结果最终都要进入同一个 result type：</p>
+<pre><code class="language-abap">DATA(lv_amount_text) = COND string(
+  WHEN lv_amount IS INITIAL THEN `0`
+  ELSE |{ lv_amount }|
+).</code></pre>
+<p>这里两个分支都是可转换为 <code>string</code> 的值。相反，如果写：</p>
+<pre><code class="language-abap">DATA(lv_result) = COND string(
+  WHEN lv_ok = abap_true THEN `OK`
+  ELSE 1
+).</code></pre>
+<p>语法或转换层面可能可以处理，但语义上很差：一个分支像文本，一个分支像数字。项目里不要只问“能不能编译”，还要问“这个 result type 是否表达业务含义”。</p>
+<p>如果某个 <code>THEN</code> / <code>ELSE</code> 结果无法转换为 <code>COND</code> 的 result type，通常会在语法检查或 activation 时暴露，而不是等到生产环境才发现。<code>THROW</code> 是特殊情况：它不是一个要转换成 result type 的值，而是直接抛出异常。</p>
+<h5 id="40-4-6-throw-in-cond-65eaf2f1">40.4.6 THROW in COND</h5>
+<p><code>COND</code> 的结果位置可以使用 <code>THROW</code> 抛出 class-based exception。典型场景是“非法输入时没有合法结果”：</p>
+<pre><code class="language-abap">DATA(lv_rate) = COND decfloat34(
+  WHEN lv_quantity &lt;&gt; 0 THEN lv_amount / lv_quantity
+  ELSE THROW cx_sy_zerodivide( )
+).</code></pre>
+<p>这和先写 <code>IF lv_quantity = 0. RAISE EXCEPTION ... ENDIF.</code> 再计算的意图类似，但表达得更紧凑。初学者要注意：只有当异常路径确实是“无法产生结果”时，<code>THROW</code> 才适合放在 <code>COND</code> 里。不要把复杂消息组装、日志记录、状态更新一起塞进去。</p>
+<p><code>THROW</code> 在这里和 <code>RAISE EXCEPTION TYPE ...</code> 的性质一致：它会抛出 class-based exception，调用方需要通过 <code>RAISING</code> 契约或外层 <code>TRY...CATCH</code> 处理。它不会因为写在 <code>COND</code> 里面就被“吃掉”。<code>THROW SHORTDUMP</code> 也可作为更强的 runtime error 形式，但业务应用代码通常应优先使用 class-based exception、RAP reported/failed 或清晰的错误处理，不要轻易制造 short dump。</p>
+<h5 id="40-4-7-let-avoids-repeated-helper-logic-5fb3ba35">40.4.7 LET avoids repeated helper logic</h5>
+<p><code>LET</code> 可在 <code>COND</code> 内声明局部 helper value。官方语法允许在 <code>COND</code> 外层使用 <code>LET</code>，也允许在分支 result 位置前使用 <code>LET</code>。本书先讲最常见、最容易读的外层形式：</p>
+<pre><code class="language-abap">DATA(time_text) = COND string(
+  LET lv_time = cl_abap_context_info=&gt;get_system_time( ) IN
+  WHEN lv_time BETWEEN &#x27;050001&#x27; AND &#x27;120000&#x27; THEN |Good morning { lv_time TIME = ISO }|
+  WHEN lv_time BETWEEN &#x27;120001&#x27; AND &#x27;180000&#x27; THEN |Good afternoon { lv_time TIME = ISO }|
+  ELSE |Good evening { lv_time TIME = ISO }|
+).</code></pre>
+<p>这样可以避免重复调用方法或重复写同一段表达式。<code>LET</code> 中声明的 helper value 只在这个表达式内可见，不像 <code>DATA(var)</code> inline declaration 那样在整个 processing block 中可见。</p>
+<p>但 <code>LET</code> 不是炫技工具。如果 <code>LET</code>、<code>COND</code>、<code>VALUE</code>、<code>FOR</code>、<code>THROW</code> 嵌套到读者需要来回数括号，就应该抽 helper method 或改回多行 <code>IF</code>。</p>
+<h5 id="40-4-8-cond-vs-if-0d13b069">40.4.8 COND vs IF</h5>
+<p><code>COND</code> 和 <code>IF</code> 的区别可以这样判断：</p>
+<ul>
+<li>如果目标是“计算一个值”，且每个分支只给出一个简单结果，优先考虑 <code>COND</code>。</li>
+<li>如果目标是“执行一组动作”，例如更新数据库、调用多个 service、组装多条 message、写日志、填多个字段，优先用 <code>IF</code>。</li>
+<li>如果分支条件超过三四个，或者每个 <code>THEN</code> 后面都是复杂表达式，优先考虑 helper method。</li>
+<li>如果嵌套过深，ATC / code review 很可能会把它当作可维护性问题。</li>
+<li>如果线上障害调查时需要逐步观察每个中间值，<code>IF</code> 通常比深层 <code>COND</code> 更容易 debug。复杂 <code>COND</code> 往往是单步执行的表达式，调试时不容易逐个观察每个 <code>WHEN</code> 分支。</li>
+</ul>
+<p>Modern ABAP 的目标不是“所有 <code>IF</code> 都消灭”，而是让值选择更贴近值选择，让流程控制仍然像流程控制。</p>
+<h5 id="40-4-9-operand-position-caveats-493af93e">40.4.9 Operand-position caveats</h5>
+<p><code>COND</code> 是表达式，但这不等于它可以无脑放进任何看起来像“表达式位置”的地方。项目里只需要记住两个 awareness 级别的注意点。</p>
+<p>第一，某些 string template formatting option 位置不接受直接嵌入的 <code>COND</code>，例如把 <code>COND i( ... )</code> 直接写进 <code>ALIGN = ( ... )</code> 这类格式选项时，具体 release 可能在语法检查阶段拒绝。遇到这种情况，先把 <code>COND</code> 结果赋给一个 helper variable，再把变量放进 formatting option，通常更清楚也更稳定。</p>
+<p>第二，在旧的 on-premise release 中，把 <code>COND #( ... )</code> 直接作为 predicative method call 的实参使用，可能因为类型推断或 logical expression 语境而出现 release-dependent 的语法/activation 问题。更保守的写法是让方法调用结果显式比较为布尔值，例如 <code>IF method( param = COND abap_bool( ... ) ) = abap_true.</code>，或者提前用局部变量保存 <code>COND</code> 的结果。初学阶段不用背这些边角限制，但要建立一个习惯：如果 <code>COND #( ... )</code> 的上下文不够明确，就写显式 result type 或拆成变量。</p>
+<h5 id="40-4-10-cond-review-checklist-fe7f2e72">40.4.10 COND review checklist</h5>
+<p>Review <code>COND</code> 表达式时，可以用下面的表快速判断它是否仍然保持“值选择”的边界：</p>
+<div class="table-wrap"><table><thead><tr><th>Question</th><th>Good COND sign</th><th>Prefer IF / helper method when...</th></tr></thead><tbody><tr><td>Is it producing one value?</td><td>每个分支只返回一个简单值或 <code>THROW</code>。</td><td>分支里实际想做多步动作、日志、消息或数据库更新。</td></tr><tr><td>Is the result type clear?</td><td><code>COND string( ... )</code> 或上下文能清楚推断 <code>#</code>。</td><td><code>#</code> 需要读很多层 expression 才能知道类型。</td></tr><tr><td>Is <code>ELSE</code> intentional?</td><td>有明确 <code>ELSE</code>，或没有 <code>ELSE</code> 时 initial value 正是业务默认。</td><td>漏写 <code>ELSE</code> 会让 false path 静默变 initial。</td></tr><tr><td>Are conditions ordered deliberately?</td><td>顺序代表优先级，且互斥/覆盖关系清楚。</td><td>条件重叠，后续 <code>WHEN</code> 可能永远不会执行。</td></tr><tr><td>Is <code>THROW</code> appropriate?</td><td>非法输入应中断并由调用方处理。</td><td>只是普通业务分支，应该返回 value、message 或 validation result。</td></tr><tr><td>Is debugging still readable?</td><td>分支少、表达式浅，出错时容易定位。</td><td><code>COND</code>、<code>LET</code>、<code>VALUE</code> 嵌套太深，难以逐步观察。</td></tr><tr><td>Is it tested?</td><td>ABAP Unit 覆盖主要分支、默认分支和异常分支。</td><td>分支条件多，但没有测试固定行为。</td></tr></tbody></table></div>
+<p>一句项目判断：<code>COND</code> 适合把“小型条件赋值”写得更靠近结果值；如果它开始承担流程编排，就应该退回 <code>IF</code> 或抽出一个有名字的 method。可读性比“看起来现代”更重要。</p>
+<h4 id="40-5-e4218906" class="semantic-heading semantic-japan">40.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>COND式</code>、<code>COND条件式</code>、<code>条件式</code>、<code>論理式</code>、<code>論理条件</code>、<code>条件分岐</code>、<code>条件値選択</code>、<code>条件による値構築</code>、<code>WHEN句</code>、<code>THEN句</code>、<code>ELSE句</code>、<code>コンパイル時型推論</code>、<code>初期値</code>、<code>型固有の初期値</code>、<code>THROW指定</code>、<code>例外送出</code>、<code>実行時エラー</code>、<code>可読性</code>、<code>保守性</code>、<code>デバッグ容易性</code>、<code>IF文に戻す</code>。</li>
+<li>说明句：この <code>COND #( ... )</code> は条件に応じて一つの値を返す式であり、複数の処理を実行するためのものではありません。</li>
+<li>说明句：<code>WHEN</code> 句の中の条件は <code>論理式</code> であり、<code>COND式</code> 全体が返す値とは区別して説明してください。</li>
+<li>Review 指摘句：<code>ELSE</code> がない場合、どの条件にも該当しないと型固有の初期値になります。この初期値が業務上正しいか確認してください。</li>
+<li>Review 指摘句：<code>COND #( ... )</code> の結果型が読み取りにくいため、<code>COND string( ... )</code> のように明示型にしてください。</li>
+<li>Review 指摘句：条件分岐が長くなっているため、可読性とデバッグ性を考慮して <code>IF文</code> または helper method に戻してください。</li>
+<li>Review 指摘句：<code>THROW指定</code> を使用していますが、この分岐は本当に値を返せない異常系か確認してください。</li>
+<li>Review 指摘句：複数の <code>WHEN</code> 句は上から順に評価されるため、より具体的な条件を先に置いているか確認してください。</li>
+<li>Review 指摘句：<code>COND式</code> を <code>IF文に戻す</code> ことは、デバッグ時や分岐が複雑になった場合の標準的なリファクタリング手法であり、スタイル上の後退ではありません。</li>
+<li>使用场景：状态文本转换、release flag 判断、message severity 分类、ALV 显示字段、ABAP Unit expected value、RAP helper method 的小型值选择。</li>
+</ul>
+<h4 id="40-6-english-terms-9e441a28" class="semantic-heading semantic-terms">40.6 English Terms</h4>
+<ul>
+<li>Official / search terms: <code>COND</code>, <code>conditional expression</code>, <code>COND operator</code>, <code>logical expression</code>, <code>conditional operator</code>, <code>COND, Conditional Operator</code></li>
+<li>ABAP syntax: <code>COND type( WHEN log_exp THEN result ... ELSE result )</code>, <code>COND #( ... )</code>, <code>WHEN</code>, <code>THEN</code>, <code>ELSE</code>, <code>LET ... IN</code>, <code>THROW</code>, <code>THROW SHORTDUMP</code></li>
+<li>Related terms: <code>result type</code>, <code>operand type</code>, <code>type inference</code>, <code>initial value</code>, <code>class-based exception</code>, <code>runtime error</code></li>
+<li>Comparison terms: <code>IF statement</code>, <code>SWITCH expression</code>, <code>CASE statement</code>, <code>value selection</code>, <code>control flow</code>, <code>side effect</code></li>
+<li>Recommended search pattern: <code>ABAP COND conditional expression SAP Help</code>, <code>ABAP COND THROW SAP Help</code>, <code>ABAP COND SWITCH result SAP Help</code></li>
+</ul>
+<p>读官方资料时注意：<code>COND</code> 的 <code>WHEN</code> 是 logical expression；<code>SWITCH</code> 是另一种条件表达式，更接近 <code>CASE</code>。不要把二者混成一个语法。</p>
+<h4 id="40-7-example-26b2b0ee" class="semantic-heading semantic-example">40.7 Example / 学习例子</h4>
+<h5 id="40-7-1-1-f246751c">40.7.1 例 1：状态码转显示文本</h5>
+<pre><code class="language-abap">DATA(status_text) = COND string(
+  WHEN lv_status = &#x27;A&#x27; THEN `Active`
+  WHEN lv_status = &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).</code></pre>
+<p>适合 ALV、日志、DTO 输出中的小型 display value。注意：如果这个映射是正式业务 code list，项目里通常还要有 customizing、domain fixed values、mapping table 或统一转换方法，不能散落在各处。</p>
+<h5 id="40-7-2-2-667da895">40.7.2 例 2：布尔标志</h5>
+<pre><code class="language-abap">DATA(can_release) = COND abap_bool(
+  WHEN lv_status = &#x27;OPEN&#x27;
+   AND lv_amount &lt;= lv_limit
+  THEN abap_true
+  ELSE abap_false
+).</code></pre>
+<p>这比先声明变量再写四行 <code>IF</code> 更像“计算一个 flag”。但如果 release 条件来自复杂权限、审批流、锁对象或外部状态，就应该抽成 <code>is_release_allowed( )</code> 之类的方法。</p>
+<h5 id="40-7-3-3-else-initial-value-def5c1f0">40.7.3 例 3：无 ELSE 的 initial value</h5>
+<pre><code class="language-abap">DATA(error_text) = COND string(
+  WHEN lv_has_error = abap_true THEN `Error`
+).</code></pre>
+<p>如果 <code>lv_has_error</code> 不是 true，<code>error_text</code> 是 string 的 initial value，也就是空字符串。这个例子可用于显示层；但如果空字符串会让调用方误以为“已经有正常文本”，就应写明确 <code>ELSE</code>。</p>
+<h5 id="40-7-4-4-throw-2e872035">40.7.4 例 4：THROW 表达非法输入</h5>
+<pre><code class="language-abap">DATA(unit_price) = COND decfloat34(
+  WHEN lv_quantity &gt; 0 THEN lv_amount / lv_quantity
+  ELSE THROW cx_sy_zerodivide( )
+).</code></pre>
+<p>这表示：数量有效时产生单价；数量无效时没有合法单价，直接进入 exception path。</p>
+<h5 id="40-7-5-5-abap-unit-38b1140f">40.7.5 例 5：用 ABAP Unit 固定分支行为</h5>
+<pre><code class="language-abap">DATA(result) = COND string(
+  WHEN lv_status = &#x27;A&#x27; THEN `Active`
+  WHEN lv_status = &#x27;B&#x27; THEN `Blocked`
+  ELSE `Unknown`
+).
+
+cl_abap_unit_assert=&gt;assert_equals(
+  exp = `Blocked`
+  act = result
+).</code></pre>
+<p>项目里如果 <code>COND</code> 体现的是接口字段、状态规则、消息 severity 或金额分类，就值得用 ABAP Unit 固定几个边界条件，特别是 unknown / initial / ELSE path。</p>
+<h4 id="40-8-counterexample-failure-mode-4bf7a6b9" class="semantic-heading semantic-example">40.8 Counterexample / Failure mode</h4>
+<h5 id="40-8-1-1-cond-if-071c8e42" class="semantic-heading semantic-failure">40.8.1 误区 1：把 COND 当成 IF 的万能替代</h5>
+<p><code>COND</code> 适合产生一个值，不适合执行多步流程。把数据库更新、message append、日志、状态更新塞进 <code>THEN</code> 表达式，会让代码难读也难 debug。</p>
+<p>修正动作：多动作流程用 <code>IF</code>；复杂值选择抽 helper method。</p>
+<h5 id="40-8-2-2-else-initial-value-af1ecc26" class="semantic-heading semantic-failure">40.8.2 误区 2：漏写 ELSE，却不知道 initial value 是什么</h5>
+<p>没有 <code>ELSE</code> 时，所有条件都不成立会得到 result type 的 initial value。对 <code>string</code> 是空字符串，对 numeric 是 0，对 date/time 是初始值，对 <code>abap_bool</code> 通常相当于 false。</p>
+<p>修正动作：业务语义上有“兜底值”时写 <code>ELSE</code>；只有 initial value 本身就是明确语义时才省略。</p>
+<h5 id="40-8-3-3-87073101" class="semantic-heading semantic-failure">40.8.3 误区 3：过度相信 #</h5>
+<p><code>COND #( ... )</code> 在上下文清晰时很方便，但在 inline declaration、混合 literal、金额/日期/状态字段中可能让 result type 不够明显。</p>
+<p>修正动作：业务字段优先写显式 type，如 <code>COND string( ... )</code>、<code>COND abap_bool( ... )</code>、<code>COND decfloat34( ... )</code>。</p>
+<h5 id="40-8-4-4-2eafac4d" class="semantic-heading semantic-failure">40.8.4 误区 4：结果分支类型混乱</h5>
+<p>一个分支返回文本，另一个分支返回数字，虽然可能有转换规则，但读者会困惑。</p>
+<p>修正动作：先决定 result type，再让每个 <code>THEN</code> / <code>ELSE</code> 都表达同一类业务含义。</p>
+<h5 id="40-8-5-5-d9c85555" class="semantic-heading semantic-failure">40.8.5 误区 5：嵌套表达式过深</h5>
+<p><code>COND</code> 里面再嵌 <code>VALUE</code>、<code>FOR</code>、<code>REDUCE</code>、另一个 <code>COND</code>，短期看很“现代”，长期维护很痛苦。</p>
+<p>修正动作：超过一屏、超过三四个分支、或需要调试中间值时，抽 method 或改回 <code>IF</code>。</p>
+<h4 id="40-9-0ae17777" class="semantic-heading semantic-practice">40.9 思考问题</h4>
+<ul>
+<li>这段 <code>COND</code> 产生的 result type 是什么？是否需要显式写出来？</li>
+<li>所有 <code>WHEN</code> 条件是否有顺序依赖？第一个满足条件是否就是业务期望？</li>
+<li>没有 <code>ELSE</code> 时，initial value 是否是正确业务结果？</li>
+<li>每个 <code>THEN</code> / <code>ELSE</code> 后面的值是否属于同一种业务含义？</li>
+<li>这里用 <code>COND</code> 是否比 <code>IF</code> 更清楚？如果不是，为什么还要用？</li>
+<li>是否存在异常路径？如果用 <code>THROW</code>，调用方是否能处理？</li>
+<li>这段条件是否需要 ABAP Unit 覆盖边界值？</li>
+<li>在日本项目 review 中，应如何说明 <code>COND式</code> 和 <code>IF文</code> 的取舍？</li>
+</ul>
+<h4 id="40-10-68869792" class="semantic-heading semantic-reference">40.10 参考资料入口</h4>
+<ul>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONDITIONAL_EXPRESSION_COND.html" target="_blank" rel="noopener noreferrer">COND, Conditional Operator</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONDITIONAL_EXPRESSIONS.html" target="_blank" rel="noopener noreferrer">Conditional Expressions</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONDITIONAL_EXPRESSION_RESULT.html" target="_blank" rel="noopener noreferrer">COND, SWITCH, result</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONDITIONAL_EXPRESSION_SWITCH.html" target="_blank" rel="noopener noreferrer">SWITCH, Conditional Operator</a></li>
+<li>SAP Help: <a href="https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENCONSTRUCTOR_EXPRESSIONS.html" target="_blank" rel="noopener noreferrer">Constructor Operators for Constructor Expressions</a></li>
+<li>SAP Cheat Sheets: <a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/05_Constructor_Expressions.md" target="_blank" rel="noopener noreferrer">Constructor Expressions Cheat Sheet</a></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="40-11-connections-0ce7e87e">40.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC Modern ABAP</span></li>
+<li>Upstream: <a class="wiki" href="section-02-039-corresponding-expression-74c9f3e8.html">CORRESPONDING expression 字段映射</a></li>
+<li>Related: <a class="wiki" href="section-02-038-value-expression-a0792b7e.html">VALUE expression 值构造表达式</a></li>
+<li>Related: <a class="wiki" href="section-02-037-inline-declaration-d2da10ac.html">Inline declaration 内联声明</a></li>
+<li>Related: <a class="wiki" href="section-02-033-exception-class-85670b42.html">Exception class 异常类</a></li>
+<li>Related: <a class="wiki" href="section-02-034-try-catch-exception-handling-1b6ab118.html">TRY CATCH exception handling</a></li>
+<li>Related: <a class="wiki" href="section-02-035-abap-unit-34ce915f.html">ABAP Unit 单元测试基础</a></li>
+<li>Downstream: <a class="wiki" href="section-02-041-switch-expression-12d08ab5.html">SWITCH expression 多分支表达式</a></li>
+<li>Downstream: <a class="wiki" href="section-02-042-reduce-expression-f12baa21.html">REDUCE expression 归约表达式</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 13 - Modern ABAP 表达式写法</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="40-12-dff8d136" class="semantic-heading semantic-practice">40.12 学习任务</h4>
+<ul>
+<li>写一个 <code>COND string( ... )</code>，把三个状态码映射成显示文本。</li>
+<li>写一个 <code>COND abap_bool( ... )</code>，表达一个 release flag。</li>
+<li>写一个没有 <code>ELSE</code> 的 <code>COND</code>，说明所有条件不成立时的 initial value 是什么。</li>
+<li>把一段简单 <code>IF ... ELSEIF ... ELSE</code> 改成 <code>COND</code>，再说明为什么更清楚。</li>
+<li>把一段过长 <code>COND</code> 改回 <code>IF</code> 或 helper method，说明为什么更可维护。</li>
+<li>写一个 <code>THROW</code> 分支例子，说明什么时候“没有合法结果”。</li>
+<li>用 ABAP Unit 固定 normal / boundary / ELSE path 三个测试。</li>
+<li>用 English Terms 找 SAP Help 对 <code>COND</code> 的说明，并补到个人学习记录。</li>
+</ul>
+<h4 id="40-13-confidence-next-action-188cd08e" class="semantic-heading semantic-status">40.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High。本节基于 SAP Help / ABAP Keyword Documentation 的 <code>Conditional Expressions</code>、<code>COND, Conditional Operator</code>、<code>COND, SWITCH, result</code>、<code>SWITCH, Conditional Operator</code> 说明，以及 SAP constructor expression cheat sheet 扩写；Joule 返回 <code>Pass with fixes</code>，关于 <code>COND</code> 分类、<code>LET</code> 位置/作用域、<code>#</code> 类型推断、无 <code>ELSE</code> 时的型固有 initial value、<code>THROW</code> / <code>THROW SHORTDUMP</code> 契约、operand-position caveats、debug/readability 和日本项目术语的 useful fixes 已并入。旧 Claude review 是 credential provider 错误；本轮不重试 Claude，因为同一会话 Section 39 的直接健康检查已经 120 秒超时。</li>
+<li>Next action: 已具备同步到 Chapter 02 和离线书稿的条件；Claude 恢复后可对 Section 40 做补审，但不阻塞下一节。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-02-040-cond-expression-4810482a.html">COND expression 条件表达式</a></p><div class="chapter-nav"><a href="Chapter-02---Core-ABAP-Programming.html">Back to chapter</a><a href="section-02-039-corresponding-expression-74c9f3e8.html">Previous section</a><a href="section-02-041-switch-expression-12d08ab5.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

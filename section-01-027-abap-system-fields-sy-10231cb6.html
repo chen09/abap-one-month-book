@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>ABAP system fields sy-* | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="27-abap-system-fields-sy-30d5ce8c" class="chapter-title">27. ABAP system fields sy-*</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 27</li><li>self-contained study note</li></ul><p><strong>本节结论</strong></p>
+<p>ABAP system fields <code>sy-*</code> 是 ABAP runtime 自动填充的一组系统字段，用来让程序读取“刚才发生了什么”：上一条语句是否成功、当前循环走到哪里、SQL 处理了多少行、当前消息是什么。初学者最先要记住的不是字段清单，而是三条规则：只读不写、在设置它的语句之后立刻读取、不要把旧的 <code>sy-*</code> 值当成永远可靠的状态。</p>
+<p><strong>正文</strong></p>
+<p>ABAP 里有一个预定义结构 <code>sy</code>。它的很多组件就是常说的 system fields，例如 <code>sy-subrc</code>、<code>sy-tabix</code>、<code>sy-index</code>、<code>sy-dbcnt</code>、<code>sy-msgid</code>、<code>sy-msgno</code>、<code>sy-msgty</code>、<code>sy-uname</code>、<code>sy-datum</code>、<code>sy-uzeit</code>。这些字段不是业务表字段，也不是开发者随便维护的全局变量，而是 ABAP runtime 根据当前执行状态自动填充的运行时反馈。</p>
+<p>可以把 <code>sy</code> 想成一个“很近、很有用、也很容易被覆盖的状态面板”。刚执行完 <code>READ TABLE</code>，它会告诉你有没有读到行；刚进入 <code>LOOP AT</code> 某一轮，它会告诉你当前内表行位置；刚执行完 SQL，它可能告诉你处理了多少行；刚触发 <code>MESSAGE</code>，它会保存 message class、number、type 和 placeholder。问题在于：这个状态面板不是为你保存历史记录的。下一条语句、嵌套调用、另一次 table 操作、另一次 SQL 都可能改写其中某些字段。更重要的是，不是所有 ABAP 语句都会设置你想看的 system field；写 <code>IF sy-subrc = ...</code> 之前，必须确认前一条语句的 ABAP Keyword Documentation 明确说明它会设置 <code>sy-subrc</code>。</p>
+<p>先看最常见的 <code>sy-subrc</code>。它是 return code。许多 ABAP 语句执行后会设置它；通常 <code>0</code> 表示成功、命中或检查通过，非 0 表示没有成功、没有命中或某种语句特定状态。但非 0 的具体含义必须看对应语句文档，不能把所有非 0 都粗暴翻译成“系统错误”。也不要倒过来误解成“所有语句都会刷新 <code>sy-subrc</code>”：如果某条语句没有文档化说明会设置 <code>sy-subrc</code>，你之后读到的可能只是旧值。</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item) WITH KEY item_no = lv_item_no.
+IF sy-subrc = 0.
+  out-&gt;write( |Found item { ls_item-item_no }| ).
+ELSE.
+  out-&gt;write( |Item not found: { lv_item_no }| ).
+ENDIF.</code></pre>
+<p>这段代码的关键是“紧跟着判断”。如果 <code>READ TABLE</code> 后面又插入别的语句，再去检查 <code>sy-subrc</code>，你检查到的可能已经不是那次 <code>READ TABLE</code> 的结果。不要把同一个 <code>sy-subrc</code> 分散到很多行之后反复判断；项目 review 常把这种写法当成 fragmented return code handling。稳妥写法是在需要保留结果时立刻复制：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item) WITH KEY item_no = lv_item_no.
+DATA(read_subrc) = sy-subrc.
+DATA(read_tabix) = sy-tabix.
+
+IF read_subrc = 0.
+  out-&gt;write( |Found at table index { read_tabix }| ).
+ENDIF.</code></pre>
+<p><code>sy-tabix</code> 和 internal table 关系很紧。对 standard table、sorted table 或使用 table index 的场景，它常表示当前行在 table index 中的位置；在 <code>LOOP AT</code> 中，它经常被用来知道当前是第几行。但 Day 04 前一节已经强调过：它不是通用 counter。对 hashed table，<code>sy-tabix</code> 没有行号意义，loop 中为 <code>0</code>，即使读取或遍历成功也不能把它当行号。<code>READ TABLE</code> 失败时也不要马上拿 <code>sy-tabix</code> 当“找到的行号”；在某些 index/sorted table 场景，失败后的 <code>sy-tabix</code> 可能指向搜索结束或插入位置。初学阶段的纪律是：只有先确认 <code>sy-subrc = 0</code>，并且当前不是 hashed table 行号场景，才把 <code>sy-tabix</code> 当成已找到行的位置使用。如果 loop body 里又做了 <code>READ TABLE</code> 或嵌套 <code>LOOP</code>，<code>sy-tabix</code> 也可能被改写。要保存当前 loop 行号，就在 loop body 一开始写 <code>DATA(current_tabix) = sy-tabix.</code>。</p>
+<p><code>sy-index</code> 和 <code>sy-tabix</code> 很容易混。<code>sy-index</code> 是 <code>DO</code> / <code>WHILE</code> 这类 loop 的循环计数；<code>sy-tabix</code> 是 internal table 相关的 table index / row position。简单说：<code>DO 5 TIMES</code> 里看 <code>sy-index</code>，<code>LOOP AT lt_items</code> 里才讨论 <code>sy-tabix</code>。<code>sy-index</code> 在进入新的 <code>DO</code> / <code>WHILE</code> loop 时从当前 loop 的第 1 轮开始计数；如果有嵌套 <code>DO</code> / <code>WHILE</code>，内层 loop 会覆盖外层的 <code>sy-index</code>。如果只是想要 1、2、3 这样的业务输出编号，自己声明 <code>counter</code> 往往比依赖系统字段更清楚。</p>
+<p><code>sy-dbcnt</code> 常出现在 ABAP SQL 后。SAP 官方文档把它描述为 SQL statements 处理的表行数。比如 <code>SELECT ... INTO TABLE</code> 后，它可以表示传给目标结果的行数，通常可以和结果内表的 <code>lines( ... )</code> 做快速对照；<code>INSERT</code> 后是插入行数，<code>UPDATE</code> 后是更新行数，<code>DELETE</code> 后是删除行数，<code>MODIFY</code> 后则要按具体语句变体理解“processed rows”。它对“技术上处理了几行”有帮助，但不等于“业务上成功”。例如 <code>UPDATE ... WHERE ...</code> 影响 0 行，可能是条件没有命中，也可能是本来就没有要改的数据；某些 SQL 变体下也可能出现 <code>sy-subrc = 0</code> 但 <code>sy-dbcnt = 0</code> 的情况。业务上是否成功，要结合功能需求、权限、锁、事务和错误消息判断。</p>
+<pre><code class="language-abap">UPDATE zdemo_item
+  SET status = &#x27;A&#x27;
+  WHERE item_no = @lv_item_no.
+
+DATA(updated_rows) = sy-dbcnt.
+IF updated_rows = 0.
+  out-&gt;write( |No row was updated| ).
+ENDIF.</code></pre>
+<p>消息相关字段也很常见。<code>MESSAGE</code> 语句后，<code>sy-msgid</code>、<code>sy-msgno</code>、<code>sy-msgty</code>、<code>sy-msgv1</code> 到 <code>sy-msgv4</code> 可以承接 message class、message number、message type 和占位符内容。除了显式 <code>MESSAGE</code>，旧式 function module、BAPI 或 exception handling 模式中也常见调用方读取 <code>sy-msg*</code> 来记录或显示消息。<code>sy-msgty</code> 里常见 <code>E</code> error、<code>W</code> warning、<code>I</code> information、<code>S</code> success；还会遇到 <code>A</code> termination 和 <code>X</code> dump 这类更强中断语义。障害調査时，日志里常见“消息 ID / 消息番号 / 消息类型 / 变量值”这样的组合。初学阶段不需要背所有 message 处理方式，但要知道这些 <code>sy-msg*</code> 字段为什么会出现在错误日志、BAPI return table、旧式 function module 或调试画面里。</p>
+<p>还有一类字段是上下文信息，例如 <code>sy-uname</code> 当前登录用户、<code>sy-langu</code> 当前语言、<code>sy-datum</code> 系统日期、<code>sy-uzeit</code> 系统时间、<code>sy-batch</code> 是否后台执行。它们很方便，但也不要滥用。<code>sy-uname</code> 不能替代 <code>AUTHORITY-CHECK</code> 做授权门禁；<code>sy-datum</code> / <code>sy-uzeit</code> 不适合作为云环境或多时区项目里的审计 timestamp 设计。ABAP Cloud / BTP ABAP Environment / SAP S/4HANA Cloud 场景下，<code>sy-subrc</code>、<code>sy-tabix</code>、<code>sy-index</code> 这类核心控制字段仍可使用，但很多其他 <code>sy</code> 组件不是 cloud-safe 的用法，系统可能给出 syntax warning；日期时间、用户、语言等上下文信息应优先查官方文档和项目标准，必要时使用 <code>cl_abap_context_info=&gt;get_system_date( )</code>、<code>get_system_time( )</code> 等云友好的 API。</p>
+<p>现代 ABAP 正在减少“到处读 <code>sy-subrc</code>”的写法。比如 <code>line_exists( itab[ key = value ] )</code> 可以替代某些 <code>READ TABLE ... TRANSPORTING NO FIELDS</code> 后检查 <code>sy-subrc</code> 的模式；table expression、exception、RAP 的 <code>FAILED</code> / <code>REPORTED</code> 也会让结果表达更结构化。但在日本 SAP 项目的既存 ECC、Standard ABAP 和棕地 S/4HANA 代码里，<code>IF sy-subrc = 0.</code>、<code>IF sy-subrc &lt;&gt; 0.</code>、<code>sy-tabix</code>、<code>sy-dbcnt</code> 仍然到处可见。读不懂它们，就很难读懂旧 ABAP、debug defect、写单体测试或说明影响范围。</p>
+<p>因此，本节的学习目标不是“记住所有 sy 字段”。第一阶段只要掌握五个判断：<code>sy-subrc</code> 看上一操作的 return code，<code>sy-tabix</code> 看 internal table 相关位置但不能用于 hashed table，<code>sy-index</code> 看 <code>DO</code> / <code>WHILE</code> loop 次数，<code>sy-dbcnt</code> 看 SQL 处理行数，<code>sy-msg*</code> 看 message 上下文。第二阶段再学会一条纪律：如果要用，就在正确位置读；如果会被后续语句覆盖，就立刻复制到自己的变量。</p>
+<p><strong>为什么重要</strong></p>
+<ul>
+<li>很多“没有 dump，但结果不对”的 ABAP 缺陷来自 <code>sy-subrc</code> 没检查、检查晚了、或者把非 0 值解释错了。</li>
+<li><code>sy-tabix</code> 和 <code>sy-index</code> 混用会让 loop、internal table 处理和调试结论变错。</li>
+<li><code>sy-dbcnt</code> 能帮助判断 SQL 技术影响行数，但不能单独证明业务成功。</li>
+<li><code>sy-msg*</code> 是错误追踪和消息日志的重要线索，尤其在旧式 function module、BAPI、batch job 和障害調査中常见。</li>
+<li>Java/Python 学习者习惯 return value / exception / object state；ABAP 既存代码大量依赖 <code>sy-*</code> 这种“上一语句状态”。</li>
+</ul>
+<p><strong>核心机制</strong></p>
+<ul>
+<li><code>sy</code> 是 ABAP runtime 预定义结构；多数 system fields 应只读，不应由应用代码随意写入。</li>
+<li><code>sy-subrc</code>：return code；<code>0</code> 通常表示成功或命中，非 0 的具体含义由设置它的语句决定；并非所有语句都会设置它。</li>
+<li><code>sy-tabix</code>：internal table 相关 table index；hashed table 场景下没有行号意义，loop 中为 <code>0</code>；<code>READ TABLE</code> 失败后不要未经 <code>sy-subrc</code> 判断就使用它。</li>
+<li><code>sy-index</code>：<code>DO</code> / <code>WHILE</code> loop 的 loop pass 计数，不是 internal table 行号；嵌套 loop 会覆盖外层值。</li>
+<li><code>sy-dbcnt</code>：SQL statements 处理的行数；按 <code>SELECT</code> / <code>INSERT</code> / <code>UPDATE</code> / <code>DELETE</code> / <code>MODIFY</code> 具体语句解释，不等同业务成功。</li>
+<li><code>sy-msgid</code> / <code>sy-msgno</code> / <code>sy-msgty</code> / <code>sy-msgv1</code>-<code>sy-msgv4</code>：承接 <code>MESSAGE</code> 上下文，也常见于旧式 function module / BAPI 错误处理模式。</li>
+<li>ABAP Cloud：很多 <code>sy</code> 组件不是 cloud-safe 用法；看到 syntax warning 时应使用官方建议的上下文 API 或项目标准替代。</li>
+<li>核心纪律：确认语句文档说明会设置该字段；在设置该字段的语句之后立即读取；需要保留时复制到本地变量；不要依赖未定义或被覆盖的旧值。</li>
+</ul>
+<p><strong>日本项目现场表达</strong></p>
+<ul>
+<li>常见日语：<code>システム項目</code>、<code>システムフィールド</code>、<code>戻りコード</code>、<code>リターンコード</code>、<code>処理件数</code>、<code>影響件数</code>。</li>
+<li>术语区分：技術設計やコードレビューでは <code>システムフィールド</code> が自然；业务说明和培训资料里也会看到 <code>システム項目</code>。</li>
+<li>术语区分：<code>戻りコード</code> 和 <code>リターンコード</code> 都指 return code；日语 code review 回复里优先用 <code>戻りコード</code>。</li>
+<li><code>sy-subrc</code> 相关：<code>戻りコード判定</code>、<code>sy-subrc確認</code>、<code>sy-subrc確認漏れ</code>、<code>直後に確認</code>、<code>退避する</code>、<code>上書きされる</code>。</li>
+<li><code>sy-tabix</code> / loop 相关：<code>現在行インデックス</code>、<code>ループカウンタ</code>、<code>ハッシュテーブルでは0</code>、<code>ネストループで上書き</code>。</li>
+<li>message 相关：<code>メッセージID</code>、<code>メッセージ番号</code>、<code>メッセージタイプ</code>、<code>メッセージ変数</code>、<code>障害調査ログ</code>。</li>
+<li>Review 句：<code>READ TABLE</code> の直後に <code>sy-subrc</code> を確認していないため、データ未存在ケースが正常扱いになる可能性があります。</li>
+<li>Review 句：<code>sy-subrc</code> を確認する前に別の処理が入っているため、戻りコードをローカル変数に退避してください。</li>
+<li>Review 句：<code>sy-subrc確認漏れ</code> の指摘です。戻りコードは設定直後に確認するか、必要であればローカル変数に退避してください。</li>
+<li>调查句：障害調査では <code>sy-msgid</code>、<code>sy-msgno</code>、<code>sy-msgty</code>、<code>sy-msgv1</code> からメッセージ内容を特定します。</li>
+</ul>
+<p><strong>English Terms</strong></p>
+<ul>
+<li>Official / search term: <code>ABAP system fields</code></li>
+<li>Official / search term: <code>system structure sy</code></li>
+<li>Official / search term: <code>SYST</code></li>
+<li>Official / search term: <code>sy-subrc</code></li>
+<li>Official / search term: <code>return code</code></li>
+<li>Official / search term: <code>sy-tabix</code></li>
+<li>Official / search term: <code>sy-index</code></li>
+<li>Official / search term: <code>sy-dbcnt</code></li>
+<li>Official / search term: <code>sy-msgid</code></li>
+<li>Official / search term: <code>sy-msgno</code></li>
+<li>Official / search term: <code>sy-msgty</code></li>
+<li>Official / search term: <code>line_exists</code></li>
+<li>Recommended search pattern: <code>ABAP system fields sy-subrc sy-tabix sy-dbcnt SAP</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<p><strong>学习例子</strong></p>
+<p>用 <code>READ TABLE</code> 观察 <code>sy-subrc</code> 和 <code>sy-tabix</code>：</p>
+<pre><code class="language-abap">READ TABLE lt_items INTO DATA(ls_item) WITH KEY item_no = lv_item_no.
+DATA(read_subrc) = sy-subrc.
+DATA(read_tabix) = sy-tabix.
+
+IF read_subrc = 0.
+  out-&gt;write( |Found item at index { read_tabix }| ).
+ELSE.
+  out-&gt;write( |Item not found| ).
+ENDIF.</code></pre>
+<p>这个例子里，<code>read_subrc</code> 和 <code>read_tabix</code> 是马上复制出来的本地变量。这样即使后面又执行 <code>READ TABLE</code>、<code>LOOP AT</code> 或其他可能改写 system field 的语句，也不会丢掉这一次读取的结果。</p>
+<p>用 SQL 观察 <code>sy-dbcnt</code>：</p>
+<pre><code class="language-abap">DELETE FROM zdemo_item WHERE status = &#x27;X&#x27;.
+DATA(deleted_rows) = sy-dbcnt.
+
+IF deleted_rows = 0.
+  out-&gt;write( |No obsolete rows deleted| ).
+ELSE.
+  out-&gt;write( |Deleted rows: { deleted_rows }| ).
+ENDIF.</code></pre>
+<p>这里 <code>deleted_rows = 0</code> 不是 runtime error，而是“技术上没有删除任何行”。业务上这是成功、警告还是错误，要看需求说明。</p>
+<p><strong>常见误区</strong></p>
+<ul>
+<li><code>READ TABLE</code> 后隔了几行才检查 <code>sy-subrc</code>：中间语句可能已经改写系统字段。</li>
+<li>在不设置 <code>sy-subrc</code> 的语句后写 <code>IF sy-subrc = 0.</code>：检查到的是旧值或未定义语义，不是当前语句结果。</li>
+<li>把 <code>sy-subrc &lt;&gt; 0</code> 一律当成系统错误：很多非 0 只是“没找到”“检查不通过”“状态不同”，需要看语句文档。</li>
+<li>在 hashed table loop 中用 <code>sy-tabix</code> 当行号：它没有 table index 行号意义，loop 中为 <code>0</code>。</li>
+<li>把 <code>sy-index</code> 当 internal table index：<code>sy-index</code> 属于 <code>DO</code> / <code>WHILE</code> 计数，不是 <code>LOOP AT itab</code> 的行号。</li>
+<li>用 <code>sy-dbcnt &gt; 0</code> 直接证明业务成功：影响行数只是技术结果，不能替代业务规则、权限、锁和事务判断。</li>
+<li>手动写入 <code>sy-subrc</code> 或其他 system fields：多数 system fields 应只读，随意改写会破坏后续程序状态。</li>
+<li>旧代码里到处使用 <code>sy-*</code>，新代码也照抄：现代 ABAP 可以用 predicate function、exception、return object、RAP <code>FAILED</code> / <code>REPORTED</code> 等更结构化的结果表达；ABAP Cloud 还要注意 <code>sy</code> 字段访问限制。</li>
+</ul>
+<p><strong>思考题</strong></p>
+<ul>
+<li>为什么 <code>sy-subrc</code> 必须尽量在设置它的语句之后立即检查？</li>
+<li>为什么不能默认每条 ABAP 语句都会设置 <code>sy-subrc</code>？</li>
+<li><code>sy-subrc = 0</code>、<code>sy-subrc &lt;&gt; 0</code>、exception 三者在项目代码里分别承担什么角色？</li>
+<li><code>sy-tabix</code> 和 <code>sy-index</code> 最大的差异是什么？hashed table 下 <code>sy-tabix</code> 为什么不能当行号？</li>
+<li><code>sy-dbcnt = 0</code> 在 <code>UPDATE</code> / <code>DELETE</code> 后可能意味着什么？为什么它不一定是业务错误？</li>
+<li>障害調査时，<code>sy-msgid</code>、<code>sy-msgno</code>、<code>sy-msgty</code>、<code>sy-msgv1</code>-<code>sy-msgv4</code> 可以帮助定位什么？</li>
+<li>现代 ABAP 中哪些写法可以减少对 <code>sy-subrc</code> 的依赖？为什么旧系统里仍然要读懂它？</li>
+</ul>
+<p><strong>参考资料入口</strong></p>
+<ul>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSYSTEM_FIELDS.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - ABAP System Fields</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abapread_table.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - READ TABLE itab</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPLOOP_AT_ITAB.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - LOOP AT itab</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRETURN_CODE_GLOSRY.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - return code</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenline_exists_function.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - line_exists</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABAPMESSAGE_MSG.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - MESSAGE, msg</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/docs/ABAP_PLATFORM_NEW/b5670aaaa2364a29935f40b16499972d/252df8501f224b668e9d2b00ffd7b5e9.html" target="_blank" rel="noopener noreferrer">SAP Help - Access to System Structure SY</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<p><strong>Connections</strong></p>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li>Upstream: <a class="wiki" href="section-01-026-conditional-logic-51e0f0a0.html">Conditional logic 条件分支</a></li>
+<li>Related: <a class="wiki" href="section-01-025-loop-constructs-7301b587.html">Loop constructs 循环语句</a></li>
+<li>Related: <a class="wiki" href="section-01-024-internal-table-60645cd5.html">Internal table 内部表基础</a></li>
+<li>Downstream: <a class="wiki" href="section-02-043-sy-subrc-discipline-and-silent-failure-patterns-17a684f1.html">sy-subrc discipline and silent failure patterns</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 04 - 控制流、字符串、日期时间与 Runtime Error</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+</ul>
+<p><strong>学习任务</strong></p>
+<ul>
+<li>写一个 <code>READ TABLE</code> 成功/失败例子，在 debugger 中观察 <code>sy-subrc</code> 和 <code>sy-tabix</code>。</li>
+<li>查一次 ABAP Keyword Documentation，确认你使用的语句是否会设置 <code>sy-subrc</code>。</li>
+<li>写一个 <code>DO 3 TIMES</code> 例子，观察 <code>sy-index</code>，再和 <code>LOOP AT</code> 的 <code>sy-tabix</code> 对比。</li>
+<li>写一个 <code>UPDATE</code> 或 <code>DELETE</code> 例子，观察 <code>sy-dbcnt</code>，并说明为什么它不等于业务成功。</li>
+<li>找一段旧代码，判断 <code>sy-subrc</code> 是否在正确位置被检查。</li>
+<li>补 1 个日本项目 review 句子，必须包含 <code>戻りコード</code>、<code>直後に確認</code>、<code>退避する</code> 中至少一个。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-027-abap-system-fields-sy-10231cb6.html">ABAP system fields sy-*</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-026-conditional-logic-51e0f0a0.html">Previous section</a><a href="section-01-028-string-processing-6715ed4e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

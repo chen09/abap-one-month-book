@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>DDIC structure 字典结构 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a class="active" href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-01---SAP-和-ABAP-基础.html">Chapter 01 - SAP 和 ABAP 基础</a></p><h1 id="36-ddic-structure-6c308110" class="chapter-title">36. DDIC structure 字典结构</h1><ul class="reading-meta"><li>Chapter 01</li><li>Section 36</li><li>self-contained study note</li></ul><h4 id="36-1-83a58705" class="semantic-heading semantic-concept">36.1 一句话结论</h4>
+<p>DDIC structure 字典结构，是 ABAP Dictionary 中定义全局 structured type 的 repository object。它不会在数据库里创建物理表，也不能被 <code>SELECT</code>；它的价值是把一组属于同一业务或技术语义的 components 做成可复用的全局结构类型，用来给 ABAP 变量、method parameter、internal table line type、接口参数或其他 DDIC 对象提供一致的字段形状。</p>
+<p>本节要学的是：把 <a class="wiki" href="section-01-023-structure-3269a877.html">Structure 结构类型</a> 里学过的“结构”升级到全局 DDIC 层，理解 DDIC structure 和 database table、CDS view entity、local structure 的边界，并知道 flat / nested / deep、include structure、enhancement category、RAP/Fiori 元数据边界这些项目中会被 review 的点。</p>
+<h4 id="36-2-218f596b" class="semantic-heading semantic-concept">36.2 到底学什么</h4>
+<p>先区分三个经常混在一起的东西。</p>
+<p>第一，local structure。它是在 ABAP class、method、program 里用 <code>TYPES BEGIN OF ... END OF ...</code> 或 <code>DATA BEGIN OF ... END OF ...</code> 定义的局部结构，只在当前作用域附近使用。Day 03 已经用它帮助理解 ABAP 的 structured data object。</p>
+<p>第二，DDIC structure。它是 ABAP Dictionary 里的全局结构类型，存在于 repository 中，有 package、transport、activation、where-used list 和 enhancement category。它不保存数据；它只是定义一组 components 的类型。ABAP 程序可以写：</p>
+<pre><code class="language-abap">DATA ls_invoice_item TYPE zxx_invoice_item_s.
+DATA lt_invoice_item TYPE STANDARD TABLE OF zxx_invoice_item_s WITH EMPTY KEY.</code></pre>
+<p>这里的 <code>zxx_invoice_item_s</code> 可以是一个 DDIC structure。第一行创建一个结构变量，第二行创建一张以这个结构为 line type 的 internal table。</p>
+<p>第三，DDIC database table。database table 也有 field list，并且在 ABAP 里也常常能作为 structured type 使用，例如 <code>DATA ls_mara TYPE mara</code> 这种老代码并不少见。但 SAP Learning 明确提醒：database table definition 首要任务是定义数据库对象，虽然也能作为 ABAP 数据类型使用，通常不推荐把它当作“纯类型”复用；如果只是要一个可复用结构类型，应该定义 dedicated structure type。这个建议对初学者很重要：不要为了给 method parameter 一个结构，就随手拿物理表当类型。</p>
+<p>第四，CDS view entity / CDS abstract entity 等 CDS artifacts。SAP-samples 提醒，很多 CDS entities 也可以在 ABAP 程序中作为全局 structured type 使用，例如 CDS view entity 可以用于 ABAP <code>TYPES</code>、<code>DATA</code> 或 internal table line type；但反过来，CDS view entity 不能作为 DDIC database table 的字段类型或 DDIC structure 的 component type。进入 RAP 服务层时，CDS view entity / metadata extension / behavior definition 往往比 DDIC structure 更接近服务模型本身。</p>
+<p>在 ADT 中，DDIC structure 使用 Dictionary DDL 表示。当前 ABAP Keyword Documentation 和 SAP-samples cheat sheet 以 <code>define structure</code> 作为结构定义的核心形式；一些旧 SAP Developers tutorial 或旧系统模板可能出现 <code>define type</code>。学习时以目标系统 ADT 生成的模板和当前 SAP Help 为准，不要把两个写法在同一项目里混用。一个典型结构可以长这样：</p>
+<pre><code class="language-abap">@EndUserText.label : &#x27;Invoice item transfer structure&#x27;
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zxx_invoice_item_s {
+  invoice_id    : zxx_invoice_id;
+  item_no       : abap.numc(6);
+  currency_code : abap.cuky;
+  @Semantics.amount.currencyCode : &#x27;zxx_invoice_item_s.currency_code&#x27;
+  net_amount    : abap.curr(15,2);
+  status        : zxx_payment_status;
+}</code></pre>
+<p>这个例子不是数据库表，没有 <code>key client</code>，没有 delivery class，也不会被 <code>SELECT</code>。它只是一个全局 structured type。它可以作为方法输入输出结构、internal table 行类型、接口映射结构，或被其他 DDIC structure / database table 作为 include 的基础。</p>
+<h4 id="36-3-bf58cc50" class="semantic-heading semantic-why">36.3 为什么重要</h4>
+<p>DDIC structure 重要，是因为真实项目里大量接口、参数、返回值、internal table line type 和 legacy integration 都不是一个个散落的字段，而是一组有名字、有顺序、有类型、有复用关系的结构。一个好的 DDIC structure 能让多处代码共享同一套字段定义，减少“这里叫 amount，那里叫 net_value，长度还不一样”的混乱。</p>
+<p>对 Java/Python 背景学习者，可以把 DDIC structure 粗略类比为一个全局 DTO、record、dataclass 或 interface schema。但这个类比只能帮助入门。SAP 的 DDIC structure 是 repository object，会被 package、transport、activation、where-used list、enhancement category、ABAP Cloud release check 等项目机制管理。它也可以被 DDIC、ABAP、classic Gateway、dynpro 和部分 legacy 工具识别，不只是程序语言里的一个 class。</p>
+<p>项目上常见的场景是：一个 BAPI、function module、class method、Gateway service 或文件接口需要传一行发票项目数据。开发者可以在每个方法里局部写一套结构，也可以用一个全局 DDIC structure 统一字段。前者短期快，后者更利于 review、测试、接口文档和影响分析。特别是在日本项目中，<code>テーブル定義書</code>、<code>インターフェース定義書</code>、<code>項目一覧</code> 常常要求明确字段名、data element、桁数、必須、備考、変換规则；DDIC structure 能成为这些文档和代码之间的桥。</p>
+<p>它还重要在“不要拿错类型来源”。很多老代码会用 database table 当结构类型，这能工作，但会把 method parameter、internal table line type 和物理表耦合起来。物理表新增字段、调整 include、改变语义时，使用它作类型的代码也可能被牵动。新开发中，如果只是传输数据形状，应优先考虑 dedicated DDIC structure、class/interface 中公开的结构类型，或在 RAP 服务层使用 CDS view entity 的结构，而不是随手绑定到物理表。</p>
+<h4 id="36-4-key-mechanism-a0e7e153" class="semantic-heading semantic-mechanism">36.4 Key mechanism / 核心机制</h4>
+<p>第一层机制是 global structured type。DDIC structure 定义的是类型，不是值。<code>zxx_invoice_item_s</code> 本身不装数据；<code>DATA ls_item TYPE zxx_invoice_item_s</code> 才是在运行时创建一个结构变量。<code>STANDARD TABLE OF zxx_invoice_item_s</code> 则是创建一张以该结构为行类型的 internal table。</p>
+<p>第二层机制是 components。结构由 components 组成，components 可以是 data element、built-in dictionary type、reference type、另一个 structured type、include structure 或 table type。业务字段优先用 data element，这样 label、documentation、domain 等语义能复用；技术字段或教学例子可以用 <code>abap.char(...)</code>、<code>abap.int4</code>、<code>abap.numc(...)</code> 等 built-in dictionary type。</p>
+<p>第三层机制是 flat / nested / deep。flat structure 只包含 elementary components，并且不包含 string-like deep components、references 或 table components。nested structure 是结构里包含子结构。deep structure 是包含 string/xstring、reference type、table type 等 deep components 的结构。reference type、object reference、interface reference 或 table type component 都会把结构推向 deep。deep structure 可以作为 ABAP 变量类型、method parameter 类型、internal table line type；但不能作为 database table field type，也不能作为 database table 的 include structure。数据库表里可 include 的结构必须是 flat、兼容的结构。classic RFC/OData serialization 或持久化上下文中也要谨慎使用 deep structure：尤其是 object/interface reference 通常不能作为跨系统数据传输内容，持久化对象也不能随便保存引用；string、xstring 或 table component 是否可用，要看具体接口技术和目标系统限制。</p>
+<p>第四层机制是 include structure。DDIC structure 可以被其他 structure 或 database table include，用来复用一组字段。include 时要注意 component name conflict；如果包含的 substructure 里字段名会和外层冲突，可以使用 suffix。SAP-samples 的当前示例/说明展示了 <code>with suffix _in</code> 这种短 suffix，并提到可以指定 three-character suffix；学习时要把它理解成目标 release 语法的一部分，而不是业务别名。实际项目里应以当前系统 syntax check 和项目标准为准，核心目标是让展开后的 component name 唯一、可读、可维护。</p>
+<p>第五层机制是 enhancement category。<code>@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE</code> 不是装饰。它说明这个结构是否允许后续 append / extension。对纯技术内部结构，<code>#NOT_EXTENSIBLE</code> 可能合理；对业务字段结构，如果后面可能有客户扩展字段，过早写死不可扩展会给后续变更制造麻烦。项目 review 里要问：为什么选择这个 enhancement category？如果选择 <code>#NOT_EXTENSIBLE</code>，是否接受以后不能通过 append / extension 增加字段？这个理由是否写进设计说明或 transport 备注？</p>
+<p>第六层机制是 ADT / syntax version。当前资料里，DDIC structure 常用 <code>define structure</code> 说明。部分旧 tutorial 或旧系统模板可能出现 <code>define type</code>。学习者不要只复制网上片段，而应以当前系统创建对象时 ADT 生成的 skeleton、SAP Help 的目标 release 文档和项目标准为准。遇到语法差异时，不要怀疑自己“SAP 都一样”，而要确认 ABAP release、language version 和工具模板。</p>
+<p>第七层机制是 modern UI / RAP 边界。DDIC structure 在 classic ABAP / Gateway / dynpro 时代可能承载很多 UI 辅助语义，但 SAP Learning 对现代 RAP 说得很明确：ABAP Dictionary 的 classic UI 任务不再适用于 modern UI 技术，classical ABAP UI techniques 也不属于 ABAP Cloud 支持范围。RAP/Fiori 服务元数据主要来自 CDS view entity、metadata extension、service definition/binding 和 behavior definition。DDIC structure 可以作为全局类型或 legacy/Gateway import 来源被认识；但在新 RAP/Fiori / ABAP Cloud 开发里，不要把 DDIC structure 当成 UI metadata 的来源，也不要依赖 classic search help、foreign key UI semantics 或 SEGW/Gateway 生成习惯来建模现代服务。</p>
+<h4 id="36-5-3ef2aaa7" class="semantic-heading semantic-japan">36.5 日本项目现场说法</h4>
+<ul>
+<li>常见日语：<code>DDIC構造</code>、<code>ディクショナリ構造</code>、<code>構造型</code>、<code>構造コンポーネント</code>、<code>項目</code>、<code>インクルード構造</code>、<code>フラット構造</code>、<code>ネスト構造</code>、<code>深い構造</code>、<code>参照型</code>、<code>テーブル型</code>、<code>拡張カテゴリ</code>、<code>有効化</code>、<code>使用箇所</code>、<code>影響調査</code>、<code>移送対象</code>。</li>
+<li>说明句：この DDIC 構造はデータベーステーブルではなく、ABAP で再利用するためのグローバル構造型です。</li>
+<li>Review 句：物理テーブルを型として流用するのではなく、メソッド引数用の専用 DDIC 構造を定義してください。</li>
+<li>Include 句：インクルード構造を使う場合、項目名の衝突とサフィックスの指定を確認してください。</li>
+<li>Deep 句：深い構造は ABAP 変数やメソッド引数では利用できますが、データベーステーブルの項目型やインクルード構造としては利用できません。</li>
+<li>拡張句：<code>#NOT_EXTENSIBLE</code> を設定した構造は後から拡張できないため、ビジネス項目を含む構造では拡張カテゴリの選定理由を設計書または移送依頼に残してください。</li>
+<li>Cloud/RAP 句：RAP/Fiori の UI メタデータは CDS と Behavior 定義を中心に確認します。DDIC 構造のクラシック UI 情報に依存しないでください。</li>
+<li>使用场景：接口结构设计、method parameter review、Gateway legacy 调查、RAP 服务建模边界说明、数据库表 include review、移送前影响调查。</li>
+</ul>
+<h4 id="36-6-english-terms-52488e3d" class="semantic-heading semantic-terms">36.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>DDIC structure</code>, <code>ABAP Dictionary structure</code></li>
+<li>Recommended search pattern: <code>ABAP Dictionary DDIC structure define structure enhancement category</code></li>
+<li>Related terms: <code>structured type</code>, <code>component</code>, <code>flat structure</code>, <code>nested structure</code>, <code>deep structure</code>, <code>include structure</code>, <code>table type</code>, <code>enhancement category</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="36-7-example-47de7389" class="semantic-heading semantic-example">36.7 Example / 学习例子</h4>
+<p>例子 1：方法返回结构。</p>
+<p>假设一个 class method 要返回“发票项目展示行”。如果直接使用数据库表类型：</p>
+<pre><code class="language-abap">METHODS get_item
+  RETURNING VALUE(rs_item) TYPE zxx_invoice_i.</code></pre>
+<p>这表示 method 返回值和物理表 <code>zxx_invoice_i</code> 的结构强耦合。表里以后新增技术字段、client 字段、审计字段时，method 的语义也会被牵动。更清晰的设计是定义专用 DDIC structure：</p>
+<pre><code class="language-abap">METHODS get_item
+  RETURNING VALUE(rs_item) TYPE zxx_invoice_item_s.</code></pre>
+<p><code>zxx_invoice_item_s</code> 可以只包含调用方需要的字段，例如 invoice id、item no、amount、currency、status 和 display text。这样接口类型更稳定，也更容易写设计书。</p>
+<p>例子 2：internal table line type。</p>
+<pre><code class="language-abap">DATA lt_items TYPE STANDARD TABLE OF zxx_invoice_item_s WITH EMPTY KEY.
+
+lt_items = VALUE #(
+  ( invoice_id = &#x27;1000000001&#x27;
+    item_no = &#x27;000001&#x27;
+    currency_code = &#x27;JPY&#x27;
+    net_amount = &#x27;1200.00&#x27;
+    status = &#x27;N&#x27; )
+).</code></pre>
+<p>这里 <code>zxx_invoice_item_s</code> 是每一行的结构类型，internal table 只是“多行容器”。DDIC structure 和 internal table 不是同一个概念：一个定义行长什么样，一个保存多行数据。</p>
+<p>例子 3：include structure。</p>
+<pre><code class="language-abap">@EndUserText.label : &#x27;Invoice output structure&#x27;
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zxx_invoice_output_s {
+  header : include zxx_invoice_header_s with suffix _hd;
+  item   : include zxx_invoice_item_s   with suffix _it;
+}</code></pre>
+<p>这个例子说明 include 可以复用已有结构，但要小心字段名冲突。suffix 让包含进来的字段带上后缀，避免多个 include 都有 <code>created_by</code>、<code>currency_code</code> 之类同名字段。真实项目里是否应该 include，取决于结构复用是否清晰；不要为了少写几行字段，把语义不同的结构硬拼在一起。</p>
+<p>最小练习：找一个已有 DDIC structure，写下：</p>
+<ul>
+<li>它是 flat、nested 还是 deep？</li>
+<li>components 用了哪些 data element / built-in type？</li>
+<li>有没有 include structure？有没有 suffix？</li>
+<li>enhancement category 是什么？为什么？</li>
+<li>它被哪些 class、method、table type、Gateway/RAP/CDS 对象使用？</li>
+</ul>
+<h4 id="36-8-counterexample-failure-mode-2bad3992" class="semantic-heading semantic-example">36.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把 DDIC structure 当成数据库表。</li>
+<li>错误理解：有 field list，就能 <code>SELECT * FROM zxx_invoice_item_s</code>。</li>
+<li>修正：DDIC structure 是类型，不是 persistence object；能不能 <code>SELECT</code> 看的是 database table、CDS view entity 等数据源。</li>
+<li>误区 2：随手用 database table 当 method parameter type。</li>
+<li>问题：这会把业务接口和物理表耦合，后续表调整可能影响接口语义。</li>
+<li>修正：只需要数据形状时，优先考虑 dedicated DDIC structure、class/interface 公开结构类型，或 RAP/CDS 场景中的 CDS view entity。</li>
+<li>误区 3：把 deep structure include 到 database table。</li>
+<li>问题：包含 string、reference、table type 等 deep components 的结构适合 ABAP 内存类型，不适合直接塞进数据库表 include。</li>
+<li>修正：数据库表 include 使用 flat、兼容的结构；deep structure 用于 method parameter、internal table line type 或非持久化场景。</li>
+<li>误区 4：忽略 enhancement category。</li>
+<li>问题：<code>#NOT_EXTENSIBLE</code> 可能阻止后续 append / extension；选择错误会变成项目变更问题。</li>
+<li>修正：创建结构时就说明是否允许扩展，并把理由写进设计说明或 review 记录。</li>
+<li>误区 5：把 DDIC structure 当成 RAP/Fiori UI metadata 主来源。</li>
+<li>问题：modern RAP/Fiori 的 UI/service metadata 主要来自 CDS view entity、metadata extension、service binding、behavior definition。</li>
+<li>修正：DDIC structure 作为全局类型理解即可；RAP 服务要回到 CDS/RAP 模型检查。</li>
+</ul>
+<h4 id="36-9-b7c2b080" class="semantic-heading semantic-practice">36.9 思考问题</h4>
+<ul>
+<li>DDIC structure、local structure、database table、CDS view entity 都能在某些场景表达“结构”，它们的主要差异是什么？</li>
+<li>为什么 SAP Learning 不推荐把 database table definition 当成普通 reusable type 使用？</li>
+<li>什么是 flat / nested / deep structure？哪些 components 会让结构变 deep？</li>
+<li>为什么 deep structure 不适合作为 database table include？</li>
+<li><code>@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE</code> 对后续项目扩展有什么影响？</li>
+<li>在日本项目里，什么时候说 <code>構造型</code>，什么时候说 <code>項目</code>，什么时候说 <code>構造コンポーネント</code> 更自然？</li>
+<li>如果一个 DDIC structure 被多个接口、class method 和 table type 使用，修改字段前要做哪些 <code>影響調査</code>？</li>
+</ul>
+<h4 id="36-10-bee9ac78" class="semantic-heading semantic-reference">36.10 参考资料入口</h4>
+<ul>
+<li><a href="https://learning.sap.com/courses/building-data-models-with-the-abap-dictionary-and-abap-core-data-services/exploring-abap-dictionary_af8fdedf-0a10-43ab-aa1b-20abbece9d8b" target="_blank" rel="noopener noreferrer">SAP Learning - Exploring ABAP Dictionary</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenddic_structures.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - DDIC Structures</a> (accessed 2026-06-13)</li>
+<li><a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abenddic_define_structure.html" target="_blank" rel="noopener noreferrer">ABAP Keyword Documentation - Dictionary DDL for Structure Definitions</a> (accessed 2026-06-13)</li>
+<li><a href="https://github.com/SAP-samples/abap-cheat-sheets/blob/main/26_ABAP_Dictionary.md" target="_blank" rel="noopener noreferrer">SAP Samples - ABAP Dictionary Cheat Sheet</a> (accessed 2026-06-13)</li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="36-11-connections-11c08137">36.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC ABAP Language</span></li>
+<li><span class="wiki unresolved">MOC ABAP Dictionary And SQL</span></li>
+<li>Upstream: <a class="wiki" href="section-01-035-domain-c11d9bf1.html">Domain 域对象</a></li>
+<li>Downstream: <a class="wiki" href="section-01-037-ddic-view-5437a298.html">DDIC view 传统视图</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 05 - ABAP Dictionary 核心对象</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li>Week 3/4 后再连接 <span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="36-12-9bf7541c" class="semantic-heading semantic-practice">36.12 学习任务</h4>
+<ul>
+<li>用 8 行中文解释 DDIC structure 和 database table 的区别。</li>
+<li>找一个已有 DDIC structure，记录它的 components、include、enhancement category 和 where-used list。</li>
+<li>写一句日语 review comment：建议不要用物理表类型做 method parameter，而应定义 dedicated DDIC structure。</li>
+<li>判断一个结构是 flat、nested 还是 deep，并说明它能否作为 database table include。</li>
+<li>如果已经进入 Week 3/4，把本知识点映射到 <span class="wiki unresolved">AC0567C POC Reading Map</span>，尤其关注接口参数、RAP DTO-like 结构和 legacy Gateway 导入结构。</li>
+</ul>
+<h4 id="36-13-confidence-next-action-b4bf578b" class="semantic-heading semantic-status">36.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for core DDIC structure concepts after SAP Learning / ABAP Keyword Documentation / SAP Samples / Joule review; Medium for release-specific syntax nuance (<code>define structure</code> vs older <code>define type</code>) because the target system template must be checked.</li>
+<li>Next action: 已同步到 Chapter 01 与离线书稿，并已通过 2026-06-18 Claude file-based review / final follow-up review；后续按目标系统 ADT 模板确认 <code>define structure</code> / legacy <code>define type</code> 语法差异即可。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-01-036-ddic-structure-824eed18.html">DDIC structure 字典结构</a></p><div class="chapter-nav"><a href="Chapter-01---SAP-和-ABAP-基础.html">Back to chapter</a><a href="section-01-035-domain-c11d9bf1.html">Previous section</a><a href="section-01-037-ddic-view-5437a298.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

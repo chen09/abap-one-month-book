@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP business object 业务对象 | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="13-rap-business-object-e8fb3a15" class="chapter-title">13. RAP business object 业务对象</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 13</li><li>self-contained study note</li></ul><h4 id="13-1-4d787f9f" class="semantic-heading semantic-concept">13.1 一句话结论</h4>
+<p>RAP business object（RAP BO，业务对象）是 ABAP RESTful Application Programming Model 里表达“一个可读、可改、可校验、可保存、可通过服务暴露的业务单元”的核心模型。它不是一张表，也不是一个 OData endpoint，而是由 CDS 数据模型、behavior definition、behavior implementation、service 暴露和运行时事务语义共同组成的业务能力边界。</p>
+<p>本节要掌握的不是“怎么点向导生成 RAP 对象”，而是先能回答一个项目问题：为什么现代 ABAP 不应只把表包装成接口，而要把 Travel、Sales Order、Import Batch 这类业务能力建成一个有行为、有事务、有校验、有授权边界的 business object。</p>
+<h4 id="13-2-aa8a7aa3" class="semantic-heading semantic-concept">13.2 到底学什么</h4>
+<p>读完本节后，至少要能分清六件事：</p>
+<ol>
+<li>RAP business object 和普通 CDS view entity 的区别。</li>
+<li>Root entity、child entity、composition tree 为什么属于同一个业务对象。</li>
+<li>Behavior definition（BDEF）定义的是能力边界，不是实现细节。</li>
+<li>Behavior pool / handler / saver 承担的是实现和事务阶段职责。</li>
+<li>Service definition / service binding 暴露 BO，但不等于 BO 本身。</li>
+<li>AC0567C POC 这种 action-oriented API 为什么仍然要尊重 RAP save phase，而不是在 action handler 里随便写数据库。</li>
+</ol>
+<p>这一节仍然是总体地图。后面的 <a class="wiki" href="section-03-014-composition-tree-8f6aae2e.html">Composition tree 组合树</a>、<a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a>、<a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a>、<a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a>、<a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a>、<a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a>、<a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a> 会逐层展开。</p>
+<h4 id="13-3-16b0f674" class="semantic-heading semantic-why">13.3 为什么重要</h4>
+<p>RAP business object 是现代 ABAP 项目里“事务型应用”的中心词。前面 Week 3 已经学了 <a class="wiki" href="section-03-002-cds-view-entity-c2c04c24.html">CDS view entity 视图实体</a>、<a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a>、<a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a>、<a class="wiki" href="section-03-011-cds-access-control-8ad2c0a0.html">CDS access control 访问控制</a> 和 <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a>。这些对象各自重要，但如果不把它们放进 RAP BO 里，读者很容易误以为项目只是“建几个 view，再暴露 OData”。</p>
+<p>真实项目的问题通常不是“接口能不能返回 JSON”，而是：</p>
+<ul>
+<li>谁可以创建、修改、删除这类业务数据？</li>
+<li>哪些字段只读、必填、自动派生？</li>
+<li>保存前要做哪些 validation？</li>
+<li>创建时编号何时生成？</li>
+<li>多个 child 记录和 root 记录是否一起提交或一起回滚？</li>
+<li>action 执行时能不能直接 <code>INSERT</code> 数据库？</li>
+<li>错误消息如何返回给 Fiori / OData caller？</li>
+<li>draft、lock、ETag、authorization、save sequence 是否都在正确边界内？</li>
+</ul>
+<p>这些问题如果分散在 controller、utility class、SQL 片段里，代码可能短期能跑，但 review、测试、上线和升级都会变难。RAP BO 的价值，就是把“数据结构”和“可对它做什么”放在同一个模型边界里理解。</p>
+<p>对 Java/Python 背景学习者，可以暂时把 RAP BO 类比成“领域对象 + repository + service contract + transaction framework”的组合，但这个类比不完全准确。RAP BO 不是只靠普通类组织代码；它依赖 ABAP repository objects、CDS hierarchy、BDL、EML、RAP runtime、service binding 和 SAP 权限/事务机制共同工作。</p>
+<h4 id="13-4-key-mechanism-273383f3" class="semantic-heading semantic-mechanism">13.4 Key mechanism / 核心机制</h4>
+<h5 id="13-4-1-bo-cds-ae58d75b">13.4.1 BO 的第一层：CDS 数据模型</h5>
+<p>SAP 官方资料把 RAP BO 描述为围绕一组特殊的层级 CDS entities 建模的业务对象。最小情况可以只有一个 root entity；复杂情况会有 root、child、grandchild，沿着 composition path 组成 composition tree。</p>
+<p>例如 Travel 业务对象可能有：</p>
+<ul>
+<li>root：Travel</li>
+<li>child：Booking</li>
+<li>grandchild：Booking Supplement</li>
+</ul>
+<p>这不是普通外键列表，而是“一个 Travel 业务对象由哪些节点组成”的事务边界。root 决定业务对象入口，child 随 root 一起被创建、读取、修改、删除或校验。前面学过的 <a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a> 和 <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a>，在这里就有了位置：root view entity 是 BO 数据模型核心；projection view 通常面向 service / consumer 裁剪暴露。</p>
+<h5 id="13-4-2-bo-behavior-definition-af6b77fc">13.4.2 BO 的第二层：Behavior definition 定义能做什么</h5>
+<p>Behavior definition（BDEF）是 ABAP repository object，用 Behavior Definition Language（BDL）描述 RAP BO 的事务行为。它回答的问题不是“字段有哪些”，而是“这些字段和实例能被怎样操作”。</p>
+<p>常见声明包括：</p>
+<ul>
+<li>implementation type：managed、unmanaged、managed with unmanaged save 等。</li>
+<li>standard operations：<code>create</code>、<code>update</code>、<code>delete</code>。</li>
+<li>field properties：mandatory、readonly、numbering、features。</li>
+<li>association / composition behavior：root 和 child 之间能否通过 association 创建或读取。</li>
+<li>action：业务动作，例如 approve、reject、execute import。</li>
+<li>validation：保存前检查业务输入。</li>
+<li>determination：在 modify 或 save 时派生字段。</li>
+<li>authorization / lock / ETag / draft 等事务相关能力。</li>
+</ul>
+<p>初学者要先建立一个判断：BDEF 是业务对象能力清单，不是“自动生成 OData 的装饰文件”。如果 BDEF 里没有声明某个 action，服务消费者就不应该假设可以调用它；如果字段声明 readonly，消费方就不应该把它当作可输入字段。</p>
+<h5 id="13-4-3-bo-behavior-implementation-8ddf5575">13.4.3 BO 的第三层：Behavior implementation 承担实现</h5>
+<p>BDEF 描述能力，但复杂业务逻辑通常还需要 behavior implementation。SAP Learning 里常说，RAP BO 的行为实现代码会放在 behavior pool 这种全局 ABAP class 中。为了分离职责，behavior pool 里通常会有 handler class 等 local classes；只有在 managed with additional save、managed with unmanaged save、unmanaged save 等需要自定义保存职责的场景，才会出现对应 saver / save-sequence 实现。标准 managed BO 的持久化通常由 RAP framework 处理，初学者不要期待每个 behavior pool 里都一定有 saver class。</p>
+<p>可以先粗略这样理解：</p>
+<ul>
+<li>handler：处理 interaction phase 的读取、检查、action、determination、validation 等逻辑。</li>
+<li>saver：只在特定实现类型中处理 save sequence 中的真正保存、附加保存或 unmanaged save 逻辑。</li>
+<li>mapped / failed / reported：把 key 映射、失败实例、消息返回给 RAP runtime，再由 OData / Fiori 等消费方看到。</li>
+</ul>
+<p>这里最重要的边界是：RAP runtime 有自己的事务模型。在 RAP handler 方法中直接使用数据库修改语句（如 <code>INSERT</code>、<code>UPDATE</code>、<code>DELETE</code>）或直接 <code>COMMIT WORK</code>，不是“风格不好”，而是会绕开 RAP transactional buffer 和 save sequence 的架构禁忌。数据变更应该通过 RAP 事务缓冲和框架定义的保存阶段完成。后面 <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a> 会专门展开。</p>
+<h5 id="13-4-4-bo-service-bo-229181be">13.4.4 BO 的第四层：Service 暴露不是 BO 本身</h5>
+<p>Service definition 决定暴露哪些 CDS projection / entity；service binding 决定用什么协议和 runtime 暴露，例如 OData V4 UI service。它们让 BO 被外部访问，但它们不是 BO 的全部。</p>
+<p>一个常见误区是：看到 OData endpoint，就以为业务对象已经设计好了。其实 endpoint 只是入口。真正决定事务语义的，是背后的 CDS root/projection、BDEF、behavior implementation、DCL、authorization、lock、save sequence 和 message handling。</p>
+<p>因此，设计 review 不应只问“service binding 能不能打开”，还要问：</p>
+<ul>
+<li>service definition 暴露的是 projection view 还是底层 interface view？</li>
+<li>projection behavior 是否正确投影了 base BO behavior？</li>
+<li>service 暴露的 action 是否真的在 BDEF 中定义并实现？</li>
+<li>DCL / authorization 是否覆盖到被暴露的读取入口？</li>
+<li>发生错误时是否通过 RAP message/reporting 机制返回？</li>
+</ul>
+<h5 id="13-4-5-managed-unmanaged-b2aae805">13.4.5 Managed、unmanaged 和责任分配</h5>
+<p>RAP BO 有不同 implementation type。初学阶段先不用背完所有语法，但要知道它们本质上是责任分配不同。</p>
+<ul>
+<li>managed：框架承担较多标准持久化、locking、save sequence 细节，开发者主要补充行为逻辑。标准 managed BO 不要求开发者写 saver class。</li>
+<li>unmanaged：开发者需要自己实现更多读取、修改、保存逻辑，适合包 legacy API / BAPI / 特殊表结构。</li>
+<li>managed with unmanaged save / additional save：介于两者之间，用于框架管理大部分行为，但保存阶段需要自定义。</li>
+</ul>
+<p>判断标准不是“哪个更高级”，而是：数据模型能否被 RAP framework 直接管理？是否要调用已有 BAPI？是否要写 legacy table？是否需要特殊 commit/rollback 语义？是否符合 ABAP Cloud / Clean Core 限制？</p>
+<h5 id="13-4-6-ac0567c-poc-action-3f29d991">13.4.6 AC0567C POC：为什么 action 不能乱写数据库</h5>
+<p>AC0567C POC 是本教程里很好的反例和正例。它不是复制旧 SAPGUI transaction，而是做了一个新的 RAP/OData V4 API：输入多行 prior allocation 数据，经过 validate / execute / status action，最终写入 <code>ZCOM_B_ACTT397</code>。注意：这个 POC 使用了需要自定义保存职责的 saver-phase 设计；它不能被泛化成“所有 managed BO 都要自己写 saver”。</p>
+<p>POC 架构链条可以简化为：</p>
+<pre><code class="language-text">OData V4 service binding
+  -&gt; service definition
+  -&gt; behavior definition
+  -&gt; behavior pool
+  -&gt; service class
+  -&gt; RAP saver save
+  -&gt; ZCOM_B_ACTT397</code></pre>
+<p>Joule review 曾指出一个关键风险：如果在 action handler 调用链中直接 <code>INSERT zcom_b_actt397</code>，就会绕开 RAP transactional buffer / save sequence 的设计边界。最终 POC 改成：service class 负责 validate、authorization、duplicate check、staging；真正的数据库 <code>INSERT</code> 放到 behavior saver 的 <code>save</code> 阶段。这个例子说明，RAP BO 的重点不是“能不能找到一个地方写 SQL”，而是“写入是否在框架预期的事务阶段发生”。</p>
+<h5 id="13-4-7-bo-0de06016">13.4.7 BO 的边界：读、改、校验、保存、消息</h5>
+<p>一个可交付的 RAP BO 至少要从五个角度 review：</p>
+<ul>
+<li>Read boundary：谁能读？通过哪个 CDS entity / service 读？DCL 是否生效？</li>
+<li>Change boundary：哪些 operation / action 允许修改？字段是否 readonly / mandatory？</li>
+<li>Validation boundary：保存前要检查哪些业务规则？错误如何返回？</li>
+<li>Save boundary：真实数据库写入在哪个阶段发生？是否允许 rollback？</li>
+<li>Message boundary：错误、警告、成功信息是否能通过 <code>mapped</code> / <code>failed</code> / <code>reported</code> 等 RAP response parameters 被 UI / API caller 理解？</li>
+</ul>
+<p>如果只看 CDS 字段，不看 behavior，就会漏掉修改语义；如果只看 behavior，不看 service，就会漏掉暴露范围；如果只看 service，不看 DCL / authorization，就会漏掉安全边界；如果只看 action 代码，不看 save sequence，就会漏掉事务一致性。</p>
+<h5 id="13-4-8-abap-a68e2905">13.4.8 和传统 ABAP 的差异</h5>
+<p>传统 ABAP 报表或 function module 常见写法是：读取参数、查表、校验、更新、<code>COMMIT WORK</code>、返回消息。RAP BO 不是简单把这段逻辑搬到 class 里。RAP runtime 会管理 request、interaction phase、save sequence、lock、draft、message、authorization 和 service response。</p>
+<p>因此，迁移旧功能时要先做业务对象识别：</p>
+<ul>
+<li>旧 transaction 操作的是哪个业务对象？</li>
+<li>哪些输入属于 root，哪些属于 child table？</li>
+<li>哪些按钮其实是 action？</li>
+<li>哪些检查应该变成 validation？</li>
+<li>哪些自动填值应该变成 determination？</li>
+<li>哪些数据库写入必须推迟到 save sequence？</li>
+<li>create 场景是否正确处理 <code>%cid</code>、<code>mapped</code>、<code>failed</code>、<code>reported</code>？</li>
+</ul>
+<p>这也是 RPA-to-API migration 的核心：不是模拟旧屏幕点击，而是把旧屏幕背后的业务能力重新建模为 API-first 的 BO。</p>
+<h5 id="13-4-9-269c47fe">13.4.9 初学者的最小观察路径</h5>
+<p>在 ADT 里观察一个 RAP BO，可以按这个顺序：</p>
+<ol>
+<li>找 root view entity，看业务对象根节点。</li>
+<li>找 child / composition，看是否是 composite BO。</li>
+<li>找 behavior definition，看允许哪些 operation、action、validation、determination。</li>
+<li>找 behavior implementation class / behavior pool，看逻辑在哪里实现。</li>
+<li>找 projection view 和 behavior projection，看服务层裁剪了什么。</li>
+<li>找 service definition / service binding，看外部入口是什么。</li>
+<li>用 Data Preview / service preview / EML test / HTTP client 验证读写行为。</li>
+</ol>
+<p>这个顺序比“先打开 OData URL 看 JSON”更适合学习，因为它能让读者把对象链路和事务边界连起来。</p>
+<h4 id="13-5-a439c40a" class="semantic-heading semantic-japan">13.5 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>RAPビジネスオブジェクト</code></li>
+<li><code>ビジネスオブジェクト</code></li>
+<li><code>ルートエンティティ</code></li>
+<li><code>子エンティティ</code></li>
+<li><code>コンポジションツリー</code></li>
+<li><code>ビヘイビア定義</code></li>
+<li><code>振る舞い定義</code>（说明时可用，但官方资料检索优先用 <code>ビヘイビア定義</code>）</li>
+<li><code>ビヘイビア実装</code></li>
+<li><code>ビヘイビアプール</code></li>
+<li><code>ハンドラクラス</code></li>
+<li><code>セーバークラス</code>（追加保存 / unmanaged save の場合）</li>
+<li><code>セーブシーケンス</code></li>
+<li><code>保存シーケンス</code></li>
+<li><code>バリデーション</code></li>
+<li><code>デタミネーション</code></li>
+<li><code>アクション</code></li>
+</ul>
+<p>设计说明中可以这样说：</p>
+<pre><code class="language-text">この機能は単なるテーブル公開ではなく、RAPビジネスオブジェクトとしてルートエンティティ、ビヘイビア定義、サービス公開まで一連の責務を整理します。</code></pre>
+<p>代码 review 中可以这样说：</p>
+<pre><code class="language-text">アクション内で直接DB更新や COMMIT WORK を行っていないか、セーブシーケンスで永続化される設計になっているかを確認してください。</code></pre>
+<p>移送前确认中可以这样说：</p>
+<pre><code class="language-text">CDS、BDEF、ビヘイビア実装クラス、サービス定義、サービスバインディングが同じ移送に含まれているか確認します。</code></pre>
+<p>障害调查中可以这样说：</p>
+<pre><code class="language-text">エラーがCDSモデル、DCL、振る舞い定義、ハンドラ、セーバー、サービス公開のどこで発生しているか切り分けます。</code></pre>
+<h4 id="13-6-english-terms-45141886" class="semantic-heading semantic-terms">13.6 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP business object</code></li>
+<li>Official / search term: <code>RAP BO</code></li>
+<li>Official / search term: <code>business object behavior definition</code></li>
+<li>Official / search term: <code>CDS Behavior Definition</code></li>
+<li>Official / search term: <code>Behavior Definition Language</code></li>
+<li>Official / search term: <code>behavior pool</code></li>
+<li>Official / search term: <code>behavior implementation</code></li>
+<li>Official / search term: <code>RAP save sequence</code></li>
+<li>Official / search term: <code>mapped failed reported</code></li>
+<li>Official / search term: <code>COMMIT ENTITIES</code></li>
+<li>Official / search term: <code>strict mode BDEF</code></li>
+<li>Official / search term: <code>managed RAP business object</code></li>
+<li>Official / search term: <code>unmanaged RAP business object</code></li>
+<li>Recommended search pattern: <code>RAP business object SAP Help behavior definition</code></li>
+<li>Recommended search pattern: <code>RAP business object SAP Learning behavior pool save sequence</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="13-7-example-bf5951f6" class="semantic-heading semantic-example">13.7 Example / 学习例子</h4>
+<h5 id="13-1-travel-bo-4ca4d370">13.例 1：Travel BO 的教学模型</h5>
+<p>SAP Learning 和 SAP-samples 经常使用 Travel / Booking 作为 RAP 示例。它很适合初学者，因为业务对象层级直观：</p>
+<pre><code class="language-text">Travel root
+  -&gt; Booking child
+      -&gt; Booking Supplement child</code></pre>
+<p>Travel 是 root，因为它代表一个旅行申请或旅行订单的入口。Booking 是 child，因为它依附于某个 Travel。Behavior definition 可以声明 Travel 能 create/update/delete，Booking 能通过 composition 创建，Travel 上有 accept / reject action，保存时执行 validateDates、validateCustomer 等 validation。</p>
+<p>读这个例子时，不要只看字段。要问：</p>
+<ul>
+<li>root 是谁？</li>
+<li>child 如何属于 root？</li>
+<li>BDEF 允许哪些 operation？</li>
+<li>action 是对 root 还是 child？</li>
+<li>validation 在 modify 还是 save 时触发？</li>
+<li>service projection 暴露了哪些能力？</li>
+</ul>
+<h5 id="13-2-ac0567c-poc-action-oriented-bo-a07e73da">13.例 2：AC0567C POC 的 action-oriented BO</h5>
+<p>AC0567C POC 不是 Travel 这种典型维护 UI，而是批量上传 API。它仍然能帮助理解 RAP BO：</p>
+<ul>
+<li>service binding：<code>ZRPA01_SB_AC0567C_IMPORT</code></li>
+<li>service definition：<code>ZRPA01_SD_AC0567C_IMPORT</code></li>
+<li>behavior definition：<code>ZRPA01_I_AC0567C_IMPORT</code></li>
+<li>behavior pool：<code>ZBP_RPA01_I_AC0567C_IMPORT</code></li>
+<li>service class：<code>ZCL_RPA01_AC0567C_IMP_SVC</code></li>
+<li>target table：<code>ZCOM_B_ACTT397</code></li>
+</ul>
+<p>其中 validate / execute / status 更像 action/API 能力，而不是普通 CRUD。关键设计点是：<code>ExecuteImport</code> 做 validation、authorization、duplicate check 和 staging；真实 DB insert 要进入这个 POC 的 RAP saver <code>save</code>。这让 POC 从“能写入数据库”提升为“尊重 RAP 事务模型的 API 设计”，同时也提醒读者：是否需要 saver，取决于 BO 的 implementation type 和保存责任分配。</p>
+<h5 id="13-3-b314416a">13.例 3：一个最小判断练习</h5>
+<p>看到一个新需求“做销售订单批量导入 API”，不要先问“建哪个 endpoint”。先写出：</p>
+<pre><code class="language-text">BO：SalesOrderImport
+Root：ImportHeader
+Child：ImportItem
+Action：Validate, Execute, GetStatus
+Validation：company code、customer、amount、duplicate import id
+Save boundary：execute action stages rows; saver writes persistent rows
+Service：OData V4 API for external caller</code></pre>
+<p>这个练习能让读者从业务对象开始，而不是从技术对象碎片开始。</p>
+<h4 id="13-8-counterexample-failure-mode-196b050a" class="semantic-heading semantic-example">13.8 Counterexample / Failure mode</h4>
+<ul>
+<li>误区 1：把 RAP BO 当成 OData endpoint。修正：endpoint 是暴露入口，BO 是数据模型、行为、实现和事务语义的组合。</li>
+<li>误区 2：把 root view entity 当成 BO 全部。修正：root view entity 只是数据模型核心；没有 BDEF / behavior implementation，就没有完整事务行为。</li>
+<li>误区 3：在 action handler 中直接做数据库修改，或随意 <code>COMMIT WORK</code>。修正：RAP handler 中禁止绕开 RAP transactional buffer；修改要通过 RAP 事务语义，并在 save sequence 中持久化。</li>
+<li>误区 4：把 validation 写成普通 utility check，却没有通过 RAP <code>mapped</code> / <code>failed</code> / <code>reported</code> 返回实例级消息。修正：错误反馈要能被 UI / API caller 对应到对象和字段；create 场景还要处理 <code>%cid</code> 到真实 key 的映射。</li>
+<li>误区 5：只建 managed BO，不理解 unmanaged / unmanaged save。修正：implementation type 是责任分配，要结合 legacy API、BAPI、表结构和 Clean Core 约束。</li>
+<li>误区 6：把 projection / service 当成安全边界。修正：service 裁剪暴露范围，但权限还要看 DCL、authorization、behavior authorization 和 IAM/PFCG。</li>
+<li>误区 7：只看生成对象是否 active，不看 transport 是否完整。修正：CDS、BDEF、behavior implementation、service definition、service binding、authorization artifacts 要一起检查。</li>
+<li>误区 8：以为任何 behavior pool 都有 saver class。修正：标准 managed BO 通常由框架保存；只有 additional save、unmanaged save 等场景才需要对应 saver/save 方法。</li>
+<li>误区 9：启用 draft 却忘记 draft table。修正：draft-enabled BO 需要相应 draft persistence 设计和对象一起激活、传输、测试。</li>
+<li>误区 10：在 EML 测试或调用代码中把 <code>COMMIT ENTITIES</code> 和 <code>COMMIT WORK</code> 混用。修正：EML 场景要理解 <code>COMMIT ENTITIES</code> 如何触发 RAP save sequence。</li>
+</ul>
+<h4 id="13-9-c323983a" class="semantic-heading semantic-practice">13.9 思考问题</h4>
+<ul>
+<li>这个需求的 root business object 是什么？它是否真的有 root / child 层级？</li>
+<li>哪些能力是 standard operation，哪些应该建成 action？</li>
+<li>哪些检查是 validation？哪些自动填值是 determination？</li>
+<li>数据库写入发生在 interaction phase 还是 save sequence？</li>
+<li>是否有代码在 handler / utility class 中直接 <code>COMMIT WORK</code> 或直接写数据库？</li>
+<li>create / action / validation 的 <code>mapped</code>、<code>failed</code>、<code>reported</code> 是否完整？</li>
+<li>BDEF 是否使用项目要求的 <code>strict</code> mode，并在目标系统 release 中可用？</li>
+<li>如果启用 draft，draft table 和 draft 行为是否完整？</li>
+<li>service definition / binding 暴露的是 projection view 还是底层 view？</li>
+<li>DCL、authorization、lock、ETag、draft 是否和 BO 生命周期一致？</li>
+<li>AC0567C POC 中，为什么真实 insert 要放到 saver <code>save</code>？</li>
+<li>如果把这个 BO 改成 unmanaged，开发团队需要额外负责哪些事情？</li>
+<li>日本项目 review 时，应该说 <code>RAPビジネスオブジェクト</code>、<code>ビヘイビア定義</code> 还是 <code>セーブシーケンス</code>？</li>
+</ul>
+<h4 id="13-10-adcef969" class="semantic-heading semantic-reference">13.10 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/business-object" target="_blank" rel="noopener noreferrer">Business Object</a>（accessed 2026-06-18）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/defining-and-implementing-behavior-of-business-object" target="_blank" rel="noopener noreferrer">Defining and Implementing Behavior of the Business Object</a>（accessed 2026-06-18）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/business-object-projection" target="_blank" rel="noopener noreferrer">Business Object Projection</a>（accessed 2026-06-18）</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/rap-bo-best-practices" target="_blank" rel="noopener noreferrer">RAP BO Best Practices</a>（accessed 2026-06-18）</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/abencds_bdef.html" target="_blank" rel="noopener noreferrer">RAP - Behavior Definitions</a>（accessed 2026-06-18）</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRAP_BO_GLOSRY.html" target="_blank" rel="noopener noreferrer">RAP business object glossary</a>（accessed 2026-06-18）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-concept-and-architecture-of-rap" target="_blank" rel="noopener noreferrer">Understanding the ABAP RESTful Application Programming Model</a>（accessed 2026-06-18）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-business-objects-and-their-behavior" target="_blank" rel="noopener noreferrer">Defining Business Objects and their Behavior</a>（accessed 2026-06-18）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/defining-composite-business-objects" target="_blank" rel="noopener noreferrer">Defining Composite Business Objects</a>（accessed 2026-06-18）</li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring the Behavior Implementation Options</a>（accessed 2026-06-18）</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-platform-rap-opensap" target="_blank" rel="noopener noreferrer">abap-platform-rap-opensap</a>（accessed 2026-06-18）</li>
+<li>SAP-samples: <a href="https://github.com/SAP-samples/abap-platform-rap100" target="_blank" rel="noopener noreferrer">abap-platform-rap100 exercises</a>（accessed 2026-06-18）</li>
+<li>Local POC: <code>C:\Users\chine-xin\pj\poc_01\AC0567C_batch_upload_api_poc_20260612</code></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="13-11-connections-e2870693">13.11 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-012-dcl-role-37c96020.html">DCL role 访问规则</a></li>
+<li>Upstream: <a class="wiki" href="section-03-009-root-view-entity-9a91965c.html">Root view entity 根视图实体</a></li>
+<li>Upstream: <a class="wiki" href="section-03-010-projection-view-b2bacd1c.html">Projection view 投影视图</a></li>
+<li>Downstream: <a class="wiki" href="section-03-014-composition-tree-8f6aae2e.html">Composition tree 组合树</a></li>
+<li>Downstream: <a class="wiki" href="section-03-015-behavior-definition-4ed7e723.html">Behavior definition 行为定义</a></li>
+<li>Downstream: <a class="wiki" href="section-03-017-behavior-pool-8dc49ced.html">Behavior pool 行为池</a></li>
+<li>Downstream: <a class="wiki" href="section-03-018-managed-rap-833bfafa.html">Managed RAP 管理式实现</a></li>
+<li>Downstream: <a class="wiki" href="section-03-019-unmanaged-rap-21f0d377.html">Unmanaged RAP 非管理式实现</a></li>
+<li>Downstream: <a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li>Downstream: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 18 - RAP Business Object 与 Behavior</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="13-12-41b85e88" class="semantic-heading semantic-practice">13.12 学习任务</h4>
+<ol>
+<li>用自己的中文解释 RAP BO 和 OData endpoint 的区别。</li>
+<li>画一个最小 BO 图：root、child、behavior definition、behavior pool、service definition、service binding。</li>
+<li>打开 SAP Learning 的 Travel 示例，标出 root entity、child entity、BDEF、behavior projection。</li>
+<li>对照 AC0567C POC，把 <code>ZRPA01_SB_AC0567C_IMPORT</code>、<code>ZRPA01_SD_AC0567C_IMPORT</code>、<code>ZRPA01_I_AC0567C_IMPORT</code>、<code>ZBP_RPA01_I_AC0567C_IMPORT</code>、<code>ZCL_RPA01_AC0567C_IMP_SVC</code> 放到一张链路图里。</li>
+<li>写 5 行说明：为什么 AC0567C 的真实 insert 不应留在 action handler，而要进入 saver <code>save</code>。</li>
+<li>用日语写一句 review comment，提醒团队确认 <code>セーブシーケンス</code> / <code>保存シーケンス</code>。</li>
+<li>找一个 SAP Help / SAP Learning 页面，确认 BDEF 是描述 BO behavior 的 repository object。</li>
+<li>检查一个 RAP handler 示例，找出 <code>mapped</code>、<code>failed</code>、<code>reported</code> 分别在什么情况下被填充。</li>
+<li>预习下一节 <a class="wiki" href="section-03-014-composition-tree-8f6aae2e.html">Composition tree 组合树</a>：一个 BO 为什么可能不止一个 CDS entity？</li>
+</ol>
+<h4 id="13-13-confidence-next-action-f7000a3d" class="semantic-heading semantic-status">13.13 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for tutorial use。本节已按 SAP Help、SAP Learning、ABAP Keyword Documentation、SAP-samples、AC0567C local POC、Joule <code>Pass with fixes</code> 和 Claude <code>Pass with minor fixes</code> 复核；RAP BO、BDEF、behavior pool、service exposure、managed/unmanaged 责任分配和 AC0567C save-phase lesson 已闭环。Release-specific syntax、implementation type、draft 和 projection behavior 细节仍需按目标 ABAP platform release 验证。</li>
+<li>Next action: 本轮仅做证据日期刷新和 Chapter 03 / 离线书稿结构同步；随后继续 <a class="wiki" href="section-03-014-composition-tree-8f6aae2e.html">Composition tree 组合树</a>。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-013-rap-business-object-48b9db9e.html">RAP business object 业务对象</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-012-dcl-role-37c96020.html">Previous section</a><a href="section-03-014-composition-tree-8f6aae2e.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>

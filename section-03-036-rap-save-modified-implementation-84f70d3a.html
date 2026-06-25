@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一个月精通 SAP ABAP。From Programming Fundamentals to S/4HANA Project Delivery。">
+  <title>RAP save_modified implementation | 一个月精通 SAP ABAP</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script defer src="assets/search-index.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body class="page-section">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="一个月精通 SAP ABAP home">
+        <span class="brand-mark">AB</span>
+        <span class="brand-text">一个月精通<br>SAP ABAP</span>
+      </a>
+      <p class="sidebar-note">Offline engineering handbook for ABAP, RAP, OData, Clean Core and S/4HANA delivery.</p>
+      <label class="search"><span>Search</span><input id="searchInput" type="search" placeholder="ABAP, RAP, OData..." autocomplete="off"></label><div id="searchResults" class="search-results" hidden></div>
+      <nav class="toc" aria-label="Chapter navigation"><h2>Chapters</h2><a href="Chapter-01---SAP-和-ABAP-基础.html">Ch. 01 - SAP 和 ABAP 基础</a><a href="Chapter-02---Core-ABAP-Programming.html">Ch. 02 - Core ABAP Programming</a><a class="active" href="Chapter-03---CDS、RAP、OData.html">Ch. 03 - CDS、RAP、OData</a><a href="Chapter-04---Project-Delivery-And-Production-Readiness.html">Ch. 04 - Project Delivery And Production Readiness</a></nav>
+    </aside>
+    <main id="main" class="content">
+      <article><p class="page-kicker"><a href="Chapter-03---CDS、RAP、OData.html">Chapter 03 - CDS、RAP、OData</a></p><h1 id="36-rap-save-modified-implementation-9eb0adc2" class="chapter-title">36. RAP save_modified implementation</h1><ul class="reading-meta"><li>Chapter 03</li><li>Section 36</li><li>self-contained study note</li></ul><h4 id="36-1-83a58705" class="semantic-heading semantic-concept">36.1 一句话结论</h4>
+<p><a class="wiki" href="section-03-036-rap-save-modified-implementation-84f70d3a.html">RAP save_modified implementation</a> 是 RAP saver class 中最容易被误用的方法之一：在 <code>with unmanaged save</code> 中，<code>save_modified</code> 负责替代 managed runtime 的主保存；在 <code>with additional save</code> 中，<code>save_modified</code> 只负责在 managed runtime 主保存之外追加附加逻辑。方法名相同，职责完全不同，必须先看 BDEF 的保存选项再读代码。</p>
+<p>一句话记忆：<code>save_modified</code> 不是“保存时随便写点代码”的入口，而是由 BDEF 保存策略决定语义的 save sequence 方法。</p>
+<h4 id="36-2-3ebcaa88">36.2 概念说明</h4>
+<p><code>save_modified</code> 出现在 RAP behavior pool 的 local saver class 中，属于 <a class="wiki" href="section-03-033-save-sequence-e31c34d1.html">Save sequence 保存序列</a>。它不是 handler method，也不是 action method。只有在特定保存选项下，runtime 才会调用它。</p>
+<p>第一种常见语境是 <a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a>。BDEF 中声明 <code>with unmanaged save</code> 后，RAP managed runtime 仍负责 interaction phase、标准 operation buffer、authorization、validation 等很多框架工作，但不再执行默认 managed write。进入 save sequence 后，runtime 把本次 create/update/delete 的 modified content 交给 <code>save_modified</code>，由项目负责主保存。</p>
+<p>第二种常见语境是 <a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a>。BDEF 中声明 <code>with additional save</code> 后，RAP managed runtime 仍执行标准 managed write；<code>save_modified</code> 只是在 managed write access 之外追加逻辑，例如写审计表、change document、扩展表、business event/outbox 记录。它不是主保存的替代。</p>
+<p>因此，读 <code>save_modified</code> 的第一步不是看 ABAP 代码，而是看 BDEF：</p>
+<pre><code class="language-abap">managed implementation in class zbp_i_travel unique;
+with unmanaged save;</code></pre>
+<p>或：</p>
+<pre><code class="language-abap">managed implementation in class zbp_i_travel unique;
+with additional save;</code></pre>
+<p>这两段都可能让你在 saver class 里看到 <code>save_modified</code>，但 review 关注点完全不同。前者要确认主数据是否完整保存；后者要确认主数据没有被重复保存，附加逻辑是否幂等、可回滚、可解释。</p>
+<h4 id="36-3-bf58cc50" class="semantic-heading semantic-why">36.3 为什么重要</h4>
+<p><code>save_modified</code> 一旦写错，往往不是小 bug，而是保存语义错位。最常见的事故有两类：把 unmanaged save 当成 additional save，导致主业务数据根本没保存；把 additional save 当成 unmanaged save，导致主数据被 runtime 和项目代码重复保存。</p>
+<p>它也常常是旧系统迁移到 RAP 的关键点。项目想保留既有保存 API、BAPI、function module、多个 Z 表写入、复杂 mapping，就会考虑 managed with unmanaged save；项目想在标准 managed save 之外写审计、事件、扩展字段，就会考虑 additional save。两者都可能进 <code>save_modified</code>，但风险模型不同。</p>
+<p>对项目交付来说，<code>save_modified</code> 影响测试边界。测试不能只看 UI “保存成功”。要确认 create/update/delete 是否都保存、delete 是否真的删除、字段变更是否尊重 <code>%control</code>、旧 API 是否内部 commit、失败时是否 rollback、附加日志是否重复、cleanup 后第二次请求是否干净。</p>
+<p>对 Java/Python 背景学习者，可以把 <code>save_modified</code> 类比成框架 unit-of-work 的 flush hook，但 RAP 中这个 hook 的职责不是固定的。它由 BDEF 的 <code>with unmanaged save</code> 或 <code>with additional save</code> 决定，是替代主保存还是追加副保存。</p>
+<h4 id="36-4-99779332">36.4 边界</h4>
+<p>第一条边界：<code>save_modified</code> 不属于 interaction phase。不要在 action handler 里调用它，也不要从普通 ABAP 程序 new saver class 调它。它由 RAP runtime 在 save sequence 中调用。</p>
+<p>第二条边界：<code>save_modified</code> 不等于 fully unmanaged BO 的 <code>save()</code>。Fully unmanaged BO 通常由项目实现 <code>save()</code> 保存 application buffer；managed with unmanaged save / additional save 常见入口是 <code>save_modified()</code>。不要把两个 saver method 混用。</p>
+<p>第三条边界：<code>with unmanaged save</code> 中的 <code>save_modified</code> 是主保存。主数据不在这里完成，就不完整。不要以为 managed runtime 还会照常写 persistent table。</p>
+<p>第四条边界：<code>with additional save</code> 中的 <code>save_modified</code> 是附加保存。主数据仍由 managed runtime 保存。不要在这里重复写主业务表。</p>
+<p>第五条边界：<code>save_modified</code> 中不能随意 <code>COMMIT WORK</code> / <code>ROLLBACK WORK</code>。RAP runtime 仍是事务边界 owner；旧 API 如果内部 commit，必须重构、寻找 no-commit 版本，或重新评估设计。</p>
+<p>第六条边界：可预见业务错误不要拖到 <code>save_modified</code>。金额不合法、主数据不存在、状态不允许、权限不足，应尽量在 validation、authorization、precheck 或 check-before-save 处理。<code>save_modified</code> 更适合处理最终持久化、legacy API 技术错误和附加保存。</p>
+<h4 id="36-5-key-mechanism-124224ce" class="semantic-heading semantic-mechanism">36.5 Key mechanism / 核心机制</h4>
+<p>第一层机制是 saver class。<code>save_modified</code> 写在 local saver class 中，通常继承 <code>CL_ABAP_BEHAVIOR_SAVER</code>。读 behavior pool 时，先找 <code>lsc_...</code> 类，而不是 <code>lhc_...</code> handler 类。</p>
+<p>第二层机制是 importing data。<code>save_modified</code> 接收本次 save 中发生变化的数据。具体签名随 BDEF、entity 和 release 示例不同，但通常会区分 create、update、delete 或 change/delete request。读者要关注“本次事务发生了哪些变更”，不是重新 SELECT 全数据库。</p>
+<p>第三层机制是 BDEF-derived table types。在 managed with unmanaged save 示例中，常见理解方式是 <code>TYPE TABLE FOR CREATE &lt;entity&gt;</code>、<code>TYPE TABLE FOR UPDATE &lt;entity&gt;</code>、<code>TYPE TABLE FOR DELETE &lt;entity&gt;</code> 这类 operation-specific 派生类型。在 additional save 示例中，也可能看到 <code>TYPE REQUEST FOR CHANGE</code> / <code>TYPE REQUEST FOR DELETE</code> 等变化请求结构。不要把所有示例机械套成一个固定签名。</p>
+<p>第四层机制是 <code>%control</code>。Update 场景必须知道哪些字段是 consumer 本次请求修改的。若把未修改字段当成初始值写给 legacy API，就会把旧数据清空。保存旧接口时，要把 <code>%control</code> 或 changed fields 语义翻译成旧 API 能理解的更新结构。</p>
+<p>第五层机制是 create/update/delete 三类责任。主保存场景中，<code>save_modified</code> 至少要回答：</p>
+<ul>
+<li>create：新实例写到哪里？key 和 mapping 是否完整？</li>
+<li>update：只更新哪些字段？并发和 ETag 如何处理？</li>
+<li>delete：是物理删除、逻辑删除，还是调用旧 API 的取消？</li>
+</ul>
+<p>第六层机制是错误处理。<code>save_modified</code> 已处在保存阶段，错误消息和回滚语义比 interaction phase 更敏感。能提前校验的规则应前移；这里剩下的错误要尽量是持久化或 legacy API 层不可避免的错误，并以 RAP message / exception 语义返回。</p>
+<p>第七层机制是幂等。用户可能重复点击保存，OData consumer 可能重试，additional save 可能写日志或事件。<code>save_modified</code> 中的附加记录、事件、旧接口调用都要考虑重复执行风险，必要时使用唯一键、业务 key、outbox 或 processed flag。</p>
+<p>第八层机制是测试。<code>save_modified</code> 的测试至少覆盖：</p>
+<ul>
+<li>create/update/delete 混合请求。</li>
+<li>update 只改一个字段时不会覆盖其他字段。</li>
+<li>delete 请求真的进入保存逻辑。</li>
+<li>validation 失败时 <code>save_modified</code> 不应写主数据。</li>
+<li>legacy API 抛错时整体保存失败且无部分提交。</li>
+<li>additional save 重试不产生不可接受重复日志。</li>
+<li>旧 API 内部没有 <code>COMMIT WORK</code>。</li>
+</ul>
+<h5 id="save-modified-review-checklist-9014def0">save_modified review checklist</h5>
+<p>评审 <code>save_modified</code> 时，第一步永远是回到 BDEF。不要先看方法体。确认当前 BO 是 <code>with unmanaged save</code> 还是 <code>with additional save</code>：前者代表 <code>save_modified</code> 承担主保存，后者代表 managed runtime 已经负责主保存，<code>save_modified</code> 只做追加保存。这个判断错了，后面的 code review 都会偏。</p>
+<p>第二步确认 modified content 的覆盖范围。Create、update、delete 是否都被处理？Child entity 是否被处理？Composition tree 中 parent 和 child 的保存顺序是否可解释？如果只处理了 update，没有处理 delete，UI 删除看似成功但旧表残留，就是典型缺陷。</p>
+<p>第三步确认 update 语义。<code>save_modified</code> 不能把未修改字段当成“要清空”。特别是调用旧 BAPI / function module / Z API 时，要把 <code>%control</code> 或 changed-fields 语义翻译成旧接口的 update indicator。否则 consumer 只改一个状态字段，旧 API 却收到一堆 initial value，把其他字段覆盖掉。</p>
+<p>第四步确认旧 API 的事务行为。任何被 <code>save_modified</code> 调用的 function module、class method、BAPI wrapper，都要确认是否内部 <code>COMMIT WORK</code>、<code>ROLLBACK WORK</code>、update task、background task 或外部不可回滚副作用。若旧 API 内部提交，RAP runtime 的回滚语义会被破坏，必须寻找 no-commit 版本或重新设计边界。</p>
+<p>第五步确认错误前移。主数据不存在、金额非法、状态不允许、权限不足、字段格式错误这类可预见业务错误，不应该等到 <code>save_modified</code> 调旧 API 后才失败。能放 validation / authorization / precheck / <code>check_before_save</code> 的规则应前移，<code>save_modified</code> 里只留下真正保存层或遗留接口层才会暴露的问题。</p>
+<p>第六步确认幂等和重复请求。Additional save 写日志、outbox、审计表、事件记录时，必须说明重复保存或 API retry 是否会重复写。Managed with unmanaged save 调旧保存 API 时，也要确认同一 request 重试是否会创建重复业务对象。必要时使用 request id、业务 key、唯一约束或状态机保护。</p>
+<p>第七步确认测试证据。最低限度应有：create 保存成功、update 单字段不覆盖其他字段、delete 生效、validation 失败时不进入主保存、legacy API 抛错时整体失败、additional save 不重复写、旧 API 无内部 commit 证据。没有这些证据，不应把 <code>save_modified</code> 视为生产就绪。</p>
+<h4 id="36-6-73fa2a80" class="semantic-heading semantic-japan">36.6 日本项目现场说法</h4>
+<p>常见日语：</p>
+<ul>
+<li><code>save_modified メソッド</code>：save_modified 方法。</li>
+<li><code>アンマネージド保存</code>：unmanaged save。</li>
+<li><code>追加保存</code>：additional save。</li>
+<li><code>主保存</code>：主保存。</li>
+<li><code>追加処理</code>：附加处理。</li>
+<li><code>保存処理の差し替え</code>：替换保存处理。</li>
+<li><code>既存ロジックの再利用</code>：复用既有逻辑。</li>
+<li><code>コミット制御</code>：commit 控制。</li>
+<li><code>二重登録</code>：重复登记。</li>
+</ul>
+<p>说明句：</p>
+<pre><code class="language-text">with unmanaged save の save_modified は主保存を担当します。</code></pre>
+<p>意思是：<code>with unmanaged save</code> 中的 <code>save_modified</code> 负责主保存。</p>
+<pre><code class="language-text">with additional save の save_modified は標準保存に対する追加処理であり、主保存を差し替えるものではありません。</code></pre>
+<p>意思是：<code>with additional save</code> 中的 <code>save_modified</code> 是对标准保存的附加处理，不是替换主保存。</p>
+<p>评审句：</p>
+<pre><code class="language-text">この save_modified は主保存なのか、追加保存なのかを BDEF の保存オプションで確認してください。</code></pre>
+<p>意思是：请根据 BDEF 的保存选项确认这个 <code>save_modified</code> 是主保存还是附加保存。</p>
+<h4 id="36-7-english-terms-862e459b" class="semantic-heading semantic-terms">36.7 English Terms</h4>
+<ul>
+<li>Official / search term: <code>RAP save_modified</code></li>
+<li>Related terms: <code>with unmanaged save</code>, <code>with additional save</code>, <code>managed BO with unmanaged save</code>, <code>additional save</code>, <code>CL_ABAP_BEHAVIOR_SAVER</code>, <code>save sequence</code>, <code>TYPE TABLE FOR CREATE</code>, <code>TYPE TABLE FOR UPDATE</code>, <code>TYPE TABLE FOR DELETE</code>, <code>TYPE REQUEST FOR CHANGE</code></li>
+<li>Recommended search pattern: <code>SAP RAP save_modified with unmanaged save additional save</code></li>
+<li>读官方资料时优先保留英文对象名、关键字、类名、annotation 名称。</li>
+</ul>
+<h4 id="36-8-example-d53eccdf" class="semantic-heading semantic-example">36.8 Example / 学习例子</h4>
+<p>例子一：managed BO with unmanaged save。</p>
+<p>项目已有一个旧保存 API <code>zcl_legacy_travel_save=&gt;save( )</code>，它一次性保存 Travel header、items、附件索引和若干 Z 表。标准 managed save 只能写一张 persistent table 或简单 mapping，不够表达旧逻辑。团队选择 <code>with unmanaged save</code>，让 RAP managed runtime 负责 interaction phase，进入 save sequence 后由 <code>save_modified</code> 把 create/update/delete 转换成旧 API 输入并完成主保存。</p>
+<p>关键检查：</p>
+<ul>
+<li>BDEF 是否没有错误配置 persistent table 自动保存。</li>
+<li><code>save_modified</code> 是否处理 create、update、delete。</li>
+<li>旧 API 是否无内部 commit。</li>
+<li><code>%control</code> 是否正确翻译。</li>
+<li>保存失败是否 rollback 且消息可理解。</li>
+</ul>
+<p>例子二：additional save 写审计日志。</p>
+<p>Travel 主数据完全可以由 managed runtime 保存，但保存成功时还要写审计表或 raise business event。团队使用 <code>with additional save</code>。此时 <code>save_modified</code> 不写主 Travel 表，只根据本次 modified content 写审计记录或事件 outbox。</p>
+<p>关键检查：</p>
+<ul>
+<li>主数据是否仍由 runtime 保存。</li>
+<li>附加记录是否幂等。</li>
+<li>附加逻辑失败时是否应让整体保存失败。</li>
+<li>是否避免同步调用不可回滚外部系统。</li>
+</ul>
+<p>例子三：AC0567C POC 迁移思考。</p>
+<p>如果批量上传 POC 未来迁移成 RAP BO，而保存逻辑必须复用既有批量 API，可以考虑 managed with unmanaged save；如果主数据走标准 managed save，只需要额外写上传日志、行级审计、事件通知，则更像 additional save。关键不是“都叫 save_modified”，而是主保存责任在哪里。</p>
+<h4 id="36-9-counterexample-failure-mode-d4ae75e4" class="semantic-heading semantic-example">36.9 Counterexample / Failure mode</h4>
+<p>反例一：把 additional save 当主保存。BDEF 写 <code>with additional save</code>，但开发者以为 runtime 不会写主数据，于是在 <code>save_modified</code> 里又写主业务表。结果可能重复写、锁冲突或覆盖 runtime 保存。</p>
+<p>反例二：把 unmanaged save 当 additional save。BDEF 写 <code>with unmanaged save</code>，但 <code>save_modified</code> 只写日志，没有写主数据。结果 UI 显示保存流程走完，主业务数据却没落库。</p>
+<p>反例三：旧 API 内部 commit。<code>save_modified</code> 调用 legacy function module，function module 内部 <code>COMMIT WORK</code>。后续 RAP 保存失败时，旧 API 已经提交。修正方式是 no-commit API、重构包装层或改变设计。</p>
+<p>反例四：update 不看 <code>%control</code>。前端只改了状态，<code>save_modified</code> 把其他字段的初始值也传给旧 API，导致数据被清空。修正方式是保留 changed-fields 语义。</p>
+<p>反例五：delete 被漏掉。代码只处理 create/update，忽略 delete importing table。用户在 UI 删除了 child item，保存后旧表仍有残留。修正方式是明确 delete 语义。</p>
+<p>反例六：业务校验太晚。客户主数据不存在，本来 validation 可以提前报字段级错误，却等到 <code>save_modified</code> 调旧 API 才失败。修正方式是把可预见业务规则前移。</p>
+<h4 id="36-10-28e38765" class="semantic-heading semantic-practice">36.10 思考问题</h4>
+<ul>
+<li>BDEF 写的是 <code>with unmanaged save</code> 还是 <code>with additional save</code>？</li>
+<li>当前 <code>save_modified</code> 是主保存，还是附加保存？</li>
+<li>create/update/delete 三类 modified content 是否都处理了？</li>
+<li>update 是否尊重 <code>%control</code> 或 changed fields？</li>
+<li>是否调用了内部 commit 的旧 API？</li>
+<li>可预见业务错误是否已经前移到 validation / authorization / precheck？</li>
+<li>additional save 里的附加记录是否幂等？</li>
+<li>在日本项目设计书中，如何说明 <code>save_modified</code> 的责任范围？</li>
+</ul>
+<h4 id="36-11-679b525a" class="semantic-heading semantic-reference">36.11 参考资料入口</h4>
+<ul>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li><span class="wiki unresolved">SAP Official ABAP Sources</span></li>
+<li>SAP Learning: <a href="https://learning.sap.com/courses/building-transactional-apps-with-the-abap-restful-application-programming-model/exploring-the-behavior-implementation-options" target="_blank" rel="noopener noreferrer">Exploring Behavior Implementation Options</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/unmanaged-save" target="_blank" rel="noopener noreferrer">Unmanaged Save</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/integrating-unmanaged-save-in-managed-business-objects" target="_blank" rel="noopener noreferrer">Integrating Unmanaged Save in Managed Business Objects</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/additional-save" target="_blank" rel="noopener noreferrer">Additional Save</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/implementing-additional-save" target="_blank" rel="noopener noreferrer">Implementing Additional Save</a> (accessed 2026-06-18)</li>
+<li>SAP Help: <a href="https://help.sap.com/docs/abap-cloud/abap-rap/defining-additional-save-in-behavior-definition" target="_blank" rel="noopener noreferrer">Defining Additional Save in the Behavior Definition</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENBDL_SAVING.html" target="_blank" rel="noopener noreferrer">RAP - Saving Options</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRAP_UNMAN_SAVE_GLOSRY.html" target="_blank" rel="noopener noreferrer">RAP unmanaged save glossary</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRAP_ADD_SAVE_GLOSRY.html" target="_blank" rel="noopener noreferrer">RAP additional save glossary</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENRAP_MANAGED_UNM_SAVE_ABEXA.html" target="_blank" rel="noopener noreferrer">ABAP EML - TYPE REQUEST FOR in a Managed RAP BO with Unmanaged Save</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENSAVE_MODIFIED_ADD_SAVE_ABEXA.html" target="_blank" rel="noopener noreferrer">Example for save_modified in a Managed RAP BO with Additional Save</a> (accessed 2026-06-18)</li>
+<li>ABAP Keyword Documentation: <a href="https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABP_CL_ABAP_BEH_SAVER.html" target="_blank" rel="noopener noreferrer">CL_ABAP_BEHAVIOR_SAVER, RAP Saver Class</a> (accessed 2026-06-18)</li>
+<li><a class="wiki" href="section-03-020-managed-business-object-with-unmanaged-save-4bba2c3e.html">Managed Business Object with Unmanaged Save</a></li>
+<li><a class="wiki" href="section-03-021-additional-save-3fe37ede.html">Additional Save 附加保存</a></li>
+<li><a class="wiki" href="section-03-023-saver-class-bd45280f.html">Saver class 保存器类</a></li>
+<li><a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li><span class="wiki unresolved">SAP ABAP Deep Research Report - Tutorial Edition</span></li>
+<li><span class="wiki unresolved">ABAP 1-Month Learning Path</span></li>
+</ul>
+<h4 id="36-12-connections-625fb5e6">36.12 Connections</h4>
+<ul>
+<li><span class="wiki unresolved">MOC SAP ABAP Overview</span></li>
+<li><span class="wiki unresolved">MOC RAP</span></li>
+<li>Upstream: <a class="wiki" href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">RAP Interaction Phase vs Save Sequence</a></li>
+<li>Downstream: <a class="wiki" href="section-03-038-rap-action-handler-anti-pattern-direct-insert-7325d509.html">RAP Action Handler Anti-Pattern: Direct INSERT</a></li>
+<li>Daily lesson: <span class="wiki unresolved">Day 20 - Action、Validation、Determination、Save Sequence</span></li>
+<li>Index: <span class="wiki unresolved">ABAP Atomic Notes Index</span></li>
+<li><span class="wiki unresolved">AC0567C POC Reading Map</span></li>
+</ul>
+<h4 id="36-13-c70c15dd" class="semantic-heading semantic-practice">36.13 学习任务</h4>
+<ul>
+<li>用三句话区分 managed save、managed with unmanaged save、additional save。</li>
+<li>画一张表：<code>with unmanaged save</code> 的 <code>save_modified</code> 做什么，<code>with additional save</code> 的 <code>save_modified</code> 做什么。</li>
+<li>为一个 update 场景写出 <code>%control</code> 风险：哪些字段未修改，为什么不能传初始值给旧 API。</li>
+<li>补 1 个日语现场句子，说明“这个 save_modified 是主保存还是追加保存”。</li>
+<li>找 1 个 SAP 官方 <code>save_modified</code> 示例，记录它属于 unmanaged save 还是 additional save。</li>
+<li>如果已经进入 Week 4，把 AC0567C POC 的保存逻辑判断成 managed save、unmanaged save 还是 additional save 场景。</li>
+</ul>
+<h4 id="36-14-confidence-next-action-03698fdf" class="semantic-heading semantic-status">36.14 Confidence &amp; Next Action</h4>
+<ul>
+<li>Confidence: High for conceptual distinction between unmanaged-save and additional-save <code>save_modified</code> after official-source closure. 2026-06-18 已复核 SAP Help Unmanaged Save / Integrating Unmanaged Save / Additional Save / Implementing Additional Save / Defining Additional Save、ABAP Keyword Documentation <code>RAP - Saving Options</code>、unmanaged-save / additional-save glossary、managed RAP BO with unmanaged save example、additional save <code>save_modified</code> example 和 <code>CL_ABAP_BEHAVIOR_SAVER</code>。正文已覆盖 BDEF-first reading order、<code>with unmanaged save</code> 主保存责任、<code>with additional save</code> 附加保存责任、create/update/delete coverage、<code>%control</code> / changed-fields risk、legacy API internal commit、可预见错误前移、幂等和重复请求测试。Claude/Joule review artifacts 仍是 deferred/no usable verdict，且 2026-06-18 Claude CLI 当前 session expired；外部 review debt 保留，但本节不再停留在提纲草稿。</li>
+<li>Next action: Claude 或 Joule 恢复后补专项 review；本地验证时，找一个 behavior pool 的 saver class，先看 BDEF 保存选项，再判断 <code>save_modified</code> 是替代主保存还是追加附加保存，并列出 create/update/delete 处理责任。</li>
+</ul>
+<p>原子笔记入口：<a class="wiki" href="section-03-036-rap-save-modified-implementation-84f70d3a.html">RAP save_modified implementation</a></p><div class="chapter-nav"><a href="Chapter-03---CDS、RAP、OData.html">Back to chapter</a><a href="section-03-035-rap-interaction-phase-vs-save-sequence-ed29f259.html">Previous section</a><a href="section-03-037-commit-work-restriction-in-rap-7a133cb1.html">Next section</a></div></article>
+    </main>
+  </div>
+</body>
+</html>
